@@ -4,3 +4,4 @@ What I use:
 - Polybar
 - Picom
 - Nitrogen
+
