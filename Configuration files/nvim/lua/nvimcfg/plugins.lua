@@ -35,6 +35,24 @@ require("lazy").setup({
 	'vim-autoformat/vim-autoformat',
 	{'nvim-lualine/lualine.nvim', dependencies = 'nvim-tree/nvim-web-devicons'},
 	{'nvim-tree/nvim-tree.lua', dependencies = 'nvim-tree/nvim-web-devicons'},
+	'andweeb/presence.nvim',
+	'tpope/vim-fugitive',
+	{
+		'saecki/crates.nvim',
+		tag = 'v0.4.0',
+		dependencies = { 'nvim-lua/plenary.nvim' },
+		event = { "BufRead Cargo.toml" },
+		config = function()
+			require('crates').setup() {
+				src = {
+					cmp = {
+						enabled = true,
+					},
+				},
+
+			}
+		end,
+	},
 	{
 		'glepnir/dashboard-nvim',
 		config = function()

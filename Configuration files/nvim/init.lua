@@ -1,5 +1,6 @@
 require("nvimcfg.plugins") -- Plugins
 require('nvimcfg.language.lsp') -- LSP server setup
+require('nvimcfg.editor.discord') -- Presence
 require('nvimcfg.language.cmp') -- Completion setup
 require('nvimcfg.language.mason') -- Mason.nvim
 require('nvimcfg.language.autopairs') -- Braces

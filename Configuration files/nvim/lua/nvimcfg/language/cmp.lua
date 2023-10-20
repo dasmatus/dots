@@ -35,7 +35,9 @@ cmp.setup({
 		{ name = 'path' }, -- for path completion
 		{ name = 'buffer', keyword_length = 4 }, -- for buffer word completion
 		{ name = 'omni' },
-		{ name = 'emoji', insert = true, } -- emoji completion
+		{ name = 'emoji', insert = true, }, -- emoji completion
+		{ name = "crates" },
+
 	},
 	window = {
 		completion = cmp.config.window.bordered(),
