@@ -1,0 +1,24 @@
+{
+	"all": {
+		"changeLogs": {
+			"BDFDB": "3.5.3",
+			"BetterSearchPage": "1.2.4",
+			"EditServers": "2.4.2",
+			"PluginRepo": "2.5.4",
+			"ThemeRepo": "2.5.4s"
+		},
+		"choices": {
+			"toastPosition": "right"
+		},
+		"general": {
+			"shareData": true,
+			"showToasts": true,
+			"showSupportBadges": false,
+			"useChromium": false
+		},
+		"hashes": {
+			"0BDFDB.data.json": "b6093b5b3b9b66f4ea01370fe723f0834b6739c4",
+			"0BDFDB.raw.css": "8c083e2a87a82aded5f3b2e27fb8b2f816b5f74a"
+		}
+	}
+}

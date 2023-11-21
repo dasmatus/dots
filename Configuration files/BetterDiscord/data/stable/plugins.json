@@ -1,0 +1,23 @@
+{
+    "PluginRepo": true,
+    "BDFDB": true,
+    "ThemeRepo": true,
+    "Animations": true,
+    "BetterAnimations": true,
+    "ZeresPluginLibrary": true,
+    "BetterAudioPlayer": true,
+    "BetterChatNames": true,
+    "BetterSyntax": true,
+    "BetterSearchPage": true,
+    "BlurNSFW": true,
+    "ChannelsBadges": true,
+    "ChannelPermissions": true,
+    "Copier": true,
+    "EditServers": true,
+    "Embed More Images": true,
+    "FavoriteMedia": true,
+    "FileViewer": true,
+    "Hide Channels": true,
+    "InvisibleTyping": true,
+    "HideUtils": true
+}
