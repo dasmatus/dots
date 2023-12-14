@@ -2,19 +2,21 @@
 # built this stage.
 # Please consult /usr/share/portage/config/make.conf.example for a more
 # detailed example.
-COMMON_FLAGS="-Os -march=skylake -pipe "
+COMMON_FLAGS="-O2 -march=skylake -pipe"
 CFLAGS="${COMMON_FLAGS}"
 CXXFLAGS="${COMMON_FLAGS}"
 FCFLAGS="${COMMON_FLAGS}"
 FFLAGS="${COMMON_FLAGS}"
-MAKEOPTS="-j4"
+MAKEOPTS="-j12"
 # NOTE: This stage was built with the bindist Use flag enabled
 
 # This sets the language of build output to English.
 # Please keep this setting intact when reporting bugs.
 LC_MESSAGES=en_US.utf8
-USE="X wayland i3wm icons apparmor -secureboot pulseaudio standalone elogind flatpak gles2 alsa -d -fortran hardened -rust -ipv6 multilib default-stack-clash-protection -ada -qt5 -qt6 pulseaudio multilib"
+USE="X wayland i3wm icons apparmor pipewire standalone elogind flatpak gles2 alsa -d -fortran hardened -rust -ipv6 multilib -ada -qt5 -qt6 pulseaudio multilib"
 GRUB_PLATFORMS="efi-64"
 VIDEO_CARDS="intel i915"
 ACCEPT_LICENSE="*"
 ACCEPT_KEYWORDS="~*"
+
+
