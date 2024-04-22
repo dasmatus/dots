@@ -8,6 +8,6 @@
         "userCustom": "**$name** - Created at: `$creation`",
         "roleCustom": "**$name** - `$colorHEX`",
         "showButton": true,
-        "latestUsedVersion": "1.6.0"
+        "latestUsedVersion": "1.6.1"
     }
 }
