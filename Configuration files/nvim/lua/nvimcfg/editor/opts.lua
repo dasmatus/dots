@@ -6,4 +6,4 @@ set noshowmode
 set shell=sh
 set signcolumn
 ]]
-vim.o.guifont = "Agave Nerd Font:style=Bold:h14"
+vim.o.guifont = "Lilex Nerd Font:style=Bold:h14"

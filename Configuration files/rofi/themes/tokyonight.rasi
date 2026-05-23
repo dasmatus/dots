@@ -8,7 +8,7 @@
  */
 
 configuration {
-  font: "Agave Nerd Font Bold 14";
+  font: "Lilex Nerd Font Bold 14";
 
   drun {
     display-name: "";
