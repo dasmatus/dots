@@ -1,4 +1,9 @@
 set -U fish_greeting
+
+# Auto-start X on tty1 login
+if status is-login
+    exec startx $(command -v i3)
+end
 neofetch -d NixOS
 starship init fish | source
 alias cat=bat

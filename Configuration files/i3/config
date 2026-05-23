@@ -159,11 +159,11 @@ smart_gaps on
 gaps inner 15
 gaps outer 15
 default_border pixel 2
-exec_always picom -bGF
+exec_always picom
 exec_always nitrogen --restore
 exec_always xfce4-session
 exec_always autotiling
 exec_always pkill polybar; polybar
-        client.focused           #9aa5ce #364A82 #c0caf5 #9aa5ce   #9aa5ce
-        client.focused_inactive  #16161d #16161d #c0caf5 #16161d   #16161d
-        client.unfocused         #16161d #16161d #c0caf5 #16161d   #16161d
+client.focused           #9aa5ce #364A82 #c0caf5 #9aa5ce   #9aa5ce
+client.focused_inactive  #16161d #16161d #c0caf5 #16161d   #16161d
+client.unfocused         #16161d #16161d #c0caf5 #16161d   #16161d
