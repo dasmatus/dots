@@ -1,0 +1,34 @@
+{
+  "BraveWalletDisabled": true,
+  "BraveRewardsDisabled": true,
+  "BraveNewsDisabled": true,
+
+  "BraveAIChatEnabled": false,
+
+  "PasswordManagerEnabled": false,
+
+  "SafeBrowsingEnabled": false,
+  "SafeBrowsingExtendedReportingEnabled": false,
+
+  "MetricsReportingEnabled": false,
+  "CloudReportingEnabled": false,
+  "DeviceMetricsReportingEnabled": false,
+
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+
+  "BackgroundModeEnabled": false,
+  "NetworkPredictionOptions": 2,
+  "DnsOverHttpsMode": "secure",
+  "DnsOverHttpsTemplates": "https://family.dns.mullvad.net/dns-query",
+
+  "DefaultWebBluetoothGuardSetting": 2,
+  "DefaultWebUsbGuardSetting": 2,
+  "WebUsbAskForUrls": ["https://grapheneos.org"],
+  "DefaultSerialGuardSetting": 2,
+
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+
+  "HttpsOnlyMode": "force_enabled"
+}
