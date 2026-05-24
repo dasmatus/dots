@@ -8,8 +8,8 @@ CXXFLAGS="${COMMON_FLAGS}"
 FCFLAGS="${COMMON_FLAGS}"
 FFLAGS="${COMMON_FLAGS}"
 MAKEOPTS="-j12"
-LD="ld.mold"
-LDFLAGS="-fuse-ld=mold"
+LD="ld.lld"
+LDFLAGS="-fuse-ld=lld"
 # NOTE: This stage was built with the bindist Use flag enabled
 
 # This sets the language of build output to English.

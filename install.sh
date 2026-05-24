@@ -460,6 +460,17 @@ for f in "${DOTS_DIR}/Gentoo configuration/package.use/"*; do
   [[ -f "${f}" ]] && cp "${f}" "/etc/portage/package.use/$(basename "${f}")"
 done
 
+# Local overlay + custom profile (desktop/llvm/ccache)
+info "Installing local overlay and custom profile..."
+cp -r "${DOTS_DIR}/Gentoo configuration/local-repo" /var/db/repos/local
+cat > /etc/portage/repos.conf/local.conf <<'EOF'
+[local]
+location = /var/db/repos/local
+masters = gentoo
+auto-sync = no
+EOF
+eselect profile set "local:default/linux/amd64/23.0/desktop/llvm/ccache"
+
 # User config files → ~/.config/
 info "Syncing user configs..."
 CFG_SRC="${DOTS_DIR}/Configuration files"

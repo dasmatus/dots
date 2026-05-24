@@ -8,9 +8,15 @@ CXXFLAGS="${COMMON_FLAGS}"
 FCFLAGS="${COMMON_FLAGS}"
 FFLAGS="${COMMON_FLAGS}"
 MAKEOPTS="-j16"
-LD="ld.mold"
-LDFLAGS="-fuse-ld=mold"
-FEATURE="getbinpkg ccache"
+LD="ld.lld"
+CC="clang"
+CPP="clang-cpp" # necessary for xorg-server and possibly other packages
+CXX="clang++"
+AR="llvm-ar"
+NM="llvm-nm"
+RANLIB="llvm-ranlib"
+LDFLAGS="-fuse-ld=lld"
+FEATURES="getbinpkg ccache"
 CCACHE_DIR="/var/cache/ccache"
 # NOTE: This stage was built with the bindist Use flag enabled
 

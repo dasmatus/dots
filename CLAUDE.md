@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Gentoo Linux dotfiles repository ("tokyonight-dots") containing:
 - **`Configuration files/`** — user configs copied to `~/.config/` (alacritty, dunst, fish, hypr, i3, nvim, polybar, rofi, neofetch, gtk-2.0, gtk-3.0, picom.conf)
-- **`Gentoo configuration/`** — Portage configs (`make.conf.amd`, `make.conf.intel`, `package.use/`)
+- **`Gentoo configuration/`** — Portage configs (`make.conf.amd`, `make.conf.intel`, `package.use/`, `local-repo/`)
 - **`install.sh`** — A fully automated Gentoo FDE installer (LUKS2 → btrfs, Limine EFI bootloader, OpenRC, i3 + Hyprland)
 - **`Wallpapers/`** — Themed wallpaper sets (light/storm/night/metis/misc × abstract/minimal/os)
 - **`user.js`** — Firefox user.js hardening preferences
@@ -24,6 +24,7 @@ After installation, dotfiles are cloned to `~/dots` and synced automatically by 
 - `Gentoo configuration/make.conf.intel` (or `.amd`) → `/etc/portage/make.conf`
 - `Gentoo configuration/package.use/*` → `/etc/portage/package.use/`
 - `Configuration files/brave/policies/` → `/etc/brave/policies/` (system-wide)
+- `Gentoo configuration/local-repo/` → `/var/db/repos/local/` + `repos.conf/local.conf` + profile set to `local:default/linux/amd64/23.0/desktop/llvm/ccache`
 
 ## Architecture decisions
 
