@@ -1,25 +1,22 @@
 /*
- * ROFI color theme
- *
- * Based on Something Found in the Internet
- *
- * User: Contributors
- * Copyright: *!
+ * ROFI color theme — Tokyonight grid launcher (right sidebar)
  */
 
 configuration {
-  font: "Lilex Nerd Font Bold 14";
+  font: "Lilex Nerd Font Bold 12";
+  show-icons: true;
+  icon-theme: "Papirus";
 
   drun {
-    display-name: "";
+    display-name: "";
   }
 
   run {
-    display-name: "";
+    display-name: "";
   }
 
   window {
-    display-name: "";
+    display-name: "";
   }
 
   timeout {
@@ -34,54 +31,83 @@ configuration {
   padding: 0;
   spacing: 0;
 
-  bg: #1a1b26;
-  bg-alt: #232433;
-  fg: #6a6f87;
-  fg-alt: #a9b1d6;
+  bg:          #1a1b26;
+  bg-alt:      #232433;
+  fg:          #6a6f87;
+  fg-alt:      #a9b1d6;
+  accent:      #7aa2f7;
+  selected-bg: #2d3252;
 
   background-color: @bg;
-  text-color: @fg;
+  text-color:       @fg;
 }
 
 window {
   transparency: "real";
-  width: 700px;
+  width:    400px;
+  height:   100%;
+  location: east;
+  anchor:   east;
+  x-offset: 0px;
+  y-offset: 0px;
 }
 
 mainbox {
   children: [inputbar, listview];
+  padding:  12px;
+  spacing:  12px;
 }
 
 inputbar {
   background-color: @bg-alt;
-  children: [prompt, entry];
+  border-radius:    8px;
+  children:         [prompt, entry];
 }
 
 entry {
   background-color: inherit;
-  padding: 12px 3px;
+  padding:          12px 6px;
 }
 
 prompt {
   background-color: inherit;
-  padding: 12px;
+  padding:          12px;
+  text-color:       @accent;
 }
 
 listview {
-  lines: 8;
+  columns:  4;
+  lines:    6;
+  cycle:    true;
+  dynamic:  true;
+  layout:   vertical;
+  spacing:  6px;
 }
 
 element {
-  children: [element-icon, element-text];
+  orientation:  vertical;
+  children:     [element-icon, element-text];
+  padding:      10px 6px;
+  border-radius: 8px;
+  cursor:       pointer;
+}
+
+element selected {
+  background-color: @selected-bg;
 }
 
 element-icon {
-  padding: 10px 10px;
-  size: 20px;
+  size:             44px;
+  horizontal-align: 0.5;
+  cursor:           inherit;
 }
 
 element-text {
-  padding: 10px 0;
+  horizontal-align: 0.5;
+  vertical-align:   0.5;
+  padding:          6px 0 0 0;
+  font:             "Lilex Nerd Font Bold 9";
+  cursor:           inherit;
 }
 
 element-text selected {

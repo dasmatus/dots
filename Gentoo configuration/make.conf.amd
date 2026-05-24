@@ -2,20 +2,15 @@
 # built this stage.
 # Please consult /usr/share/portage/config/make.conf.example for a more
 # detailed example.
-COMMON_FLAGS="-O2 -march=znver2 -pipe -flto=thin"
+COMMON_FLAGS="-O2 -march=znver2 -pipe -flto=auto"
 CFLAGS="${COMMON_FLAGS}"
 CXXFLAGS="${COMMON_FLAGS}"
 FCFLAGS="${COMMON_FLAGS}"
 FFLAGS="${COMMON_FLAGS}"
 MAKEOPTS="-j16"
-CC="clang"
-CXX="clang++"
-AR="llvm-ar"
-NM="llvm-nm"
-RANLIB="llvm-ranlib"
-LD="ld.lld"
-LDFLAGS="-fuse-ld=lld"
-FEATURES="getbinpkg ccache"
+LD="ld.mold"
+LDFLAGS="-fuse-ld=mold"
+FEATURE="getbinpkg ccache"
 CCACHE_DIR="/var/cache/ccache"
 # NOTE: This stage was built with the bindist Use flag enabled
 
