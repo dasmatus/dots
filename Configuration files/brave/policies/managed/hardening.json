@@ -30,5 +30,7 @@
   "BrowserSignin": 0,
   "SyncDisabled": true,
 
-  "HttpsOnlyMode": "force_enabled"
+  "HttpsOnlyMode": "force_enabled",
+
+  "WebRtcIPHandlingPolicy": "disable_non_proxied_udp"
 }
