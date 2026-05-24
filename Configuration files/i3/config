@@ -42,6 +42,8 @@ bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT
 bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -10% && $refresh_i3status
 bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3status
 bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOURCE@ toggle && $refresh_i3status
+bindsym XF86MonBrightnessUp exec --no-startup-id brightnessctl set +5%
+bindsym XF86MonBrightnessDown exec --no-startup-id brightnessctl set 5%-
 
 # Use Mouse+$mod to drag floating windows to their wanted position
 floating_modifier $mod
@@ -169,7 +171,7 @@ exec_always nitrogen --restore
 exec_always xfce4-session
 exec_always autotiling
 exec_always pkill polybar; polybar
-exec_always --no-startup-id bash -c '[ "$(grep "^ID=" /etc/os-release | cut -d= -f2)" = "gentoo" ] && gentoo-pipewire-launcher'
+exec --no-startup-id pipewire-pulse
 client.focused           #9aa5ce #364A82 #c0caf5 #9aa5ce   #9aa5ce
 client.focused_inactive  #16161d #16161d #c0caf5 #16161d   #16161d
 client.unfocused         #16161d #16161d #c0caf5 #16161d   #16161d
