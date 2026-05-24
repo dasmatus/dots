@@ -1,0 +1,1 @@
+sys-boot/limine -bios -bios-cd -bios-pxe -uefi-aarch64 -uefi-cd -uefi-ia32 -uefi-loongarch64 -uefi-riscv64 uefi-x86-64

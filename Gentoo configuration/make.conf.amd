@@ -1,0 +1,36 @@
+# These settings were set by the catalyst build script that automatically
+# built this stage.
+# Please consult /usr/share/portage/config/make.conf.example for a more
+# detailed example.
+COMMON_FLAGS="-O2 -march=znver2 -pipe -flto=thin"
+CFLAGS="${COMMON_FLAGS}"
+CXXFLAGS="${COMMON_FLAGS}"
+FCFLAGS="${COMMON_FLAGS}"
+FFLAGS="${COMMON_FLAGS}"
+MAKEOPTS="-j16"
+CC="clang"
+CXX="clang++"
+AR="llvm-ar"
+NM="llvm-nm"
+RANLIB="llvm-ranlib"
+LD="ld.lld"
+LDFLAGS="-fuse-ld=lld"
+FEATURES="getbinpkg ccache"
+CCACHE_DIR="/var/cache/ccache"
+# NOTE: This stage was built with the bindist Use flag enabled
+
+# This sets the language of build output to English.
+# Please keep this setting intact when reporting bugs.
+LC_MESSAGES=en_US.utf8
+USE="X wayland i3wm icons apparmor pipewire standalone elogind flatpak gles2 alsa -d -fortran hardened -rust -ipv6 multilib -ada -qt5 -qt6 -pulseaudio multilib dist-kernel"
+GRUB_PLATFORMS="efi-64"
+VIDEO_CARDS="amdgpu radeonsi"
+ACCEPT_LICENSE="*"
+ACCEPT_KEYWORDS="~*"
+
+
+
+MODULES_SIGN_KEY="/etc/kernel/certs/signing_key.pem"
+MODULES_SIGN_CERT="/etc/kernel/certs/signing_key.crt"
+SECUREBOOT_SIGN_KEY="/etc/kernel/certs/signing_key.pem"
+SECUREBOOT_SIGN_CERT="/etc/kernel/certs/signing_key.crt"
