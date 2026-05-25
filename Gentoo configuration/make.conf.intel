@@ -8,6 +8,8 @@ CXXFLAGS="${COMMON_FLAGS}"
 FCFLAGS="${COMMON_FLAGS}"
 FFLAGS="${COMMON_FLAGS}"
 MAKEOPTS="-j12"
+# Skip AMDGPU tblgen (no AMD GPU here) — cuts LLVM build time and memory significantly
+LLVM_TARGETS="X86;BPF;WebAssembly"
 LD="ld.lld"
 LDFLAGS="-fuse-ld=lld"
 # NOTE: This stage was built with the bindist Use flag enabled
