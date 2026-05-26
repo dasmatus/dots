@@ -22,6 +22,7 @@ font pango:Lilex Nerd Font Bold 12
 # Start XDG autostart .desktop files using dex. See also
 # https://wiki.archlinux.org/index.php/XDG_Autostart
 exec --no-startup-id dex --autostart --environment i3
+exec_always --no-startup-id setxkbmap -option caps:escape
 exec --no-startup-id flatpak run org.keepassxc.KeePassXC
 for_window [class="KeePassXC"] move scratchpad
 bindsym $mod+p [class="KeePassXC"] scratchpad show

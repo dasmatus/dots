@@ -477,7 +477,7 @@ CFG_SRC="${DOTS_DIR}/Configuration files"
 CFG_DST="/home/${USERNAME}/.config"
 mkdir -p "${CFG_DST}"
 
-for dir in alacritty dunst fish hypr i3 nvim polybar rofi neofetch gtk-2.0 gtk-3.0; do
+for dir in alacritty dunst fish hypr i3 nvim polybar rofi neofetch gtk-2.0 gtk-3.0 zellij; do
   [[ -d "${CFG_SRC}/${dir}" ]] \
     && cp -r "${CFG_SRC}/${dir}" "${CFG_DST}/${dir}"
 done
