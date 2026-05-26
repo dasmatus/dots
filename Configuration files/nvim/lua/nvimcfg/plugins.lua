@@ -17,7 +17,7 @@ require("lazy").setup({
 
 	-- Always-on editor primitives
 	"echasnovski/mini.nvim",
-	"folke/which-key.nvim",
+	{ "folke/which-key.nvim", event = "VeryLazy" },
 
 	-- LSP stack: mason + lspconfig + language tooling
 	{
@@ -83,11 +83,11 @@ require("lazy").setup({
 	-- Git
 	{ 'tpope/vim-fugitive', cmd = { "Git", "Gvdiffsplit", "Gread", "Gwrite" } },
 
-	-- Rust (replaces rust-tools; manages its own lazy loading)
+	-- Rust
 	{
 		'mrcjkb/rustaceanvim',
 		version = '^5',
-		lazy = false,
+		ft = "rust",
 	},
 
 	-- Rust crates (event-scoped to Cargo.toml)
@@ -148,7 +148,14 @@ require("lazy").setup({
 	{ 'Pocco81/auto-save.nvim', event = "VeryLazy" },
 
 	-- Terminal
-	{ 'akinsho/toggleterm.nvim', version = "*", cmd = "ToggleTerm", config = true },
+	{
+		'akinsho/toggleterm.nvim',
+		version = "*",
+		cmd = "ToggleTerm",
+		config = function()
+			require('nvimcfg.editor.term')
+		end,
+	},
 
 	-- Discord presence
 	{
