@@ -166,6 +166,15 @@ require("lazy").setup({
 		end,
 	},
 
+	-- Claude Code integration
+	{
+		'coder/claudecode.nvim',
+		cmd = { "ClaudeCode", "ClaudeCodeOpen", "ClaudeCodeSend" },
+		config = function()
+			require('claudecode').setup()
+		end,
+	},
+
 	-- Auto-save
 	{ 'Pocco81/auto-save.nvim', event = "VeryLazy" },
 
