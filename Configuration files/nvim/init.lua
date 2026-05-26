@@ -1,4 +1,6 @@
 vim.loader.enable()                   -- Bytecode cache: must be first
+vim.g.mapleader = " "
+vim.g.maplocalleader = " "
 vim.g.loaded_netrw = 1               -- Disable netrw before plugins load
 vim.g.loaded_netrwPlugin = 1
 vim.g.loaded_matchit = 1             -- Disable unused built-ins
