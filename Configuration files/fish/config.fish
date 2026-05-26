@@ -6,7 +6,7 @@ if status is-login
 end
 neofetch -d NixOS
 starship init fish | source
-alias cat=bat
+alias cat="bat --paging=never"
 alias ls="eza -lhi --git --icons"
 
 
