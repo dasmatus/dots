@@ -15,8 +15,15 @@ require("lazy").setup({
 	-- Colorscheme: must load before everything else
 	{ "folke/tokyonight.nvim", lazy = false, priority = 1000 },
 
-	-- Always-on editor primitives
-	"echasnovski/mini.nvim",
+	-- Editor primitives (deferred — VeryLazy fires before any input is possible)
+	{
+		"echasnovski/mini.nvim",
+		event = "VeryLazy",
+		config = function()
+			require('nvimcfg.language.autopairs')
+			require('nvimcfg.editor.persistence')
+		end,
+	},
 	{ "folke/which-key.nvim", event = "VeryLazy" },
 
 	-- LSP stack: mason + lspconfig + language tooling
@@ -200,4 +207,14 @@ require("lazy").setup({
 
 	-- Shared utility (pulled in as dep, never needs direct loading)
 	{ 'nvim-lua/plenary.nvim', lazy = true },
+}, {
+	performance = {
+		rtp = {
+			disabled_plugins = {
+				"gzip", "matchit", "matchparen", "netrwPlugin", "tarPlugin",
+				"tohtml", "tutor", "zipPlugin", "man", "osc52", "shada",
+				"spellfile", "editorconfig",
+			},
+		},
+	},
 })
