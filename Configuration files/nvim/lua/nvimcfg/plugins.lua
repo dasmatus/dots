@@ -66,9 +66,16 @@ require("lazy").setup({
 			'hrsh7th/cmp-path',
 			'hrsh7th/cmp-nvim-lsp',
 			'hrsh7th/cmp-nvim-lua',
-			'quangnguyen30192/cmp-nvim-ultisnips',
+			'saadparwaiz1/cmp_luasnip',
 			'onsails/lspkind.nvim',
-			{ 'SirVer/UltiSnips', dependencies = 'honza/vim-snippets' },
+			{
+				'L3MON4D3/LuaSnip',
+				version = 'v2.*',
+				dependencies = 'rafamadriz/friendly-snippets',
+				config = function()
+					require('luasnip.loaders.from_vscode').lazy_load()
+				end,
+			},
 		},
 		config = function()
 			require('nvimcfg.language.cmp')
@@ -82,10 +89,18 @@ require("lazy").setup({
 		dependencies = { 'rcarriga/nvim-dap-ui' },
 	},
 
-	-- Lint / format
+	-- Lint
 	{ 'mfussenegger/nvim-lint', event = { "BufReadPost", "BufNewFile" } },
-	{ 'mhartington/formatter.nvim', cmd = { "Format", "FormatWrite" } },
-	{ 'vim-autoformat/vim-autoformat', cmd = "Autoformat" },
+
+	-- Format
+	{
+		'stevearc/conform.nvim',
+		event = { "BufWritePre" },
+		cmd = "ConformInfo",
+		config = function()
+			require('nvimcfg.language.conform')
+		end,
+	},
 
 	-- Git
 	{ 'tpope/vim-fugitive', cmd = { "Git", "Gvdiffsplit", "Gread", "Gwrite" } },
