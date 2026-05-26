@@ -1,14 +1,6 @@
-require("nvimcfg.plugins") -- Plugins
-require('nvimcfg.language.lsp') -- LSP server setup
-require('nvimcfg.editor.discord') -- Presence
-require('nvimcfg.language.cmp') -- Completion setup
-require('nvimcfg.language.mason') -- Mason.nvim
-require('nvimcfg.language.autopairs') -- Braces
-require('nvimcfg.appearance.airline') -- Statusline
-require('nvimcfg.appearance.wilder') -- Wilder
-require('nvimcfg.appearance.tabs') -- Tabline
-require('nvimcfg.appearance.nvimtree') -- File browser
-require('nvimcfg.editor.persistence') -- Persistent sessions
-require('nvimcfg.editor.keybinds') -- Key bindings to different actions
-require('nvimcfg.editor.opts') -- Other options
-require('nvimcfg.editor.term') -- Terminal
+require("nvimcfg.plugins")            -- Plugin registry + lazy loading
+require('nvimcfg.language.autopairs') -- mini.pairs (always-on)
+require('nvimcfg.editor.persistence') -- mini.sessions (always-on)
+require('nvimcfg.editor.keybinds')    -- Key bindings
+require('nvimcfg.editor.opts')        -- Vim options
+require('nvimcfg.editor.term')        -- Terminal config
