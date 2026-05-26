@@ -82,7 +82,7 @@ require("lazy").setup({
 	{ 'vim-autoformat/vim-autoformat', cmd = "Autoformat" },
 
 	-- Git
-	{ 'tpope/vim-fugitive', cmd = { "Git", "GDiff", "GBlame", "GLog" } },
+	{ 'tpope/vim-fugitive', cmd = { "Git", "Gvdiffsplit", "Gread", "Gwrite" } },
 
 	-- Rust crates (event-scoped to Cargo.toml)
 	{
@@ -100,7 +100,7 @@ require("lazy").setup({
 	-- Cmdline popup
 	{
 		'gelguy/wilder.nvim',
-		event = "CmdlineEnter",
+		event = "VeryLazy",
 		build = ":UpdateRemotePlugins",
 		dependencies = { "romgrk/fzy-lua-native" },
 		config = function()
