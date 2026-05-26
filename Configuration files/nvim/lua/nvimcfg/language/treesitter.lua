@@ -4,7 +4,7 @@ require('nvim-treesitter.configs').setup {
 		enable = true,
 		additional_vim_regex_highlighting = false,
 	},
-	ident = { enable = true },
+	indent = { enable = true },
 	rainbow = {
 		enable = true,
 		extended_mode = true,
