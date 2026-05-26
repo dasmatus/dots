@@ -26,7 +26,6 @@ require("lazy").setup({
 		dependencies = {
 			'williamboman/mason-lspconfig.nvim',
 			'neovim/nvim-lspconfig',
-			'simrat39/rust-tools.nvim',
 			'folke/trouble.nvim',
 			{ "folke/todo-comments.nvim", dependencies = { "nvim-lua/plenary.nvim" } },
 			{
@@ -83,6 +82,13 @@ require("lazy").setup({
 
 	-- Git
 	{ 'tpope/vim-fugitive', cmd = { "Git", "Gvdiffsplit", "Gread", "Gwrite" } },
+
+	-- Rust (replaces rust-tools; manages its own lazy loading)
+	{
+		'mrcjkb/rustaceanvim',
+		version = '^5',
+		lazy = false,
+	},
 
 	-- Rust crates (event-scoped to Cargo.toml)
 	{
