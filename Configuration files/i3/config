@@ -173,6 +173,7 @@ exec --no-startup-id libinput-gestures-setup start
 exec_always nitrogen --restore
 exec_always xfce4-session
 exec_always autotiling
+exec --no-startup-id redshift -l 48.15:17.11 -t 4500:3000 -b 0.9:0.75
 exec_always pkill polybar; polybar
 client.focused           #9aa5ce #364A82 #c0caf5 #9aa5ce   #9aa5ce
 client.focused_inactive  #16161d #16161d #c0caf5 #16161d   #16161d
