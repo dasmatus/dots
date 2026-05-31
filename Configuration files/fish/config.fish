@@ -2,7 +2,12 @@ set -U fish_greeting
 
 # Auto-start X on tty1 login
 if status is-login
-    startx 
+    startx
+end
+
+# Nix
+if test -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.fish
+    source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.fish
 end
 neofetch -d NixOS
 starship init fish | source
