@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /home/matus/.local/share/nvim/lazy/wilder.nvim log --oneline -5)",
+      "Bash(/home/linuxbrew/.linuxbrew/bin/python3 -c \"import pynvim; print\\('pynvim ok'\\)\")",
+      "Bash(/home/linuxbrew/.linuxbrew/bin/python3 -m pip install pynvim)",
+      "Bash(/home/linuxbrew/.linuxbrew/bin/python3 -m pip install pynvim --break-system-packages)",
+      "Bash(NVIM_LOG_FILE=/tmp/nvim_verify.log nvim --headless -c \"checkhealth provider\" -c \"qa!\")",
+      "Bash(nvim --headless -c \"redir @a | checkhealth provider | redir END | put a | write! /tmp/nvim_health.txt | qa!\")",
+      "Read(//tmp/**)",
+      "Bash(nvim --headless --cmd \"lua vim.g.python3_host_prog='/home/linuxbrew/.linuxbrew/bin/python3'\" -c \"lua print\\(vim.fn.exepath\\('python3'\\)\\)\" -c \"qa!\")",
+      "Bash(timeout 10 nvim --headless -c \"lua vim.defer_fn\\(function\\(\\) local ok,err = pcall\\(require,'wilder'\\); print\\('wilder load: '..tostring\\(ok\\)\\); if err then print\\(err\\) end; vim.cmd\\('qa!'\\) end, 500\\)\")",
+      "Bash(timeout 15 nvim --headless -c ' *)",
+      "Bash(timeout 20 nvim --headless -c ' *)",
+      "Bash(git *)"
+    ]
+  }
+}
