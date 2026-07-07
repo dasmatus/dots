@@ -1,3 +1,4 @@
 .codegraph/
-Configuration files/brave/*
-!Configuration files/brave/policies/
+.config
+files/brave/*
+!files/brave/policies/

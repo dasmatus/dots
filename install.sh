@@ -473,7 +473,7 @@ eselect profile set "local:default/linux/amd64/23.0/desktop/llvm/ccache"
 
 # User config files → ~/.config/
 info "Syncing user configs..."
-CFG_SRC="${DOTS_DIR}/Configuration files"
+CFG_SRC="${DOTS_DIR}/files"
 CFG_DST="/home/${USERNAME}/.config"
 mkdir -p "${CFG_DST}"
 
@@ -482,7 +482,7 @@ for dir in alacritty dunst fish hypr i3 nvim polybar rofi neofetch gtk-2.0 gtk-3
     && cp -r "${CFG_SRC}/${dir}" "${CFG_DST}/${dir}"
 done
 
-# picom lives under Configuration files/ directly (not a subdir)
+# picom lives under files/ directly (not a subdir)
 if [[ -f "${CFG_SRC}/picom.conf" ]]; then
   mkdir -p "${CFG_DST}/picom"
   cp "${CFG_SRC}/picom.conf" "${CFG_DST}/picom/picom.conf"

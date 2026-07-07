@@ -68,9 +68,9 @@ After cloning to `~/dots`, copy configs with:
 ```bash
 # Per-app configs → ~/.config/
 for dir in alacritty dunst fish hypr i3 nvim polybar rofi neofetch gtk-2.0 gtk-3.0; do
-  cp -r "Configuration files/$dir" ~/.config/
+  cp -r "files/$dir" ~/.config/
 done
-cp "Configuration files/picom.conf" ~/.config/picom/picom.conf
+cp "files/picom.conf" ~/.config/picom/picom.conf
 
 # Portage (Intel — swap .amd for AMD machines)
 cp "Gentoo configuration/make.conf.intel" /etc/portage/make.conf
@@ -80,7 +80,7 @@ cp -r "Gentoo configuration/package.use/." /etc/portage/package.use/
 cp -r "Gentoo configuration/local-repo/." /var/db/repos/local/
 
 # Brave system policies (optional)
-cp -r "Configuration files/brave/policies/" /etc/brave/policies/
+cp -r "files/brave/policies/" /etc/brave/policies/
 ```
 
 ---
