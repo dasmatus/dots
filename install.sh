@@ -490,6 +490,16 @@ fi
 
 chown -R "${USERNAME}:${USERNAME}" "${CFG_DST}"
 
+# Claude Code config lives under ~/.claude/, not ~/.config/
+if [[ -d "${CFG_SRC}/claude" ]]; then
+  CLAUDE_DST="/home/${USERNAME}/.claude"
+  mkdir -p "${CLAUDE_DST}"
+  cp "${CFG_SRC}/claude/settings.json"       "${CLAUDE_DST}/settings.json"
+  cp "${CFG_SRC}/claude/settings.local.json" "${CLAUDE_DST}/settings.local.json" 2>/dev/null || true
+  chown -R "${USERNAME}:${USERNAME}" "${CLAUDE_DST}"
+  info "Claude Code config synced to ~/.claude/"
+fi
+
 # Brave policy (system-wide, requires root)
 info "Applying Brave policy..."
 BRAVE_POLICY_SRC="${CFG_SRC}/brave/policies"
