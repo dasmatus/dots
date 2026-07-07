@@ -16,9 +16,8 @@ alias ls="eza -lhi --git --icons"
 
 # Claude Code with Ultracode (multi-agent orchestration) on for the whole session.
 # Ultracode has no launch flag, so we inject a standing opt-in via the system prompt.
-alias claude-ultra="claude --append-system-prompt 'Ultracode is ON for this entire session (standing opt-in). For every substantive task, author and run a Workflow (multi-agent orchestration) by default instead of working solo: decompose, fan out parallel agents, and adversarially verify findings before reporting. Token cost is not a constraint — favor thoroughness. Handle only trivial, conversational, or purely mechanical turns solo.'"
-
-# bun
+alias claude="claude --settings '{ "ultracode": true }'"
+#bun
 set --export BUN_INSTALL "$HOME/.bun"
 set --export PATH $BUN_INSTALL/bin $PATH
 set --export PAGER "$(command -v nvim) +Man!"
