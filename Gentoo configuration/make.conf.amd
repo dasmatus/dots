@@ -25,7 +25,7 @@ CCACHE_DIR="/var/cache/ccache"
 # This sets the language of build output to English.
 # Please keep this setting intact when reporting bugs.
 LC_MESSAGES=en_US.utf8
-USE="X wayland i3wm icons apparmor pipewire standalone elogind flatpak gles2 alsa -d -fortran hardened -rust -ipv6 multilib -ada -qt5 -qt6 -pulseaudio multilib dist-kernel"
+USE="X wayland i3wm icons apparmor pipewire standalone systemd flatpak gles2 alsa -d -fortran hardened -rust -ipv6 multilib -ada -qt5 -qt6 -pulseaudio multilib dist-kernel"
 GRUB_PLATFORMS="efi-64"
 VIDEO_CARDS="amdgpu radeonsi"
 ACCEPT_LICENSE="*"
