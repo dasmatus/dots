@@ -56,6 +56,7 @@ curl -fsSL https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main/install.s
 | Extras | `systemd-repart` · `systemd-sysupdate` (A/B UKI) · `systemd-homed` |
 | Packages | binary packages enabled (`getbinpkg` + official Gentoo binhost, signature-verified) to cut compile time |
 | Auto-update | 6 h timer syncs the tree & flags `@world` updates; the upgrade runs in the background on **suspend** (freezes through S3, resumes on wake), then refreshes the sd-sysupdate image |
+| dm-integrity | Portage builds in a **tmpfs** (`/var/tmp/portage`) + zram swap so compile I/O stays off the write-amplifying integrity root; giants fall back to disk via `package.env` |
 | Profile | `local:default/linux/amd64/23.0/desktop/llvm/ccache` (systemd parent) |
 | WMs | i3 + Hyprland |
 | User | created on **first boot** via `homectl` (LUKS-backed home); dotfiles from `/etc/skel` |

@@ -254,6 +254,32 @@ priority = 9999
 sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/
 BINHOST
 
+# Portage builds happen in the /var/tmp/portage tmpfs (see fstab). Packages too
+# big for RAM fall back to an on-disk build dir via package.env → notmpfs.conf.
+mkdir -p "${MOUNT}/etc/portage/env"
+cat > "${MOUNT}/etc/portage/env/notmpfs.conf" <<'NOTMPFS'
+PORTAGE_TMPDIR="/var/tmp/notmpfs"
+NOTMPFS
+cat > "${MOUNT}/etc/portage/package.env" <<'PKGENV'
+# Giant builds that can exceed RAM → build on disk instead of the tmpfs.
+dev-lang/rust               notmpfs.conf
+dev-lang/ghc                notmpfs.conf
+dev-lang/spidermonkey       notmpfs.conf
+sys-devel/llvm              notmpfs.conf
+sys-devel/clang             notmpfs.conf
+sys-devel/gcc               notmpfs.conf
+llvm-core/llvm              notmpfs.conf
+llvm-core/clang             notmpfs.conf
+www-client/chromium         notmpfs.conf
+www-client/firefox          notmpfs.conf
+www-client/brave-browser    notmpfs.conf
+mail-client/thunderbird     notmpfs.conf
+app-office/libreoffice      notmpfs.conf
+net-libs/webkit-gtk         notmpfs.conf
+dev-qt/qtwebengine          notmpfs.conf
+app-emulation/qemu          notmpfs.conf
+PKGENV
+
 cat > "${MOUNT}/etc/portage/package.use/gpg"            <<'EOF'
 app-crypt/gnupg smartcard usb
 EOF
@@ -283,6 +309,10 @@ UUID=${EFI_UUID}      /boot        vfat    defaults,umask=0077                  
 UUID=${BTRFS_UUID}    /            btrfs   ${BTRFS_OPTS},subvol=@root                    0   0
 UUID=${BTRFS_UUID}    /home        btrfs   ${BTRFS_OPTS},subvol=@home                    0   0
 UUID=${BTRFS_UUID}    /.snapshots  btrfs   ${BTRFS_OPTS},subvol=@snapshots               0   0
+# Portage build dir in RAM — keeps compile I/O OFF the dm-integrity root (which
+# journals every write). Overflows to zram swap; giants fall back to disk via
+# /etc/portage/package.env. (size is a share of RAM; tmpfs only uses what's written.)
+tmpfs                 /var/tmp/portage  tmpfs  noatime,nosuid,nodev,mode=0775,uid=250,gid=250,size=60%  0 0
 FSTAB
 
 cat > "${MOUNT}/etc/crypttab" <<CRYPTTAB
@@ -593,6 +623,21 @@ chmod +x /usr/lib/systemd/system-sleep/60-portage-upgrade
 
 systemctl enable portage-sync.timer
 info "Update check (6h timer) + upgrade-on-suspend armed (getbinpkg-accelerated)"
+
+# ── Build-in-RAM (keep Portage writes off dm-integrity) ──────────
+# /var/tmp/portage is a tmpfs (fstab); zram gives it compressed-RAM swap so
+# builds don't OOM without a swap partition. Only the giants in package.env
+# (→ /var/tmp/notmpfs) and the final package merge touch the integrity device.
+step "Build-in-RAM (zram + tmpfs build dir)"
+install -d -m 0775 -o portage -g portage /var/tmp/portage /var/tmp/notmpfs
+emerge --quiet --noreplace sys-apps/zram-generator \
+  || warn "zram-generator emerge failed — tmpfs builds may OOM on low RAM"
+cat > /etc/systemd/zram-generator.conf <<'ZRAM'
+# Compressed RAM swap backing the /var/tmp/portage build tmpfs.
+[zram0]
+zram-size = ram / 2
+compression-algorithm = zstd
+ZRAM
 
 # ── System packages ───────────────────────────────────────────────
 step "System packages"
