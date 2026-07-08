@@ -443,6 +443,40 @@ exec dracut --force --uefi --kver "${KVER}" \
 RUKI
 chmod +x /usr/local/sbin/rebuild-uki
 
+# ── Background UKI rebuild around the sleep/wake cycle ────────────
+# UKI rebuilds are heavy; defer them to the sleep cycle so they don't interrupt
+# active use. Fires on RESUME (never mid-suspend — a torn write during S3 could
+# leave an unbootable image), runs detached at idle priority, and only when the
+# UKI is stale w.r.t. the kernel or cmdline drop-ins.
+cat > /etc/systemd/system/rebuild-uki.service <<'UKISVC'
+[Unit]
+Description=Rebuild the Unified Kernel Image (background)
+ConditionPathExists=/usr/local/sbin/rebuild-uki
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/local/sbin/rebuild-uki
+UKISVC
+
+mkdir -p /usr/lib/systemd/system-sleep
+cat > /usr/lib/systemd/system-sleep/50-rebuild-uki <<'SLEEPHOOK'
+#!/usr/bin/env bash
+# systemd-sleep hook: $1 = pre|post, $2 = suspend|hibernate|hybrid-sleep|…
+# Rebuild the UKI in the background on wake, only if it is out of date.
+[[ "$1" == "post" ]] || exit 0
+KVER=$(ls /lib/modules/ | sort -V | tail -1)
+uki="/boot/EFI/Linux/gentoo_${KVER}.efi"
+newest=$(ls -t /etc/kernel/cmdline /etc/kernel/cmdline.d/*.conf \
+  "/lib/modules/${KVER}/modules.dep" 2>/dev/null | head -1)
+if [[ ! -e "$uki" || ( -n "$newest" && "$newest" -nt "$uki" ) ]]; then
+  systemctl start --no-block rebuild-uki.service
+fi
+SLEEPHOOK
+chmod +x /usr/lib/systemd/system-sleep/50-rebuild-uki
+info "Background UKI rebuild armed on resume (idle priority, stale-only)"
+
 # ── System packages ───────────────────────────────────────────────
 step "System packages"
 emerge --quiet --noreplace \
