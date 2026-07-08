@@ -7,9 +7,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A Gentoo Linux dotfiles repository ("tokyonight-dots") containing:
 - **`files/`** — user configs copied to `~/.config/` (alacritty, dunst, fish, hypr, i3, nvim, polybar, rofi, neofetch, gtk-2.0, gtk-3.0, picom.conf)
 - **`Gentoo configuration/`** — Portage configs (`make.conf.amd`, `make.conf.intel`, `package.use/`, `local-repo/`)
-- **`install.sh`** — A fully automated Gentoo FDE installer (LUKS2 → btrfs, Limine EFI bootloader, OpenRC, i3 + Hyprland)
+- **`install.sh`** — A fully automated Gentoo FDE installer (LUKS2 + dm-integrity → btrfs, `systemd-repart` declarative partitioning, systemd-boot + UKI, systemd init, `systemd-sysupdate` A/B UKI updates, `systemd-homed` first-boot user, i3 + Hyprland). Requires a **systemd-based** live env with `cargo`.
+- **`.steps.yaml`** — afosi (`agent-first-os-installer`) config: the install-time user prompts (disk, hostname, root password, wipe confirm). `install.sh` builds the `installer` binary and hands off to it; its final action re-enters `install.sh` with answers in the env (`AFOSI_DRIVEN=1`).
+- **`.konkrit.yaml`** — konkrit hardening catalog (100+ modules) + Alpine/QEMU Flatpak VM, run on **first boot**. Generated via `konkrit catalog`, then **adapted Arch→Gentoo** (pacman→emerge, mkinitcpio/sbctl/grub→`rebuild-uki`, `/etc/cmdline.d`→`/etc/kernel/cmdline.d`, hardened_malloc→`dev-libs/hardened_malloc` from GURU, apparmor.d→`sec-policy/apparmor-profiles`, linux-hardened disabled). `{{user}}` is set by the first-boot service. See the adaptation banner atop the file; keep it accurate if you re-generate.
 - **`Wallpapers/`** — Themed wallpaper sets (light/storm/night/metis/misc × abstract/minimal/os)
 - **`user.js`** — Firefox user.js hardening preferences
+
+## Agent-first tooling (afosi + konkrit)
+
+Two Rust crates from the `agents-make-an-os` family are built from source (`cargo`) during install:
+- **afosi** builds in the **live env**; its `.steps.yaml` is validated by regenerating structure with `installer emit-cfg` and editing only values. Forms are `!Input`/`!YesNo`/`!Choice`; all answers are exported as env vars to the final `!action` that runs `bash /root/install.sh`.
+- **konkrit** builds in the **installed system** (chroot), runs on first boot. Both tools **dry-run in debug builds, execute in release** — `cargo install` produces release binaries. konkrit **aborts its whole run if a step's program is missing** (e.g. `pacman` on Gentoo), so the first-boot call is guarded with `|| warn` and never blocks boot.
 
 ## Deployment
 
@@ -32,6 +40,16 @@ After installation, dotfiles are cloned to `~/dots` and synced automatically by 
 - **Neovim config** uses lazy.nvim with modules split under `lua/nvimcfg/`: `plugins.lua` registers all plugins; `language/`, `appearance/`, `editor/` subdirs configure them. Leader key is `\`
 - **Fish** auto-starts X on tty1 login (`startx`), uses starship prompt, aliases `cat`→`bat` and `ls`→`eza`
 - **`.gitignore`** explicitly ignores `files/brave/` (contains personal browser profile data) and `.codegraph/`
+
+## Automatic maintenance (installed system)
+
+The installer provisions background maintenance via systemd units (all at `Nice=19`/idle IO):
+- **Binary packages**: `FEATURES="getbinpkg binpkg-request-signature"` + `/etc/portage/binrepos.conf/gentoobinhost.conf` (official Gentoo binhost) so emerges install prebuilt binaries where USE/ABI match, else build from source.
+- **Builds in RAM (dm-integrity mitigation)**: the root is LUKS2 **+ dm-integrity**, which journals every write (~2× amplification), so compiles are routed off it. `/var/tmp/portage` is a **tmpfs** (`size=60%`, fstab), backed by **zram** swap (`sys-apps/zram-generator`, `zram-size = ram/2`, zstd) so builds don't OOM without a swap partition. Giants (rust, llvm, chromium, firefox, qemu, …) fall back to on-disk `/var/tmp/notmpfs` via `/etc/portage/package.env`. Net: only the final package merge and incremental rsync deltas hit the integrity device.
+- **`portage-sync.timer`** (6 h) → `portage-check-updates`: `emerge --sync` + `emerge -puDN @world`, touching `/var/lib/portage/.updates-pending` when updates exist.
+- **`/usr/lib/systemd/system-sleep/60-portage-upgrade`**: on **suspend (`pre`)**, if the flag exists, starts `portage-upgrade.service` detached (`emerge -uDN --keep-going @world` → `@preserved-rebuild` → `sysupdate-rebuild`). It freezes through S3 and resumes on wake.
+- **`/usr/lib/systemd/system-sleep/50-sysupdate-image`**: on **resume (`post`)**, if the kernel/cmdline changed, mints a new versioned `gentoo_<ver>.efi` sd-sysupdate instance (A/B) and vacuums to `InstancesMax=2`.
+- **`rebuild-uki`** helper: shell-free UKI rebuild from `/etc/kernel/cmdline{,.d}`; konkrit's kernel/boot-param modules call it instead of Arch's `mkinitcpio -P`.
 
 ## Theme
 

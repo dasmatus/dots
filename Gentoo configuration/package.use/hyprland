@@ -1,2 +1,2 @@
-gui-wm/hyprland -systemd guiutils
-gui-libs/xdg-desktop-portal-hyprland -systemd
+gui-wm/hyprland systemd guiutils
+gui-libs/xdg-desktop-portal-hyprland systemd

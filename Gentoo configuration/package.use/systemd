@@ -1,0 +1,11 @@
+# systemd built with the full modern stack:
+#   boot      -> systemd-boot + bootctl (replaces Limine)
+#   ukify     -> Unified Kernel Image builder
+#   homed     -> systemd-homed / homectl (LUKS-backed home dirs)
+#   repart    -> systemd-repart (declarative partitioning)
+#   sysupdate -> systemd-sysupdate (A/B UKI updates)
+#   cryptsetup + tpm -> systemd-cryptsetup, cryptenroll, homed LUKS
+sys-apps/systemd boot ukify homed repart sysupdate cryptsetup tpm
+
+# UKI generation on kernel installs (dracut builds the .efi bundle)
+sys-kernel/installkernel systemd dracut ukify
