@@ -18,7 +18,7 @@ AR="llvm-ar"
 NM="llvm-nm"
 RANLIB="llvm-ranlib"
 LDFLAGS="-fuse-ld=lld"
-FEATURES="getbinpkg ccache"
+FEATURES="getbinpkg binpkg-request-signature ccache"
 CCACHE_DIR="/var/cache/ccache"
 # NOTE: This stage was built with the bindist Use flag enabled
 

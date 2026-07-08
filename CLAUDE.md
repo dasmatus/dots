@@ -41,6 +41,15 @@ After installation, dotfiles are cloned to `~/dots` and synced automatically by 
 - **Fish** auto-starts X on tty1 login (`startx`), uses starship prompt, aliases `cat`→`bat` and `ls`→`eza`
 - **`.gitignore`** explicitly ignores `files/brave/` (contains personal browser profile data) and `.codegraph/`
 
+## Automatic maintenance (installed system)
+
+The installer provisions background maintenance via systemd units (all at `Nice=19`/idle IO):
+- **Binary packages**: `FEATURES="getbinpkg binpkg-request-signature"` + `/etc/portage/binrepos.conf/gentoobinhost.conf` (official Gentoo binhost) so emerges install prebuilt binaries where USE/ABI match, else build from source.
+- **`portage-sync.timer`** (6 h) → `portage-check-updates`: `emerge --sync` + `emerge -puDN @world`, touching `/var/lib/portage/.updates-pending` when updates exist.
+- **`/usr/lib/systemd/system-sleep/60-portage-upgrade`**: on **suspend (`pre`)**, if the flag exists, starts `portage-upgrade.service` detached (`emerge -uDN --keep-going @world` → `@preserved-rebuild` → `sysupdate-rebuild`). It freezes through S3 and resumes on wake.
+- **`/usr/lib/systemd/system-sleep/50-sysupdate-image`**: on **resume (`post`)**, if the kernel/cmdline changed, mints a new versioned `gentoo_<ver>.efi` sd-sysupdate instance (A/B) and vacuums to `InstancesMax=2`.
+- **`rebuild-uki`** helper: shell-free UKI rebuild from `/etc/kernel/cmdline{,.d}`; konkrit's kernel/boot-param modules call it instead of Arch's `mkinitcpio -P`.
+
 ## Theme
 
 All configs use the **Tokyonight** colorscheme. When adding or modifying config files, maintain Tokyonight color consistency across components.

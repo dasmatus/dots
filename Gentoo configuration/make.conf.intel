@@ -22,5 +22,8 @@ GRUB_PLATFORMS="efi-64"
 VIDEO_CARDS="intel i915"
 ACCEPT_LICENSE="*"
 ACCEPT_KEYWORDS="~*"
+# Prefer prebuilt binary packages (official Gentoo binhost) to cut compile time;
+# appended to the profile's FEATURES (which provides ccache).
+FEATURES="${FEATURES} getbinpkg binpkg-request-signature"
 
 

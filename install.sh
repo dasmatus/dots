@@ -241,9 +241,18 @@ VIDEO_CARDS="intel i915"
 ACCEPT_LICENSE="*"
 ACCEPT_KEYWORDS="~amd64"
 
-FEATURES="ccache parallel-fetch parallel-install"
+FEATURES="getbinpkg binpkg-request-signature ccache parallel-fetch parallel-install"
 CCACHE_DIR="/var/cache/ccache"
 MAKECONF
+
+# Official Gentoo binary package host — install prebuilt binpkgs where they
+# match (USE/ABI), falling back to source. Speeds the install and later upgrades.
+mkdir -p "${MOUNT}/etc/portage/binrepos.conf"
+cat > "${MOUNT}/etc/portage/binrepos.conf/gentoobinhost.conf" <<'BINHOST'
+[binhost]
+priority = 9999
+sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/
+BINHOST
 
 cat > "${MOUNT}/etc/portage/package.use/gpg"            <<'EOF'
 app-crypt/gnupg smartcard usb
@@ -498,6 +507,92 @@ fi
 SLEEPHOOK
 chmod +x /usr/lib/systemd/system-sleep/50-sysupdate-image
 info "Background sd-sysupdate image rebuild armed on resume (idle, stale-only)"
+
+# ── Continuous update check + upgrade-on-suspend ─────────────────
+# A low-priority timer keeps the Portage tree synced and flags when @world has
+# updates. Suspending then kicks off the upgrade DETACHED (it freezes through S3
+# and resumes on the next wake — a CPU can't compile during S3). getbinpkg keeps
+# it fast by installing prebuilt binaries where they match.
+cat > /usr/local/sbin/portage-check-updates <<'PCU'
+#!/usr/bin/env bash
+set -uo pipefail
+flag=/var/lib/portage/.updates-pending
+emerge --sync --quiet || exit 0
+emaint sync -A -q 2>/dev/null || true
+if emerge -puDN --quiet --color=n @world 2>/dev/null | grep -qE '^\[(ebuild|binary)'; then
+  mkdir -p /var/lib/portage && touch "${flag}"
+else
+  rm -f "${flag}"
+fi
+PCU
+chmod +x /usr/local/sbin/portage-check-updates
+
+cat > /usr/local/sbin/portage-upgrade <<'PUP'
+#!/usr/bin/env bash
+set -uo pipefail
+flag=/var/lib/portage/.updates-pending
+[[ -e ${flag} ]] || exit 0
+if emerge -uDN --keep-going --quiet @world; then
+  rm -f "${flag}"
+  emerge --quiet @preserved-rebuild || true
+  # if the kernel moved, mint a fresh sd-sysupdate image instance
+  [[ -x /usr/local/sbin/sysupdate-rebuild ]] && /usr/local/sbin/sysupdate-rebuild || true
+fi
+PUP
+chmod +x /usr/local/sbin/portage-upgrade
+
+cat > /etc/systemd/system/portage-sync.service <<'PSSVC'
+[Unit]
+Description=Sync Portage tree and flag available @world updates
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/local/sbin/portage-check-updates
+PSSVC
+
+cat > /etc/systemd/system/portage-sync.timer <<'PSTMR'
+[Unit]
+Description=Periodic Portage sync + update check
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+PSTMR
+
+cat > /etc/systemd/system/portage-upgrade.service <<'PUSVC'
+[Unit]
+Description=Apply pending @world upgrade (background, on resume from suspend)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/local/sbin/portage-upgrade
+PUSVC
+
+cat > /usr/lib/systemd/system-sleep/60-portage-upgrade <<'SLEEPHOOK'
+#!/usr/bin/env bash
+# On SUSPEND (pre), if a @world upgrade is pending, start it DETACHED so it does
+# not delay suspend. It freezes through S3 and continues on the next wake.
+[[ "$1" == "pre" ]] || exit 0
+[[ -e /var/lib/portage/.updates-pending ]] || exit 0
+systemctl start --no-block portage-upgrade.service
+SLEEPHOOK
+chmod +x /usr/lib/systemd/system-sleep/60-portage-upgrade
+
+systemctl enable portage-sync.timer
+info "Update check (6h timer) + upgrade-on-suspend armed (getbinpkg-accelerated)"
 
 # ── System packages ───────────────────────────────────────────────
 step "System packages"
