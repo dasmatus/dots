@@ -443,39 +443,61 @@ exec dracut --force --uefi --kver "${KVER}" \
 RUKI
 chmod +x /usr/local/sbin/rebuild-uki
 
-# ── Background UKI rebuild around the sleep/wake cycle ────────────
-# UKI rebuilds are heavy; defer them to the sleep cycle so they don't interrupt
-# active use. Fires on RESUME (never mid-suspend — a torn write during S3 could
-# leave an unbootable image), runs detached at idle priority, and only when the
-# UKI is stale w.r.t. the kernel or cmdline drop-ins.
-cat > /etc/systemd/system/rebuild-uki.service <<'UKISVC'
+# ── Background sd-sysupdate image rebuild around the sleep cycle ──
+# sd-sysupdate manages VERSIONED UKIs (gentoo_<ver>.efi, InstancesMax=2) in the
+# ESP for A/B rollback. Rebuilds are heavy, so we defer them to the sleep cycle:
+# on RESUME (never mid-suspend — a torn write during S3 could brick the image),
+# if the kernel or cmdline changed, mint a NEW versioned instance in the
+# background at idle priority and let sd-sysupdate vacuum prune to InstancesMax.
+cat > /usr/local/sbin/sysupdate-rebuild <<'SUR'
+#!/usr/bin/env bash
+set -euo pipefail
+KVER=$(ls /lib/modules/ | sort -V | tail -1)
+base=$(tr '\n' ' ' < /etc/kernel/cmdline 2>/dev/null || true)
+extra=""
+if compgen -G "/etc/kernel/cmdline.d/*.conf" >/dev/null 2>&1; then
+  extra=$(cat /etc/kernel/cmdline.d/*.conf | grep -vE '^\s*#' | tr '\n' ' ')
+fi
+# New sd-sysupdate instance — version "<kver>.<UTC-stamp>" matches gentoo_@v.efi,
+# so systemd-boot shows it as a new A/B entry and the prior image survives.
+ver="${KVER}.$(date -u +%Y%m%d%H%M%S)"
+dracut --force --uefi --kver "${KVER}" \
+  --kernel-cmdline "${base} ${extra}" \
+  "/boot/EFI/Linux/gentoo_${ver}.efi"
+# Enforce InstancesMax from /etc/sysupdate.d/50-uki.conf; keep-newest-2 fallback.
+systemd-sysupdate vacuum 2>/dev/null || true
+ls -t /boot/EFI/Linux/gentoo_*.efi 2>/dev/null | tail -n +3 | xargs -r rm -f
+SUR
+chmod +x /usr/local/sbin/sysupdate-rebuild
+
+cat > /etc/systemd/system/sysupdate-image.service <<'SUISVC'
 [Unit]
-Description=Rebuild the Unified Kernel Image (background)
-ConditionPathExists=/usr/local/sbin/rebuild-uki
+Description=Rebuild the sd-sysupdate UKI image (background A/B instance)
+ConditionPathExists=/usr/local/sbin/sysupdate-rebuild
 
 [Service]
 Type=oneshot
 Nice=19
 IOSchedulingClass=idle
-ExecStart=/usr/local/sbin/rebuild-uki
-UKISVC
+ExecStart=/usr/local/sbin/sysupdate-rebuild
+SUISVC
 
 mkdir -p /usr/lib/systemd/system-sleep
-cat > /usr/lib/systemd/system-sleep/50-rebuild-uki <<'SLEEPHOOK'
+cat > /usr/lib/systemd/system-sleep/50-sysupdate-image <<'SLEEPHOOK'
 #!/usr/bin/env bash
-# systemd-sleep hook: $1 = pre|post, $2 = suspend|hibernate|hybrid-sleep|…
-# Rebuild the UKI in the background on wake, only if it is out of date.
+# systemd-sleep hook: $1 = pre|post. On RESUME, rebuild the sd-sysupdate image
+# in the background if it is stale w.r.t. the kernel or cmdline drop-ins.
 [[ "$1" == "post" ]] || exit 0
 KVER=$(ls /lib/modules/ | sort -V | tail -1)
-uki="/boot/EFI/Linux/gentoo_${KVER}.efi"
-newest=$(ls -t /etc/kernel/cmdline /etc/kernel/cmdline.d/*.conf \
+newest_uki=$(ls -t /boot/EFI/Linux/gentoo_*.efi 2>/dev/null | head -1)
+newest_src=$(ls -t /etc/kernel/cmdline /etc/kernel/cmdline.d/*.conf \
   "/lib/modules/${KVER}/modules.dep" 2>/dev/null | head -1)
-if [[ ! -e "$uki" || ( -n "$newest" && "$newest" -nt "$uki" ) ]]; then
-  systemctl start --no-block rebuild-uki.service
+if [[ -z "$newest_uki" || ( -n "$newest_src" && "$newest_src" -nt "$newest_uki" ) ]]; then
+  systemctl start --no-block sysupdate-image.service
 fi
 SLEEPHOOK
-chmod +x /usr/lib/systemd/system-sleep/50-rebuild-uki
-info "Background UKI rebuild armed on resume (idle priority, stale-only)"
+chmod +x /usr/lib/systemd/system-sleep/50-sysupdate-image
+info "Background sd-sysupdate image rebuild armed on resume (idle, stale-only)"
 
 # ── System packages ───────────────────────────────────────────────
 step "System packages"
