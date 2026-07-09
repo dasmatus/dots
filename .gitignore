@@ -1,5 +1,6 @@
 .codegraph/
 .config
+__pycache__/
 files/brave/*
 !files/brave/policies/
 

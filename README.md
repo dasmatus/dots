@@ -44,6 +44,13 @@ One-liner that installs Gentoo with FDE from scratch:
 curl -fsSL https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main/install.sh | bash
 ```
 
+`install.sh` is a thin **curl wrapper** — the actual installer is the Python
+package in [`installer/`](installer/) (stdlib only, split into modules for the
+bootstrap / host / chroot phases). The wrapper runs the package in place from
+a repo checkout, or fetches it to `/root/installer/` when piped from curl.
+The stage3 tarball comes from the **tux.rainside.sk** mirror
+(`hardened-selinux-systemd` profile); override with `STAGE3_BASE=<url>`.
+
 **What it does:**
 
 | Step | Detail |
@@ -63,7 +70,7 @@ curl -fsSL https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main/install.s
 | Prompts | collected by the **afosi** installer (`.steps.yaml`) — builds `installer` from source in the live env |
 | First boot | **konkrit** applies its hardening catalog + Alpine/QEMU Flatpak VM (`.konkrit.yaml`) |
 
-**Requirements:** UEFI firmware, root access, and a **systemd-based** live environment (SystemRescue / Gentoo LiveGUI / Arch ISO — *not* the OpenRC admin CD) with `systemd-repart bootctl cryptsetup mkfs.btrfs btrfs curl` **and a Rust toolchain (`cargo`)** to build the afosi front-end.
+**Requirements:** UEFI firmware, root access, and a **systemd-based** live environment (SystemRescue / Gentoo LiveGUI / Arch ISO — *not* the OpenRC admin CD) with `python3 systemd-repart bootctl cryptsetup mkfs.btrfs btrfs curl` **and a Rust toolchain (`cargo`)** to build the afosi front-end.
 
 ### Agent-first tooling
 
