@@ -23,6 +23,12 @@ STAGE3_BASE = os.environ.get(
 STAGE3_PROFILE = "current-stage3-amd64-hardened-selinux-systemd"
 STAGE3_POINTER = "latest-" + STAGE3_PROFILE.removeprefix("current-") + ".txt"
 GENTOO_RELENG_KEY = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+# Gentoo-controlled key bundle (different origin than the stage3 mirror — that
+# separation is what makes the gpg check an AUTHENTICITY check). Contains the
+# releng key incl. its current signing subkeys; keyservers are fallback only
+# (keys.openpgp.org strips user IDs from unverified keys and gpg then refuses
+# the import).
+GENTOO_SERVICE_KEYS = "https://qa-reports.gentoo.org/output/service-keys.gpg"
 
 MOUNT = "/mnt"
 BTRFS_OPTS = "noatime,compress=zstd:1,space_cache=v2"

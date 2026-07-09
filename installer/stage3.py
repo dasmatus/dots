@@ -133,8 +133,15 @@ def _verify_sha256(tarball, s3file, stage3_url):
 
 
 def _verify_gpg(tarball, stage3_url):
-    """Authenticity check against the Gentoo releng key. Best-effort (a live
-    env often cannot reach a keyserver), but every gpg message is shown."""
+    """Authenticity check against the Gentoo releng key.
+
+    Key acquisition is layered: the Gentoo service-keys bundle first (their
+    own host, ships the releng key with its current signing SUBKEYS — the
+    tarball sigs are made by a subkey, so --recv-keys of the primary alone is
+    not enough on keyservers that serve stripped keys), keyservers as
+    fallback. Semantics: no key obtainable (offline) → warn and continue;
+    key present but signature BAD → hard fail (that is a real authenticity
+    failure, not an environment problem)."""
     if not shutil.which("gpg"):
         warn("gpg not available in the live env — skipping signature check")
         return
@@ -142,14 +149,33 @@ def _verify_gpg(tarball, stage3_url):
                        "-o", f"{tarball}.asc"], check=False, quiet=True):
         warn("no .asc signature published for this tarball — skipping gpg check")
         return
-    info(f"Importing Gentoo releng key {config.GENTOO_RELENG_KEY}…")
-    if not common.run(["gpg", "--keyserver", "hkps://keys.openpgp.org",
-                       "--recv-keys", config.GENTOO_RELENG_KEY], check=False):
-        warn("keyserver fetch failed (offline/blocked?) — gpg verify will "
-             "fail without the key")
+
+    info(f"Importing Gentoo release keys ({config.GENTOO_SERVICE_KEYS})…")
+    bundle = f"{tarball}.service-keys.gpg"
+    imported = (
+        common.run(["curl", "-fsSL", config.GENTOO_SERVICE_KEYS, "-o", bundle],
+                   check=False)
+        and common.run(["gpg", "-q", "--import", bundle], check=False)
+    )
+    if not imported:
+        warn("service-keys bundle unavailable — trying keyservers")
+        # keys.gentoo.org serves full keys; keys.openpgp.org may strip UIDs.
+        common.run(["gpg", "--keyserver", "hkps://keys.gentoo.org",
+                    "--recv-keys", config.GENTOO_RELENG_KEY], check=False) \
+            or common.run(["gpg", "--keyserver", "hkps://keys.openpgp.org",
+                           "--recv-keys", config.GENTOO_RELENG_KEY], check=False)
+    if os.path.exists(bundle):
+        os.remove(bundle)
+
+    have_key = common.run(["gpg", "--list-keys", config.GENTOO_RELENG_KEY],
+                          check=False, quiet=True)
+    if not have_key:
+        warn("Gentoo releng key not obtainable (offline/blocked?) — skipping "
+             "gpg verify; size + SHA256 already matched the mirror")
+        return
+
     if common.run(["gpg", "--verify", f"{tarball}.asc", tarball], check=False):
         info("GPG signature OK")
     else:
-        warn("GPG verify FAILED (see gpg output above) — continuing because "
-             "size + SHA256 already matched the mirror; investigate if the "
-             "key import succeeded yet the signature still fails")
+        die("GPG signature verification FAILED with the Gentoo releng key "
+            "present — the tarball is NOT authentic (see gpg output above)")
