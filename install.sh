@@ -2,21 +2,27 @@
 # ================================================================
 #  Gentoo automated FDE installer
 #
-#  Partitioning     : systemd-repart (declarative) → GPT | 2 GiB ESP | LUKS2
-#  Root crypto      : LUKS2 + dm-integrity (hmac-sha256, authenticated) → btrfs
-#  btrfs subvolumes : @root  @home  @snapshots
-#  Bootloader       : systemd-boot + Unified Kernel Images (UKI)
-#  Init system      : systemd
-#  Extras           : systemd-repart · systemd-sysupdate (A/B UKI) · systemd-homed
-#  Window managers  : i3  +  Hyprland
-#  Dotfiles         : https://gitlab.com/TenTypekMatus/tokyonight-dots
+#  Full-systemd, immutable-/usr Gentoo (per Poettering's "Fitting Everything
+#  Together"). systemd-repart declaratively creates all partitions (DPS types):
+#    · ESP (2 GiB)
+#    · root  → LUKS2 (Encrypt=tpm2, no passphrase) → btrfs  [mutable /etc /var /home]
+#              subvols @root @home @snapshots @builds
+#    · swap  → linux-generic + crypttab random key (zswap-fronted)
+#    · usr {a,b} + usr-verity {a,b} + usr-verity-sig {a,b}  [A/B dm-verity /usr]
+#  /usr        : sealed read-only erofs + dm-verity image; roothash signed and
+#                baked into the UKI as usrhash=. Toolchain ships as a systemd-sysext
+#                (emerge.raw); updates RESEAL (emerge→staging→seal→sysupdate A/B).
+#  Bootloader  : systemd-boot + UKI (ukify, signed)   Init: systemd
+#  Extras      : systemd-repart · sysupdate (A/B) · systemd-homed · systemd-sysext
+#  Window mgrs : i3 + Hyprland      Dotfiles: https://gitlab.com/TenTypekMatus/tokyonight-dots
 #
 #  Usage:
 #    curl -fsSL https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main/install.sh | bash
 #
-#  Requirements: a SYSTEMD-based live env (SystemRescue / Gentoo LiveGUI /
-#    Arch ISO — NOT the OpenRC admin CD) with: systemd-repart, cryptsetup,
-#    bootctl, mkfs.btrfs, btrfs, curl
+#  Requirements: a SYSTEMD (>=254) live env with a TPM2 (or emulated swtpm) and:
+#    systemd-repart, systemd-cryptenroll, cryptsetup, veritysetup, bootctl,
+#    mkfs.btrfs, btrfs, sgdisk, curl, openssl (+ erofs-utils, ukify at seal time).
+#  Env: TPM2_PCRS (empty = no PCR policy), USR_SIZE, INSTALL_STOP_AFTER (test hook).
 # ================================================================
 set -euo pipefail
 
@@ -25,8 +31,8 @@ readonly DOTS_REPO="https://gitlab.com/TenTypekMatus/tokyonight-dots"
 readonly DOTS_RAW="https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main"
 readonly AFOSI_REPO="https://gitlab.com/agents-make-an-os/tooling/agent-first-os-installer.git"
 readonly KONKRIT_REPO="https://gitlab.com/agents-make-an-os/tooling/konkrit.git"
-readonly STAGE3_BASE="https://distfiles.gentoo.org/releases/amd64/autobuilds"
-readonly STAGE3_PROFILE="current-stage3-amd64-systemd"
+readonly STAGE3_BASE="https://distfiles.gentoo.org/releases/amd64/autobuilds/20260705T170105Z/stage3-amd64-hardened-selinux-systemd-20260705T170105Z.tar.xz"
+readonly STAGE3_PROFILE="current-stage3-amd64-hardened-selinux-systemd"
 readonly MOUNT="/mnt"
 readonly BTRFS_OPTS="noatime,compress=zstd:1,space_cache=v2"
 readonly ESP_SIZE="2G"   # holds systemd-boot + A/B UKIs (sysupdate InstancesMax=2)
@@ -39,6 +45,17 @@ step() { printf "\n${CYN}${BLD}━━ %s ${RST}\n"   "$*"; }
 warn() { printf "${YLW}[!]${RST} %s\n"           "$*"; }
 die()  { printf "${RED}[✗]${RST} %s\n" "$*" >&2; exit 1; }
 ask()  { printf "${BLD}[?]${RST} %s "             "$*"; }
+
+# ── Test checkpoint hook (inert unless INSTALL_STOP_AFTER matches) ─
+# The VM test harness sets INSTALL_STOP_AFTER=<stage> to stop the installer at a
+# stage boundary and inspect the on-disk result without running the multi-hour
+# emerge/seal phase. Empty/unset never equals a stage name, so this is a no-op in
+# normal use. The marker line is machine-parseable (tests/smoke.sh greps it).
+checkpoint() {
+  [[ "${INSTALL_STOP_AFTER:-}" == "$1" ]] || return 0
+  printf '=== CHECKPOINT:%s ===\n' "$1"
+  exit 0
+}
 
 # ── afosi prompt front-end (first pass only) ─────────────────────
 # The user-facing entry point stays `curl … | bash`. On the first pass we build
@@ -82,14 +99,24 @@ step "Pre-flight checks"
 
 # systemd-repart + bootctl are only present on a systemd live env. Their
 # absence means the OpenRC admin CD was booted — bail early with guidance.
-for cmd in systemd-repart bootctl cryptsetup mkfs.btrfs btrfs sgdisk curl; do
+# LVM tools are gone (full-systemd: repart owns the layout); TPM2 + verity are
+# the new partition-time hard deps. The seal-time tools (mkfs.erofs, ukify) are
+# checked separately just before sealing — they are not needed to reach the
+# stage3 test checkpoint, and may be absent from a minimal live env.
+for cmd in systemd-repart systemd-cryptenroll bootctl cryptsetup veritysetup \
+           mkfs.btrfs btrfs sgdisk curl openssl; do
   command -v "${cmd}" &>/dev/null \
     || die "Missing: ${cmd}  (boot a systemd live ISO: SystemRescue / Gentoo LiveGUI / Arch)"
 done
 
-# dm-integrity needs the integritysetup helper + kernel module at open time
-command -v integritysetup &>/dev/null \
-  || warn "integritysetup not found — dm-integrity may fail (install cryptsetup-integrity)"
+# repart Encrypt=tpm2 + CopyBlocks (used for the sealed /usr) need systemd >= 254.
+_sdver=$(systemctl --version | awk 'NR==1{print $2}')
+[[ "${_sdver}" -ge 254 ]] 2>/dev/null \
+  || die "systemd ${_sdver} too old — need >= 254 for repart TPM2 + CopyBlocks"
+
+# A TPM2 device is required for passphrase-free auto-unlock (VM: emulated swtpm).
+[[ -e /dev/tpmrm0 || -e /dev/tpm0 ]] \
+  || die "no TPM2 device (/dev/tpmrm0) — required for TPM2 unlock (VM needs an emulated swtpm)"
 
 # ── Disk selection (from afosi answers) ──────────────────────────
 step "Disk selection"
@@ -105,102 +132,169 @@ fi
 info "Target disk: ${DISK}"
 warn "ALL DATA ON ${DISK} WILL BE PERMANENTLY ERASED."
 
-# NVMe / eMMC partition suffix is 'p', SATA/SAS use plain numbers
-if [[ "${DISK}" =~ nvme|mmcblk ]]; then
-  PART_EFI="${DISK}p1"
-  PART_LUKS="${DISK}p2"
-else
-  PART_EFI="${DISK}1"
-  PART_LUKS="${DISK}2"
-fi
+# Partitions are addressed by their repart GPT label (Discoverable Partitions
+# Spec), not by numeric suffix — robust across NVMe/SATA and reorderings.
+PART_EFI="/dev/disk/by-partlabel/ESP"
+PART_ROOT="/dev/disk/by-partlabel/root"
+PART_SWAP="/dev/disk/by-partlabel/swap"
+PART_USR_A="/dev/disk/by-partlabel/usr_a"
 
-# ── Partitioning (declarative, systemd-repart) ───────────────────
-step "Partitioning ${DISK} (systemd-repart)"
+# ── Signing keys (verity roothash + Secure Boot) ─────────────────
+# Generated locally in the live env; private halves are NEVER sealed into the
+# image. Real deployments must persist/manage these offline — the VM tests
+# regenerate them per run. verity.crt signs the /usr dm-verity roothash;
+# db.key/crt sign the UKI (ukify).
+step "Signing keys (verity + Secure Boot)"
+KEYDIR=$(mktemp -d /run/dots-keys.XXXXXX)
+openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  -keyout "${KEYDIR}/verity.key" -out "${KEYDIR}/verity.crt" \
+  -subj "/CN=gentoo dm-verity" &>/dev/null
+openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  -keyout "${KEYDIR}/db.key" -out "${KEYDIR}/db.crt" \
+  -subj "/CN=gentoo secureboot" &>/dev/null
+info "keys in ${KEYDIR} (verity + SB db)"
+
+# ── Partitioning (declarative, systemd-repart + TPM2 + DPS) ──────
+step "Partitioning ${DISK} (systemd-repart + TPM2)"
 sgdisk --zap-all "${DISK}" &>/dev/null   # clear stale GPT/LUKS headers first
 
-# repart.d drop-ins are the single source of truth for the on-disk layout.
-# The SAME definitions are shipped into the installed system (see chroot body)
-# so systemd-repart.service stays idempotent on first boot.
+RAM_GIB=$(awk '/MemTotal/{printf "%d", ($2/1024/1024)+1}' /proc/meminfo)
+USR_SIZE="${USR_SIZE:-8G}"   # per-slot /usr image size (A and B); override for small disks
+info "swap ${RAM_GIB}G · /usr slots ${USR_SIZE} (A/B) · root fills remainder"
+
+# repart.d drop-ins are the single source of truth for the layout. The usr A/B
+# image slots are created EMPTY here (the sealed erofs does not exist until after
+# emerge); they are populated post-seal and by sysupdate thereafter. The SAME set
+# is shipped into the installed system so systemd-repart.service is idempotent.
 REPART_DEFS=$(mktemp -d)
-cat > "${REPART_DEFS}/10-esp.conf" <<EOF
+_repartdef() { cat > "${REPART_DEFS}/$1"; }   # _repartdef FILE <<EOF … EOF
+
+_repartdef 10-esp.conf <<EOF
 [Partition]
 Type=esp
 Format=vfat
+Label=ESP
 SizeMinBytes=${ESP_SIZE}
 SizeMaxBytes=${ESP_SIZE}
-Label=ESP
 EOF
-# Partition 2 backs LUKS2+dm-integrity+btrfs, all set up manually below — so
-# repart only lays down the partition slot (no Format=, no Encrypt=). Explicit
-# "Linux LUKS" GPT type (CA7D7CCB…) keeps lsblk/blkid honest.
-cat > "${REPART_DEFS}/20-cryptroot.conf" <<EOF
+# root: LUKS2 + TPM2-sealed key, btrfs created inside. No size cap ⇒ grows into
+# all space left after the fixed partitions.
+_repartdef 20-root.conf <<EOF
 [Partition]
-Type=CA7D7CCB-63ED-4C53-861C-1742536059CC
-Label=cryptroot
+Type=root
+Label=root
+Format=btrfs
+Encrypt=tpm2
 EOF
+# swap: linux-generic (NOT Type=swap) so gpt-auto won't swapon it UNENCRYPTED;
+# crypttab supplies the per-boot random-key crypto.
+_repartdef 30-swap.conf <<EOF
+[Partition]
+Type=linux-generic
+Label=swap
+SizeMinBytes=${RAM_GIB}G
+SizeMaxBytes=${RAM_GIB}G
+EOF
+# /usr A/B triplets (dm-verity image content written post-seal). A==B sizes.
+for _slot in a b; do
+  _repartdef "4${_slot}-usr-${_slot}.conf" <<EOF
+[Partition]
+Type=usr
+Label=usr_${_slot}
+SizeMinBytes=${USR_SIZE}
+SizeMaxBytes=${USR_SIZE}
+EOF
+  _repartdef "5${_slot}-usrverity-${_slot}.conf" <<EOF
+[Partition]
+Type=usr-verity
+Label=usr-verity_${_slot}
+SizeMinBytes=512M
+SizeMaxBytes=512M
+EOF
+  _repartdef "6${_slot}-usrveritysig-${_slot}.conf" <<EOF
+[Partition]
+Type=usr-verity-sig
+Label=usr-verity-sig_${_slot}
+SizeMinBytes=4M
+SizeMaxBytes=4M
+EOF
+done
 
+# --tpm2-pcrs="${TPM2_PCRS-7}": production binds PCR 7 (SecureBoot state, stable
+# across kernel/UKI updates); the VM tests set TPM2_PCRS= (empty, no PCR policy)
+# to dodge swtpm/OVMF PCR fragility. Note the '-' (not ':-'): an explicitly-empty
+# value stays empty.
 systemd-repart \
   --dry-run=no \
   --empty=force \
   --definitions="${REPART_DEFS}" \
+  --tpm2-device=auto \
+  --tpm2-pcrs="${TPM2_PCRS-7}" \
   "${DISK}"
-rm -rf "${REPART_DEFS}"
 
-partprobe "${DISK}"
+partprobe "${DISK}" 2>/dev/null || true
 udevadm settle
-info "GPT created: ${PART_EFI} (${ESP_SIZE} ESP)  ${PART_LUKS} (LUKS+integrity)"
+info "GPT + TPM2-encrypted root created"
 
-# ── LUKS2 + dm-integrity ─────────────────────────────────────────
-step "LUKS2 + dm-integrity setup"
-info "Formatting ${PART_LUKS} — you'll enter the passphrase twice."
-warn "dm-integrity initialises integrity tags across the WHOLE partition —"
-warn "this does a full-device wipe pass and can take a long while. Be patient."
-# --integrity hmac-sha256 layers dm-integrity beneath dm-crypt → authenticated
-# encryption (detects tampering, not just bit-rot). 4K sectors are required for
-# the integrity journal and match modern SSDs.
-cryptsetup luksFormat \
-  --type        luks2           \
-  --cipher      aes-xts-plain64 \
-  --key-size    512             \
-  --hash        sha512          \
-  --pbkdf       argon2id        \
-  --iter-time   4000            \
-  --integrity   hmac-sha256     \
-  --sector-size 4096            \
-  "${PART_LUKS}"
+# Recovery key: anti-lockout insurance if PCRs/firmware change. Printed to the
+# console — save it. Adding a keyslot requires unlocking with an EXISTING
+# credential first, so unlock via the TPM2 keyslot repart just enrolled
+# (--unlock-tpm2-device=auto); </dev/null + timeout guarantee it can never block
+# the headless install on a passphrase prompt.
+step "TPM2 recovery key"
+timeout 60 systemd-cryptenroll --unlock-tpm2-device=auto --recovery-key "${PART_ROOT}" </dev/null \
+  || warn "recovery-key enroll skipped/failed — continuing (TPM2 unlock still works)"
 
-info "Opening LUKS container as 'cryptroot'..."
-cryptsetup open "${PART_LUKS}" cryptroot
-
-LUKS_UUID=$(cryptsetup luksUUID "${PART_LUKS}")
-info "LUKS UUID: ${LUKS_UUID}"
-
-# ── btrfs filesystem ─────────────────────────────────────────────
-step "btrfs + subvolumes"
-# ESP was already formatted vfat by systemd-repart above.
-mkfs.btrfs -f -L gentoo /dev/mapper/cryptroot
-
+# ── Reopen the TPM2-encrypted root + btrfs subvolumes ────────────
+# repart created LUKS2 + enrolled the TPM2 + formatted btrfs INSIDE the volume,
+# then closed it. Reopen via the just-enrolled TPM2 token (same boot ⇒ TPM state
+# matches) — no passphrase. Do NOT mkfs; the btrfs already exists.
+step "Reopen root (TPM2) + subvolumes"
+systemd-cryptsetup attach cryptroot "${PART_ROOT}" - tpm2-device=auto </dev/null \
+  || cryptsetup open --token-only "${PART_ROOT}" cryptroot </dev/null \
+  || die "could not TPM2-unlock the just-created root"
 BTRFS_UUID=$(blkid -s UUID -o value /dev/mapper/cryptroot)
-info "btrfs UUID: ${BTRFS_UUID}"
+info "root btrfs UUID: ${BTRFS_UUID}"
 
-info "Creating subvolumes: @root  @home  @snapshots"
+info "Creating subvolumes: @root @home @snapshots @builds"
 mount /dev/mapper/cryptroot "${MOUNT}"
 btrfs subvolume create "${MOUNT}/@root"
 btrfs subvolume create "${MOUNT}/@home"
 btrfs subvolume create "${MOUNT}/@snapshots"
+btrfs subvolume create "${MOUNT}/@builds"     # emerge staging + Portage scratch
+chattr +C "${MOUNT}/@builds" 2>/dev/null || true              # nodatacow
+btrfs subvolume set-default "${MOUNT}/@root"   # gpt-auto mounts @root as / (no rootflags)
 umount "${MOUNT}"
 
-info "Mounting subvolumes..."
-mount -o "${BTRFS_OPTS},subvol=@root"       /dev/mapper/cryptroot "${MOUNT}"
-mkdir -p "${MOUNT}"/{home,.snapshots,boot}
-mount -o "${BTRFS_OPTS},subvol=@home"       /dev/mapper/cryptroot "${MOUNT}/home"
-mount -o "${BTRFS_OPTS},subvol=@snapshots"  /dev/mapper/cryptroot "${MOUNT}/.snapshots"
+info "Mounting subvolumes for the build..."
+mount -o "${BTRFS_OPTS},subvol=@root"      /dev/mapper/cryptroot "${MOUNT}"
+mkdir -p "${MOUNT}"/{home,.snapshots,boot,var/tmp/notmpfs}
+mount -o "${BTRFS_OPTS},subvol=@home"      /dev/mapper/cryptroot "${MOUNT}/home"
+mount -o "${BTRFS_OPTS},subvol=@snapshots" /dev/mapper/cryptroot "${MOUNT}/.snapshots"
+mount -o "${BTRFS_OPTS},subvol=@builds,nodatacow" /dev/mapper/cryptroot "${MOUNT}/var/tmp/notmpfs"
 mount "${PART_EFI}" "${MOUNT}/boot"   # EFI partition doubles as /boot
+
+# ── Install-time swap (transient random-key) ─────────────────────
+# Plain dm-crypt, random key: re-keyed every boot, no persistent secret. Enabled
+# now so install-time emerges have overflow. zswap (kernel cmdline) fronts it.
+step "Encrypted swap (install-time)"
+cryptsetup open --type plain --key-file /dev/urandom \
+  --cipher aes-xts-plain64 --key-size 512 --sector-size 4096 \
+  "${PART_SWAP}" cryptswap
+mkswap -q /dev/mapper/cryptswap
+swapon /dev/mapper/cryptswap
+echo 1 > /sys/module/zswap/parameters/enabled 2>/dev/null || true   # best-effort now
+
+# Test hook: stop here (partitioning + TPM2 encryption done, nothing merged yet).
+checkpoint partition
 
 # ── Stage3 ───────────────────────────────────────────────────────
 step "Stage3 download"
 _latest=$(curl -fsSL "${STAGE3_BASE}/${STAGE3_PROFILE}/latest-stage3-amd64-systemd.txt")
-_s3file=$(grep -v '^#' <<< "${_latest}" | awk 'NF{print $1}' | head -1)
+# The pointer file is PGP-clearsigned (…-----BEGIN PGP…) and has # comments —
+# select the line that actually names the tarball, not armor/comment lines.
+_s3file=$(grep -E '\.tar\.(xz|gz)' <<< "${_latest}" | awk '{print $1}' | head -1)
+[[ -n "${_s3file}" ]] || die "could not parse stage3 filename from latest-stage3 pointer"
 STAGE3_URL="${STAGE3_BASE}/${STAGE3_PROFILE}/${_s3file}"
 
 info "Fetching: ${STAGE3_URL}"
@@ -221,6 +315,13 @@ info "Extracting..."
 tar xpf "${MOUNT}/stage3.tar.xz" --xattrs-include='*.*' --numeric-owner -C "${MOUNT}"
 rm -f "${MOUNT}/stage3.tar.xz" "${MOUNT}/stage3.tar.xz.asc"
 cp /etc/resolv.conf "${MOUNT}/etc/resolv.conf"
+
+# The Portage scratch dir /var/tmp/notmpfs is the @builds subvol, already mounted
+# during the reopen step above (no separate build LV any more).
+
+# Test hook: stop here — full partitioning + TPM2 encryption + a base stage3 tree
+# are on disk; the multi-hour emerge + /usr seal have NOT run.
+checkpoint stage3
 
 # ── Portage config (pre-chroot) ──────────────────────────────────
 step "Portage configuration"
@@ -305,19 +406,25 @@ EFI_UUID=$(blkid -s UUID -o value "${PART_EFI}")
 
 cat > "${MOUNT}/etc/fstab" <<FSTAB
 # <device>            <dir>        <type>  <options>                                     <d> <p>
-UUID=${EFI_UUID}      /boot        vfat    defaults,umask=0077                           0   2
-UUID=${BTRFS_UUID}    /            btrfs   ${BTRFS_OPTS},subvol=@root                    0   0
-UUID=${BTRFS_UUID}    /home        btrfs   ${BTRFS_OPTS},subvol=@home                    0   0
-UUID=${BTRFS_UUID}    /.snapshots  btrfs   ${BTRFS_OPTS},subvol=@snapshots               0   0
-# Portage build dir in RAM — keeps compile I/O OFF the dm-integrity root (which
-# journals every write). Overflows to zram swap; giants fall back to disk via
-# /etc/portage/package.env. (size is a share of RAM; tmpfs only uses what's written.)
-tmpfs                 /var/tmp/portage  tmpfs  noatime,nosuid,nodev,mode=0775,uid=250,gid=250,size=60%  0 0
+# / is auto-mounted by systemd-gpt-auto-generator (DPS root-x86-64, TPM2-unlocked,
+# default subvol @root) — intentionally NO / entry. /usr is the read-only
+# dm-verity image (usrhash= in the UKI); also NOT an fstab entry.
+UUID=${EFI_UUID}        /boot            vfat  defaults,umask=0077                           0   2
+UUID=${BTRFS_UUID}      /home            btrfs ${BTRFS_OPTS},subvol=@home                    0   0
+UUID=${BTRFS_UUID}      /.snapshots      btrfs ${BTRFS_OPTS},subvol=@snapshots               0   0
+# Portage scratch = @builds subvol (nodatacow); giants build here via package.env.
+UUID=${BTRFS_UUID}      /var/tmp/notmpfs btrfs ${BTRFS_OPTS},subvol=@builds,nodatacow        0   0
+# Small/medium Portage builds go to RAM; overflow → zswap → encrypted swap.
+tmpfs                   /var/tmp/portage tmpfs noatime,nosuid,nodev,mode=0775,uid=250,gid=250,size=60% 0 0
+# Encrypted swap (random key each boot); zswap fronts it (see kernel cmdline).
+/dev/mapper/cryptswap   none             swap  sw                                           0   0
 FSTAB
 
-cat > "${MOUNT}/etc/crypttab" <<CRYPTTAB
-# no 'discard' — TRIM is incompatible with dm-integrity
-cryptroot  UUID=${LUKS_UUID}  none  luks
+cat > "${MOUNT}/etc/crypttab" <<'CRYPTTAB'
+# root: NOT here — systemd-gpt-auto-generator + systemd-cryptsetup TPM2-unlock it
+#       from the LUKS2 systemd-tpm2 token. No entry, no passphrase.
+# swap: fresh random key every boot (no persistence, no hibernation).
+cryptswap  /dev/disk/by-partlabel/swap  /dev/urandom  swap,cipher=aes-xts-plain64,size=512,sector-size=4096
 CRYPTTAB
 
 info "fstab and crypttab written"
@@ -332,17 +439,25 @@ mount --make-rslave "${MOUNT}/dev"
 # ── Build chroot install script ───────────────────────────────────
 step "Generating chroot script"
 
+# Copy the signing keys into the chroot so the /usr seal (which runs inside the
+# chroot, where erofs-utils + ukify are emerged) can sign the verity roothash and
+# the UKI. /run/KEYDIR is not bind-mounted into the chroot, so stage it on-disk.
+install -d -m 0700 "${MOUNT}/root/keys"
+cp "${KEYDIR}"/{verity.key,verity.crt,db.key,db.crt} "${MOUNT}/root/keys/"
+
 # Inject outer-script values as variable assignments (double-quoted → substituted)
 cat > "${MOUNT}/root/install-chroot.sh" <<INJECT
 #!/usr/bin/env bash
 set -euo pipefail
-LUKS_UUID="${LUKS_UUID}"
 BTRFS_UUID="${BTRFS_UUID}"
+EFI_UUID="${EFI_UUID}"
 DISK="${DISK}"
-PART_EFI="${PART_EFI}"
-PART_LUKS="${PART_LUKS}"
 DOTS_REPO="${DOTS_REPO}"
 ESP_SIZE="${ESP_SIZE}"
+USR_SIZE="${USR_SIZE}"
+TPM2_PCRS="${TPM2_PCRS-7}"
+KEYDIR="/root/keys"          # keys staged above (chroot-local path)
+INSTALL_STOP_AFTER="${INSTALL_STOP_AFTER:-}"
 INJECT
 
 # Append chroot body literally (single-quoted → no outer substitution)
@@ -418,32 +533,40 @@ emerge --quiet --noreplace \
 KVER=$(ls /lib/modules/ | sort -V | tail -1)
 info "Kernel version: ${KVER}"
 
-# ── initramfs → Unified Kernel Image (dracut) ────────────────────
-step "UKI initramfs (dracut)"
-emerge --quiet --noreplace sys-kernel/dracut
+# ── initramfs config (dracut) — the UKI is assembled later, at seal time ──
+# The UKI can only be built AFTER /usr is sealed: its cmdline must carry
+# usrhash=<verity roothash>, unknown until then. Here we only emerge the tools
+# and lay down the initrd config + base cmdline. The UKI is built by seal_usr().
+step "initramfs config (dracut) + verity/erofs tools"
+emerge --quiet --noreplace sys-kernel/dracut app-crypt/tpm2-tss sys-fs/erofs-utils \
+  app-portage/portage-utils
 
-# The kernel cmdline is baked INTO the UKI — no bootloader config carries it.
-# systemd-cryptsetup unlocks 'cryptroot' from /etc/crypttab (rd.luks.uuid).
+# Stage the signing keys on the MUTABLE root (root-only) so the installed system
+# can re-sign UKIs/roothashes on reseal. They live in /etc (never in sealed /usr).
+install -d -m 0700 /etc/kernel/keys
+cp "${KEYDIR}"/{verity.key,verity.crt,db.key,db.crt} /etc/kernel/keys/
+
 mkdir -p /etc/kernel
-cat > /etc/kernel/cmdline <<CMDLINE
-rd.luks.uuid=${LUKS_UUID} root=UUID=${BTRFS_UUID} rootflags=subvol=@root rw quiet loglevel=3 mitigations=auto
+# Base cmdline — NO root=/rd.luks/rd.lvm: systemd-gpt-auto-generator discovers the
+# TPM2-encrypted root by DPS type on the boot disk; systemd-veritysetup mounts
+# /usr from usrhash= (appended at seal). zswap fronts the encrypted swap.
+cat > /etc/kernel/cmdline <<'CMDLINE'
+rw zswap.enabled=1 zswap.compressor=zstd zswap.zpool=zsmalloc zswap.max_pool_percent=25 quiet loglevel=3 mitigations=auto
 CMDLINE
 
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/10-systemd-uki.conf <<'DRACUT'
-# systemd initrd (systemd-cryptsetup + crypttab), btrfs, and dm-integrity
-add_dracutmodules+=" systemd crypt btrfs integrity "
+# systemd initrd: systemd-cryptsetup (TPM2 unlock of root) + systemd-veritysetup
+# (dm-verity /usr) + btrfs. erofs + dm-verity are forced in as drivers because
+# /usr is mounted before modules living on /usr are reachable.
+add_dracutmodules+=" systemd crypt btrfs tpm2-tss "
+add_drivers+=" dm-verity erofs "
 hostonly="yes"
 hostonly_cmdline="no"
 compress="zstd"
-uefi="yes"
 DRACUT
 
-# UKI naming 'gentoo_<ver>.efi' is what sysupdate matches (gentoo_@v.efi) and
-# what gives A/B retention via InstancesMax=2.
 mkdir -p /boot/EFI/Linux
-dracut --force --uefi --kver "${KVER}" "/boot/EFI/Linux/gentoo_${KVER}.efi"
-info "UKI: /boot/EFI/Linux/gentoo_${KVER}.efi"
 
 # ── systemd-boot ─────────────────────────────────────────────────
 step "systemd-boot (EFI)"
@@ -461,13 +584,15 @@ LOADER
 info "systemd-boot installed; UKIs auto-discovered from /EFI/Linux"
 
 # ── rebuild-uki helper ───────────────────────────────────────────
-# A shell-free entry point that konkrit's kernel/boot-param modules call in
-# place of Arch's `mkinitcpio -P`. It re-bakes the UKI from the base cmdline
-# (/etc/kernel/cmdline) plus any drop-ins konkrit writes to
-# /etc/kernel/cmdline.d/*.conf. Also covers microcode (dracut hostonly bundles
-# host microcode) and Secure-Boot re-gen (stands in for `sbctl sign-all`).
+# Re-bakes the UKI from the base cmdline (/etc/kernel/cmdline) + konkrit's
+# drop-ins (/etc/kernel/cmdline.d/*.conf), PRESERVING the current usrhash= (read
+# from the running kernel's /proc/cmdline) so the dm-verity /usr binding survives
+# a cmdline-only change. Assembled with ukify (not dracut --uefi) and signed with
+# the staged Secure-Boot key. Lives in the sealed /usr; writes to /boot + reads
+# keys from the mutable /etc. konkrit's kernel/boot-param modules call this.
 mkdir -p /etc/kernel/cmdline.d
-cat > /usr/local/sbin/rebuild-uki <<'RUKI'
+install -d -m 0755 /usr/lib/gentoo
+cat > /usr/lib/gentoo/rebuild-uki <<'RUKI'
 #!/usr/bin/env bash
 set -euo pipefail
 KVER=$(ls /lib/modules/ | sort -V | tail -1)
@@ -476,74 +601,99 @@ extra=""
 if compgen -G "/etc/kernel/cmdline.d/*.conf" >/dev/null 2>&1; then
   extra=$(cat /etc/kernel/cmdline.d/*.conf | grep -vE '^\s*#' | tr '\n' ' ')
 fi
-exec dracut --force --uefi --kver "${KVER}" \
-  --kernel-cmdline "${base} ${extra}" \
-  "/boot/EFI/Linux/gentoo_${KVER}.efi"
+# Preserve the active dm-verity /usr binding.
+usrhash=$(sed -n 's/.*\busrhash=\([0-9a-f]\+\).*/\1/p' /proc/cmdline)
+[[ -n "${usrhash}" ]] && extra+=" usrhash=${usrhash}"
+dracut --force --no-uefi --kver "${KVER}" /tmp/initrd.$$
+ukify build --linux="/lib/modules/${KVER}/vmlinuz" --initrd="/tmp/initrd.$$" \
+  --cmdline="${base} ${extra}" \
+  --secureboot-private-key=/etc/kernel/keys/db.key \
+  --secureboot-certificate=/etc/kernel/keys/db.crt \
+  --output="/boot/EFI/Linux/gentoo_${KVER}.efi"
+rm -f /tmp/initrd.$$
 RUKI
-chmod +x /usr/local/sbin/rebuild-uki
+chmod +x /usr/lib/gentoo/rebuild-uki
+ln -sf /usr/lib/gentoo/rebuild-uki /usr/local/sbin/rebuild-uki 2>/dev/null || true
 
-# ── Background sd-sysupdate image rebuild around the sleep cycle ──
-# sd-sysupdate manages VERSIONED UKIs (gentoo_<ver>.efi, InstancesMax=2) in the
-# ESP for A/B rollback. Rebuilds are heavy, so we defer them to the sleep cycle:
-# on RESUME (never mid-suspend — a torn write during S3 could brick the image),
-# if the kernel or cmdline changed, mint a NEW versioned instance in the
-# background at idle priority and let sd-sysupdate vacuum prune to InstancesMax.
-cat > /usr/local/sbin/sysupdate-rebuild <<'SUR'
+# ── Reseal update: emerge into staging → seal new /usr → sysupdate A/B ──
+# On a read-only dm-verity /usr you cannot emerge in place or rebuild the UKI
+# against the live tree. Instead the WHOLE update cycle is one idle-priority
+# script: merge the emerge toolchain (sysext) → emerge @world into a staging
+# root → seal the new /usr (erofs+verity+sign) + build a new UKI (new usrhash) →
+# hand both to systemd-sysupdate for an A/B swap. gentoo-reseal.service runs it.
+cat > /usr/lib/gentoo/sysext-update <<'RESEAL'
 #!/usr/bin/env bash
 set -euo pipefail
-KVER=$(ls /lib/modules/ | sort -V | tail -1)
-base=$(tr '\n' ' ' < /etc/kernel/cmdline 2>/dev/null || true)
-extra=""
-if compgen -G "/etc/kernel/cmdline.d/*.conf" >/dev/null 2>&1; then
-  extra=$(cat /etc/kernel/cmdline.d/*.conf | grep -vE '^\s*#' | tr '\n' ' ')
-fi
-# New sd-sysupdate instance — version "<kver>.<UTC-stamp>" matches gentoo_@v.efi,
-# so systemd-boot shows it as a new A/B entry and the prior image survives.
-ver="${KVER}.$(date -u +%Y%m%d%H%M%S)"
-dracut --force --uefi --kver "${KVER}" \
-  --kernel-cmdline "${base} ${extra}" \
-  "/boot/EFI/Linux/gentoo_${ver}.efi"
-# Enforce InstancesMax from /etc/sysupdate.d/50-uki.conf; keep-newest-2 fallback.
-systemd-sysupdate vacuum 2>/dev/null || true
-ls -t /boot/EFI/Linux/gentoo_*.efi 2>/dev/null | tail -n +3 | xargs -r rm -f
-SUR
-chmod +x /usr/local/sbin/sysupdate-rebuild
+exec 9>/run/gentoo-reseal.lock; flock -n 9 || { echo "reseal already running"; exit 0; }
 
-cat > /etc/systemd/system/sysupdate-image.service <<'SUISVC'
+FLAG=/var/lib/portage/.updates-pending
+[[ -e ${FLAG} ]] || { echo "no updates pending"; exit 0; }
+
+STAGING=/var/tmp/notmpfs/staging          # @builds subvol (mutable, nodatacow)
+KEYS=/etc/kernel/keys
+SRC_USR=/var/lib/usr-src ; SRC_UKI=/var/lib/uki-src
+KVER=$(ls /lib/modules/ | sort -V | tail -1)
+
+cleanup(){ systemd-sysext unmerge 2>/dev/null || true; }
+trap cleanup EXIT
+
+echo "[reseal] merging emerge toolchain (sysext)…"
+systemd-sysext merge
+
+echo "[reseal] emerging @world into staging (live /usr untouched)…"
+rm -rf "${STAGING}"; mkdir -p "${STAGING}" "${SRC_USR}" "${SRC_UKI}"
+emerge --root="${STAGING}" --config-root="${STAGING}" -uDN --keep-going @world
+emerge --root="${STAGING}" @preserved-rebuild || true
+
+echo "[reseal] sealing new /usr (erofs + dm-verity + sign)…"
+ver="${KVER}.$(date -u +%Y%m%d%H%M%S)"
+erofs="${SRC_USR}/usr_${ver}.erofs"
+mkfs.erofs -zlz4hc -T0 --all-root "${erofs}" "${STAGING}/usr"
+roothash=$(veritysetup format "${erofs}" "${SRC_USR}/usr_${ver}.verity" | awk '/Root hash/{print $3}')
+openssl smime -sign -nocerts -noattr -binary -in <(printf '%s' "${roothash}") \
+  -inkey "${KEYS}/verity.key" -signer "${KEYS}/verity.crt" -outform der \
+  > "${SRC_USR}/usr_${ver}.p7s"
+printf '{"rootHash":"%s","signature":"%s"}' \
+  "${roothash}" "$(base64 -w0 "${SRC_USR}/usr_${ver}.p7s")" \
+  > "${SRC_USR}/usr_${ver}.verity-sig"
+
+echo "[reseal] building UKI (usrhash=${roothash})…"
+base=$(tr '\n' ' ' < /etc/kernel/cmdline)
+dracut --force --no-uefi --kver "${KVER}" "/tmp/reseal-initrd.$$"
+ukify build --linux="/lib/modules/${KVER}/vmlinuz" --initrd="/tmp/reseal-initrd.$$" \
+  --cmdline="${base} usrhash=${roothash}" \
+  --secureboot-private-key="${KEYS}/db.key" --secureboot-certificate="${KEYS}/db.crt" \
+  --output="${SRC_UKI}/gentoo_${ver}.efi"
+rm -f "/tmp/reseal-initrd.$$"
+
+echo "[reseal] systemd-sysupdate A/B swap…"
+systemd-sysupdate update
+rm -f "${FLAG}"
+echo "[reseal] done — reboot into the new slot; the prior slot remains for rollback."
+RESEAL
+chmod +x /usr/lib/gentoo/sysext-update
+
+cat > /etc/systemd/system/gentoo-reseal.service <<'RESVC'
 [Unit]
-Description=Rebuild the sd-sysupdate UKI image (background A/B instance)
-ConditionPathExists=/usr/local/sbin/sysupdate-rebuild
+Description=Reseal the OS /usr image and stage an A/B systemd-sysupdate
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/usr/lib/gentoo/sysext-update
 
 [Service]
 Type=oneshot
 Nice=19
 IOSchedulingClass=idle
-ExecStart=/usr/local/sbin/sysupdate-rebuild
-SUISVC
+ExecStart=/usr/lib/gentoo/sysext-update
+RESVC
+info "Reseal update path armed (gentoo-reseal.service → sysext-update)"
 
-mkdir -p /usr/lib/systemd/system-sleep
-cat > /usr/lib/systemd/system-sleep/50-sysupdate-image <<'SLEEPHOOK'
-#!/usr/bin/env bash
-# systemd-sleep hook: $1 = pre|post. On RESUME, rebuild the sd-sysupdate image
-# in the background if it is stale w.r.t. the kernel or cmdline drop-ins.
-[[ "$1" == "post" ]] || exit 0
-KVER=$(ls /lib/modules/ | sort -V | tail -1)
-newest_uki=$(ls -t /boot/EFI/Linux/gentoo_*.efi 2>/dev/null | head -1)
-newest_src=$(ls -t /etc/kernel/cmdline /etc/kernel/cmdline.d/*.conf \
-  "/lib/modules/${KVER}/modules.dep" 2>/dev/null | head -1)
-if [[ -z "$newest_uki" || ( -n "$newest_src" && "$newest_src" -nt "$newest_uki" ) ]]; then
-  systemctl start --no-block sysupdate-image.service
-fi
-SLEEPHOOK
-chmod +x /usr/lib/systemd/system-sleep/50-sysupdate-image
-info "Background sd-sysupdate image rebuild armed on resume (idle, stale-only)"
-
-# ── Continuous update check + upgrade-on-suspend ─────────────────
+# ── Continuous update check + reseal-on-suspend ──────────────────
 # A low-priority timer keeps the Portage tree synced and flags when @world has
-# updates. Suspending then kicks off the upgrade DETACHED (it freezes through S3
-# and resumes on the next wake — a CPU can't compile during S3). getbinpkg keeps
-# it fast by installing prebuilt binaries where they match.
-cat > /usr/local/sbin/portage-check-updates <<'PCU'
+# updates. Suspending then kicks off the RESEAL detached (gentoo-reseal.service):
+# it builds the next /usr image and stages an A/B systemd-sysupdate. getbinpkg
+# keeps the emerge-into-staging fast where prebuilt binaries match.
+cat > /usr/lib/gentoo/portage-check-updates <<'PCU'
 #!/usr/bin/env bash
 set -uo pipefail
 flag=/var/lib/portage/.updates-pending
@@ -555,21 +705,7 @@ else
   rm -f "${flag}"
 fi
 PCU
-chmod +x /usr/local/sbin/portage-check-updates
-
-cat > /usr/local/sbin/portage-upgrade <<'PUP'
-#!/usr/bin/env bash
-set -uo pipefail
-flag=/var/lib/portage/.updates-pending
-[[ -e ${flag} ]] || exit 0
-if emerge -uDN --keep-going --quiet @world; then
-  rm -f "${flag}"
-  emerge --quiet @preserved-rebuild || true
-  # if the kernel moved, mint a fresh sd-sysupdate image instance
-  [[ -x /usr/local/sbin/sysupdate-rebuild ]] && /usr/local/sbin/sysupdate-rebuild || true
-fi
-PUP
-chmod +x /usr/local/sbin/portage-upgrade
+chmod +x /usr/lib/gentoo/portage-check-updates
 
 cat > /etc/systemd/system/portage-sync.service <<'PSSVC'
 [Unit]
@@ -581,7 +717,7 @@ After=network-online.target
 Type=oneshot
 Nice=19
 IOSchedulingClass=idle
-ExecStart=/usr/local/sbin/portage-check-updates
+ExecStart=/usr/lib/gentoo/portage-check-updates
 PSSVC
 
 cat > /etc/systemd/system/portage-sync.timer <<'PSTMR'
@@ -598,46 +734,32 @@ Persistent=true
 WantedBy=timers.target
 PSTMR
 
-cat > /etc/systemd/system/portage-upgrade.service <<'PUSVC'
-[Unit]
-Description=Apply pending @world upgrade (background, on resume from suspend)
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=oneshot
-Nice=19
-IOSchedulingClass=idle
-ExecStart=/usr/local/sbin/portage-upgrade
-PUSVC
-
-cat > /usr/lib/systemd/system-sleep/60-portage-upgrade <<'SLEEPHOOK'
+mkdir -p /usr/lib/systemd/system-sleep
+cat > /usr/lib/systemd/system-sleep/60-portage-reseal <<'SLEEPHOOK'
 #!/usr/bin/env bash
-# On SUSPEND (pre), if a @world upgrade is pending, start it DETACHED so it does
-# not delay suspend. It freezes through S3 and continues on the next wake.
+# On SUSPEND (pre), if a @world upgrade is pending, start the RESEAL detached so
+# it does not delay suspend. It freezes through S3 and continues on the next wake
+# (a CPU cannot compile during S3), building the next /usr image + A/B sysupdate.
 [[ "$1" == "pre" ]] || exit 0
 [[ -e /var/lib/portage/.updates-pending ]] || exit 0
-systemctl start --no-block portage-upgrade.service
+systemctl start --no-block gentoo-reseal.service
 SLEEPHOOK
-chmod +x /usr/lib/systemd/system-sleep/60-portage-upgrade
+chmod +x /usr/lib/systemd/system-sleep/60-portage-reseal
 
 systemctl enable portage-sync.timer
-info "Update check (6h timer) + upgrade-on-suspend armed (getbinpkg-accelerated)"
+info "Update check (6h timer) + reseal-on-suspend armed (getbinpkg-accelerated)"
 
-# ── Build-in-RAM (keep Portage writes off dm-integrity) ──────────
-# /var/tmp/portage is a tmpfs (fstab); zram gives it compressed-RAM swap so
-# builds don't OOM without a swap partition. Only the giants in package.env
-# (→ /var/tmp/notmpfs) and the final package merge touch the integrity device.
-step "Build-in-RAM (zram + tmpfs build dir)"
-install -d -m 0775 -o portage -g portage /var/tmp/portage /var/tmp/notmpfs
-emerge --quiet --noreplace sys-apps/zram-generator \
-  || warn "zram-generator emerge failed — tmpfs builds may OOM on low RAM"
-cat > /etc/systemd/zram-generator.conf <<'ZRAM'
-# Compressed RAM swap backing the /var/tmp/portage build tmpfs.
-[zram0]
-zram-size = ram / 2
-compression-algorithm = zstd
-ZRAM
+# ── Build offload (@builds subvol + zswap swap) ──────────────────
+# Small/medium builds use the /var/tmp/portage tmpfs (fstab). Giants in
+# package.env build on the @builds btrfs subvol (nodatacow) mounted at
+# /var/tmp/notmpfs. zswap (kernel cmdline) fronts the encrypted swap, so tmpfs
+# overflow compresses in RAM before hitting disk. No LVM any more.
+step "Build offload (@builds + zswap)"
+# /var/tmp/portage: tmpfs mountpoint. /var/tmp/notmpfs: the @builds subvol —
+# chown its root so Portage (uid/gid 250) can write there.
+install -d -m 0775 -o portage -g portage /var/tmp/portage
+chown portage:portage /var/tmp/notmpfs
+chmod 0775 /var/tmp/notmpfs
 
 # ── System packages ───────────────────────────────────────────────
 step "System packages"
@@ -686,8 +808,9 @@ step "systemd services"
 systemctl enable NetworkManager.service
 systemctl enable systemd-homed.service        # LUKS-backed home dirs (homectl)
 systemctl enable systemd-repart.service       # declarative partitioning on boot
-systemctl enable systemd-sysupdate.timer      # A/B UKI update checks
+systemctl enable systemd-sysupdate.timer      # A/B UKI + /usr image update checks
 systemctl enable systemd-boot-update.service  # keep systemd-boot in sync
+systemctl enable systemd-bless-boot.service 2>/dev/null || true  # auto-rollback a bad A/B boot
 systemctl enable bluetooth.service 2>/dev/null || true
 
 # ── Flatpak ───────────────────────────────────────────────────────
@@ -831,44 +954,120 @@ fi
 # Same layout as the install-time definitions so systemd-repart.service is a
 # no-op on an already-provisioned disk, but documents the layout and would
 # re-add a missing ESP / grow into a bigger disk. No Format= on existing parts.
-step "systemd-repart drop-ins"
+step "systemd-repart drop-ins (installed system)"
 mkdir -p /etc/repart.d
+# Byte-identical to the install-time set so systemd-repart.service is idempotent:
+# it adopts existing partitions by Type+Label and NEVER reformats/re-encrypts a
+# non-empty partition (the root already has a LUKS2 header, the usr slots content).
+_RAM_GIB=$(awk '/MemTotal/{printf "%d", ($2/1024/1024)+1}' /proc/meminfo)
 cat > /etc/repart.d/10-esp.conf <<EOF
 [Partition]
 Type=esp
+Format=vfat
 Label=ESP
 SizeMinBytes=${ESP_SIZE}
 SizeMaxBytes=${ESP_SIZE}
 EOF
-cat > /etc/repart.d/20-cryptroot.conf <<'EOF'
+cat > /etc/repart.d/20-root.conf <<'EOF'
 [Partition]
-Type=CA7D7CCB-63ED-4C53-861C-1742536059CC
-Label=cryptroot
-# btrfs lives INSIDE luks — repart only sees the LUKS blob and must not try to
-# grow the filesystem. (Online growth = cryptsetup resize + btrfs fi resize.)
+Type=root
+Label=root
+Format=btrfs
+Encrypt=tpm2
 EOF
+cat > /etc/repart.d/30-swap.conf <<EOF
+[Partition]
+Type=linux-generic
+Label=swap
+SizeMinBytes=${_RAM_GIB}G
+SizeMaxBytes=${_RAM_GIB}G
+EOF
+for _slot in a b; do
+  cat > "/etc/repart.d/4${_slot}-usr-${_slot}.conf" <<EOF
+[Partition]
+Type=usr
+Label=usr_${_slot}
+SizeMinBytes=${USR_SIZE}
+SizeMaxBytes=${USR_SIZE}
+EOF
+  cat > "/etc/repart.d/5${_slot}-usrverity-${_slot}.conf" <<EOF
+[Partition]
+Type=usr-verity
+Label=usr-verity_${_slot}
+SizeMinBytes=512M
+SizeMaxBytes=512M
+EOF
+  cat > "/etc/repart.d/6${_slot}-usrveritysig-${_slot}.conf" <<EOF
+[Partition]
+Type=usr-verity-sig
+Label=usr-verity-sig_${_slot}
+SizeMinBytes=4M
+SizeMaxBytes=4M
+EOF
+done
 
-# ── systemd-sysupdate (A/B UKI retention) ────────────────────────
-step "systemd-sysupdate drop-in"
-mkdir -p /etc/sysupdate.d
+# ── systemd-sysupdate (A/B retention: UKI + /usr verity triplet) ──
+step "systemd-sysupdate drop-ins"
+mkdir -p /etc/sysupdate.d /var/lib/uki-src /var/lib/usr-src
+# All four transfers share @v so one `systemd-sysupdate update` is version-
+# consistent: new /usr image+verity+sig into the inactive slot, new UKI into ESP.
 cat > /etc/sysupdate.d/50-uki.conf <<'SYSUPD'
-# A/B retention of kernel UKIs in the ESP. Gentoo builds UKIs locally, so there
-# is no remote image server by default — point [Source] at your own https/dir
-# mirror of gentoo_<version>.efi to enable pull-based updates. Until then this
-# transfer enforces InstancesMax=2 over the locally-built UKIs (rollback slot).
 [Transfer]
 Verify=no
-
 [Source]
 Type=regular-file
 Path=/var/lib/uki-src
 MatchPattern=gentoo_@v.efi
-
 [Target]
 Type=regular-file
 Path=/boot/EFI/Linux
 MatchPattern=gentoo_@v.efi
 Mode=0444
+InstancesMax=2
+SYSUPD
+cat > /etc/sysupdate.d/60-usr.conf <<'SYSUPD'
+[Transfer]
+Verify=no
+[Source]
+Type=regular-file
+Path=/var/lib/usr-src
+MatchPattern=usr_@v.erofs
+[Target]
+Type=partition
+Path=auto
+MatchPattern=usr_@v
+MatchPartitionType=usr
+ReadOnly=1
+InstancesMax=2
+SYSUPD
+cat > /etc/sysupdate.d/61-usr-verity.conf <<'SYSUPD'
+[Transfer]
+Verify=no
+[Source]
+Type=regular-file
+Path=/var/lib/usr-src
+MatchPattern=usr_@v.verity
+[Target]
+Type=partition
+Path=auto
+MatchPattern=usr_@v
+MatchPartitionType=usr-verity
+ReadOnly=1
+InstancesMax=2
+SYSUPD
+cat > /etc/sysupdate.d/62-usr-verity-sig.conf <<'SYSUPD'
+[Transfer]
+Verify=no
+[Source]
+Type=regular-file
+Path=/var/lib/usr-src
+MatchPattern=usr_@v.verity-sig
+[Target]
+Type=partition
+Path=auto
+MatchPattern=usr_@v
+MatchPartitionType=usr-verity-sig
+ReadOnly=1
 InstancesMax=2
 SYSUPD
 
@@ -936,9 +1135,77 @@ UNIT
 systemctl enable gentoo-firstboot.service
 info "First-boot user creation armed on tty1"
 
+# ── Seal /usr into a signed dm-verity image + build the UKI ──────
+# Everything is emerged and configured; now (1) split the Portage toolchain into
+# a systemd-sysext so the base /usr stays lean, (2) seal the base /usr into a
+# read-only erofs + dm-verity image, sign it, write it into the usr_a triplet,
+# and (3) build the UKI whose cmdline carries usrhash=<roothash>. Runs here in
+# the chroot where erofs-utils/ukify/veritysetup are emerged and /dev (the target
+# block devices) is bind-mounted.
+step "Seal immutable /usr (erofs + dm-verity) + UKI"
+
+# usr-merge sanity — the split is only safe if these are symlinks into /usr.
+for _l in /bin /sbin /lib /lib64; do
+  [[ -L "${_l}" ]] || die "not usr-merged (${_l} is not a symlink) — cannot seal /usr"
+done
+# SYSEXT_LEVEL decouples sysext matching from the per-build VERSION_ID.
+grep -q '^SYSEXT_LEVEL=' /usr/lib/os-release || echo 'SYSEXT_LEVEL=1' >> /usr/lib/os-release
+
+_WORK=$(mktemp -d)
+KVER=$(ls /lib/modules/ | sort -V | tail -1)
+VER="${KVER}.0"
+
+# (1) emerge toolchain sysext — collect the toolchain's /usr files, pack them into
+#     an erofs extension, then prune them from the base /usr.
+_FL="${_WORK}/emerge.files"; : > "${_FL}"
+for _pkg in sys-apps/portage sys-devel/gcc sys-devel/binutils sys-devel/make \
+            dev-util/ccache dev-vcs/git app-portage/portage-utils app-portage/gentoolkit; do
+  qlist -C "${_pkg}" 2>/dev/null | grep '^/usr/' >> "${_FL}" || true
+done
+sort -u "${_FL}" -o "${_FL}"
+_SX="${_WORK}/emerge-root"
+install -d -m 0755 "${_SX}/usr/lib/extension-release.d"
+tar --numeric-owner -C / -cpf "${_WORK}/sx.tar" -T "${_FL}" 2>/dev/null || true
+tar -C "${_SX}" -xpf "${_WORK}/sx.tar" 2>/dev/null || true
+cat > "${_SX}/usr/lib/extension-release.d/extension-release.emerge" <<'EREL'
+ID=gentoo
+SYSEXT_LEVEL=1
+ARCHITECTURE=x86-64
+EREL
+mkdir -p /var/lib/extensions
+mkfs.erofs -zlz4hc -T0 --all-root /var/lib/extensions/emerge.raw "${_SX}" >/dev/null
+while read -r _f; do rm -f "${_f}" 2>/dev/null || true; done < "${_FL}"
+info "emerge sysext → /var/lib/extensions/emerge.raw ($(wc -l < "${_FL}") files split out)"
+
+# (2) seal the lean base /usr
+mkfs.erofs -zlz4hc -T0 --all-root "${_WORK}/usr.erofs" /usr >/dev/null
+ROOTHASH=$(veritysetup format "${_WORK}/usr.erofs" "${_WORK}/usr.verity" | awk '/Root hash/{print $3}')
+openssl smime -sign -nocerts -noattr -binary -in <(printf '%s' "${ROOTHASH}") \
+  -inkey "${KEYDIR}/verity.key" -signer "${KEYDIR}/verity.crt" -outform der > "${_WORK}/usr.p7s"
+printf '{"rootHash":"%s","signature":"%s"}' \
+  "${ROOTHASH}" "$(base64 -w0 "${_WORK}/usr.p7s")" > "${_WORK}/usr.verity-sig"
+info "usr dm-verity roothash: ${ROOTHASH}"
+
+# (3) write the image triplet into usr_a, then build the UKI with usrhash=
+dd if="${_WORK}/usr.erofs"       of=/dev/disk/by-partlabel/usr_a            bs=4M conv=fsync status=none
+dd if="${_WORK}/usr.verity"      of=/dev/disk/by-partlabel/usr-verity_a     bs=4M conv=fsync status=none
+dd if="${_WORK}/usr.verity-sig"  of=/dev/disk/by-partlabel/usr-verity-sig_a bs=1M conv=fsync status=none
+_BASE=$(tr '\n' ' ' < /etc/kernel/cmdline)
+dracut --force --no-uefi --kver "${KVER}" "${_WORK}/initrd"
+ukify build --linux="/lib/modules/${KVER}/vmlinuz" --initrd="${_WORK}/initrd" \
+  --cmdline="${_BASE} usrhash=${ROOTHASH}" \
+  --os-release="@/usr/lib/os-release" \
+  --secureboot-private-key="${KEYDIR}/db.key" --secureboot-certificate="${KEYDIR}/db.crt" \
+  --output="/boot/EFI/Linux/gentoo_${VER}.efi"
+cp "${_WORK}/usr.erofs" "/var/lib/usr-src/usr_${VER}.erofs" 2>/dev/null || true
+cp "/boot/EFI/Linux/gentoo_${VER}.efi" /var/lib/uki-src/ 2>/dev/null || true
+rm -rf "${_WORK}"
+info "UKI: /boot/EFI/Linux/gentoo_${VER}.efi (usrhash embedded)"
+
 # ── Done ─────────────────────────────────────────────────────────
 step "Chroot complete"
 info "  Bootloader : systemd-boot + UKI (/boot/EFI/Linux/gentoo_*.efi)"
+info "  /usr       : sealed read-only dm-verity image (usr_a)"
 info "  User       : created on first boot via homectl (LUKS home)"
 info "  Hostname   : ${HOSTNAME_INPUT}"
 info "  Dotfiles   : staged in /etc/skel (→ ~/ on first login)"
@@ -960,8 +1227,11 @@ chroot "${MOUNT}" /usr/bin/env -i \
 
 # ── Unmount ───────────────────────────────────────────────────────
 step "Unmounting"
-umount -R "${MOUNT}" 2>/dev/null || true
+umount -R "${MOUNT}" 2>/dev/null || true          # also unmounts /var/tmp/notmpfs
+swapoff /dev/mapper/cryptswap 2>/dev/null || true
+cryptsetup close cryptswap 2>/dev/null || true
 cryptsetup close cryptroot 2>/dev/null || true
+rm -rf "${KEYDIR}" 2>/dev/null || true             # wipe the live-env key copy
 
 echo ""
 info "Done. Remove install media and reboot."

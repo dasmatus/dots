@@ -1,0 +1,77 @@
+<!-- libvirt domain template for the installer VM test harness.
+     Placeholders (@NAME@) are substituted by tests/lib/vm.sh:vm_define().
+       @NAME@       domain name
+       @MEMMB@      RAM in MiB
+       @VCPUS@      vCPU count
+       @OVMF_CODE@  path to OVMF_CODE firmware (read-only)
+       @OVMF_VARS@  path to this domain's private OVMF_VARS copy (read-write)
+       @DISK@       path to the throwaway qcow2 system disk
+       @ISO@        path to the live installer ISO
+       @SERIAL@     path to the serial-console log file (host side)
+       @SHAREDIR@   host directory shared into the guest (the repo working tree)
+     UEFI + emulated TPM 2.0 (swtpm) are mandatory: install.sh aborts without
+     UEFI, and TPM2 auto-unlock needs a TPM in the guest. -->
+<domain type='kvm'>
+  <name>@NAME@</name>
+  <memory unit='MiB'>@MEMMB@</memory>
+  <vcpu>@VCPUS@</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>@OVMF_CODE@</loader>
+    <nvram>@OVMF_VARS@</nvram>
+    <boot dev='cdrom'/>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode='host-passthrough' check='none'/>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <!-- Emulated TPM 2.0 via swtpm — persistent NVRAM so a TPM2-enrolled key
+       still unlocks across the e2e reboot. -->
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='@DISK@'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='@ISO@'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    <tpm model='tpm-crb'>
+      <backend type='emulator' version='2.0'/>
+    </tpm>
+    <!-- Repo working tree shared into the guest via 9p (no virtiofsd daemon
+         needed). Guest mounts tag 'dotsrepo'. -->
+    <filesystem type='mount' accessmode='mapped'>
+      <source dir='@SHAREDIR@'/>
+      <target dir='dotsrepo'/>
+    </filesystem>
+    <!-- User-mode (SLIRP) NAT: gives the guest outbound networking (stage3
+         download) with no host bridge / dnsmasq / root — self-contained. -->
+    <interface type='user'>
+      <model type='virtio'/>
+    </interface>
+    <!-- Serial console → file: the host driver reads pass/fail markers here. -->
+    <serial type='file'>
+      <source path='@SERIAL@'/>
+      <target port='0'/>
+    </serial>
+    <console type='file'>
+      <source path='@SERIAL@'/>
+      <target type='serial' port='0'/>
+    </console>
+    <memballoon model='none'/>
+    <rng model='virtio'>
+      <backend model='random'>/dev/urandom</backend>
+    </rng>
+  </devices>
+</domain>
