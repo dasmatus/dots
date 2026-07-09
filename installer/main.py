@@ -53,14 +53,33 @@ def run_host_phase():
     ($disk $wipe_confirm $hostname $root_password)."""
     preflight.check()
     disk = preflight.select_disk()
+    pkg_dir = _snapshot_package()
     keydir = partition.gen_keys()
     ctx = partition.provision(disk)
     checkpoint("partition")
     stage3.install()
     checkpoint("stage3")
-    hostconfig.configure(ctx, keydir)
+    hostconfig.configure(ctx, keydir, pkg_dir)
     run_chroot_install(ctx)
     teardown(keydir)
+
+
+def _snapshot_package():
+    """Copy this package to /run (tmpfs) BEFORE anything is mounted on MOUNT.
+
+    The running copy may live UNDER the mount point — the VM test harness
+    shares the repo at /mnt/dotsrepo and MOUNT is /mnt, so mounting the target
+    root shadows the source files. The already-imported modules survive in
+    memory, but hostconfig later stages the package into the chroot from disk,
+    which needs an unshadowed copy."""
+    import shutil
+    import tempfile
+
+    src = os.path.dirname(os.path.abspath(__file__))
+    dst = os.path.join(tempfile.mkdtemp(prefix="dots-installer.", dir="/run"),
+                       "installer")
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
+    return dst
 
 
 def run_chroot_install(ctx):

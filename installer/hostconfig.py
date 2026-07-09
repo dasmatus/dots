@@ -98,7 +98,7 @@ tmpfs                   /var/tmp/portage tmpfs noatime,nosuid,nodev,mode=0775,ui
 """
 
 
-def configure(ctx, keydir):
+def configure(ctx, keydir, pkg_dir):
     mount = config.MOUNT
 
     # ── Portage config (pre-chroot) ──────────────────────────────
@@ -141,7 +141,7 @@ def configure(ctx, keydir):
 
     # The chroot phase is this same package, run as
     # `python3 /root/installer/main.py --phase chroot` (values travel as env
-    # vars — see main.run_chroot_install).
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    # vars — see main.run_chroot_install). pkg_dir is the /run snapshot taken
+    # BEFORE mounting (the running copy may be shadowed under MOUNT).
     shutil.copytree(pkg_dir, f"{mount}/root/installer", dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("__pycache__"))
