@@ -1,11 +1,12 @@
 # VM test harness
 
-Layered tests for `install.sh` (the Gentoo FDE installer) and its full-systemd
-immutable-`/usr` design. Run via the `Justfile` or `tests/run.sh` directly.
+Layered tests for the Gentoo FDE installer (`install.sh` curl wrapper +
+`installer/` Python package) and its full-systemd immutable-`/usr` design.
+Run via the `Justfile` or `tests/run.sh` directly.
 
 | Tier | Command | VM? | Time | What it proves |
 |------|---------|-----|------|----------------|
-| lint | `just lint`  | no  | secs | `install.sh` + harness scripts parse; YAML well-formed |
+| lint | `just lint`  | no  | secs | wrapper + harness scripts parse; `installer/*.py` compiles (+ manifest check); YAML well-formed |
 | smoke| `just smoke` | yes | mins | repart + TPM2 + DPS layout: 9-partition GPT, LUKS2 root with a `systemd-tpm2` token, btrfs subvols — stops at the `stage3` checkpoint |
 | e2e  | `just e2e`   | yes | ~1h+ | full install + reboot: passphrase-free TPM2 unlock, read-only dm-verity `/usr`, first-boot reached |
 

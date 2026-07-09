@@ -2,12 +2,14 @@
 #
 # STRUCTURE is generated from the Rust types — regenerate with
 #   installer emit-cfg
-# and then edit only the VALUES here. Consumed by install.sh, which builds the
-# `installer` binary in the live env and runs:  installer .steps.yaml < /dev/tty
+# and then edit only the VALUES here. Consumed by installer/bootstrap.py (via
+# the install.sh wrapper), which builds the `installer` binary in the live env
+# and runs:  installer /root/.steps.yaml < /dev/tty
 #
 # The Steps ask the install-time questions; the final Action re-enters
-# install.sh with every answer exported as an environment variable (plus
-# AFOSI_DRIVEN=1 so it skips the bootstrap and runs the real install).
+# `bash /root/install.sh` with every answer exported as an environment
+# variable (plus AFOSI_DRIVEN=1 so it skips the bootstrap and runs the real
+# install headless).
 
 variables: {}
 

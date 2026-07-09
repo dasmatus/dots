@@ -2,8 +2,10 @@
 # ================================================================
 #  tests/lint.sh — Tier 0: static checks, no VM, runs in seconds
 #
-#    · bash -n syntax check of install.sh + every harness script
+#    · bash -n syntax check of install.sh (wrapper) + every harness script
 #    · shellcheck (if installed) on the same set
+#    · python syntax (py_compile) + optional pyflakes of installer/*.py,
+#      and the wrapper's PKG_FILES manifest vs the installer/ dir
 #    · YAML well-formedness of .steps.yaml / .konkrit.yaml
 #
 #  Exits non-zero on the first category that fails; prints a summary.
@@ -35,9 +37,8 @@ rm -f /tmp/lint.$$
 # ── 2. shellcheck (optional) ─────────────────────────────────────
 if command -v shellcheck &>/dev/null; then
   log "shellcheck"
-  # SC1091: don't follow sourced files. SC2034: "unused" var — endemic false
-  # positive here because install.sh assembles a large chroot script inside a
-  # heredoc, so vars consumed there look unused to shellcheck.
+  # SC1091: don't follow sourced files. SC2034: "unused" var — false positive
+  # for vars consumed by heredoc payloads in the harness scripts.
   if shellcheck -e SC1091 -e SC2034 -S warning "${_scripts[@]}"; then
     ok "shellcheck clean (warning+)"
   else
@@ -48,7 +49,47 @@ else
   warn "shellcheck not installed — skipping (pacman -S shellcheck)"
 fi
 
-# ── 3. YAML well-formedness ──────────────────────────────────────
+# ── 3. Python installer package ──────────────────────────────────
+# The real installer is installer/*.py (install.sh is only the curl wrapper).
+log "python installer package"
+if command -v python3 &>/dev/null; then
+  # Syntax: compile every module without writing .pyc into the repo.
+  if PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile "${REPO_ROOT}/installer/"*.py 2>/tmp/pyc.$$; then
+    ok "py_compile: installer/*.py"
+  else
+    warn "python syntax errors:"; cat /tmp/pyc.$$ >&2
+    fail=1
+  fi
+  rm -f /tmp/pyc.$$
+
+  # pyflakes (optional): undefined names, unused imports.
+  if python3 -m pyflakes --version &>/dev/null; then
+    if python3 -m pyflakes "${REPO_ROOT}/installer/"*.py; then
+      ok "pyflakes clean"
+    else
+      warn "pyflakes reported issues"
+      fail=1
+    fi
+  else
+    warn "pyflakes not available — skipping (pip install pyflakes)"
+  fi
+
+  # Manifest: every module in installer/ must be listed in the wrapper's
+  # PKG_FILES (a missing entry silently breaks the `curl | bash` path).
+  _manifest_ok=1
+  for _py in "${REPO_ROOT}/installer/"*.py; do
+    _base=$(basename "${_py}")
+    grep -qE "^[[:space:]]*${_base}$" "${REPO_ROOT}/install.sh" || {
+      warn "installer/${_base} missing from install.sh PKG_FILES manifest"
+      _manifest_ok=0; fail=1
+    }
+  done
+  (( _manifest_ok )) && ok "install.sh PKG_FILES manifest covers installer/*.py"
+else
+  warn "python3 not installed — skipping installer package checks"
+fi
+
+# ── 4. YAML well-formedness ──────────────────────────────────────
 # .steps.yaml / .konkrit.yaml carry custom afosi/konkrit tags (!NoCon, !Input,
 # !Choice, …) so a plain safe_load rejects them — use a loader that IGNORES
 # unknown tags and only checks that the document is well-formed. Missing PyYAML
