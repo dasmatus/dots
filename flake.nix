@@ -25,8 +25,30 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       settings = import ./nix/settings.nix;
+
+      mkHost = variant: nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit inputs settings variant; };
+        modules = [
+          disko.nixosModules.disko
+          home-manager.nixosModules.home-manager
+          (import ./nix/disko.nix { inherit (settings) disk swapSize; })
+          ./nix/modules/core.nix
+          ./nix/modules/boot.nix
+          ./nix/modules/network.nix
+          ./nix/modules/desktop.nix
+          ./nix/modules/virtualisation.nix
+          ./nix/modules/users.nix
+          ./nix/hosts/${variant}.nix
+        ];
+      };
     in
     {
+      nixosConfigurations = {
+        tokyonight-intel = mkHost "intel";
+        tokyonight-amd = mkHost "amd";
+      };
+
       formatter.${system} = pkgs.nixfmt-rfc-style;
 
       checks.${system} = {
