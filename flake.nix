@@ -32,6 +32,7 @@
         modules = [
           disko.nixosModules.disko
           home-manager.nixosModules.home-manager
+          lanzaboote.nixosModules.lanzaboote
           (import ./nix/disko.nix { inherit (settings) disk swapSize; })
           ./nix/modules/core.nix
           ./nix/modules/boot.nix
@@ -39,6 +40,9 @@
           ./nix/modules/desktop.nix
           ./nix/modules/virtualisation.nix
           ./nix/modules/users.nix
+          ./nix/modules/hardening.nix
+          ./nix/modules/maintenance.nix
+          ./nix/modules/secureboot.nix
           ./nix/hosts/${variant}.nix
         ];
       };
@@ -49,9 +53,19 @@
         tokyonight-amd = mkHost "amd";
       };
 
+      packages.${system} = {
+        dots-installer = pkgs.rustPlatform.buildRustPackage {
+          pname = "dots-installer";
+          version = "0.1.0";
+          src = ./installer-tui;
+          cargoLock.lockFile = ./installer-tui/Cargo.lock;
+        };
+      };
+
       formatter.${system} = pkgs.nixfmt-rfc-style;
 
       checks.${system} = {
+        dots-installer = self.packages.${system}.dots-installer;
         settings-eval = pkgs.writeText "settings-ok"
           (builtins.concatStringsSep "\n" [ settings.username settings.hostname settings.disk settings.swapSize ]);
       };
