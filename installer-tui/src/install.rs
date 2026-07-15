@@ -2,12 +2,12 @@
 //! (unit-tested); `run()` executes it on a worker thread, streaming output
 //! lines back to the UI over an mpsc channel.
 
-use std::{env::temp_dir, process::Command, sync::{LazyLock, mpsc::Sender}};
+use std::{env::temp_dir, path::Path, process::Command, sync::mpsc::Sender, thread::spawn};
 
 use walkdir::WalkDir;
 
 use crate::config::InstallConfig;
-static mut TARGET_FLAKE: LazyLock<String> = LazyLock::new(|| String::new());
+
 /// Events the runner sends to the UI thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
@@ -74,30 +74,20 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
         capture,
     }
 }
-fn x() -> String {
-    temp_dir().join("dots").display().to_string()
-}
+
 /// The full install sequence. `flake_src` is where the ISO carries the flake
 /// (/etc/dots); `mnt` is the installation mount root (/mnt).
 #[must_use]
 pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
-    let target_flake = format!("{mnt}/etc/dots");
+    let mut target_flake = format!("{mnt}/etc/dots");
     let swap = format!("{}G", cfg.swap_size_gib);
     let unlock = format!("--unlock-key-file={LUKS_PASSFILE}");
-    Command::new("nix-shell").arg("-p").arg("git").arg("--run").args(["git", "clone", "https://gitlab.com/tentypekmatus/tokyonight-dots", &temp_dir().join("dots").display().to_string()]).status().and_then(|_| {
-        Ok(if WalkDir::new(target_flake.clone()).into_iter().count() != WalkDir::new(&temp_dir().join("dots")).into_iter().count() {
+    spawn(|| Command::new("nix-shell").arg("-p").arg("git").arg("--run").args(["git", "clone", "https://gitlab.com/tentypekmatus/tokyonight-dots", temp_dir().join("dots")]).status().and_then(|| {
+        if WalkDir::new(target_flake.clone()).into_iter().count() != WalkDir::new(&temp_dir().join("dots")).into_iter().count() {
             // the git version takes a precedence
-            unsafe { TARGET_FLAKE = LazyLock::new(
-                x
-            ) };
-        } else {
-           unsafe { TARGET_FLAKE = LazyLock::from(format!("{mnt}/etc/dots")) }; 
-        })
-    }).unwrap();
-    let target_flake = unsafe {
-        #[allow(static_mut_refs)]
-        TARGET_FLAKE.to_string()
-    };
+            target_flake = temp_dir().join("dots").display().to_string()
+        }
+    }));
     vec![
         Step {
             title: "Write LUKS keyfile".into(),
