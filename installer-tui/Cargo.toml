@@ -1,0 +1,16 @@
+[package]
+name = "dots-installer"
+version = "0.1.0"
+edition = "2021"
+description = "ratatui installer for the tokyonight-dots NixOS flake"
+license = "MIT"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+serde_json = "1"
+anyhow = "1"
+
+[profile.release]
+lto = true
+strip = true

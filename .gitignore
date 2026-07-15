@@ -9,3 +9,8 @@ files/brave/*
 # serial logs, captured lsblk/luksDump output, local test signing keys.
 tests/artifacts/
 *.qcow2
+
+# Nix + installer-tui build outputs
+installer-tui/target/
+result
+result-*
