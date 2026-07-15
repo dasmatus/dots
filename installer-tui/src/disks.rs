@@ -12,6 +12,7 @@ pub struct Disk {
 
 impl Disk {
     /// "476.9 GiB" style rendering for the picker.
+    #[must_use]
     pub fn human_size(&self) -> String {
         let gib = self.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
         format!("{gib:.1} GiB")
@@ -37,15 +38,13 @@ pub fn parse_lsblk(json: &str) -> Result<Vec<Disk>> {
         if name.starts_with("zram") || flag(dev.get("ro")) {
             continue;
         }
-        let size_bytes = dev.get("size").map(size_of).unwrap_or(0);
+        let size_bytes = dev.get("size").map_or(0, size_of);
         if size_bytes == 0 {
             continue;
         }
         let path = dev
             .get("path")
-            .and_then(|p| p.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("/dev/{name}"));
+            .and_then(|p| p.as_str()).map_or_else(|| format!("/dev/{name}"), str::to_string);
         let model = dev
             .get("model")
             .and_then(|m| m.as_str())
@@ -80,54 +79,64 @@ fn size_of(v: &serde_json::Value) -> u64 {
     }
 }
 
-/// Shell out to lsblk and parse.
+/// Strip a partition suffix: /dev/sda1 → /dev/sda, /dev/nvme0n1p2 → /dev/nvme0n1.
+/// Heuristic fallback — `live_medium_disk` prefers lsblk's authoritative PKNAME.
+#[must_use]
+pub fn parent_disk(path: &str) -> String {
+    let stripped = path.trim_end_matches(|c: char| c.is_ascii_digit());
+    if stripped.len() == path.len() || stripped == "/dev/" {
+        return path.to_string();
+    }
+    // Digit-named disks (nvme0n1, mmcblk0) use a 'p' separator before the
+    // partition number; only a trailing pN may be stripped from them.
+    if let Some(pre) = stripped.strip_suffix('p') {
+        if pre.ends_with(|c: char| c.is_ascii_digit()) {
+            return pre.to_string();
+        }
+    }
+    // A remaining inner digit (nvme0n[1]) means the "suffix" was part of the
+    // disk name itself, not a partition number.
+    let base = stripped.rsplit('/').next().unwrap_or(stripped);
+    if base.chars().any(|c| c.is_ascii_digit()) {
+        return path.to_string();
+    }
+    stripped.to_string()
+}
+
+/// The disk backing the running live system (the NixOS ISO mounts its medium
+/// at /iso) — offering it in the picker would let the user erase the medium
+/// the installer is running from.
+fn live_medium_disk() -> Option<String> {
+    let out = std::process::Command::new("findmnt")
+        .args(["-rn", "-o", "SOURCE", "/iso"])
+        .output()
+        .ok()?;
+    let src = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || !src.starts_with("/dev/") {
+        return None;
+    }
+    // PKNAME is authoritative (empty when src is already a whole disk).
+    if let Ok(pk) = std::process::Command::new("lsblk")
+        .args(["-no", "PKNAME", &src])
+        .output()
+    {
+        let parent = String::from_utf8_lossy(&pk.stdout).trim().to_string();
+        if pk.status.success() && !parent.is_empty() {
+            return Some(format!("/dev/{parent}"));
+        }
+    }
+    Some(parent_disk(&src))
+}
+
+/// Shell out to lsblk and parse, excluding the live boot medium.
 pub fn list_disks() -> Result<Vec<Disk>> {
     let out = std::process::Command::new("lsblk")
         .args(["-J", "-b", "-d", "-o", "NAME,PATH,SIZE,MODEL,RM,TYPE,RO"])
         .output()?;
     anyhow::ensure!(out.status.success(), "lsblk failed");
-    parse_lsblk(&String::from_utf8_lossy(&out.stdout))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const FIXTURE: &str = include_str!("../tests/fixtures/lsblk.json");
-
-    #[test]
-    fn keeps_only_writable_physical_disks() {
-        let disks = parse_lsblk(FIXTURE).unwrap();
-        let paths: Vec<&str> = disks.iter().map(|d| d.path.as_str()).collect();
-        // nvme kept; usb stick kept (removable, string "1" rm field);
-        // zram/rom/loop and the read-only vda excluded
-        assert_eq!(paths, vec!["/dev/nvme0n1", "/dev/sda"]);
+    let mut disks = parse_lsblk(&String::from_utf8_lossy(&out.stdout))?;
+    if let Some(live) = live_medium_disk() {
+        disks.retain(|d| d.path != live);
     }
-
-    #[test]
-    fn parses_model_and_removable_flag() {
-        let disks = parse_lsblk(FIXTURE).unwrap();
-        assert_eq!(disks[0].model, "Samsung SSD 980");
-        assert!(!disks[0].removable);
-        assert!(
-            disks[1].removable,
-            "string \"1\" rm field parses as removable"
-        );
-    }
-
-    #[test]
-    fn human_size_renders_gib() {
-        let d = Disk {
-            path: "/dev/nvme0n1".into(),
-            size_bytes: 512_110_190_592,
-            model: String::new(),
-            removable: false,
-        };
-        assert_eq!(d.human_size(), "476.9 GiB");
-    }
-
-    #[test]
-    fn rejects_garbage_json() {
-        assert!(parse_lsblk("not json").is_err());
-    }
+    Ok(disks)
 }

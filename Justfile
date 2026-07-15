@@ -31,6 +31,24 @@ e2e *ARGS:
 # Lint + smoke (the everyday gate).
 test: lint smoke
 
+# ── Nix target (flake + LiveISO installer) ───────────────────────
+# Static gate: flake eval + installer-tui fmt/clippy/tests.
+nix-lint:
+    nix flake check
+    cd installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+
+# Build the LiveISO (installer auto-starts on tty1). Result: ./result-iso/iso/
+iso:
+    nix build .#iso -o result-iso
+
+# Same, with both intel+amd system closures embedded (bigger ISO).
+iso-full:
+    nix build .#iso-full -o result-iso
+
+# Boot the built ISO in the OVMF+swtpm harness, assert the TUI comes up.
+nix-smoke *ARGS:
+    ./tests/nix-smoke.sh {{ARGS}}
+
 # ── Host setup + housekeeping ────────────────────────────────────
 # Install the host packages + services the VM harness needs (Arch host).
 setup:

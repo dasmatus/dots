@@ -328,7 +328,7 @@ fn draw_failed(frame: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Line::styled(
-                "press q to exit to a shell",
+                "Ctrl+Alt+F2 opens a root shell · q quits this screen",
                 Style::default().fg(palette::DIM),
             ),
         ])

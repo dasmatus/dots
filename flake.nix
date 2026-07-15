@@ -46,11 +46,36 @@
           ./nix/hosts/${variant}.nix
         ];
       };
+      mkIso = variants: nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit inputs settings; dotsSelf = self; };
+        modules = [
+          ./nix/iso.nix
+          {
+            # System closures alone don't make nixos-install offline-capable:
+            # evaluating the flake also needs the locked input sources.
+            isoImage.storeContents =
+              map (v: self.nixosConfigurations."tokyonight-${v}".config.system.build.toplevel)
+                variants
+              ++ nixpkgs.lib.optionals (variants != [ ]) [
+                nixpkgs.outPath
+                home-manager.outPath
+                disko.outPath
+                lanzaboote.outPath
+              ];
+          }
+        ];
+      };
     in
     {
       nixosConfigurations = {
         tokyonight-intel = mkHost "intel";
         tokyonight-amd = mkHost "amd";
+        # Lean by default: the flake rides on the ISO, packages come from the
+        # binary cache during install. live-iso-full embeds both prebuilt
+        # system closures for offline installs (much bigger image).
+        live-iso = mkIso [ ];
+        live-iso-full = mkIso [ "intel" "amd" ];
       };
 
       packages.${system} = {
@@ -60,6 +85,8 @@
           src = ./installer-tui;
           cargoLock.lockFile = ./installer-tui/Cargo.lock;
         };
+        iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
+        iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
       };
 
       formatter.${system} = pkgs.nixfmt-rfc-style;

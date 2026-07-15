@@ -75,8 +75,8 @@ in
     swaylock
     # i3 keybinds use pactl (pipewire-pulse serves it); hypr uses wpctl
     pulseaudio
-    xorg.xrandr
-    xorg.setxkbmap
+    xrandr
+    setxkbmap
     fastfetch
   ];
 

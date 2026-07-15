@@ -36,6 +36,37 @@ Gentoo Linux dotfiles with a [Tokyonight](https://github.com/folke/tokyonight.nv
 
 ---
 
+## NixOS target (flake + LiveISO installer)
+
+The whole system also exists as a **Nix flake**: NixOS + home-manager +
+[disko](https://github.com/nix-community/disko), with the same layout the
+Gentoo installer produces (2G ESP, TPM2-unlocked LUKS2 btrfs root with
+`@root/@home/@snapshots/@builds` subvolumes, random-key encrypted swap) — the
+sealed dm-verity `/usr` machinery is replaced by the read-only `/nix/store`
+and generation rollback. See [`nix/README.md`](nix/README.md) for the full
+Gentoo→NixOS mapping.
+
+```bash
+nix build .#iso                 # LiveISO with the ratatui installer on tty1
+dd if=result/iso/*.iso of=/dev/sdX bs=4M oflag=sync
+
+# on an existing NixOS install:
+sudo nixos-rebuild switch --flake .#tokyonight-intel   # or #tokyonight-amd
+```
+
+The ISO auto-starts **`installer-tui/`** — a Rust/ratatui wizard (disk picker →
+intel/amd variant → hostname → user → passwords → typed-`ERASE` confirm) that
+runs disko, `nixos-install` from the flake bundled on the ISO, enrolls TPM2
+(PCR 7) + a printed LUKS recovery key, and reboots. Dev loop:
+
+```bash
+just nix-lint    # nix flake check + cargo fmt/clippy/test
+just iso         # build the LiveISO
+just nix-smoke   # boot it in the OVMF+swtpm harness, assert the TUI starts
+```
+
+---
+
 ## Automated installer
 
 One-liner that installs Gentoo with FDE from scratch:

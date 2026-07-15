@@ -1,8 +1,4 @@
-mod app;
-mod config;
-mod disks;
-mod install;
-mod ui;
+use dots_installer::{app, disks, install, ui};
 
 use std::io;
 use std::sync::mpsc;
@@ -33,12 +29,28 @@ fn main() -> anyhow::Result<()> {
         orig_hook(info);
     }));
 
+    // Restore the terminal on BOTH exits of the loop — clean and Err — so a
+    // draw/poll io error can't strand the tty in raw mode + alt screen.
+    let result = event_loop(&mut app);
+    let _ = disable_raw_mode();
+    let _ = execute!(io::stdout(), LeaveAlternateScreen);
+    result?;
+
+    if app.reboot && std::env::var("DOTS_INSTALLER_DRY_RUN").is_err() {
+        let _ = std::process::Command::new("systemctl")
+            .arg("reboot")
+            .status();
+    }
+    Ok(())
+}
+
+fn event_loop(app: &mut app::App) -> anyhow::Result<()> {
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let (tx, rx) = mpsc::channel();
     let mut runner_started = false;
 
     while !app.should_quit {
-        terminal.draw(|f| ui::draw(f, &app))?;
+        terminal.draw(|f| ui::draw(f, app))?;
 
         if app.start_install && !runner_started {
             runner_started = true;
@@ -58,15 +70,6 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-    }
-
-    disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
-
-    if app.reboot && std::env::var("DOTS_INSTALLER_DRY_RUN").is_err() {
-        let _ = std::process::Command::new("systemctl")
-            .arg("reboot")
-            .status();
     }
     Ok(())
 }

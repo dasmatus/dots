@@ -56,8 +56,24 @@
   # files/brave/policies → /etc/brave/policies copy.
   environment.etc."brave/policies".source = ../../files/brave/policies;
 
-  # i3/hypr configs run KeePassXC and Flameshot via `flatpak run`.
+  # i3/hypr configs run KeePassXC and Flameshot via `flatpak run`. NixOS's
+  # flatpak module configures no remotes, so add flathub once — without it
+  # every `flatpak install/run` fails on a fresh system.
   services.flatpak.enable = true;
+  systemd.services.flathub-remote = {
+    description = "Add the flathub flatpak remote";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    path = [ pkgs.flatpak ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    '';
+  };
   xdg.portal = {
     enable = true;
     extraPortals = [ pkgs.xdg-desktop-portal-gtk ];

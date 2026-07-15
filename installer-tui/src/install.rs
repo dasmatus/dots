@@ -51,8 +51,9 @@ pub const LUKS_PASSFILE: &str = "/tmp/dots-luks-pass";
 /// disko partlabel for disk "main", partition "root" (see nix/disko.nix).
 pub const LUKS_DEVICE: &str = "/dev/disk/by-partlabel/disk-main-root";
 
-/// Round MemTotal up to whole GiB — parity with config.ram_gib() in the
+/// Round `MemTotal` up to whole GiB — parity with `config.ram_gib()` in the
 /// Gentoo installer (swap sized = RAM).
+#[must_use]
 pub fn swap_size_from_meminfo(meminfo: &str) -> u64 {
     let kb: u64 = meminfo
         .lines()
@@ -66,7 +67,7 @@ pub fn swap_size_from_meminfo(meminfo: &str) -> u64 {
 fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) -> Action {
     Action::Command {
         program: program.into(),
-        args: args.iter().map(|a| a.to_string()).collect(),
+        args: args.iter().map(std::string::ToString::to_string).collect(),
         stdin,
         capture,
     }
@@ -74,6 +75,7 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
 
 /// The full install sequence. `flake_src` is where the ISO carries the flake
 /// (/etc/dots); `mnt` is the installation mount root (/mnt).
+#[must_use]
 pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
     let target_flake = format!("{mnt}/etc/dots");
     let swap = format!("{}G", cfg.swap_size_gib);
@@ -145,6 +147,20 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                 Capture::Stream,
             ),
         },
+        // Passwords first: a failed TPM2 enrollment (e.g. no TPM) must not
+        // leave an otherwise-installed system with every account locked.
+        Step {
+            title: "Set passwords".into(),
+            action: cmd(
+                "nixos-enter",
+                &["--root", mnt, "--", "chpasswd"],
+                Some(format!(
+                    "root:{}\n{}:{}\n",
+                    cfg.root_password, cfg.username, cfg.user_password
+                )),
+                Capture::Stream,
+            ),
+        },
         Step {
             title: "Enroll TPM2 unlock (PCR 7)".into(),
             action: cmd(
@@ -164,18 +180,6 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             ),
         },
         Step {
-            title: "Set passwords".into(),
-            action: cmd(
-                "nixos-enter",
-                &["--root", mnt, "--", "chpasswd"],
-                Some(format!(
-                    "root:{}\n{}:{}\n",
-                    cfg.root_password, cfg.username, cfg.user_password
-                )),
-                Capture::Stream,
-            ),
-        },
-        Step {
             title: "Scrub LUKS keyfile".into(),
             action: cmd("shred", &["-u", LUKS_PASSFILE], None, Capture::Stream),
         },
@@ -183,7 +187,7 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
 }
 
 /// Execute the plan, streaming events. Never panics; all failures land as
-/// Event::Failed.
+/// `Event::Failed`.
 pub fn run(cfg: InstallConfig, tx: Sender<Event>) {
     if std::env::var("DOTS_INSTALLER_DRY_RUN").is_ok() {
         run_dry(&cfg, &tx);
@@ -210,11 +214,22 @@ fn run_real(cfg: InstallConfig, tx: Sender<Event>) {
     for (i, step) in steps.iter().enumerate() {
         let _ = tx.send(Event::StepStarted(i + 1, total, step.title.clone()));
         if let Err(e) = exec_step(step, &tx) {
+            scrub_passfile();
             let _ = tx.send(Event::Failed(format!("{}: {e:#}", step.title)));
             return;
         }
     }
+    scrub_passfile();
     let _ = tx.send(Event::Finished);
+}
+
+/// Best-effort removal of the plaintext LUKS keyfile — called on every exit
+/// path so a mid-install failure never leaves the root password in /tmp.
+fn scrub_passfile() {
+    let _ = std::process::Command::new("shred")
+        .args(["-u", LUKS_PASSFILE])
+        .status();
+    let _ = std::fs::remove_file(LUKS_PASSFILE);
 }
 
 const RECOVERY_KEY_FILE: &str = "/mnt/root/luks-recovery.txt";
@@ -234,8 +249,18 @@ fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
             if let Some(parent) = std::path::Path::new(path).parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::write(path, contents).with_context(|| format!("writing {path}"))?;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(*mode))?;
+            // Unlink + O_EXCL: never follow a pre-planted file/symlink at a
+            // predictable path, and the mode applies from the first byte
+            // (fs::write would create 0644 and only chmod afterwards).
+            let _ = std::fs::remove_file(path);
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(*mode)
+                .open(path)
+                .and_then(|mut f| f.write_all(contents.as_bytes()))
+                .with_context(|| format!("writing {path}"))?;
             Ok(())
         }
 
@@ -257,16 +282,8 @@ fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
                 .spawn()
                 .with_context(|| format!("spawning {program}"))?;
 
-            if let Some(input) = stdin {
-                child
-                    .stdin
-                    .take()
-                    .expect("stdin piped")
-                    .write_all(input.as_bytes())
-                    .context("feeding stdin")?;
-                // handle dropped here — closes the pipe so the child sees EOF
-            }
-
+            // Drain stderr on its own thread BEFORE feeding stdin, so a child
+            // that errors early can't deadlock us on a full stderr pipe.
             let stderr = child.stderr.take().expect("stderr piped");
             let tx_err = tx.clone();
             let stderr_thread = std::thread::spawn(move || {
@@ -274,6 +291,17 @@ fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
                     let _ = tx_err.send(Event::Log(line));
                 }
             });
+
+            if let Some(input) = stdin {
+                // Ignore write errors (EPIPE = child already exited) — fall
+                // through to wait() so the real exit status/stderr surfaces.
+                let _ = child
+                    .stdin
+                    .take()
+                    .expect("stdin piped")
+                    .write_all(input.as_bytes());
+                // handle dropped here — closes the pipe so the child sees EOF
+            }
 
             let stdout = child.stdout.take().expect("stdout piped");
             let mut last_line = String::new();
@@ -309,173 +337,6 @@ fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
                 let _ = tx.send(Event::RecoveryKey(last_line));
             }
             Ok(())
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::Variant;
-
-    fn cfg() -> InstallConfig {
-        InstallConfig {
-            disk: "/dev/vda".into(),
-            hostname: "myhost".into(),
-            username: "alice".into(),
-            root_password: "rootsecret".into(),
-            user_password: "usersecret".into(),
-            variant: Variant::Amd,
-            swap_size_gib: 16,
-        }
-    }
-
-    #[test]
-    fn swap_size_rounds_meminfo_up_to_gib() {
-        assert_eq!(
-            swap_size_from_meminfo("MemTotal:       16384256 kB\nMemFree: 1 kB"),
-            16
-        );
-        assert_eq!(swap_size_from_meminfo("MemTotal: 1048576 kB"), 1);
-        assert_eq!(swap_size_from_meminfo("MemTotal: 1048577 kB"), 2);
-    }
-
-    #[test]
-    fn plan_writes_luks_passfile_with_root_password_mode_600() {
-        let steps = plan(&cfg(), "/etc/dots", "/mnt");
-        let wf = steps
-            .iter()
-            .find_map(|s| match &s.action {
-                Action::WriteFile {
-                    path,
-                    contents,
-                    mode,
-                } if path == LUKS_PASSFILE => Some((contents.clone(), *mode)),
-                _ => None,
-            })
-            .expect("luks passfile step");
-        assert_eq!(wf.0, "rootsecret");
-        assert_eq!(wf.1, 0o600);
-    }
-
-    #[test]
-    fn plan_runs_disko_with_chosen_disk_and_swap() {
-        let steps = plan(&cfg(), "/etc/dots", "/mnt");
-        let args = steps
-            .iter()
-            .find_map(|s| match &s.action {
-                Action::Command { program, args, .. } if program == "disko" => Some(args.clone()),
-                _ => None,
-            })
-            .expect("disko step");
-        let joined = args.join(" ");
-        assert!(joined.contains("--argstr disk /dev/vda"), "{joined}");
-        assert!(joined.contains("--argstr swapSize 16G"), "{joined}");
-        assert!(joined.contains("destroy,format,mount"), "{joined}");
-    }
-
-    #[test]
-    fn plan_installs_from_embedded_flake_with_variant_attr() {
-        let steps = plan(&cfg(), "/etc/dots", "/mnt");
-        let joined: String = steps
-            .iter()
-            .filter_map(|s| match &s.action {
-                Action::Command { program, args, .. } if program == "nixos-install" => {
-                    Some(args.join(" "))
-                }
-                _ => None,
-            })
-            .collect();
-        assert!(
-            joined.contains("--flake /mnt/etc/dots#tokyonight-amd"),
-            "{joined}"
-        );
-        assert!(joined.contains("--no-root-passwd"), "{joined}");
-    }
-
-    #[test]
-    fn plan_overwrites_settings_nix_on_target() {
-        let steps = plan(&cfg(), "/etc/dots", "/mnt");
-        let found = steps.iter().any(|s| match &s.action {
-            Action::WriteFile { path, contents, .. } => {
-                path == "/mnt/etc/dots/nix/settings.nix" && contents.contains("myhost")
-            }
-            _ => false,
-        });
-        assert!(found, "settings.nix rewrite step missing");
-    }
-
-    #[test]
-    fn plan_enrolls_tpm2_then_recovery_key() {
-        let steps = plan(&cfg(), "/etc/dots", "/mnt");
-        let cryptenroll_args: Vec<Vec<String>> = steps
-            .iter()
-            .filter_map(|s| match &s.action {
-                Action::Command { program, args, .. } if program == "systemd-cryptenroll" => {
-                    Some(args.clone())
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(cryptenroll_args.len(), 2, "tpm2 + recovery enrollments");
-        let tpm2 = cryptenroll_args[0].join(" ");
-        assert!(tpm2.contains("--tpm2-device=auto"), "{tpm2}");
-        assert!(tpm2.contains("--tpm2-pcrs=7"), "{tpm2}");
-        assert!(tpm2.contains(LUKS_DEVICE), "{tpm2}");
-        let rec = cryptenroll_args[1].join(" ");
-        assert!(rec.contains("--recovery-key"), "{rec}");
-        // The recovery key must be captured for the Done screen.
-        let captured = steps.iter().any(|s| {
-            matches!(
-                &s.action,
-                Action::Command { program, capture: Capture::RecoveryKey, .. }
-                    if program == "systemd-cryptenroll"
-            )
-        });
-        assert!(captured);
-    }
-
-    #[test]
-    fn plan_sets_passwords_via_stdin_never_argv() {
-        let steps = plan(&cfg(), "/etc/dots", "/mnt");
-        let chpasswd = steps
-            .iter()
-            .find_map(|s| match &s.action {
-                Action::Command {
-                    program,
-                    args,
-                    stdin,
-                    ..
-                } if program == "nixos-enter" => {
-                    args.iter().any(|a| a == "chpasswd").then(|| stdin.clone())
-                }
-                _ => None,
-            })
-            .flatten()
-            .expect("chpasswd step with stdin");
-        assert_eq!(chpasswd, "root:rootsecret\nalice:usersecret\n");
-
-        for s in &steps {
-            if let Action::Command { program, args, .. } = &s.action {
-                let joined = format!("{program} {}", args.join(" "));
-                assert!(
-                    !joined.contains("rootsecret") && !joined.contains("usersecret"),
-                    "password leaked into argv: {joined}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn plan_shreds_passfile_last() {
-        let steps = plan(&cfg(), "/etc/dots", "/mnt");
-        let last = steps.last().expect("steps nonempty");
-        match &last.action {
-            Action::Command { program, args, .. } => {
-                assert_eq!(program, "shred");
-                assert!(args.iter().any(|a| a == LUKS_PASSFILE));
-            }
-            other => panic!("last step must shred the passfile, got {other:?}"),
         }
     }
 }
