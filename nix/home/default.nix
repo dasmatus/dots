@@ -30,6 +30,21 @@ in
 
   home.stateVersion = "26.05";
   programs.home-manager.enable = true;
+  dconf.enable = true;
+  dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
+  dconf.settings = {
+    "org/gnome/desktop/interface" = {
+      accent-color = "red";
+    };
+    "org/gnome/desktop/input-sources" = {
+      xkb-options = [ "ctrl:esc" ];
+    };
+  };
+  qt = {
+    enable = true;
+    platformTheme = "qtct";
+    style = "kvantum";
+  };
 
   xdg.configFile = {
     "alacritty".source = ../../files/alacritty;
@@ -79,6 +94,12 @@ in
     setxkbmap
     fastfetch
   ];
-
+  gtk = {
+    enable = true;
+    theme = {
+      name = "adw-gtk3";
+      package = pkgs.adw-gtk3;
+    };
+  };
   programs.starship.enable = true;
 }

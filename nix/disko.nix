@@ -5,7 +5,11 @@
 #       disko --mode destroy,format,mount --argstr disk /dev/sdX --argstr swapSize 32G nix/disko.nix
 #   - imported by flake.nix into the system config (generates fileSystems).
 # GPT order: ESP, swap (fixed size), LUKS root fills the remainder.
-{ disk ? "/dev/nvme0n1", swapSize ? "32G", ... }:
+{
+  disk ? "/dev/nvme0n1",
+  swapSize ? "32G",
+  ...
+}:
 {
   disko.devices.disk.main = {
     device = disk;
@@ -51,19 +55,32 @@
               subvolumes = {
                 "@root" = {
                   mountpoint = "/";
-                  mountOptions = [ "compress=zstd:1" "noatime" ];
+                  mountOptions = [
+                    "compress=zstd:1"
+                    "noatime"
+                  ];
                 };
                 "@home" = {
                   mountpoint = "/home";
-                  mountOptions = [ "compress=zstd:1" "noatime" ];
+                  mountOptions = [
+                    "compress=zstd:1"
+                    "noatime"
+                  ];
                 };
                 "@snapshots" = {
                   mountpoint = "/.snapshots";
-                  mountOptions = [ "compress=zstd:1" "noatime" ];
+                  mountOptions = [
+                    "compress=zstd:1"
+                    "noatime"
+                  ];
                 };
                 "@builds" = {
                   mountpoint = "/var/tmp/notmpfs";
-                  mountOptions = [ "compress=zstd:1" "noatime" "nodatacow" ];
+                  mountOptions = [
+                    "compress=zstd:1"
+                    "noatime"
+                    "nodatacow"
+                  ];
                 };
               };
             };

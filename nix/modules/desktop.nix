@@ -4,19 +4,23 @@
 # are provided as packages, not as NixOS services (avoids double instances).
 { pkgs, ... }:
 {
-  services.xserver = {
-    enable = true;
-    windowManager.i3 = {
-      enable = true;
-      extraPackages = with pkgs; [
-        i3status
-        autotiling
-        dex
-      ];
+  services = {
+    displayManager.gdm.enable = true;
+    desktopManager.gnome.enable = true;
+    gnome = {
+      core-apps.enable = true;
+      developer-tools.enable = true;
+      games.enable = true;
     };
-    displayManager.startx.enable = true;
   };
-
+  environment.systemPackages = with pkgs.gnomeExtensions; [
+    blur-my-shell
+    dash-to-dock
+    user-themes
+    appindicator
+    screentospace
+    tiling-assistant
+  ];
   programs.hyprland.enable = true;
 
   services.pipewire = {
@@ -71,7 +75,7 @@
       RemainAfterExit = true;
     };
     script = ''
-      flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      flatpak remote-add --if-not-exists --verified flathub https://dl.flathub.org/repo/flathub.flatpakrepo
     '';
   };
   xdg.portal = {
