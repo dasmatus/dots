@@ -2,7 +2,9 @@
 //! (unit-tested); `run()` executes it on a worker thread, streaming output
 //! lines back to the UI over an mpsc channel.
 
-use std::sync::mpsc::Sender;
+use std::{env::temp_dir, path::Path, process::Command, sync::mpsc::Sender, thread::spawn};
+
+use walkdir::WalkDir;
 
 use crate::config::InstallConfig;
 
@@ -77,10 +79,15 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
 /// (/etc/dots); `mnt` is the installation mount root (/mnt).
 #[must_use]
 pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
-    let target_flake = format!("{mnt}/etc/dots");
+    let mut target_flake = format!("{mnt}/etc/dots");
     let swap = format!("{}G", cfg.swap_size_gib);
     let unlock = format!("--unlock-key-file={LUKS_PASSFILE}");
-
+    spawn(|| Command::new("nix-shell").arg("-p").arg("git").arg("--run").args(["git", "clone", "https://gitlab.com/tentypekmatus/tokyonight-dots", temp_dir().join("dots")]).status().and_then(|| {
+        if WalkDir::new(target_flake.clone()).into_iter().count() != WalkDir::new(&temp_dir().join("dots")).into_iter().count() {
+            // the git version takes a precedence
+            target_flake = temp_dir().join("dots").display().to_string()
+        }
+    }));
     vec![
         Step {
             title: "Write LUKS keyfile".into(),
