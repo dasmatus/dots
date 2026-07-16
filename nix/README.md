@@ -10,8 +10,9 @@ installer has been fully retired — `install.sh` now only bootstraps
 ## Quickstart
 
 ```bash
-nix build .#iso                          # build the LiveISO (installer auto-starts on tty1)
-dd if=result/iso/*.iso of=/dev/sdX bs=4M oflag=sync
+just iso                                 # build + Secure Boot-sign the LiveISO
+dd if=result-iso-signed/*.iso of=/dev/sdX bs=4M oflag=sync
+# unsigned-only build (no signing keys touched): just iso-unsigned
 # or, on an already-booted NixOS:
 sudo nixos-rebuild switch --flake .#tokyonight
 ```
@@ -85,7 +86,9 @@ installer-written report.
 `nix/home/hyprland.nix` (monitor `eDP-1`, `services.gammastep` coordinates
 `48.15`/`17.11`) — per-machine facts reused verbatim, not installer concerns.
 
-## Secure Boot (post-install, optional)
+## Secure Boot
+
+### Installed system (post-install, optional)
 
 The Gentoo flow generated db keys at install time; on NixOS this is an explicit
 opt-in after the first boot:
@@ -97,3 +100,26 @@ sudo sbctl enroll-keys --microsoft
 # set dots.secureboot.enable = true; in your host config, then:
 sudo nixos-rebuild switch --flake ~/dots#tokyonight
 ```
+
+### Signed LiveISO (boot the installer with Secure Boot ON — the default)
+
+`just iso` (and `just iso-full`) builds the ISO and rewrites its EFI chain
+via `scripts/sign-iso.sh`: Fedora's Microsoft-signed shim becomes
+`BOOTX64.EFI`, the ISO's GRUB gets an SBAT section and a signature from a
+local MOK key (auto-generated once into gitignored `secrets/secureboot/`,
+reused so enrolled machines keep booting re-signed ISOs), and every kernel
+is signed too (GRUB verifies it through shim's protocol). Result:
+`result-iso-signed/…-signed.iso` — that's the one to dd. The raw unsigned
+nix output stays at `result-iso/iso/`; `just iso-unsigned` skips signing
+entirely.
+
+Two ways it boots with Secure Boot enforcing:
+
+- **Factory machines** (Microsoft keys only): the first boot drops into
+  MokManager (blue screen) → *Enroll key from disk* →
+  `EFI/BOOT/tokyonight-dots-mok.cer` → reboot. One-time per machine.
+- **Machines with your own keys**: if the db contains this cert alongside
+  the Microsoft certs (the `sbctl enroll-keys --microsoft` shape — enroll
+  `secrets/secureboot/MOK.cer` as an extra db key), shim validates GRUB
+  straight from db: no prompts. `just nix-smoke` proves this chain in
+  a VM with enforcing Secure Boot firmware (it's the harness default).

@@ -115,6 +115,22 @@
         };
         iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
         iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
+        # Microsoft-signed Fedora shim for the Secure Boot ISO chain.
+        shim-signed = pkgs.callPackage ./nix/shim-signed.nix { };
+        # Toolbelt for scripts/sign-iso.sh + the Secure Boot smoke test
+        # (the script `nix shell`s this when the tools aren't on PATH).
+        sb-tools = pkgs.buildEnv {
+          name = "sb-tools";
+          paths = with pkgs; [
+            sbsigntool
+            openssl
+            binutils
+            mtools
+            dosfstools
+            xorriso
+            python3Packages.virt-firmware
+          ];
+        };
       };
 
       formatter.${system} = pkgs.nixfmt-tree;

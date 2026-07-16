@@ -11,7 +11,7 @@ tree .
 GitLab
 ## Testing
 - Rust: @installer-tui/tests/ (integration tests; `cargo test` in installer-tui/)
-- Nix: `just nix-lint` (flake check + fmt/clippy/test), `just iso`, `just nix-smoke` (@tests/nix-smoke.sh — OVMF+swtpm boot oracle, DOTS_TUI_READY serial marker)
+- Nix: `just nix-lint` (flake check + fmt/clippy/test), `just iso` (builds + Secure Boot-signs by default via @scripts/sign-iso.sh; `iso-unsigned` opts out), `just nix-smoke` (@tests/nix-smoke.sh — signed ISO under enforcing Secure Boot OVMF+swtpm by default, DOTS_TUI_READY + DOTS_SECUREBOOT=1 serial markers; `--no-secure-boot` for the plain run)
 ---
 # Resources to follow
 - [Rust API guidelines](https://rust-lang.github.io/api-guidelines/)

@@ -2,9 +2,12 @@
 #
 #   just            → list recipes
 #   just nix-lint   → static checks: flake eval + installer-tui fmt/clippy/test
-#   just iso        → build the LiveISO (lean; installer auto-starts on tty1)
+#   just iso        → build + Secure Boot-sign the LiveISO (the default)
 #   just iso-full   → same, with both intel+amd system closures embedded
-#   just nix-smoke  → boot the ISO in an OVMF+TPM2 VM, assert the TUI comes up
+#   just iso-unsigned → plain unsigned LiveISO (no signing keys touched)
+#   just nix-smoke  → boot the signed ISO under ENFORCING Secure Boot OVMF
+#                     (+TPM2), assert the TUI comes up + SecureBoot=1;
+#                     --no-secure-boot boots the unsigned ISO plainly
 #   just setup      → install host prerequisites for the VM harness (uses sudo)
 #   just clean      → remove all generated test artifacts
 #
@@ -21,17 +24,34 @@ nix-lint:
     nix flake check
     cd installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
-# Build the LiveISO (installer auto-starts on tty1). Result: ./result-iso/iso/
+# The MOK key is auto-generated into secrets/secureboot/ on the first run
+# (shim + MOK chain); ./result-iso/iso/ keeps the raw unsigned nix output.
+# Build + Secure Boot-sign the LiveISO — dd ./result-iso-signed/*.iso
 iso:
     nix build .#iso -o result-iso
+    ./scripts/sign-iso.sh result-iso/iso/*.iso
 
 # Same, with both intel+amd system closures embedded (bigger ISO).
 iso-full:
     nix build .#iso-full -o result-iso
+    ./scripts/sign-iso.sh result-iso/iso/*.iso
 
-# Boot the built ISO in the OVMF+swtpm harness, assert the TUI comes up.
+# Plain unsigned LiveISO only (no Secure Boot; signing keys not touched).
+iso-unsigned:
+    nix build .#iso -o result-iso
+
+# Deprecated alias — signing is the default now.
+iso-signed: iso
+
+# Asserts the TUI comes up AND the guest saw SecureBoot=1 (MS+MOK certs
+# pre-enrolled in the NVRAM db); --no-secure-boot runs the plain unsigned ISO.
+# Boot the signed ISO under Secure Boot-ENFORCING OVMF + swtpm.
 nix-smoke *ARGS:
     ./tests/nix-smoke.sh {{ARGS}}
+
+# Deprecated alias — Secure Boot is nix-smoke's default now.
+nix-smoke-sb *ARGS:
+    ./tests/nix-smoke.sh --secure-boot {{ARGS}}
 
 # ── Host setup + housekeeping ────────────────────────────────────
 # Install the host packages + services the nix-smoke VM harness needs (Arch host).

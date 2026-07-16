@@ -15,9 +15,10 @@ curl -fsSL https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main/install.s
 # Equivalent, from a checkout:
 nix run .#dots-installer
 
-# Or build a bootable LiveISO instead (installer auto-starts on tty1):
-nix build .#iso
-dd if=result/iso/*.iso of=/dev/sdX bs=4M oflag=sync
+# Or build a bootable LiveISO instead (installer auto-starts on tty1;
+# signed for Secure Boot by default — see nix/README.md):
+just iso
+dd if=result-iso-signed/*.iso of=/dev/sdX bs=4M oflag=sync
 
 # On an already-installed system, apply config changes:
 sudo nixos-rebuild switch --flake .#tokyonight
@@ -33,8 +34,8 @@ key, and reboots. Dev loop:
 
 ```bash
 just nix-lint    # nix flake check + cargo fmt/clippy/test
-just iso         # build the LiveISO
-just nix-smoke   # boot it in the OVMF+swtpm harness, assert the TUI starts
+just iso         # build the LiveISO + sign it for Secure Boot
+just nix-smoke   # boot it under Secure Boot-enforcing OVMF+swtpm, assert the TUI starts
 ```
 
 ## Declarative flatpaks
@@ -79,8 +80,9 @@ Two things worth knowing before the first switch:
 
 ```bash
 just nix-lint    # nix flake check + installer-tui cargo fmt/clippy/test
-just iso         # build the LiveISO
-just nix-smoke   # boot the ISO under OVMF+swtpm, assert the TUI reaches tty1
+just iso         # build the LiveISO + sign it for Secure Boot
+just nix-smoke   # boot the signed ISO under Secure Boot-enforcing OVMF+swtpm,
+                 # assert the TUI reaches tty1 with SecureBoot=1
 ```
 
 See [`tests/README.md`](tests/README.md) for how the VM harness works.

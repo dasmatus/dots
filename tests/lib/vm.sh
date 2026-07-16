@@ -33,14 +33,28 @@ vm_check_host() {
 }
 
 # Locate a read-only OVMF_CODE firmware image across distro layouts.
+# With arg "sb", only the Secure Boot-enforcing builds qualify (they need
+# SMM — vm_define pairs them with <smm state='on'/> + loader secure='yes').
 vm_ovmf_code() {
-  local c
-  for c in \
-    /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd \
-    /usr/share/edk2-ovmf/x64/OVMF_CODE.fd \
-    /usr/share/edk2/x64/OVMF_CODE.4m.fd \
-    /usr/share/OVMF/x64/OVMF_CODE.4m.fd \
-    /usr/share/OVMF/OVMF_CODE.fd; do
+  local variant="${1:-}" c candidates
+  if [[ "${variant}" == "sb" ]]; then
+    candidates=(
+      /usr/share/edk2-ovmf/x64/OVMF_CODE.secboot.4m.fd
+      /usr/share/edk2-ovmf/x64/OVMF_CODE.secboot.fd
+      /usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd
+      /usr/share/OVMF/OVMF_CODE_4M.secboot.fd
+      /usr/share/OVMF/OVMF_CODE.secboot.fd
+    )
+  else
+    candidates=(
+      /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd
+      /usr/share/edk2-ovmf/x64/OVMF_CODE.fd
+      /usr/share/edk2/x64/OVMF_CODE.4m.fd
+      /usr/share/OVMF/x64/OVMF_CODE.4m.fd
+      /usr/share/OVMF/OVMF_CODE.fd
+    )
+  fi
+  for c in "${candidates[@]}"; do
     [[ -f "${c}" ]] && { printf '%s\n' "${c}"; return 0; }
   done
   return 1
@@ -64,12 +78,25 @@ vm_ovmf_vars() {
 vm_make_disk() { qemu-img create -f qcow2 "$1" "$2" >/dev/null; }
 
 # ── Domain define/start/destroy ──────────────────────────────────
-# vm_define <name> <memMB> <vcpus> <disk> <iso> <serial> <sharedir>
+# vm_define <name> <memMB> <vcpus> <disk> <iso> <serial> <sharedir> [secure] [vars_seed]
+#   secure    — 1 boots the Secure Boot-enforcing OVMF (SMM on, loader
+#               secure='yes'); default 0 keeps the plain firmware.
+#   vars_seed — optional pre-enrolled NVRAM image (e.g. from virt-fw-vars)
+#               used instead of the stock OVMF_VARS template.
 vm_define() {
   local name="$1" mem="$2" vcpus="$3" disk="$4" iso="$5" serial="$6" sharedir="$7"
-  local ovmf_code ovmf_vars_tmpl ovmf_vars xml
-  ovmf_code="$(vm_ovmf_code)"
-  ovmf_vars_tmpl="$(vm_ovmf_vars)" || die "OVMF_VARS template not found"
+  local secure="${8:-0}" vars_seed="${9:-}"
+  local ovmf_code ovmf_vars_tmpl ovmf_vars xml sec_attr smm_state
+  if [[ "${secure}" == "1" ]]; then
+    ovmf_code="$(vm_ovmf_code sb)" \
+      || die "Secure Boot OVMF image not found (Arch: edk2-ovmf ships OVMF_CODE.secboot.4m.fd)"
+    sec_attr="yes" smm_state="on"
+  else
+    ovmf_code="$(vm_ovmf_code)"
+    sec_attr="no" smm_state="off"
+  fi
+  ovmf_vars_tmpl="${vars_seed:-$(vm_ovmf_vars)}" || die "OVMF_VARS template not found"
+  [[ -f "${ovmf_vars_tmpl}" ]] || die "OVMF_VARS seed missing: ${ovmf_vars_tmpl}"
   ovmf_vars="${ARTIFACTS}/${name}_VARS.fd"
   xml="${ARTIFACTS}/${name}.xml"
   # rm (not truncate) first: a prior qemu:///system run may have left these files
@@ -86,6 +113,8 @@ vm_define() {
       -e "s|@ISO@|${iso}|g" \
       -e "s|@SERIAL@|${serial}|g" \
       -e "s|@SHAREDIR@|${sharedir}|g" \
+      -e "s|@SECURE@|${sec_attr}|g" \
+      -e "s|@SMM@|${smm_state}|g" \
       "${TESTS_DIR}/lib/domain.xml.tmpl" > "${xml}"
   "${VIRSH[@]}" define "${xml}" >/dev/null
 }

@@ -5,6 +5,8 @@
        @VCPUS@      vCPU count
        @OVMF_CODE@  path to OVMF_CODE firmware (read-only)
        @OVMF_VARS@  path to this domain's private OVMF_VARS copy (read-write)
+       @SECURE@     loader secure attr: yes|no (Secure Boot enforcing build)
+       @SMM@        SMM feature: on|off (secboot OVMF is an SMM_REQUIRE build)
        @DISK@       path to the throwaway qcow2 system disk
        @ISO@        path to the live installer ISO
        @SERIAL@     path to the serial-console log file (host side)
@@ -17,7 +19,7 @@
   <vcpu>@VCPUS@</vcpu>
   <os>
     <type arch='x86_64' machine='q35'>hvm</type>
-    <loader readonly='yes' type='pflash'>@OVMF_CODE@</loader>
+    <loader readonly='yes' secure='@SECURE@' type='pflash'>@OVMF_CODE@</loader>
     <nvram>@OVMF_VARS@</nvram>
     <boot dev='cdrom'/>
     <boot dev='hd'/>
@@ -25,6 +27,7 @@
   <features>
     <acpi/>
     <apic/>
+    <smm state='@SMM@'/>
   </features>
   <cpu mode='host-passthrough' check='none'/>
   <clock offset='utc'/>

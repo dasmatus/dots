@@ -28,7 +28,6 @@ in
     settings = {
       keybinds = {
         _props."clear-defaults" = false;
-        normal = bind "Space" [ { SwitchToMode = "Tmux"; } ];
         tmux._children = [
           (bind "Esc" [ toNormal ])
           (bind "t" [

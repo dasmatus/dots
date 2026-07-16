@@ -70,8 +70,20 @@ in
     ];
     unitConfig.ConditionPathExists = "/dev/tty1";
     serviceConfig = {
-      # Marker for tests/nix-smoke.sh — lands on the serial console.
-      ExecStartPre = "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'";
+      # Markers for tests/nix-smoke.sh — land on the serial console. The
+      # second one reads the SecureBoot efivar (skip 4 attribute bytes,
+      # data byte is 0/1) so the --secure-boot smoke run can assert the
+      # firmware really enforced Secure Boot, not just that we booted.
+      ExecStartPre = [
+        "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'"
+        (pkgs.writeShellScript "dots-sb-marker" ''
+          sb=$(${pkgs.coreutils}/bin/od -An -tu1 -j4 -N1 \
+            /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c \
+            2>/dev/null | ${pkgs.coreutils}/bin/tr -d ' ')
+          echo "DOTS_SECUREBOOT=''${sb:-absent}" \
+            | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true
+        '')
+      ];
       ExecStart = "${installer}/bin/dots-installer";
       StandardInput = "tty";
       StandardOutput = "tty";
