@@ -34,6 +34,8 @@
   programs.gnome-disks.enable = true;
   programs.seahorse.enable = true;
   programs.hyprland.enable = true;
+  # hyprlock (home-manager) can only unlock with a system PAM service
+  security.pam.services.hyprlock = { };
 
   services.pipewire = {
     enable = true;

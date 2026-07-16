@@ -1,30 +1,15 @@
 # home-manager mapping of files/ — dotfiles are reused wholesale via
 # xdg.configFile.*.source (the Nix equivalent of the Gentoo /etc/skel copy in
-# installer/chroot_system.py). Only two files are patched:
-#   - hypr/hyprland.conf: wallpaper path → store path, Gentoo-only
-#     gentoo-pipewire-launcher dropped, `light` → brightnessctl (light was
-#     removed from nixpkgs)
+# installer/chroot_system.py), or ported to native Home Manager modules where
+# one exists (hyprland.nix, waybar.nix, dunst.nix, rofi/). Only one raw file
+# is still patched:
 #   - gtk-3.0/bookmarks: /home/matus → the actual home directory
 # Skipped on purpose: files/neofetch (binary removed from nixpkgs; fastfetch
 # replaces it), files/claude and files/BetterDiscord (personal/vendored).
+# The X11-era stack (i3, polybar, picom, libinput-gestures, swaybg wallpaper
+# exec, swayidle/swaylock, redshift) has been fully replaced by the Wayland
+# modules imported below.
 { config, pkgs, ... }:
-let
-  hyprlandConf =
-    builtins.replaceStrings
-      [
-        "/home/matus/Dokumente/gitlab/personal/dots/Wallpapers"
-        "exec-once = gentoo-pipewire-launcher\n"
-        "light -A 5"
-        "light -U 5"
-      ]
-      [
-        "${../../Wallpapers}"
-        ""
-        "brightnessctl set 5%+"
-        "brightnessctl set 5%-"
-      ]
-      (builtins.readFile ../../files/hypr/hyprland.conf);
-in
 {
   imports = [
     ./fish.nix
@@ -32,6 +17,11 @@ in
     ./random_wp.nix
     ./nixvim.nix
     ./dokumente.nix
+    ./librewolf.nix
+    ./hyprland.nix
+    ./waybar.nix
+    ./dunst.nix
+    ./rofi
   ];
 
   home.stateVersion = "26.05";
@@ -54,14 +44,8 @@ in
 
   xdg.configFile = {
     "alacritty".source = ../../files/alacritty;
-    "dunst".source = ../../files/dunst;
-    "rofi".source = ../../files/rofi;
     "zellij".source = ../../files/zellij;
     "gtk-2.0".source = ../../files/gtk-2.0;
-    "picom/picom.conf".source = ../../files/picom.conf;
-    "libinput-gestures.conf".source = ../../files/libinput-gestures.conf;
-
-    "hypr/hyprland.conf".text = hyprlandConf;
 
     "gtk-3.0/bookmarks".text = ''
       file://${config.home.homeDirectory}/Dokumente/gitlab
@@ -72,15 +56,12 @@ in
   };
 
   home.packages = with pkgs; [
-    # Wayland session tools exec'd by hyprland.conf
+    # Wayland session tools exec'd by hyprland.nix binds; swaybg is kept for
+    # the wallhaven-wallpaper service (random_wp.nix), which shells out to
+    # it directly instead of going through a Home Manager module.
     swaybg
-    waybar
-    wofi
-    hyprpaper
-    hyprlock
-    hypridle
-    swayidle
-    swaylock
+    alacritty
+    brightnessctl
   ];
   gtk = {
     enable = true;

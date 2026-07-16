@@ -1,7 +1,7 @@
 # Rewrite of files/fish/config.fish — the one dotfile that is not reused
 # wholesale. Changes vs the original:
-#   - startx only fires on tty1 with no display (the original ran on ANY
-#     login shell, including ssh) and uses exec so logout ends the session
+#   - the tty1 `exec startx` block is gone: GDM (nix/modules/desktop.nix)
+#     owns session startup now, and startx is X11-only
 #   - fastfetch replaces neofetch (removed from nixpkgs)
 #   - starship init comes from programs.starship
 #   - linuxbrew/bun/dotnet/Antigravity PATH cruft dropped (host-specific,
@@ -10,12 +10,6 @@
 {
   programs.fish = {
     enable = true;
-
-    loginShellInit = ''
-      if test (tty) = /dev/tty1; and not set -q DISPLAY
-          exec startx
-      end
-    '';
 
     interactiveShellInit = ''
       set -g fish_greeting
