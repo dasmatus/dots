@@ -1,8 +1,12 @@
 # LiveISO: minimal installation CD + the dots-installer TUI auto-launched on
-# tty1 + this whole flake at /etc/dots (the installer copies it to the target
-# and points nixos-install at it). The default .#iso is lean (packages come
-# from the binary cache during install); .#iso-full sets isoImage.storeContents
-# from flake.nix to embed prebuilt system closures for offline installs.
+# tty1 + this whole flake at /etc/dots (read-only). The installer stages a
+# writable copy for nixos-install and stashes the install answers
+# (nix/facter.json + nix/settings.nix) at /var/lib/dots on the target;
+# installed systems clone the repo to ~/Dokumente/gitlab/personal/dots on
+# first login (dots-clone Home Manager user service) and restore those
+# answers into it. The default .#iso is lean (packages come from the binary
+# cache during install); .#iso-full sets isoImage.storeContents from
+# flake.nix to embed prebuilt system closures for offline installs.
 {
   pkgs,
   lib,
@@ -72,8 +76,9 @@ in
     serviceConfig = {
       # Markers for tests/nix-smoke.sh — land on the serial console. The
       # second one reads the SecureBoot efivar (skip 4 attribute bytes,
-      # data byte is 0/1) so the --secure-boot smoke run can assert the
-      # firmware really enforced Secure Boot, not just that we booted.
+      # data byte is 0/1) so the smoke run (Secure Boot-enforcing by
+      # default) can assert the firmware really enforced Secure Boot,
+      # not just that we booted.
       ExecStartPre = [
         "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'"
         (pkgs.writeShellScript "dots-sb-marker" ''

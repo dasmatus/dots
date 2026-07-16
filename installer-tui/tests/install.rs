@@ -2,7 +2,7 @@
 
 use dots_installer::config::InstallConfig;
 use dots_installer::install::{
-    plan, swap_size_from_meminfo, Action, Capture, Step, LUKS_DEVICE, LUKS_PASSFILE,
+    plan, swap_size_from_meminfo, Action, Capture, Step, LUKS_DEVICE, LUKS_PASSFILE, STAGED_FLAKE,
 };
 
 fn cfg() -> InstallConfig {
@@ -61,7 +61,7 @@ fn plan_runs_disko_with_chosen_disk_and_swap() {
 }
 
 #[test]
-fn plan_installs_from_embedded_flake() {
+fn plan_installs_from_staged_flake() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let joined: String = steps
         .iter()
@@ -73,42 +73,143 @@ fn plan_installs_from_embedded_flake() {
         })
         .collect();
     assert!(
-        joined.contains("--flake /mnt/etc/dots#tokyonight"),
+        joined.contains(&format!("--flake {STAGED_FLAKE}#tokyonight")),
         "{joined}"
     );
     assert!(joined.contains("--no-root-passwd"), "{joined}");
 }
 
 #[test]
-fn plan_detects_hardware_into_target_flake_before_install() {
+fn plan_stages_flake_before_detecting_hardware_before_install() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
-    let copy = idx(&|s| matches!(&s.action, Action::Command { program, .. } if program == "sh"));
+    let stage = idx(&|s| s.title == "Stage flake for install");
     let facter =
         idx(&|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-facter"));
     let install = idx(
         &|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-install"),
     );
     assert!(
-        copy < facter && facter < install,
-        "the report must land in the copied flake before nixos-install evaluates it"
+        stage < facter && facter < install,
+        "the report must land in the staged flake before nixos-install evaluates it"
     );
     let Action::Command { args, .. } = &steps[facter].action else {
         unreachable!()
     };
-    assert_eq!(args.join(" "), "-o /mnt/etc/dots/nix/facter.json");
+    assert_eq!(args.join(" "), format!("-o {STAGED_FLAKE}/nix/facter.json"));
 }
 
 #[test]
-fn plan_overwrites_settings_nix_on_target() {
+fn plan_stage_step_recreates_staging_dir_and_copies_from_flake_src() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let stage = steps
+        .iter()
+        .find(|s| s.title == "Stage flake for install")
+        .expect("stage step");
+    let Action::Command { program, args, .. } = &stage.action else {
+        panic!("stage step must be a command");
+    };
+    assert_eq!(program, "sh");
+    let script = args.join(" ");
+    assert!(
+        script.contains(&format!("rm -rf {STAGED_FLAKE}")),
+        "{script}"
+    );
+    assert!(
+        script.contains(&format!("mkdir -p {STAGED_FLAKE}")),
+        "{script}"
+    );
+    assert!(
+        script.contains(&format!("cp -rTL /etc/dots {STAGED_FLAKE}")),
+        "{script}"
+    );
+    assert!(
+        script.contains(&format!("chmod -R u+w {STAGED_FLAKE}")),
+        "{script}"
+    );
+}
+
+#[test]
+fn plan_writes_settings_nix_into_staged_flake() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let found = steps.iter().any(|s| match &s.action {
         Action::WriteFile { path, contents, .. } => {
-            path == "/mnt/etc/dots/nix/settings.nix" && contents.contains("myhost")
+            path == &format!("{STAGED_FLAKE}/nix/settings.nix") && contents.contains("myhost")
         }
         _ => false,
     });
     assert!(found, "settings.nix rewrite step missing");
+}
+
+#[test]
+fn plan_stashes_exactly_settings_and_facter_to_var_lib_dots() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let stash = steps
+        .iter()
+        .find(|s| s.title == "Stash install answers on target")
+        .expect("stash step");
+    let Action::Command { program, args, .. } = &stash.action else {
+        panic!("stash step must be a command");
+    };
+    assert_eq!(program, "sh");
+    let script = args.join(" ");
+    assert!(script.contains("mkdir -p /mnt/var/lib/dots"), "{script}");
+    assert!(
+        script.contains(&format!(
+            "cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json /mnt/var/lib/dots/"
+        )),
+        "{script}"
+    );
+}
+
+#[test]
+fn plan_stashes_answers_after_settings_write_and_before_install() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
+    let settings = idx(&|s| s.title == "Write install answers (settings.nix)");
+    let stash = idx(&|s| s.title == "Stash install answers on target");
+    let install = idx(
+        &|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-install"),
+    );
+    assert!(
+        settings < stash && stash < install,
+        "the stash must run after settings.nix is written and before nixos-install"
+    );
+}
+
+#[test]
+fn plan_never_references_mnt_etc_dots() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    for step in &steps {
+        match &step.action {
+            Action::Command { program, args, .. } => {
+                assert!(
+                    !program.contains("/mnt/etc/dots"),
+                    "{}: {program}",
+                    step.title
+                );
+                for a in args {
+                    assert!(
+                        !a.contains("/mnt/etc/dots"),
+                        "{}: argv leaked /mnt/etc/dots: {a}",
+                        step.title
+                    );
+                }
+            }
+            Action::WriteFile { path, contents, .. } => {
+                assert!(
+                    !path.contains("/mnt/etc/dots"),
+                    "{}: path leaked /mnt/etc/dots",
+                    step.title
+                );
+                assert!(
+                    !contents.contains("/mnt/etc/dots"),
+                    "{}: contents leaked /mnt/etc/dots",
+                    step.title
+                );
+            }
+        }
+    }
 }
 
 #[test]

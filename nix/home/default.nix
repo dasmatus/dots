@@ -2,9 +2,10 @@
 # dotfile tree is gone (git history). Every former dotfile is either a native
 # module imported below (alacritty.nix, zellij.nix, fastfetch.nix, fish.nix,
 # claude.nix, hyprland.nix, waybar.nix, dunst.nix, rofi/, nixvim.nix,
-# librewolf.nix) or was deliberately dropped (BetterDiscord — Vesktop flatpak
-# covers it; gtk-2.0 filechooser state). The only generated raw text left is
-# gtk-3.0/bookmarks (needs the real home directory interpolated).
+# librewolf.nix, dots-repo.nix) or was deliberately dropped (BetterDiscord —
+# Vesktop flatpak covers it; gtk-2.0 filechooser state). The only generated
+# raw text left is gtk-3.0/bookmarks (needs the real home directory
+# interpolated).
 # The X11-era stack (i3, polybar, picom, libinput-gestures, swaybg wallpaper
 # exec, swayidle/swaylock, redshift) has been fully replaced by the Wayland
 # modules imported below.
@@ -19,6 +20,7 @@
     ./random_wp.nix
     ./nixvim.nix
     ./dokumente.nix
+    ./dots-repo.nix
     ./librewolf.nix
     ./hyprland.nix
     ./waybar.nix

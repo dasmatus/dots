@@ -50,6 +50,10 @@ pub struct Step {
 pub const LUKS_PASSFILE: &str = "/tmp/dots-luks-pass";
 /// disko partlabel for disk "main", partition "root" (see nix/disko.nix).
 pub const LUKS_DEVICE: &str = "/dev/disk/by-partlabel/disk-main-root";
+/// Writable staging copy of the flake on the live system, used by
+/// `nixos-install` — the ISO's `/etc/dots` is a read-only store path. Lives
+/// on ISO tmpfs and is gone after reboot.
+pub const STAGED_FLAKE: &str = "/tmp/dots-flake";
 
 /// Round `MemTotal` up to whole GiB — parity with `config.ram_gib()` in the
 /// Gentoo installer (swap sized = RAM).
@@ -74,10 +78,14 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
 }
 
 /// The full install sequence. `flake_src` is where the ISO carries the flake
-/// (/etc/dots); `mnt` is the installation mount root (/mnt).
+/// (/etc/dots); the plan stages a writable copy at [`STAGED_FLAKE`] and
+/// installs from there, then stashes the two machine-specific answer files
+/// (`settings.nix`, `facter.json`) at `{mnt}/var/lib/dots` for the
+/// first-login `dots-clone` user service to pick up. The repo itself is
+/// never copied onto the target — `mnt` is only the installation mount root
+/// (/mnt).
 #[must_use]
 pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
-    let target_flake = format!("{mnt}/etc/dots");
     let swap = format!("{}G", cfg.swap_size_gib);
     let unlock = format!("--unlock-key-file={LUKS_PASSFILE}");
 
@@ -111,13 +119,13 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             ),
         },
         Step {
-            title: "Copy flake to target".into(),
+            title: "Stage flake for install".into(),
             action: cmd(
                 "sh",
                 &[
                     "-c",
                     &format!(
-                        "mkdir -p {target_flake} && cp -rTL {flake_src} {target_flake} && chmod -R u+w {target_flake}"
+                        "rm -rf {STAGED_FLAKE} && mkdir -p {STAGED_FLAKE} && cp -rTL {flake_src} {STAGED_FLAKE} && chmod -R u+w {STAGED_FLAKE}"
                     ),
                 ],
                 None,
@@ -128,7 +136,7 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             title: "Detect hardware (nixos-facter)".into(),
             action: cmd(
                 "nixos-facter",
-                &["-o", &format!("{target_flake}/nix/facter.json")],
+                &["-o", &format!("{STAGED_FLAKE}/nix/facter.json")],
                 None,
                 Capture::Stream,
             ),
@@ -136,10 +144,24 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
         Step {
             title: "Write install answers (settings.nix)".into(),
             action: Action::WriteFile {
-                path: format!("{target_flake}/nix/settings.nix"),
+                path: format!("{STAGED_FLAKE}/nix/settings.nix"),
                 contents: cfg.settings_nix(),
                 mode: 0o644,
             },
+        },
+        Step {
+            title: "Stash install answers on target".into(),
+            action: cmd(
+                "sh",
+                &[
+                    "-c",
+                    &format!(
+                        "mkdir -p {mnt}/var/lib/dots && cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json {mnt}/var/lib/dots/"
+                    ),
+                ],
+                None,
+                Capture::Stream,
+            ),
         },
         Step {
             title: "Install NixOS (this takes a while)".into(),
@@ -150,7 +172,7 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                     mnt,
                     "--no-root-passwd",
                     "--flake",
-                    &format!("{target_flake}#tokyonight"),
+                    &format!("{STAGED_FLAKE}#tokyonight"),
                 ],
                 None,
                 Capture::Stream,
