@@ -2,7 +2,12 @@
 # the username comes from nix/settings.nix (written by the installer TUI).
 # mutableUsers stays true so the passwords set by the installer via chpasswd
 # survive rebuilds.
-{ pkgs, settings, ... }:
+{
+  pkgs,
+  settings,
+  inputs,
+  ...
+}:
 {
   users.mutableUsers = true;
   users.users.${settings.username} = {
@@ -21,6 +26,11 @@
   home-manager = {
     useGlobalPkgs = true;
     useUserPackages = true;
+    # home modules need flake inputs too (nixvim module, haumea lib)
+    extraSpecialArgs = {
+      inherit inputs;
+    };
+    sharedModules = [ inputs.nixvim.homeModules.nixvim ];
     users.${settings.username} = import ../home;
   };
 }

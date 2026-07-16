@@ -30,6 +30,8 @@ in
     ./fish.nix
     ./claude.nix
     ./random_wp.nix
+    ./nixvim.nix
+    ./dokumente.nix
   ];
 
   home.stateVersion = "26.05";
