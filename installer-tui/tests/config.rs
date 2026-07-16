@@ -1,6 +1,6 @@
 //! `InstallConfig` rendering + hostname/username validation tests.
 
-use dots_installer::config::{validate_hostname, validate_username, InstallConfig, Variant};
+use dots_installer::config::{validate_hostname, validate_username, InstallConfig};
 
 #[test]
 fn settings_nix_renders_all_answers() {
@@ -9,7 +9,6 @@ fn settings_nix_renders_all_answers() {
         hostname: "myhost".into(),
         username: "alice".into(),
         swap_size_gib: 16,
-        variant: Variant::Amd,
         ..Default::default()
     };
     let out = cfg.settings_nix();
@@ -63,10 +62,4 @@ fn username_rejects_bad_names() {
     assert!(validate_username("with space").is_err());
     assert!(validate_username(&"a".repeat(32)).is_err());
     assert!(validate_username("root").is_err(), "reserved name");
-}
-
-#[test]
-fn variant_maps_to_flake_attr() {
-    assert_eq!(Variant::Intel.flake_attr(), "tokyonight-intel");
-    assert_eq!(Variant::Amd.flake_attr(), "tokyonight-amd");
 }

@@ -8,7 +8,7 @@
 # the settings.nix the installer wrote. Building from the GitLab remote would
 # eval the committed placeholder settings and revert the hostname/user on the
 # next reboot. The preStart refreshes the lock file so "daily" actually moves.
-{ config, variant, ... }:
+{ config, ... }:
 {
   nix.gc = {
     automatic = true;
@@ -19,7 +19,7 @@
 
   system.autoUpgrade = {
     enable = true;
-    flake = "/etc/dots#tokyonight-${variant}";
+    flake = "/etc/dots#tokyonight";
     dates = "daily";
     operation = "boot";
     allowReboot = false;

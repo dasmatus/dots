@@ -125,6 +125,15 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             ),
         },
         Step {
+            title: "Detect hardware (nixos-facter)".into(),
+            action: cmd(
+                "nixos-facter",
+                &["-o", &format!("{target_flake}/nix/facter.json")],
+                None,
+                Capture::Stream,
+            ),
+        },
+        Step {
             title: "Write install answers (settings.nix)".into(),
             action: Action::WriteFile {
                 path: format!("{target_flake}/nix/settings.nix"),
@@ -141,7 +150,7 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                     mnt,
                     "--no-root-passwd",
                     "--flake",
-                    &format!("{target_flake}#{}", cfg.variant.flake_attr()),
+                    &format!("{target_flake}#tokyonight"),
                 ],
                 None,
                 Capture::Stream,

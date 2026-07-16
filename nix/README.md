@@ -13,7 +13,7 @@ installer has been fully retired — `install.sh` now only bootstraps
 nix build .#iso                          # build the LiveISO (installer auto-starts on tty1)
 dd if=result/iso/*.iso of=/dev/sdX bs=4M oflag=sync
 # or, on an already-booted NixOS:
-sudo nixos-rebuild switch --flake .#tokyonight-intel   # or #tokyonight-amd
+sudo nixos-rebuild switch --flake .#tokyonight
 ```
 
 ## Gentoo → NixOS concept mapping
@@ -29,9 +29,9 @@ sudo nixos-rebuild switch --flake .#tokyonight-intel   # or #tokyonight-amd
 | `homectl` first-boot user | `users.users.<name>` + home-manager; username collected at install time by the TUI |
 | afosi `.steps.yaml` wizard (removed — git history) | `installer-tui/` ratatui crate on the LiveISO |
 | dotfiles → `/etc/skel` copy | home-manager native modules (`programs.*`); `files/` fully ported and deleted — git history |
-| `make.conf.intel` / `make.conf.amd` | `nixosConfigurations.tokyonight-intel` / `tokyonight-amd` |
+| `make.conf.intel` / `make.conf.amd` | single `nixosConfigurations.tokyonight` + a nixos-facter report (`nix/hosts.nix`) |
 | konkrit 104-module firstboot catalog (`.konkrit.yaml`, removed — git history) | `nix/modules/hardening.nix`, declarative at build time |
-| `COMMON_FLAGS` `-march=znver2`/`-march=skylake`, clang/LTO toolchain | **not ported** — custom `-march` forfeits the cache.nixos.org binary cache for near-zero gain; see `nix/hosts/*.nix` |
+| `COMMON_FLAGS` `-march=znver2`/`-march=skylake`, clang/LTO toolchain | **not ported** — custom `-march` forfeits the cache.nixos.org binary cache for near-zero gain |
 | `package.use` kernel `hardened` (hardened vanilla-kernel) | **not ported** — stock kernel + `nix/modules/hardening.nix` sysctl/params catalog instead |
 | `package.use` gpg smartcard (`gnupg smartcard usb`, `gnutls pkcs11`) | `services.pcscd` + `hardware.gpgSmartcards` + `programs.gnupg.agent` (`nix/modules/core.nix`) |
 
@@ -42,8 +42,12 @@ sudo nixos-rebuild switch --flake .#tokyonight-intel   # or #tokyonight-amd
 - `disko.nix` — single source of truth for the disk layout: consumed by the
   installer (`disko` CLI) *and* imported by the system config (generates
   `fileSystems`). Keep them from drifting by never duplicating the layout.
-- `hosts/` — per-CPU-vendor deltas (microcode, GPU modules): `amd.nix`,
-  `intel.nix`.
+- `hosts.nix` — hardware config driven by the nixos-facter report
+  (`facter.json`): microcode, firmware, GPU modules and amd_pstate come from
+  detection; NVIDIA is switched via if-then-else on the report (facter
+  deliberately doesn't auto-configure the proprietary driver).
+- `facter.json` — committed stub (`{}`) that keeps evaluation green with all
+  detection off; the installer overwrites it on the target.
 - `modules/` — system configuration split by concern: `boot.nix`, `core.nix`,
   `desktop.nix` (GNOME/GDM + Hyprland + pipewire), `flatpak.nix` (declarative
   Flathub packages), `hardening.nix`, `maintenance.nix`, `network.nix`,
@@ -56,6 +60,25 @@ sudo nixos-rebuild switch --flake .#tokyonight-intel   # or #tokyonight-amd
   and `dokumente.nix`/`dokumente/` (haumea `~/Dokumente` skeleton).
 - `iso.nix` — the LiveISO: embeds this flake at `/etc/dots`, auto-launches
   `dots-installer` on tty1.
+
+## Hardware detection (nixos-facter)
+
+Fresh installs need nothing: the TUI runs `nixos-facter` on the target and
+writes the report into the copied flake before `nixos-install`. To adopt this
+on an already-installed machine (or after swapping hardware):
+
+```bash
+cd ~/dots   # or wherever the clone lives
+sudo nix run nixpkgs#nixos-facter -- -o nix/facter.json   # overwrite the stub
+sudo nixos-rebuild switch --flake .#tokyonight
+```
+
+Keep the real report as local dirty state — **never commit it** (it embeds
+serial numbers and MAC addresses, and each machine's report differs). This
+works because the stub is a *tracked* file: git-repo flakes include dirty
+tracked modifications but ignore untracked files. `/etc/dots` on installed
+systems is a plain directory, so `system.autoUpgrade` always sees the
+installer-written report.
 
 ## Machine-specific facts kept as-is
 
@@ -72,5 +95,5 @@ sudo sbctl create-keys
 # reboot into firmware, put Secure Boot into Setup Mode
 sudo sbctl enroll-keys --microsoft
 # set dots.secureboot.enable = true; in your host config, then:
-sudo nixos-rebuild switch --flake ~/dots#tokyonight-intel
+sudo nixos-rebuild switch --flake ~/dots#tokyonight
 ```

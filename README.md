@@ -1,8 +1,10 @@
 # tokyonight-dots
 
 A [Tokyonight](https://github.com/folke/tokyonight.nvim)-themed **NixOS flake**:
-system config for two hosts (`tokyonight-intel`, `tokyonight-amd`), a
-home-manager profile, and a LiveISO carrying a ratatui-based installer.
+a single `tokyonight` system config with
+[nixos-facter](https://github.com/nix-community/nixos-facter)-based hardware
+detection, a home-manager profile, and a LiveISO carrying a ratatui-based
+installer.
 
 ## Quickstart
 
@@ -18,14 +20,16 @@ nix build .#iso
 dd if=result/iso/*.iso of=/dev/sdX bs=4M oflag=sync
 
 # On an already-installed system, apply config changes:
-sudo nixos-rebuild switch --flake .#tokyonight-amd   # or #tokyonight-intel
+sudo nixos-rebuild switch --flake .#tokyonight
 ```
 
 `installer-tui/` (package name `dots-installer`) is a Rust/ratatui wizard —
-disk picker → intel/amd variant → hostname → user → passwords → typed-`ERASE`
-confirm — that runs [disko](https://github.com/nix-community/disko),
-`nixos-install` from the flake bundled on the ISO, enrolls TPM2 (PCR 7) + a
-printed LUKS recovery key, and reboots. Dev loop:
+disk picker → hostname → user → passwords → typed-`ERASE` confirm — that runs
+[disko](https://github.com/nix-community/disko), generates a
+[nixos-facter](https://github.com/nix-community/nixos-facter) hardware report
+on the target (no more manual intel/amd picking), runs `nixos-install` from
+the flake bundled on the ISO, enrolls TPM2 (PCR 7) + a printed LUKS recovery
+key, and reboots. Dev loop:
 
 ```bash
 just nix-lint    # nix flake check + cargo fmt/clippy/test
@@ -88,7 +92,8 @@ See [`tests/README.md`](tests/README.md) for how the VM harness works.
 | `flake.nix` | Inputs, `nixosConfigurations`, `packages.dots-installer`, formatter |
 | `nix/settings.nix` | Install-time parameters (username, hostname, disk, swap) |
 | `nix/disko.nix` | Single source of truth for the disk layout |
-| `nix/hosts/{amd,intel}.nix` | Per-CPU-vendor deltas (microcode, GPU) |
+| `nix/hosts.nix` | facter-driven hardware config (NVIDIA via if-then-else on the report) |
+| `nix/facter.json` | Committed stub (`{}`); the installer writes the real report on the target |
 | `nix/modules/` | System configuration split by concern (boot, core, desktop, flatpak, hardening, maintenance, network, secureboot, users, virtualisation) |
 | `nix/home/` | home-manager profile (nixvim, Hyprland session, LibreWolf, Dokumente skeleton, wallpaper service) |
 | `nix/iso.nix` | The LiveISO: embeds the flake at `/etc/dots`, auto-launches `dots-installer` on tty1 |

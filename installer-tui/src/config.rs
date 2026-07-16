@@ -1,22 +1,5 @@
 //! Install answers + validation + rendering of nix/settings.nix.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Variant {
-    #[default]
-    Intel,
-    Amd,
-}
-
-impl Variant {
-    #[must_use]
-    pub fn flake_attr(&self) -> &'static str {
-        match self {
-            Variant::Intel => "tokyonight-intel",
-            Variant::Amd => "tokyonight-amd",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct InstallConfig {
     pub disk: String,
@@ -24,7 +7,6 @@ pub struct InstallConfig {
     pub username: String,
     pub root_password: String,
     pub user_password: String,
-    pub variant: Variant,
     pub swap_size_gib: u64,
 }
 

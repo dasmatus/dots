@@ -2,7 +2,6 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use dots_installer::app::{App, Screen};
-use dots_installer::config::Variant;
 use dots_installer::disks::Disk;
 use dots_installer::install;
 
@@ -60,7 +59,7 @@ fn disk_select_stores_chosen_path() {
     app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.config.disk, "/dev/sda");
-    assert_eq!(app.screen, Screen::VariantSelect);
+    assert_eq!(app.screen, Screen::Hostname);
 }
 
 #[test]
@@ -77,16 +76,6 @@ fn disk_select_rejects_too_small_disk_before_anything_is_wiped() {
     );
     assert!(app.error.as_deref().unwrap().contains("too small"));
     assert!(app.config.disk.is_empty());
-}
-
-#[test]
-fn variant_toggle_and_select() {
-    let mut app = app_with_disks();
-    app.screen = Screen::VariantSelect;
-    app.handle_key(key(KeyCode::Down));
-    app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.config.variant, Variant::Amd);
-    assert_eq!(app.screen, Screen::Hostname);
 }
 
 #[test]
