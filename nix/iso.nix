@@ -30,6 +30,9 @@ in
     pkgs.cryptsetup
     pkgs.tpm2-tools
     pkgs.gptfdisk
+    # The installer runs this on the target to generate nix/facter.json for
+    # the hardware detection in nix/hosts.nix.
+    pkgs.nixos-facter
   ];
 
   nix.settings.experimental-features = [
@@ -58,9 +61,9 @@ in
     ];
     wants = [ "systemd-udev-settle.service" ];
     conflicts = [ "getty@tty1.service" ];
-    # Units get a bare default PATH — the TUI spawns lsblk/disko/nixos-install/
-    # systemd-cryptenroll/nixos-enter/findmnt/shred/systemctl from the system
-    # profile, and `sh` for the copy step.
+    # Units get a bare default PATH — the TUI spawns lsblk/disko/nixos-facter/
+    # nixos-install/systemd-cryptenroll/nixos-enter/findmnt/shred/systemctl
+    # from the system profile, and `sh` for the copy step.
     path = [
       "/run/current-system/sw"
       pkgs.bash

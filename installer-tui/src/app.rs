@@ -3,7 +3,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::config::{validate_hostname, validate_username, InstallConfig, Variant};
+use crate::config::{validate_hostname, validate_username, InstallConfig};
 use crate::disks::Disk;
 use crate::install;
 
@@ -20,7 +20,6 @@ fn required_disk_gib(swap_gib: u64) -> u64 {
 pub enum Screen {
     Welcome,
     DiskSelect,
-    VariantSelect,
     Hostname,
     Username,
     RootPassword,
@@ -104,24 +103,13 @@ impl App {
                         } else {
                             self.config.disk = d.path.clone();
                             self.error = None;
-                            self.screen = Screen::VariantSelect;
+                            self.screen = Screen::Hostname;
                         }
                     } else {
                         self.error = Some("no installable disks found".into());
                     }
                 }
                 KeyCode::Esc => self.screen = Screen::Welcome,
-                _ => {}
-            },
-
-            Screen::VariantSelect => match key.code {
-                KeyCode::Up => self.config.variant = Variant::Intel,
-                KeyCode::Down => self.config.variant = Variant::Amd,
-                KeyCode::Enter => {
-                    self.error = None;
-                    self.screen = Screen::Hostname;
-                }
-                KeyCode::Esc => self.screen = Screen::DiskSelect,
                 _ => {}
             },
 

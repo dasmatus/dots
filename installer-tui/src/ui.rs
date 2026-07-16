@@ -96,49 +96,6 @@ fn draw_wizard(frame: &mut Frame, app: &App, area: Rect) {
             )
         }
 
-        Screen::VariantSelect => {
-            let sel = |v| {
-                if app.config.variant == v {
-                    Style::default()
-                        .fg(palette::CYAN)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                }
-            };
-            (
-                " hardware variant ",
-                vec![
-                    Line::default(),
-                    Line::raw("  Pick the CPU/GPU vendor of this machine:"),
-                    Line::default(),
-                    Line::styled(
-                        format!(
-                            "  {} Intel (i915)",
-                            if app.config.variant == crate::config::Variant::Intel {
-                                "▶"
-                            } else {
-                                " "
-                            }
-                        ),
-                        sel(crate::config::Variant::Intel),
-                    ),
-                    Line::styled(
-                        format!(
-                            "  {} AMD (amdgpu)",
-                            if app.config.variant == crate::config::Variant::Amd {
-                                "▶"
-                            } else {
-                                " "
-                            }
-                        ),
-                        sel(crate::config::Variant::Amd),
-                    ),
-                ],
-                "↑/↓ select · Enter confirm · Esc back",
-            )
-        }
-
         Screen::Hostname => (
             " hostname ",
             input_lines("Hostname (empty = \"tokyonight\"):", &app.input, false),
@@ -189,7 +146,6 @@ fn draw_wizard(frame: &mut Frame, app: &App, area: Rect) {
                 ),
                 Line::default(),
                 Line::raw(format!("    disk      {}", app.config.disk)),
-                Line::raw(format!("    variant   {}", app.config.variant.flake_attr())),
                 Line::raw(format!("    hostname  {}", app.config.hostname)),
                 Line::raw(format!("    user      {}", app.config.username)),
                 Line::raw(format!("    swap      {}G", app.config.swap_size_gib)),

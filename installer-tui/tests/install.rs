@@ -1,6 +1,6 @@
 //! Install-plan contract tests (step order, argv hygiene, TPM2 flow).
 
-use dots_installer::config::{InstallConfig, Variant};
+use dots_installer::config::InstallConfig;
 use dots_installer::install::{
     plan, swap_size_from_meminfo, Action, Capture, Step, LUKS_DEVICE, LUKS_PASSFILE,
 };
@@ -12,7 +12,6 @@ fn cfg() -> InstallConfig {
         username: "alice".into(),
         root_password: "rootsecret".into(),
         user_password: "usersecret".into(),
-        variant: Variant::Amd,
         swap_size_gib: 16,
     }
 }
@@ -62,7 +61,7 @@ fn plan_runs_disko_with_chosen_disk_and_swap() {
 }
 
 #[test]
-fn plan_installs_from_embedded_flake_with_variant_attr() {
+fn plan_installs_from_embedded_flake() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let joined: String = steps
         .iter()
@@ -74,10 +73,30 @@ fn plan_installs_from_embedded_flake_with_variant_attr() {
         })
         .collect();
     assert!(
-        joined.contains("--flake /mnt/etc/dots#tokyonight-amd"),
+        joined.contains("--flake /mnt/etc/dots#tokyonight"),
         "{joined}"
     );
     assert!(joined.contains("--no-root-passwd"), "{joined}");
+}
+
+#[test]
+fn plan_detects_hardware_into_target_flake_before_install() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
+    let copy = idx(&|s| matches!(&s.action, Action::Command { program, .. } if program == "sh"));
+    let facter =
+        idx(&|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-facter"));
+    let install = idx(
+        &|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-install"),
+    );
+    assert!(
+        copy < facter && facter < install,
+        "the report must land in the copied flake before nixos-install evaluates it"
+    );
+    let Action::Command { args, .. } = &steps[facter].action else {
+        unreachable!()
+    };
+    assert_eq!(args.join(" "), "-o /mnt/etc/dots/nix/facter.json");
 }
 
 #[test]

@@ -46,11 +46,40 @@
       pkgs = nixpkgs.legacyPackages.${system};
       settings = import ./nix/settings.nix;
 
-      mkHost =
-        variant:
+      mkIso =
+        embedSystem:
         nixpkgs.lib.nixosSystem {
           inherit system;
-          specialArgs = { inherit inputs settings variant; };
+          specialArgs = {
+            inherit inputs settings;
+            dotsSelf = self;
+          };
+          modules = [
+            ./nix/iso.nix
+            {
+              # System closures alone don't make nixos-install offline-capable:
+              # evaluating the flake also needs the locked input sources.
+              # The embedded closure is built against the committed facter.json
+              # stub; the installer regenerates the report on real hardware, so
+              # the delta (drivers, microcode) still comes from the binary cache.
+              isoImage.storeContents = nixpkgs.lib.optionals embedSystem [
+                self.nixosConfigurations.tokyonight.config.system.build.toplevel
+                nixpkgs.outPath
+                home-manager.outPath
+                disko.outPath
+                lanzaboote.outPath
+              ];
+            }
+          ];
+        };
+    in
+    {
+      nixosConfigurations = {
+        # Hardware is not baked into variants anymore: nix/hosts.nix reads the
+        # nixos-facter report the installer generates on the target.
+        tokyonight = nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = { inherit inputs settings; };
           modules = [
             flatpaks.nixosModules.default
             disko.nixosModules.disko
@@ -67,46 +96,14 @@
             ./nix/modules/hardening.nix
             ./nix/modules/maintenance.nix
             ./nix/modules/secureboot.nix
-            ./nix/hosts/${variant}.nix
+            ./nix/hosts.nix
           ];
         };
-      mkIso =
-        variants:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = {
-            inherit inputs settings;
-            dotsSelf = self;
-          };
-          modules = [
-            ./nix/iso.nix
-            {
-              # System closures alone don't make nixos-install offline-capable:
-              # evaluating the flake also needs the locked input sources.
-              isoImage.storeContents =
-                map (v: self.nixosConfigurations."tokyonight-${v}".config.system.build.toplevel) variants
-                ++ nixpkgs.lib.optionals (variants != [ ]) [
-                  nixpkgs.outPath
-                  home-manager.outPath
-                  disko.outPath
-                  lanzaboote.outPath
-                ];
-            }
-          ];
-        };
-    in
-    {
-      nixosConfigurations = {
-        tokyonight-intel = mkHost "intel";
-        tokyonight-amd = mkHost "amd";
         # Lean by default: the flake rides on the ISO, packages come from the
-        # binary cache during install. live-iso-full embeds both prebuilt
-        # system closures for offline installs (much bigger image).
-        live-iso = mkIso [ ];
-        live-iso-full = mkIso [
-          "intel"
-          "amd"
-        ];
+        # binary cache during install. live-iso-full embeds the prebuilt
+        # system closure for offline installs (much bigger image).
+        live-iso = mkIso false;
+        live-iso-full = mkIso true;
       };
 
       packages.${system} = {
@@ -132,6 +129,53 @@
             settings.swapSize
           ]
         );
+        # The committed facter.json stub ({}) must leave every detection off,
+        # including the nvidia if-then-else in nix/hosts.nix.
+        facter-stub-eval =
+          assert
+            self.nixosConfigurations.tokyonight.config.services.xserver.videoDrivers == [
+              "modesetting"
+            ];
+          pkgs.writeText "facter-stub-ok" "modesetting";
+        # A synthetic report with an NVIDIA card (PCI vendor 0x10de = 4318)
+        # must flip videoDrivers to nvidia, engage facter's CPU detection, and
+        # pass every module assertion — asserting on config.assertions forces
+        # the nvidia package eval, so a broken unfree allowlist fails here
+        # instead of on the first on-machine rebuild. The cpu entry is
+        # mandatory: facter asserts a non-empty hardware.cpu on baremetal.
+        facter-nvidia-eval =
+          let
+            nvidiaSystem = self.nixosConfigurations.tokyonight.extendModules {
+              modules = [
+                {
+                  hardware.facter.report = {
+                    version = 2;
+                    system = "x86_64-linux";
+                    virtualisation = "none";
+                    hardware = {
+                      cpu = [ { vendor_name = "AuthenticAMD"; } ];
+                      graphics_card = [
+                        {
+                          vendor = {
+                            hex = "10de";
+                            value = 4318;
+                          };
+                        }
+                      ];
+                    };
+                  };
+                }
+              ];
+            };
+            inherit (nvidiaSystem) config;
+            failed = map (a: a.message) (builtins.filter (a: !a.assertion) config.assertions);
+          in
+          assert config.services.xserver.videoDrivers == [ "nvidia" ];
+          assert config.hardware.nvidia.open;
+          assert config.hardware.cpu.amd.updateMicrocode;
+          assert builtins.elem "amd_pstate=active" config.boot.kernelParams;
+          assert failed == [ ];
+          pkgs.writeText "facter-nvidia-ok" "nvidia";
       };
     };
 }

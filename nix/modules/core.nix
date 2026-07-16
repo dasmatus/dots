@@ -19,6 +19,10 @@
       "claude-code"
       # no upstream license → nixpkgs marks it unfree
       "presence.nvim"
+      # proprietary driver + settings tool, pulled in when nix/hosts.nix
+      # detects an NVIDIA card in the facter report
+      "nvidia-x11"
+      "nvidia-settings"
     ];
 
   nix.settings = {
