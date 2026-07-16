@@ -12,6 +12,7 @@
 { config, pkgs, ... }:
 {
   imports = [
+    ./alacritty.nix
     ./fish.nix
     ./claude.nix
     ./random_wp.nix
@@ -43,7 +44,6 @@
   };
 
   xdg.configFile = {
-    "alacritty".source = ../../files/alacritty;
     "zellij".source = ../../files/zellij;
     "gtk-2.0".source = ../../files/gtk-2.0;
 
@@ -60,7 +60,6 @@
     # the wallhaven-wallpaper service (random_wp.nix), which shells out to
     # it directly instead of going through a Home Manager module.
     swaybg
-    alacritty
     brightnessctl
   ];
   gtk = {
