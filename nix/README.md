@@ -28,7 +28,7 @@ sudo nixos-rebuild switch --flake .#tokyonight-intel   # or #tokyonight-amd
 | ukify UKI + self-generated Secure Boot db keys | systemd-boot; `dots.secureboot.enable` (lanzaboote + sbctl) as post-install opt-in |
 | `homectl` first-boot user | `users.users.<name>` + home-manager; username collected at install time by the TUI |
 | afosi `.steps.yaml` wizard (removed — git history) | `installer-tui/` ratatui crate on the LiveISO |
-| dotfiles → `/etc/skel` copy | home-manager `xdg.configFile.*.source` symlinks into the store |
+| dotfiles → `/etc/skel` copy | home-manager native modules (`programs.*`); `files/` fully ported and deleted — git history |
 | `make.conf.intel` / `make.conf.amd` | `nixosConfigurations.tokyonight-intel` / `tokyonight-amd` |
 | konkrit 104-module firstboot catalog (`.konkrit.yaml`, removed — git history) | `nix/modules/hardening.nix`, declarative at build time |
 | `COMMON_FLAGS` `-march=znver2`/`-march=skylake`, clang/LTO toolchain | **not ported** — custom `-march` forfeits the cache.nixos.org binary cache for near-zero gain; see `nix/hosts/*.nix` |
@@ -48,11 +48,10 @@ sudo nixos-rebuild switch --flake .#tokyonight-intel   # or #tokyonight-amd
   `desktop.nix` (GNOME/GDM + Hyprland + pipewire), `flatpak.nix` (declarative
   Flathub packages), `hardening.nix`, `maintenance.nix`, `network.nix`,
   `secureboot.nix`, `users.nix`, `virtualisation.nix`.
-- `home/` — home-manager profile. Dotfiles still under `files/` (fish,
-  alacritty, gtk, neofetch, brave, BetterDiscord, claude) are reused wholesale
-  via `xdg.configFile.*.source` (`default.nix`); Hyprland, waybar, dunst and
-  rofi are full rewrites as native home-manager modules
-  (`hyprland.nix`, `waybar.nix`, `dunst.nix`, `rofi/`), same for `nixvim.nix`,
+- `home/` — home-manager profile, fully native modules (the raw `files/`
+  dotfile tree is deleted — git history): `alacritty.nix`, `zellij.nix`,
+  `fastfetch.nix` (ported from the old neofetch config), `fish.nix`,
+  `hyprland.nix`, `waybar.nix`, `dunst.nix`, `rofi/`, `nixvim.nix`,
   `librewolf.nix`, `claude.nix`, `random_wp.nix` (Wallhaven wallpaper timer)
   and `dokumente.nix`/`dokumente/` (haumea `~/Dokumente` skeleton).
 - `iso.nix` — the LiveISO: embeds this flake at `/etc/dots`, auto-launches

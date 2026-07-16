@@ -1,11 +1,10 @@
-# home-manager mapping of files/ — dotfiles are reused wholesale via
-# xdg.configFile.*.source (the Nix equivalent of the retired Gentoo /etc/skel
-# copy — git history), or ported to native Home Manager modules where
-# one exists (hyprland.nix, waybar.nix, dunst.nix, rofi/). Only one raw file
-# is still patched:
-#   - gtk-3.0/bookmarks: /home/matus → the actual home directory
-# Skipped on purpose: files/neofetch (binary removed from nixpkgs; fastfetch
-# replaces it), files/claude and files/BetterDiscord (personal/vendored).
+# home-manager profile aggregator — fully native modules; the raw files/
+# dotfile tree is gone (git history). Every former dotfile is either a native
+# module imported below (alacritty.nix, zellij.nix, fastfetch.nix, fish.nix,
+# claude.nix, hyprland.nix, waybar.nix, dunst.nix, rofi/, nixvim.nix,
+# librewolf.nix) or was deliberately dropped (BetterDiscord — Vesktop flatpak
+# covers it; gtk-2.0 filechooser state). The only generated raw text left is
+# gtk-3.0/bookmarks (needs the real home directory interpolated).
 # The X11-era stack (i3, polybar, picom, libinput-gestures, swaybg wallpaper
 # exec, swayidle/swaylock, redshift) has been fully replaced by the Wayland
 # modules imported below.
