@@ -14,6 +14,7 @@
   imports = [
     ./alacritty.nix
     ./zellij.nix
+    ./fastfetch.nix
     ./fish.nix
     ./claude.nix
     ./random_wp.nix
