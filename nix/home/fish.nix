@@ -25,6 +25,7 @@
     shellAliases = {
       cat = "bat --paging=never";
       ls = "eza -lhi --git --icons";
+      claude = "claude --worktree";
     };
   };
 }

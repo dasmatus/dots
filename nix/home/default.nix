@@ -26,7 +26,11 @@ let
       (builtins.readFile ../../files/hypr/hyprland.conf);
 in
 {
-  imports = [ ./fish.nix ];
+  imports = [
+    ./fish.nix
+    ./claude.nix
+    ./random_wp.nix
+  ];
 
   home.stateVersion = "26.05";
   programs.home-manager.enable = true;
@@ -42,15 +46,13 @@ in
   };
   qt = {
     enable = true;
-    platformTheme = "qtct";
-    style = "kvantum";
+    platformTheme.name = "qtct";
+    style.name = "kvantum";
   };
 
   xdg.configFile = {
     "alacritty".source = ../../files/alacritty;
     "dunst".source = ../../files/dunst;
-    "i3".source = ../../files/i3;
-    "polybar".source = ../../files/polybar;
     "rofi".source = ../../files/rofi;
     "zellij".source = ../../files/zellij;
     "gtk-2.0".source = ../../files/gtk-2.0;
@@ -66,17 +68,13 @@ in
 
     "hypr/hyprland.conf".text = hyprlandConf;
 
-    "gtk-3.0/settings.ini".source = ../../files/gtk-3.0/settings.ini;
     "gtk-3.0/bookmarks".text = ''
-      file://${config.home.homeDirectory}/Dokumente
-      file://${config.home.homeDirectory}/Downloads
+      file://${config.home.homeDirectory}/Dokumente/gitlab
+      file://${config.home.homeDirectory}/Dokumente/github
+      file://${config.home.homeDirectory}/Dokumente/schule
+      file://${config.home.homeDirectory}/Dokumente/blog
     '';
   };
-
-  # Closes the unpinned-session gap: the Gentoo setup shipped no .xinitrc.
-  home.file.".xinitrc".text = ''
-    exec i3
-  '';
 
   home.packages = with pkgs; [
     # Wayland session tools exec'd by hyprland.conf
@@ -88,17 +86,16 @@ in
     hypridle
     swayidle
     swaylock
-    # i3 keybinds use pactl (pipewire-pulse serves it); hypr uses wpctl
-    pulseaudio
-    xrandr
-    setxkbmap
-    fastfetch
   ];
   gtk = {
     enable = true;
     theme = {
-      name = "adw-gtk3";
+      name = "adw-gtk3-dark";
       package = pkgs.adw-gtk3;
+    };
+    iconTheme = {
+      name = "morewaita";
+      package = pkgs.morewaita-icon-theme;
     };
   };
   programs.starship.enable = true;

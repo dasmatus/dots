@@ -1,9 +1,22 @@
 # Base system: nix daemon settings, locale, timezone, core CLI tools.
 # Parity: installer/chroot_base.py (locale en_US.UTF-8, TZ UTC) and the
 # always-present parts of SYSTEM_PACKAGES (installer/chroot_system.py).
-{ pkgs, settings, ... }:
+{
+  pkgs,
+  lib,
+  settings,
+  ...
+}:
 {
   networking.hostName = settings.hostname;
+
+  # Unfree is opt-in per package; claude-code comes in via home-manager
+  # (useGlobalPkgs, so the system nixpkgs config applies).
+  nixpkgs.config.allowUnfreePredicate =
+    pkg:
+    builtins.elem (lib.getName pkg) [
+      "claude-code"
+    ];
 
   nix.settings = {
     experimental-features = [

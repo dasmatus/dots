@@ -9,7 +9,7 @@
     desktopManager.gnome.enable = true;
     gnome = {
       core-apps.enable = true;
-      developer-tools.enable = true;
+      core-developer-tools.enable = true;
       games.enable = true;
     };
   };
@@ -36,25 +36,6 @@
     noto-fonts-color-emoji
   ];
   fonts.fontconfig.defaultFonts.monospace = [ "Lilex Nerd Font" ];
-
-  environment.systemPackages = with pkgs; [
-    alacritty
-    brave
-    rofi
-    picom
-    polybarFull
-    dunst
-    redshift
-    brightnessctl
-    betterlockscreen
-    xss-lock
-    libinput-gestures
-    nitrogen
-    networkmanagerapplet
-    tokyonight-gtk-theme
-    papirus-icon-theme
-    adwaita-icon-theme
-  ];
 
   # System-wide Brave enterprise policies — parity with the Gentoo installer's
   # files/brave/policies → /etc/brave/policies copy.

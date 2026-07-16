@@ -44,7 +44,8 @@ pub fn parse_lsblk(json: &str) -> Result<Vec<Disk>> {
         }
         let path = dev
             .get("path")
-            .and_then(|p| p.as_str()).map_or_else(|| format!("/dev/{name}"), str::to_string);
+            .and_then(|p| p.as_str())
+            .map_or_else(|| format!("/dev/{name}"), str::to_string);
         let model = dev
             .get("model")
             .and_then(|m| m.as_str())
