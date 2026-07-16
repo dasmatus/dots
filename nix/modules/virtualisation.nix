@@ -1,5 +1,6 @@
-# libvirt/QEMU stack — parity with the konkrit VM prerequisites installed by
-# installer/chroot_system.py (libvirt, qemu, virt-manager, OVMF, swtpm).
+# libvirt/QEMU stack — matches the VM prerequisites installed by the retired
+# konkrit firstboot catalog (Gentoo era, git history): libvirt, qemu,
+# virt-manager, OVMF, swtpm.
 { ... }:
 {
   virtualisation.libvirtd = {

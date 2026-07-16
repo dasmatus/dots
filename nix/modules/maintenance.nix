@@ -1,5 +1,6 @@
-# Background maintenance — replaces the Gentoo reseal pipeline
-# (portage-sync.timer + gentoo-reseal.service + systemd-sysupdate A/B):
+# Background maintenance — replaces the retired Gentoo reseal pipeline
+# (portage-sync.timer + gentoo-reseal.service + systemd-sysupdate A/B;
+# git history):
 # autoUpgrade with operation="boot" builds the new generation in the
 # background and activates it on the next reboot, like the reseal design.
 #

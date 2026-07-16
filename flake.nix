@@ -120,7 +120,7 @@
         iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
       };
 
-      formatter.${system} = pkgs.nixfmt-rfc-style;
+      formatter.${system} = pkgs.nixfmt-tree;
 
       checks.${system} = {
         dots-installer = self.packages.${system}.dots-installer;

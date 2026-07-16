@@ -1,6 +1,6 @@
-# Secure Boot via lanzaboote — OFF by default. The Gentoo installer generated
-# db keys at install time; on NixOS this is a post-install opt-in because key
-# enrollment needs the firmware in Setup Mode:
+# Secure Boot via lanzaboote — OFF by default. The retired Gentoo installer
+# generated db keys at install time (git history); on NixOS this is a
+# post-install opt-in because key enrollment needs the firmware in Setup Mode:
 #   sudo sbctl create-keys
 #   (reboot into firmware, enable Setup Mode)
 #   sudo sbctl enroll-keys --microsoft

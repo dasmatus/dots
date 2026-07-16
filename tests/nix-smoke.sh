@@ -3,9 +3,8 @@
 #  tests/nix-smoke.sh — LiveISO boot oracle for the Nix target
 #
 #  Boots the flake's installer ISO (nix build .#iso) under OVMF + emulated
-#  TPM2 (the same harness the Gentoo tiers use) and asserts the dots-installer
-#  TUI reaches tty1: its unit echoes DOTS_TUI_READY to the serial console
-#  (see nix/iso.nix).
+#  TPM2 (tests/lib/vm.sh) and asserts the dots-installer TUI reaches tty1:
+#  its unit echoes DOTS_TUI_READY to the serial console (see nix/iso.nix).
 #
 #  Usage:  tests/nix-smoke.sh [path/to/tokyonight-dots-installer*.iso]
 #          NIX_ISO=<path> tests/nix-smoke.sh

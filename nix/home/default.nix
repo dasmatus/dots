@@ -1,6 +1,6 @@
 # home-manager mapping of files/ — dotfiles are reused wholesale via
-# xdg.configFile.*.source (the Nix equivalent of the Gentoo /etc/skel copy in
-# installer/chroot_system.py), or ported to native Home Manager modules where
+# xdg.configFile.*.source (the Nix equivalent of the retired Gentoo /etc/skel
+# copy — git history), or ported to native Home Manager modules where
 # one exists (hyprland.nix, waybar.nix, dunst.nix, rofi/). Only one raw file
 # is still patched:
 #   - gtk-3.0/bookmarks: /home/matus → the actual home directory

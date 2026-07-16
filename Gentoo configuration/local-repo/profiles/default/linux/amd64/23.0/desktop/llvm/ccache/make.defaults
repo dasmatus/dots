@@ -1,3 +1,0 @@
-# Enable ccache build caching
-FEATURES="${FEATURES} ccache"
-CCACHE_DIR="/var/cache/ccache"

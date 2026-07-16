@@ -1,8 +1,7 @@
-# Declarative mapping of the konkrit firstboot hardening catalog
-# (.konkrit.yaml, 104 modules) to NixOS options. Categories covered: sysctl
-# net/kernel, boot params, coredump/ptrace, AppArmor, USBGuard, firewall,
-# sudo, kernel image protection, tmpfs /tmp. konkrit itself is NOT run on
-# NixOS (its steps shell out to emerge/Gentoo paths).
+# Declarative NixOS-option mapping derived from the retired konkrit firstboot
+# hardening catalog (Gentoo era; see git history — 104 modules). Categories
+# covered: sysctl net/kernel, boot params, coredump/ptrace, AppArmor,
+# USBGuard, firewall, sudo, kernel image protection, tmpfs /tmp.
 {
   lib,
   pkgs,
@@ -34,7 +33,8 @@
       "fs.protected_fifos" = 2;
       "fs.protected_regular" = 2;
       # loose instead of strict: strict rp_filter breaks libvirt NAT return
-      # traffic (documented conflict in .konkrit.yaml)
+      # traffic (documented conflict in the retired konkrit firstboot catalog;
+      # Gentoo era, see git history)
       "net.ipv4.conf.all.rp_filter" = 2;
       "net.ipv4.conf.default.rp_filter" = 2;
       "net.ipv4.tcp_syncookies" = 1;

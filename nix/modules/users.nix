@@ -1,5 +1,6 @@
-# The primary user — replaces the Gentoo first-boot `homectl create` flow;
-# the username comes from nix/settings.nix (written by the installer TUI).
+# The primary user — replaces the retired Gentoo first-boot `homectl create`
+# flow (git history); the username comes from nix/settings.nix (written by
+# the installer TUI).
 # mutableUsers stays true so the passwords set by the installer via chpasswd
 # survive rebuilds.
 {

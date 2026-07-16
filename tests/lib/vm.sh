@@ -2,15 +2,11 @@
 # ================================================================
 #  tests/lib/vm.sh — libvirt VM lifecycle helpers for the harness
 #
-#  Boots the SystemRescue live ISO through OVMF (genuine UEFI — install.sh
-#  requires /sys/firmware/efi) with an emulated TPM 2.0 (swtpm). The ISO is
-#  remastered once so its GRUB entries carry `console=ttyS0` + SystemRescue
-#  autorun, and an `/autorun` script is injected that mounts the 9p-shared repo
-#  and execs the guest runner. Installer output is captured on the serial log.
+#  Boots the flake's LiveISO (nix build .#iso) through OVMF (genuine UEFI)
+#  with an emulated TPM 2.0 (swtpm). Output is captured on the serial log.
 #
 #  Public functions:
 #    vm_check_host           — verify virsh/qemu/swtpm/xorriso/OVMF present
-#    vm_fetch_iso            — download + cache + remaster the SystemRescue ISO
 #    vm_make_disk <path> <size>
 #    vm_define <name> ...    — render domain.xml.tmpl and `virsh define`
 #    vm_start  <name>
@@ -20,13 +16,9 @@
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 
-# SystemRescue is resolved DYNAMICALLY from SourceForge's best_release.json (the
-# project's "current release" pointer) — never hardcode a version. Override with
-# SYSRESCUE_ISO=<local path> or SYSRESCUE_URL=<explicit .iso url> to pin.
 # qemu:///session runs qemu AS THE INVOKING USER, so the serial log + 9p-shared
 # files are owned by us (no root, no libvirt group, no security-driver relabel).
 # /dev/kvm is world-accessible here and user-mode networking needs no host setup.
-: "${SYSRESCUE_SF_JSON:=https://sourceforge.net/projects/systemrescuecd/best_release.json}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///session}"
 VIRSH=(virsh --connect "${LIBVIRT_URI}")
 
@@ -66,73 +58,6 @@ vm_ovmf_vars() {
     [[ -f "${v}" ]] && { printf '%s\n' "${v}"; return 0; }
   done
   return 1
-}
-
-# Resolve the current SystemRescue download URL + filename (tab-separated) from
-# the SourceForge best_release.json — no version hardcoded.
-vm_resolve_iso() {
-  require_cmds python3
-  curl -fsSL "${SYSRESCUE_SF_JSON}" | python3 -c '
-import sys, json
-r = json.load(sys.stdin)["release"]
-print(r["url"] + "\t" + r["filename"].rsplit("/", 1)[-1])' \
-    || die "could not resolve the current SystemRescue release from ${SYSRESCUE_SF_JSON}"
-}
-
-# ── ISO fetch + remaster ─────────────────────────────────────────
-# Downloads SystemRescue (cached) and produces a remastered copy that boots
-# straight to a serial root shell running our autorun. Echoes the remastered
-# ISO path.
-vm_fetch_iso() {
-  local url name base remastered
-  if [[ -n "${SYSRESCUE_ISO:-}" ]]; then
-    base="${SYSRESCUE_ISO}"; name="$(basename "${base}")"
-  else
-    if [[ -n "${SYSRESCUE_URL:-}" ]]; then
-      url="${SYSRESCUE_URL}"; name="$(basename "${url%%\?*}")"
-    else
-      IFS=$'\t' read -r url name < <(vm_resolve_iso)
-    fi
-    base="${ISO_CACHE}/${name}"
-    # Verify completeness against the mirror's Content-Length; re-fetch if partial.
-    local want have=0
-    want="$(curl -fsIL "${url}" 2>/dev/null | awk 'BEGIN{IGNORECASE=1}/^content-length:/{v=$2} END{gsub(/\r/,"",v); print v}')"
-    [[ -f "${base}" ]] && have="$(stat -c%s "${base}" 2>/dev/null || echo 0)"
-    if [[ ! -f "${base}" || ( -n "${want}" && "${have}" -ne "${want}" ) ]]; then
-      log "downloading ${name} → ${base} (resumable; want=${want:-?} have=${have})" >&2
-      # -C -: resume a partial .part; --retry-all-errors: survive mirror resets.
-      [[ -f "${base}" && -n "${want}" ]] && mv -f "${base}" "${base}.part"
-      curl -fL -C - --retry 8 --retry-delay 3 --retry-all-errors \
-        -o "${base}.part" "${url}" >&2
-      mv "${base}.part" "${base}"
-    fi
-    have="$(stat -c%s "${base}")"
-    [[ -z "${want}" || "${have}" -eq "${want}" ]] \
-      || die "ISO still incomplete (${have}/${want} bytes) — mirror may be flaky, retry"
-  fi
-  remastered="${ISO_CACHE}/harness-${name}"
-
-  if [[ ! -f "${remastered}" || "${base}" -nt "${remastered}" ]]; then
-    log "remastering ISO (serial console + autorun)" >&2
-    local work; work="$(mktemp -d "${ARTIFACTS}/isowork.XXXXXX")"
-    # SystemRescue's UEFI menu lives in /boot/grub/grubsrcd.cfg; entries are
-    # `linux …/vmlinuz archisobasedir=sysresccd …`. Append a serial console and
-    # SystemRescue autorun opts (ar_nowait: don't wait for a keypress). Autorun
-    # scripts go INSIDE the /autorun directory (named autorun) on the boot medium.
-    cp "${TESTS_DIR}/guest/autorun" "${work}/autorun"
-    xorriso -osirrox on -indev "${base}" \
-      -extract /boot/grub/grubsrcd.cfg "${work}/grubsrcd.cfg" 2>/dev/null \
-      || die "could not extract grubsrcd.cfg from ${base} (unexpected ISO layout)"
-    sed -i -E 's|(archisobasedir=sysresccd)|\1 console=tty0 console=ttyS0,115200n8 ar_nowait=1 ar_ignorefail=1|' \
-      "${work}/grubsrcd.cfg"
-    xorriso -indev "${base}" -outdev "${remastered}" \
-      -boot_image any replay \
-      -map "${work}/grubsrcd.cfg" /boot/grub/grubsrcd.cfg \
-      -map "${work}/autorun"      /autorun/autorun 2>/dev/null \
-      || die "ISO remaster failed"
-    rm -rf "${work}"
-  fi
-  printf '%s\n' "${remastered}"
 }
 
 # ── Disk ─────────────────────────────────────────────────────────

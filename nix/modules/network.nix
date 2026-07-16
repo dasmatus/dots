@@ -1,5 +1,5 @@
-# NetworkManager with the iwd wifi backend — parity with the Gentoo
-# networkmanager package.use (iwd) in installer/hostconfig.py.
+# NetworkManager with the iwd wifi backend — matches the retired Gentoo
+# networkmanager package.use (iwd) setup (git history).
 { ... }:
 {
   networking.networkmanager = {

@@ -51,8 +51,8 @@
   ];
   fonts.fontconfig.defaultFonts.monospace = [ "Lilex Nerd Font" ];
 
-  # System-wide Brave enterprise policies — parity with the Gentoo installer's
-  # files/brave/policies → /etc/brave/policies copy.
+  # System-wide Brave enterprise policies — matches the retired Gentoo
+  # installer's files/brave/policies → /etc/brave/policies copy (git history).
   environment.etc."brave/policies".source = ../../files/brave/policies;
 
   xdg.portal = {

@@ -1,6 +1,7 @@
 # Base system: nix daemon settings, locale, timezone, core CLI tools.
-# Parity: installer/chroot_base.py (locale de_DE.UTF-8, BA UTC) and the
-# always-present parts of SYSTEM_PACKAGES (installer/chroot_system.py).
+# Locale/timezone are the user's picks (de_DE.UTF-8, Europe/Bratislava);
+# the package set matches the retired Gentoo installer's SYSTEM_PACKAGES
+# (git history).
 {
   pkgs,
   lib,
@@ -49,9 +50,9 @@
 
   programs.fish.enable = true;
 
-  # GnuPG smartcard support — parity with the Gentoo package.use gpg file
-  # (app-crypt/gnupg smartcard usb, gnutls pkcs11). pinentry was built
-  # without gtk on Gentoo; GNOME is the desktop now, so use pinentry-gnome3.
+  # GnuPG smartcard support — matches the retired Gentoo package.use gpg file
+  # (app-crypt/gnupg smartcard usb, gnutls pkcs11; git history). pinentry was
+  # built without gtk there; GNOME is the desktop now, so use pinentry-gnome3.
   services.pcscd.enable = true;
   hardware.gpgSmartcards.enable = true;
   programs.gnupg.agent = {

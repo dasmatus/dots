@@ -1,5 +1,6 @@
-# Single source of truth for the disk layout — parity with installer/partition.py
-# (systemd-repart: ESP 2G, TPM2-LUKS2 btrfs root, random-key swap).
+# Single source of truth for the disk layout — same shape as the retired
+# Gentoo installer's partition.py (git history): systemd-repart with ESP 2G,
+# TPM2-LUKS2 btrfs root, random-key swap.
 # Consumed two ways, keep them from drifting:
 #   - disko CLI on the LiveISO:
 #       disko --mode destroy,format,mount --argstr disk /dev/sdX --argstr swapSize 32G nix/disko.nix

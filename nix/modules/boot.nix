@@ -1,5 +1,6 @@
 # Boot chain: systemd-boot + systemd initrd (TPM2 auto-unlock of the disko LUKS
-# volume) + the kernel cmdline carried over from installer/chroot_base.py.
+# volume) + the kernel cmdline carried over from the retired Gentoo installer
+# (git history).
 # Secure Boot is a separate opt-in (secureboot.nix) — see nix/README.md.
 { ... }:
 {

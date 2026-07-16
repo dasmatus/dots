@@ -1,4 +1,4 @@
-<!-- libvirt domain template for the installer VM test harness.
+<!-- libvirt domain template for the nix-smoke VM test harness.
      Placeholders (@NAME@) are substituted by tests/lib/vm.sh:vm_define().
        @NAME@       domain name
        @MEMMB@      RAM in MiB
@@ -9,8 +9,8 @@
        @ISO@        path to the live installer ISO
        @SERIAL@     path to the serial-console log file (host side)
        @SHAREDIR@   host directory shared into the guest (the repo working tree)
-     UEFI + emulated TPM 2.0 (swtpm) are mandatory: install.sh aborts without
-     UEFI, and TPM2 auto-unlock needs a TPM in the guest. -->
+     UEFI + emulated TPM 2.0 (swtpm) are mandatory: the LiveISO requires genuine
+     UEFI, and dots-installer's TPM2 auto-unlock needs a TPM in the guest. -->
 <domain type='kvm'>
   <name>@NAME@</name>
   <memory unit='MiB'>@MEMMB@</memory>
@@ -31,8 +31,7 @@
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
-  <!-- Emulated TPM 2.0 via swtpm — persistent NVRAM so a TPM2-enrolled key
-       still unlocks across the e2e reboot. -->
+  <!-- Emulated TPM 2.0 via swtpm. -->
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
     <disk type='file' device='disk'>
@@ -55,8 +54,8 @@
       <source dir='@SHAREDIR@'/>
       <target dir='dotsrepo'/>
     </filesystem>
-    <!-- User-mode (SLIRP) NAT: gives the guest outbound networking (stage3
-         download) with no host bridge / dnsmasq / root — self-contained. -->
+    <!-- User-mode (SLIRP) NAT: gives the guest outbound networking with no
+         host bridge / dnsmasq / root — self-contained. -->
     <interface type='user'>
       <model type='virtio'/>
     </interface>

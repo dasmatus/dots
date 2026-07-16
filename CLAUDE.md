@@ -4,7 +4,7 @@ tree .
 ```
 # Tech stack
 ## Development
-- Programs: Rust (@installer/ and @installer-tui/)
+- Programs: Rust (@installer-tui/)
 - Config: @nix/ + Configuration @files/ in various formats 
 - !`just --list`
 ## CI 
@@ -12,7 +12,6 @@ GitLab
 ## Testing
 - Rust: @installer-tui/tests/ (integration tests; `cargo test` in installer-tui/)
 - Nix: `just nix-lint` (flake check + fmt/clippy/test), `just iso`, `just nix-smoke` (@tests/nix-smoke.sh — OVMF+swtpm boot oracle, DOTS_TUI_READY serial marker)
-- Gentoo VM harness: @tests/ (`just lint` / `just smoke` / `just e2e`, libs in tests/lib/)
 ---
 # Resources to follow
 - [Rust API guidelines](https://rust-lang.github.io/api-guidelines/)

@@ -2,9 +2,9 @@
 # ================================================================
 #  tests/lib/common.sh — shared helpers for the VM test harness
 #
-#  Sourced by tests/run.sh and the per-tier scripts. Provides:
+#  Sourced by tests/nix-smoke.sh (via tests/lib/vm.sh). Provides:
 #    · colour/log helpers (log/ok/warn/die/section)
-#    · path constants (REPO_ROOT, ARTIFACTS, ISO_CACHE)
+#    · path constants (REPO_ROOT, ARTIFACTS)
 #    · serial-log wait/assert helpers
 #    · a dependency checker
 #
@@ -19,10 +19,9 @@ REPO_ROOT="$(cd -- "${_COMMON_SH_DIR}/../.." &>/dev/null && pwd)"
 TESTS_DIR="${REPO_ROOT}/tests"
 # All generated / downloaded junk lives here and is gitignored.
 ARTIFACTS="${TESTS_DIR}/artifacts"
-ISO_CACHE="${ARTIFACTS}/iso"
-readonly _COMMON_SH_DIR REPO_ROOT TESTS_DIR ARTIFACTS ISO_CACHE
+readonly _COMMON_SH_DIR REPO_ROOT TESTS_DIR ARTIFACTS
 
-mkdir -p "${ARTIFACTS}" "${ISO_CACHE}"
+mkdir -p "${ARTIFACTS}"
 
 # ── Colours + logging ────────────────────────────────────────────
 if [[ -t 1 ]]; then

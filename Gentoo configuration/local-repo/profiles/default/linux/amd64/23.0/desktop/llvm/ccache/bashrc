@@ -1,7 +1,0 @@
-# kernel-build.eclass hardcodes V=1 in MAKEARGS (shows full compiler invocations).
-# Hook post_src_configure to swap it back to V=0 (compact "CC  file.o" lines).
-post_src_configure() {
-    if has kernel-build ${INHERITED}; then
-        MAKEARGS=("${MAKEARGS[@]/V=1/V=0}")
-    fi
-}
