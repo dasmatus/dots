@@ -1,63 +1,78 @@
-# VM test harness
+# VM tests — NixOS test framework
 
-A single boot oracle for the Nix target: builds + signs the flake's LiveISO
-(`nix build .#iso` → `scripts/sign-iso.sh`) and boots it under Secure
-Boot-**enforcing** OVMF (genuine UEFI) with an emulated TPM 2.0 (swtpm),
-asserting the `dots-installer` TUI reaches tty1 with Secure Boot verified
-enabled. Run via `just nix-smoke` or `tests/nix-smoke.sh` directly;
-`--no-secure-boot` gives the plain unsigned regression run.
+The LiveISO boot oracles are flake checks built on
+[`pkgs.testers.runNixOSTest`](https://nixos.org/manual/nixos/unstable/#sec-nixos-tests):
+hermetic `nix build`s that sign the ISO, pre-enroll Secure Boot NVRAM and
+boot the result under OVMF + swtpm — no libvirt, no host packages, no
+root. Defined in [`default.nix`](default.nix), wired into
+`checks.x86_64-linux` in the flake.
 
-| Command | VM? | Time | What it proves |
-|---------|-----|------|----------------|
-| `just nix-lint`  | no  | secs | `nix flake check` + installer-tui `cargo fmt/clippy/test` |
-| `just nix-smoke` | yes | mins | **default**: the signed ISO boots under Secure Boot-**enforcing** OVMF: NVRAM is pre-enrolled via `virt-fw-vars` (Microsoft certs validate the Fedora shim, the ISO's MOK cert in db validates our GRUB), TPM2 attaches, and the guest must report both `DOTS_TUI_READY` and `DOTS_SECUREBOOT=1` on the serial console |
-| `just nix-smoke --no-secure-boot` | yes | mins | the plain unsigned LiveISO boots to UEFI (non-enforcing OVMF), TPM2 attaches, the installer TUI reaches tty1 (`DOTS_TUI_READY`) |
+| Check | What it proves |
+|-------|----------------|
+| `iso-boot` | the unsigned LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the `dots-installer` TUI reaches tty1 — `DOTS_TUI_READY` on the serial console |
+| `iso-secureboot` | the Secure Boot-**signed** ISO boots under **enforcing** OVMF: Microsoft certs (pre-enrolled via `virt-fw-vars --enroll-redhat`) validate the Fedora shim, the ISO's own MOK cert (extracted from `/EFI/BOOT/tokyonight-dots-mok.cer` and enrolled into db) validates GRUB, and the guest reports `DOTS_SECUREBOOT=1` — its own reading of the SecureBoot efivar |
 
-## Prerequisites
+Also in `checks`: `nix-lint`-fast eval checks (`settings-eval`,
+`facter-*-eval`) and the `dots-installer` package build — see `flake.nix`.
 
-The VM harness needs, on the **host**:
-
-```
-just setup          # installs swtpm + xorriso, enables libvirtd, adds you to libvirt/kvm
-# then log out/in (group change) or:  newgrp libvirt
-sudo virsh net-start default && sudo virsh net-autostart default   # NAT for the guest
-```
-
-Already required and present on a typical Arch host: `/dev/kvm` (+ nested virt
-if the host is itself a VM), `edk2-ovmf` (OVMF firmware), `libvirt`, `qemu`,
-`xorriso`, `nix` (flakes enabled).
-
-## How it works
-
-- **Boot**: `tests/nix-smoke.sh` builds (or reuses) `.#iso`, signs it via
-  `scripts/sign-iso.sh` (default mode; skipped with `--no-secure-boot`),
-  then `tests/lib/vm.sh` defines and starts a libvirt domain
-  (`tests/lib/domain.xml.tmpl`) through **OVMF/UEFI** with an **emulated
-  TPM 2.0** via **swtpm**, using `qemu:///session` so the serial log and
-  disk stay owned by the invoking user (no root, no libvirt group, no
-  security-driver relabel).
-- **Observing**: the guest's serial console is captured to
-  `tests/artifacts/<name>-serial.log`. The harness polls that log for the
-  `DOTS_TUI_READY` marker the installer's systemd unit echoes once it reaches
-  tty1 (see `nix/iso.nix`), and fails after `NIX_SMOKE_TIMEOUT` (default
-  600s).
-
-## Layout
+## Running
 
 ```
-tests/
-  nix-smoke.sh      LiveISO boot oracle — the only entry point
-                    (default: signs the ISO and boots it under enforcing
-                    Secure Boot OVMF with pre-enrolled NVRAM;
-                    --no-secure-boot for the plain unsigned run)
-  lib/
-    common.sh        logging, paths, serial-log wait/assert helpers
-    vm.sh             libvirt/OVMF/swtpm VM lifecycle (check/disk/define/start/destroy)
-    domain.xml.tmpl   libvirt domain template (OVMF + TPM2 + serial + 9p)
-  artifacts/          ALL generated junk (gitignored): qcow2, ISOs (incl. the
-                      signed one), OVMF vars + enrolled seeds, swtpm state,
-                      serial logs, extracted MOK certs
+just nix-smoke                    # = nix build -L .#checks.x86_64-linux.iso-secureboot
+just nix-smoke --no-secure-boot   # = nix build -L .#checks.x86_64-linux.iso-boot
+just nix-smoke-interactive        # test driver Python REPL (see below)
 ```
 
-Everything under `artifacts/` is gitignored; only the scripts and the XML
-template are tracked.
+Prerequisites: `nix` (flakes) and `/dev/kvm`. Without KVM, QEMU falls back
+to TCG software emulation — works, but takes ages (that's what CI does).
+
+The built check (`result/`) contains the test driver log and the full
+serial transcript.
+
+## Debugging
+
+`just nix-smoke-interactive` drops you into the driver's Python REPL with
+the Secure Boot VM defined (plain variant:
+`nix run .#checks.x86_64-linux.iso-boot.driverInteractive`):
+
+```python
+>>> machine.start()
+>>> machine.wait_for_console_text("DOTS_TUI_READY")
+```
+
+The booted ISO has **no test instrumentation** (no backdoor shell), so
+assertions are console-only — `wait_for_console_text`, not
+`wait_for_unit`/`succeed`. The interactive driver leaves `*.qcow2` /
+`vm-state-*` behind in the cwd; `just clean` removes them.
+
+## How it works (`default.nix`)
+
+- **`signedIso` fixture** — runs `scripts/sign-iso.sh` (the same script
+  `just iso` uses; single source of signing truth) inside the build
+  sandbox with an **ephemeral** MOK key generated by the script's own
+  keygen path. Production signing keeps its persistent key in
+  `secrets/secureboot/`; the fixture is deliberately not bit-reproducible.
+- **`enrolledVars` fixture** — extracts the MOK cert *from the signed ISO
+  itself* (proving the ISO ships it at the MokManager-enrollment path) and
+  builds an OVMF NVRAM template: `virt-fw-vars --enroll-redhat
+  --secure-boot --add-db …` — Microsoft certs for the shim, the MOK for
+  GRUB. `virtualisation.efi.variables` hands it to the test VM as the
+  writable NVRAM seed.
+- **Boot**: `virtualisation.directBoot.enable = false` +
+  `useEFIBoot` boot real firmware instead of the test driver's default
+  `-kernel` shortcut; the ISO is attached as an IDE CD with `bootindex=0`
+  (the blank 20 G root disk — a stand-in install target — carries
+  `bootindex=1`). The Secure Boot variant uses `pkgs.OVMFFull` (SMM,
+  enforcing) via `virtualisation.useSecureBoot`; both variants get a
+  swtpm TPM 2.0 via `virtualisation.tpm.enable`.
+
+## CI
+
+`.gitlab-ci.yml` runs two lanes on gitlab.com shared runners:
+
+- **lint** (every push): `nix flake check --no-build` + the cheap eval
+  checks, and `cargo fmt/clippy/test` for `installer-tui/`.
+- **vm** (manual + scheduled): builds each boot check with
+  `--option system-features "… kvm"` — shared runners have no `/dev/kvm`,
+  so QEMU degrades to TCG emulation. Slow (hours); serial/driver logs are
+  kept as job artifacts either way.

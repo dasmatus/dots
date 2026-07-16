@@ -2,11 +2,10 @@
 .config
 __pycache__/
 
-# VM test harness — generated/downloaded artifacts (never committed):
-# qcow2 disks, cached ISOs, per-run OVMF _VARS copies, swtpm state,
-# serial logs, captured lsblk/luksDump output, local test signing keys.
-tests/artifacts/
+# VM test leftovers — the interactive NixOS test driver
+# (…driverInteractive) drops disk images and state dirs in the cwd.
 *.qcow2
+vm-state-*/
 
 # Nix + installer-tui build outputs
 installer-tui/target/

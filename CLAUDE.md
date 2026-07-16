@@ -11,7 +11,7 @@ tree .
 GitLab
 ## Testing
 - Rust: @installer-tui/tests/ (integration tests; `cargo test` in installer-tui/)
-- Nix: `just nix-lint` (flake check + fmt/clippy/test), `just iso` (builds + Secure Boot-signs by default via @scripts/sign-iso.sh; `iso-unsigned` opts out), `just nix-smoke` (@tests/nix-smoke.sh — signed ISO under enforcing Secure Boot OVMF+swtpm by default, DOTS_TUI_READY + DOTS_SECUREBOOT=1 serial markers; `--no-secure-boot` for the plain run)
+- Nix: `just nix-lint` (flake eval + fmt/clippy/test), `just iso` (builds + Secure Boot-signs by default via @scripts/sign-iso.sh; `iso-unsigned` opts out), `just nix-smoke` (NixOS test @tests/default.nix — `checks.x86_64-linux.iso-secureboot`: signed ISO under enforcing Secure Boot OVMF+swtpm, DOTS_TUI_READY + DOTS_SECUREBOOT=1 serial markers; `--no-secure-boot` → `iso-boot` plain run)
 ---
 # Resources to follow
 - [Rust API guidelines](https://rust-lang.github.io/api-guidelines/)
@@ -29,7 +29,7 @@ Please don't ever write inline tests - they pollute the file, make it very hard 
 # Formatting and conformance
 
 ```!
-cargo fmt --workspace
+cargo fmt --all
 cargo clippy --fix --allow-dirty -- -W clippy::all -W clippy::perf -W clippy::pedantic
 ```
 Comments should only be top-level (`//!`) and per-symbol (`///`). Only use inline comments (`//`) when you're about to do some kind of magic sorcery. The 

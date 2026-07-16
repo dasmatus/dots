@@ -1,0 +1,95 @@
+# GitLab CI — gitlab.com shared runners (saas-linux-small-amd64: 2 vCPU,
+# 8 GB RAM, ~25 GB disk, NO /dev/kvm).
+#
+# Lanes:
+#   lint (every push)        flake eval + cheap checks, cargo fmt/clippy/test.
+#   vm   (manual + schedule) the two LiveISO boot oracles (tests/default.nix).
+#
+# The vm lane on shared runners: the checks carry requiredSystemFeatures
+# ["kvm"], so `--option system-features "... kvm"` is needed for Nix to
+# schedule them at all; QEMU's accel=kvm:tcg then degrades to TCG software
+# emulation — correct but SLOW, and the 1.5 GB ISO also builds in-job (it
+# exceeds the artifact cap, so it can't be passed between jobs). Budget
+# hours; manual jobs must not block the pipeline (allow_failure). Create the
+# schedule in the UI (CI/CD → Schedules), e.g. weekly.
+#
+# If vm-lane wall time bites, the upgrade path is a binary cache
+# (Cachix/attic) so the ISO closure is substituted instead of built.
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_COMMIT_BRANCH'
+
+stages: [lint, vm]
+
+variables:
+  NIX_CONFIG: "experimental-features = nix-command flakes"
+
+nix-eval:
+  stage: lint
+  image: nixos/nix:2.35.1
+  interruptible: true
+  script:
+    # Evaluates every output incl. both VM test derivations; builds nothing.
+    - nix flake check --no-build -L
+    # The cheap non-VM checks are worth actually building.
+    - nix build -L
+        .#checks.x86_64-linux.settings-eval
+        .#checks.x86_64-linux.facter-stub-eval
+        .#checks.x86_64-linux.facter-nvidia-eval
+
+rust:
+  stage: lint
+  image: rust:1.97
+  interruptible: true
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  cache:
+    key: cargo-$CI_COMMIT_REF_SLUG
+    fallback_keys:
+      - cargo-main
+    paths:
+      - .cargo/registry
+      - installer-tui/target
+  before_script:
+    # The official rust images ship the minimal rustup profile.
+    - rustup component add rustfmt clippy
+  script:
+    - cd installer-tui
+    - cargo fmt --check
+    - cargo clippy --all-targets -- -D warnings
+    - cargo test
+
+.vm-boot:
+  stage: vm
+  image: nixos/nix:2.35.1
+  timeout: 3h
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - when: manual
+      allow_failure: true
+  script:
+    - nix build -L ".#checks.x86_64-linux.$CHECK"
+        --option system-features "nixos-test benchmark big-parallel kvm"
+  after_script:
+    # result/ holds the test driver output incl. the serial log; on a build
+    # failure it doesn't exist, so also grab the derivation's build log.
+    - mkdir -p test-logs
+    - cp -rL result/* test-logs/ 2>/dev/null || true
+    - nix log ".#checks.x86_64-linux.$CHECK" > test-logs/build.log 2>/dev/null || true
+  artifacts:
+    when: always
+    paths: [test-logs/]
+    expire_in: 30 days
+
+vm-boot-plain:
+  extends: .vm-boot
+  variables:
+    CHECK: iso-boot
+
+vm-boot-secureboot:
+  extends: .vm-boot
+  variables:
+    CHECK: iso-secureboot

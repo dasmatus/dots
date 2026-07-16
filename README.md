@@ -33,9 +33,9 @@ the flake bundled on the ISO, enrolls TPM2 (PCR 7) + a printed LUKS recovery
 key, and reboots. Dev loop:
 
 ```bash
-just nix-lint    # nix flake check + cargo fmt/clippy/test
+just nix-lint    # nix flake check (eval) + cargo fmt/clippy/test
 just iso         # build the LiveISO + sign it for Secure Boot
-just nix-smoke   # boot it under Secure Boot-enforcing OVMF+swtpm, assert the TUI starts
+just nix-smoke   # NixOS VM test: boot it under Secure Boot-enforcing OVMF+TPM2
 ```
 
 ## Declarative flatpaks
@@ -79,13 +79,13 @@ Two things worth knowing before the first switch:
 ## Testing
 
 ```bash
-just nix-lint    # nix flake check + installer-tui cargo fmt/clippy/test
+just nix-lint    # nix flake check (eval) + installer-tui cargo fmt/clippy/test
 just iso         # build the LiveISO + sign it for Secure Boot
-just nix-smoke   # boot the signed ISO under Secure Boot-enforcing OVMF+swtpm,
-                 # assert the TUI reaches tty1 with SecureBoot=1
+just nix-smoke   # NixOS VM test: boot the signed ISO under Secure
+                 # Boot-enforcing OVMF+TPM2, assert TUI + SecureBoot=1
 ```
 
-See [`tests/README.md`](tests/README.md) for how the VM harness works.
+See [`tests/README.md`](tests/README.md) for how the NixOS VM tests work.
 
 ## Layout
 

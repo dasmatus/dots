@@ -57,19 +57,28 @@ sudo nixos-rebuild switch --flake .#tokyonight
   dotfile tree is deleted — git history): `alacritty.nix`, `zellij.nix`,
   `fastfetch.nix` (ported from the old neofetch config), `fish.nix`,
   `hyprland.nix`, `waybar.nix`, `dunst.nix`, `rofi/`, `nixvim.nix`,
-  `librewolf.nix`, `claude.nix`, `random_wp.nix` (Wallhaven wallpaper timer)
+  `librewolf.nix`, `claude.nix`, `random_wp.nix` (Wallhaven wallpaper timer),
+  `dots-repo.nix` (first-login clone of this repo + install-answer restore)
   and `dokumente.nix`/`dokumente/` (haumea `~/Dokumente` skeleton).
 - `iso.nix` — the LiveISO: embeds this flake at `/etc/dots`, auto-launches
-  `dots-installer` on tty1.
+  `dots-installer` on tty1. The installer stages a writable copy of that
+  flake at `/tmp/dots-flake` and runs `nixos-install` from there; the
+  installed system no longer gets an `/etc/dots` copy — instead a
+  first-login clone lands at `~/Dokumente/gitlab/personal/dots` (see
+  `dots-repo.nix` above).
 
 ## Hardware detection (nixos-facter)
 
 Fresh installs need nothing: the TUI runs `nixos-facter` on the target and
-writes the report into the copied flake before `nixos-install`. To adopt this
-on an already-installed machine (or after swapping hardware):
+writes the report into the staged flake (`/tmp/dots-flake`) before
+`nixos-install`, then stashes it at `/var/lib/dots/facter.json` on the
+target. At first login, the `dots-clone` home-manager user service clones
+this repo to `~/Dokumente/gitlab/personal/dots` and restores the stashed
+report (and `settings.nix`) into it. To adopt this on an already-installed
+machine (or after swapping hardware):
 
 ```bash
-cd ~/dots   # or wherever the clone lives
+cd ~/Dokumente/gitlab/personal/dots   # or wherever the clone lives
 sudo nix run nixpkgs#nixos-facter -- -o nix/facter.json   # overwrite the stub
 sudo nixos-rebuild switch --flake .#tokyonight
 ```
@@ -77,9 +86,10 @@ sudo nixos-rebuild switch --flake .#tokyonight
 Keep the real report as local dirty state — **never commit it** (it embeds
 serial numbers and MAC addresses, and each machine's report differs). This
 works because the stub is a *tracked* file: git-repo flakes include dirty
-tracked modifications but ignore untracked files. `/etc/dots` on installed
-systems is a plain directory, so `system.autoUpgrade` always sees the
-installer-written report.
+tracked modifications but ignore untracked files. The report lands as a
+dirty tracked modification in the `~/Dokumente/gitlab/personal/dots` clone,
+so `system.autoUpgrade` (which builds from that clone) always sees the real
+report.
 
 ## Machine-specific facts kept as-is
 
@@ -98,7 +108,7 @@ sudo sbctl create-keys
 # reboot into firmware, put Secure Boot into Setup Mode
 sudo sbctl enroll-keys --microsoft
 # set dots.secureboot.enable = true; in your host config, then:
-sudo nixos-rebuild switch --flake ~/dots#tokyonight
+sudo nixos-rebuild switch --flake ~/Dokumente/gitlab/personal/dots#tokyonight
 ```
 
 ### Signed LiveISO (boot the installer with Secure Boot ON — the default)
@@ -121,5 +131,19 @@ Two ways it boots with Secure Boot enforcing:
 - **Machines with your own keys**: if the db contains this cert alongside
   the Microsoft certs (the `sbctl enroll-keys --microsoft` shape — enroll
   `secrets/secureboot/MOK.cer` as an extra db key), shim validates GRUB
-  straight from db: no prompts. `just nix-smoke` proves this chain in
-  a VM with enforcing Secure Boot firmware (it's the harness default).
+  straight from db: no prompts. `just nix-smoke` proves this chain in a
+  NixOS test VM with enforcing Secure Boot firmware (it's the default).
+
+#### Cosigning for zero prompts on your own machines
+
+Nothing can be signed with Microsoft's private keys (only Microsoft holds
+them; the shim we ship is already Microsoft-signed, which is what lets the
+ISO boot at all). But `just iso-cosign` adds a **second** signature to GRUB
+and the kernels using your local sbctl db key (`/var/lib/sbctl/keys/db`, the
+same one lanzaboote signs installed systems with) on top of the MOK — the
+PE files then carry both signatures. Any machine whose Secure Boot db
+already trusts that key (i.e. where you ran `sbctl enroll-keys`) boots the
+installer with **no MokManager prompt at all**; every other machine still
+does the one-time MOK enrollment above. The private key is read via sudo in
+place and never copied. `scripts/sign-iso.sh --extra-sign KEY CERT` cosigns
+with an arbitrary key instead.

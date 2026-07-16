@@ -46,6 +46,18 @@
       pkgs = nixpkgs.legacyPackages.${system};
       settings = import ./nix/settings.nix;
 
+      # Everything scripts/sign-iso.sh needs: shared by the sb-tools buildEnv
+      # (host-side signing) and the in-sandbox signing fixture in tests/.
+      sbToolPackages = with pkgs; [
+        sbsigntool
+        openssl
+        binutils
+        mtools
+        dosfstools
+        xorriso
+        python3Packages.virt-firmware
+      ];
+
       mkIso =
         embedSystem:
         nixpkgs.lib.nixosSystem {
@@ -121,15 +133,7 @@
         # (the script `nix shell`s this when the tools aren't on PATH).
         sb-tools = pkgs.buildEnv {
           name = "sb-tools";
-          paths = with pkgs; [
-            sbsigntool
-            openssl
-            binutils
-            mtools
-            dosfstools
-            xorriso
-            python3Packages.virt-firmware
-          ];
+          paths = sbToolPackages;
         };
       };
 
@@ -192,6 +196,13 @@
           assert builtins.elem "amd_pstate=active" config.boot.kernelParams;
           assert failed == [ ];
           pkgs.writeText "facter-nvidia-ok" "nvidia";
+      }
+      # LiveISO boot oracles (NixOS test framework) — see tests/README.md.
+      // import ./tests {
+        inherit pkgs sbToolPackages;
+        inherit (pkgs) lib;
+        inherit (self.packages.${system}) iso shim-signed;
+        signScript = ./scripts/sign-iso.sh;
       };
     };
 }
