@@ -1,8 +1,6 @@
 .codegraph/
 .config
 __pycache__/
-files/brave/*
-!files/brave/policies/
 
 # VM test harness — generated/downloaded artifacts (never committed):
 # qcow2 disks, cached ISOs, per-run OVMF _VARS copies, swtpm state,

@@ -93,7 +93,6 @@ See [`tests/README.md`](tests/README.md) for how the VM harness works.
 | `nix/home/` | home-manager profile (nixvim, Hyprland session, LibreWolf, Dokumente skeleton, wallpaper service) |
 | `nix/iso.nix` | The LiveISO: embeds the flake at `/etc/dots`, auto-launches `dots-installer` on tty1 |
 | `installer-tui/` | The Rust/ratatui installer source |
-| `files/` | Dotfiles reused wholesale by home-manager via `xdg.configFile.*.source` |
 | `Wallpapers/` | Five themed sets (light · storm · night · metis · misc) × three styles (abstract · minimal · os) |
 
 See [`nix/README.md`](nix/README.md) for the full module-by-module design

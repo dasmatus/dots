@@ -1,3 +1,4 @@
+# Native port of files/claude/settings.json (deleted — see git history).
 { pkgs, ... }: {
   programs.claude-code = {
     enable = true;

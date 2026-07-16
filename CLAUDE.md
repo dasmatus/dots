@@ -5,7 +5,7 @@ tree .
 # Tech stack
 ## Development
 - Programs: Rust (@installer-tui/)
-- Config: @nix/ + Configuration @files/ in various formats 
+- Config: @nix/
 - !`just --list`
 ## CI 
 GitLab

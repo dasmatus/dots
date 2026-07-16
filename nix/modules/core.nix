@@ -40,7 +40,6 @@
     bat
     eza
     btrfs-progs
-    fastfetch
     gnupg
     glab
     curl
