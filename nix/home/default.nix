@@ -46,8 +46,6 @@
   };
 
   xdg.configFile = {
-    "gtk-2.0".source = ../../files/gtk-2.0;
-
     "gtk-3.0/bookmarks".text = ''
       file://${config.home.homeDirectory}/Dokumente/gitlab
       file://${config.home.homeDirectory}/Dokumente/github
