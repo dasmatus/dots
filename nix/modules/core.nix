@@ -48,5 +48,15 @@
 
   programs.fish.enable = true;
 
+  # GnuPG smartcard support — parity with the Gentoo package.use gpg file
+  # (app-crypt/gnupg smartcard usb, gnutls pkcs11). pinentry was built
+  # without gtk on Gentoo; GNOME is the desktop now, so use pinentry-gnome3.
+  services.pcscd.enable = true;
+  hardware.gpgSmartcards.enable = true;
+  programs.gnupg.agent = {
+    enable = true;
+    pinentryPackage = pkgs.pinentry-gnome3;
+  };
+
   system.stateVersion = "26.05";
 }

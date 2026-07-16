@@ -29,6 +29,9 @@ sudo nixos-rebuild switch --flake .#tokyonight-intel   # or #tokyonight-amd
 | dotfiles → `/etc/skel` copy | home-manager `xdg.configFile.*.source` symlinks into the store |
 | `make.conf.intel` / `make.conf.amd` | `nixosConfigurations.tokyonight-intel` / `tokyonight-amd` |
 | konkrit 104-module firstboot catalog | `nix/modules/hardening.nix`, declarative at build time |
+| `COMMON_FLAGS` `-march=znver2`/`-march=skylake`, clang/LTO toolchain | **not ported** — custom `-march` forfeits the cache.nixos.org binary cache for near-zero gain; see `nix/hosts/*.nix` |
+| `package.use` kernel `hardened` (hardened vanilla-kernel) | **not ported** — stock kernel + `nix/modules/hardening.nix` sysctl/params catalog instead |
+| `package.use` gpg smartcard (`gnupg smartcard usb`, `gnutls pkcs11`) | `services.pcscd` + `hardware.gpgSmartcards` + `programs.gnupg.agent` (`nix/modules/core.nix`) |
 
 ## Layout
 
