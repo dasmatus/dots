@@ -6,6 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::config::{validate_hostname, validate_username, InstallConfig};
 use crate::disks::Disk;
 use crate::install;
+use crate::net;
 
 const GIB: u64 = 1024 * 1024 * 1024;
 /// Floor for the btrfs root: the desktop closure alone is ~12 GiB.
@@ -19,6 +20,9 @@ fn required_disk_gib(swap_gib: u64) -> u64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Welcome,
+    Network,
+    WifiPassword,
+    WifiConnecting,
     DiskSelect,
     Hostname,
     Username,
@@ -51,6 +55,16 @@ pub struct App {
     pub start_install: bool,
     /// Set on the Done screen when the user asks to reboot.
     pub reboot: bool,
+    pub wifi_networks: Vec<net::WifiNetwork>,
+    pub wifi_selected: usize,
+    /// SSID awaiting a passphrase / being connected to.
+    pub wifi_ssid: String,
+    /// None until the first connectivity check answers.
+    pub online: Option<bool>,
+    /// Worker status shown on the Network screen ("scanning…" / "connecting…").
+    pub net_busy: Option<String>,
+    /// Set by `handle_key`; `main()` takes it and spawns the worker (keeps the state machine pure).
+    pub pending_net_op: Option<net::Op>,
 }
 
 impl App {
@@ -72,14 +86,90 @@ impl App {
             should_quit: false,
             start_install: false,
             reboot: false,
+            wifi_networks: Vec::new(),
+            wifi_selected: 0,
+            wifi_ssid: String::new(),
+            online: None,
+            net_busy: None,
+            pending_net_op: None,
         }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
         match self.screen {
             Screen::Welcome => match key.code {
-                KeyCode::Enter => self.screen = Screen::DiskSelect,
+                KeyCode::Enter => {
+                    self.screen = Screen::Network;
+                    self.pending_net_op = Some(net::Op::Scan);
+                    self.net_busy = Some("scanning for networks…".into());
+                }
                 KeyCode::Esc | KeyCode::Char('q') => self.should_quit = true,
+                _ => {}
+            },
+
+            Screen::Network => match key.code {
+                KeyCode::Up => self.wifi_selected = self.wifi_selected.saturating_sub(1),
+                KeyCode::Down => {
+                    if self.wifi_selected + 1 < self.wifi_networks.len() {
+                        self.wifi_selected += 1;
+                    }
+                }
+                KeyCode::Char('r') if self.net_busy.is_none() => {
+                    self.error = None;
+                    self.net_busy = Some("scanning for networks…".into());
+                    self.pending_net_op = Some(net::Op::Scan);
+                }
+                KeyCode::Char('s') => {
+                    self.screen = Screen::DiskSelect;
+                    self.error = None;
+                }
+                KeyCode::Enter if self.net_busy.is_none() => {
+                    if let Some(n) = self.wifi_networks.get(self.wifi_selected) {
+                        self.wifi_ssid = n.ssid.clone();
+                        self.error = None;
+                        if n.is_open() {
+                            self.pending_net_op = Some(net::Op::Connect {
+                                ssid: self.wifi_ssid.clone(),
+                                password: None,
+                            });
+                            self.net_busy = Some(format!("connecting to {}…", self.wifi_ssid));
+                            self.screen = Screen::WifiConnecting;
+                        } else {
+                            self.input.clear();
+                            self.screen = Screen::WifiPassword;
+                        }
+                    } else {
+                        self.error = Some("no networks found — r to rescan, s to skip".into());
+                    }
+                }
+                KeyCode::Esc => self.screen = Screen::Welcome,
+                _ => {}
+            },
+
+            Screen::WifiPassword => match key.code {
+                KeyCode::Char(c) => self.input.push(c),
+                KeyCode::Backspace => {
+                    self.input.pop();
+                }
+                KeyCode::Enter => {
+                    if (8..=63).contains(&self.input.len()) {
+                        let password = std::mem::take(&mut self.input);
+                        self.pending_net_op = Some(net::Op::Connect {
+                            ssid: self.wifi_ssid.clone(),
+                            password: Some(password),
+                        });
+                        self.net_busy = Some(format!("connecting to {}…", self.wifi_ssid));
+                        self.error = None;
+                        self.screen = Screen::WifiConnecting;
+                    } else {
+                        self.error = Some("passphrase must be 8–63 characters".into());
+                    }
+                }
+                KeyCode::Esc => {
+                    self.input.clear();
+                    self.error = None;
+                    self.screen = Screen::Network;
+                }
                 _ => {}
             },
 
@@ -109,7 +199,7 @@ impl App {
                         self.error = Some("no installable disks found".into());
                     }
                 }
-                KeyCode::Esc => self.screen = Screen::Welcome,
+                KeyCode::Esc => self.screen = Screen::Network,
                 _ => {}
             },
 
@@ -228,8 +318,9 @@ impl App {
                 _ => {}
             },
 
-            // No user-cancel mid-install: a half-written disk is worse.
-            Screen::Installing => {}
+            // No user-cancel mid-install/mid-connect: a half-written disk is
+            // worse, and interrupting nmcli mid-handshake helps nobody.
+            Screen::Installing | Screen::WifiConnecting => {}
 
             Screen::Done => {
                 if key.code == KeyCode::Enter {
@@ -264,6 +355,39 @@ impl App {
             install::Event::Failed(e) => {
                 self.error = Some(format!("Installation failed: {e}"));
                 self.screen = Screen::Failed;
+            }
+        }
+    }
+
+    /// `ScanDone`/`Connectivity` never change the screen — they may arrive
+    /// after the user has skipped ahead; only `ConnectDone` transitions, and
+    /// only from `WifiConnecting`.
+    pub fn on_net_event(&mut self, ev: net::Event) {
+        match ev {
+            net::Event::Connectivity(online) => self.online = Some(online),
+            net::Event::ScanDone(Ok(nets)) => {
+                self.wifi_networks = nets;
+                self.wifi_selected = 0;
+                self.net_busy = None;
+            }
+            net::Event::ScanDone(Err(e)) => {
+                self.net_busy = None;
+                self.error = Some(format!("Wi-Fi scan failed: {e}"));
+            }
+            net::Event::ConnectDone(Ok(())) => {
+                self.net_busy = None;
+                self.online = Some(true);
+                self.error = None;
+                if self.screen == Screen::WifiConnecting {
+                    self.screen = Screen::DiskSelect;
+                }
+            }
+            net::Event::ConnectDone(Err(e)) => {
+                self.net_busy = None;
+                self.error = Some(format!("connection failed: {e}"));
+                if self.screen == Screen::WifiConnecting {
+                    self.screen = Screen::Network;
+                }
             }
         }
     }

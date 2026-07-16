@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use dots_installer::app::{App, Screen};
 use dots_installer::disks::Disk;
 use dots_installer::install;
+use dots_installer::net::{self, WifiNetwork};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::from(code)
@@ -38,11 +39,33 @@ fn type_str(app: &mut App, s: &str) {
     }
 }
 
+/// An App parked on the Network screen with a canned two-network list: a
+/// secured one at index 0 and an open one at index 1.
+fn app_on_network_screen() -> App {
+    let mut app = app_with_disks();
+    app.screen = Screen::Network;
+    app.wifi_networks = vec![
+        WifiNetwork {
+            ssid: "secured-net".into(),
+            signal: 80,
+            security: "WPA2".into(),
+        },
+        WifiNetwork {
+            ssid: "open-net".into(),
+            signal: 60,
+            security: String::new(),
+        },
+    ];
+    app
+}
+
 #[test]
-fn welcome_enter_advances_to_disk_select() {
+fn welcome_enter_opens_network_screen_and_requests_scan() {
     let mut app = app_with_disks();
     app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.screen, Screen::DiskSelect);
+    assert_eq!(app.screen, Screen::Network);
+    assert_eq!(app.pending_net_op, Some(net::Op::Scan));
+    assert!(app.net_busy.is_some());
 }
 
 #[test]
@@ -50,6 +73,189 @@ fn welcome_esc_quits() {
     let mut app = app_with_disks();
     app.handle_key(key(KeyCode::Esc));
     assert!(app.should_quit);
+}
+
+#[test]
+fn network_skip_advances_to_disk_select() {
+    let mut app = app_on_network_screen();
+    app.handle_key(key(KeyCode::Char('s')));
+    assert_eq!(app.screen, Screen::DiskSelect);
+}
+
+#[test]
+fn network_esc_returns_to_welcome() {
+    let mut app = app_on_network_screen();
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.screen, Screen::Welcome);
+}
+
+#[test]
+fn disk_select_esc_returns_to_network() {
+    let mut app = app_with_disks();
+    app.screen = Screen::DiskSelect;
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.screen, Screen::Network);
+}
+
+#[test]
+fn scan_results_populate_list_and_clear_busy() {
+    let mut app = app_with_disks();
+    app.screen = Screen::Network;
+    app.net_busy = Some("scanning for networks…".into());
+    app.on_net_event(net::Event::ScanDone(Ok(vec![
+        WifiNetwork {
+            ssid: "one".into(),
+            signal: 50,
+            security: "WPA2".into(),
+        },
+        WifiNetwork {
+            ssid: "two".into(),
+            signal: 30,
+            security: String::new(),
+        },
+    ])));
+    assert_eq!(app.wifi_networks.len(), 2);
+    assert_eq!(app.wifi_selected, 0);
+    assert!(app.net_busy.is_none());
+}
+
+#[test]
+fn scan_failure_surfaces_error() {
+    let mut app = app_with_disks();
+    app.screen = Screen::Network;
+    app.net_busy = Some("scanning for networks…".into());
+    app.on_net_event(net::Event::ScanDone(Err("nmcli not found".into())));
+    assert!(app.net_busy.is_none());
+    assert!(app.error.as_deref().unwrap().contains("nmcli not found"));
+    assert_eq!(app.screen, Screen::Network);
+}
+
+#[test]
+fn selecting_secured_network_prompts_for_passphrase() {
+    let mut app = app_on_network_screen();
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::WifiPassword);
+    assert_eq!(app.wifi_ssid, "secured-net");
+    assert_eq!(app.pending_net_op, None);
+}
+
+#[test]
+fn selecting_open_network_connects_immediately() {
+    let mut app = app_on_network_screen();
+    app.wifi_selected = 1;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::WifiConnecting);
+    assert_eq!(
+        app.pending_net_op,
+        Some(net::Op::Connect {
+            ssid: "open-net".into(),
+            password: None,
+        })
+    );
+}
+
+#[test]
+fn enter_during_scan_is_ignored() {
+    let mut app = app_on_network_screen();
+    app.net_busy = Some("scanning for networks…".into());
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::Network);
+    assert_eq!(app.pending_net_op, None);
+}
+
+#[test]
+fn passphrase_length_enforced() {
+    let mut app = app_on_network_screen();
+    app.wifi_ssid = "secured-net".into();
+    app.screen = Screen::WifiPassword;
+    type_str(&mut app, "short");
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::WifiPassword);
+    assert!(app.error.is_some());
+
+    app.input.clear();
+    app.error = None;
+    type_str(&mut app, &"a".repeat(64));
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::WifiPassword);
+    assert!(app.error.is_some());
+}
+
+#[test]
+fn passphrase_enter_starts_connection() {
+    let mut app = app_on_network_screen();
+    app.wifi_ssid = "secured-net".into();
+    app.screen = Screen::WifiPassword;
+    type_str(&mut app, "hunter222");
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::WifiConnecting);
+    assert_eq!(
+        app.pending_net_op,
+        Some(net::Op::Connect {
+            ssid: "secured-net".into(),
+            password: Some("hunter222".into()),
+        })
+    );
+    assert!(app.input.is_empty());
+}
+
+#[test]
+fn wifi_password_esc_backs_out_to_network() {
+    let mut app = app_on_network_screen();
+    app.screen = Screen::WifiPassword;
+    type_str(&mut app, "partial");
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.screen, Screen::Network);
+    assert!(app.input.is_empty());
+}
+
+#[test]
+fn connect_success_advances_to_disk_select() {
+    let mut app = app_with_disks();
+    app.screen = Screen::WifiConnecting;
+    app.on_net_event(net::Event::ConnectDone(Ok(())));
+    assert_eq!(app.screen, Screen::DiskSelect);
+    assert_eq!(app.online, Some(true));
+}
+
+#[test]
+fn connect_failure_returns_to_network_with_error() {
+    let mut app = app_with_disks();
+    app.screen = Screen::WifiConnecting;
+    app.on_net_event(net::Event::ConnectDone(Err("bad passphrase".into())));
+    assert_eq!(app.screen, Screen::Network);
+    assert!(app.error.as_deref().unwrap().contains("bad passphrase"));
+}
+
+#[test]
+fn late_scan_event_never_changes_screen() {
+    let mut app = app_with_disks();
+    app.screen = Screen::DiskSelect;
+    app.on_net_event(net::Event::ScanDone(Ok(vec![WifiNetwork {
+        ssid: "late".into(),
+        signal: 10,
+        security: String::new(),
+    }])));
+    assert_eq!(app.screen, Screen::DiskSelect);
+}
+
+#[test]
+fn wifi_connecting_ignores_keys() {
+    let mut app = app_with_disks();
+    app.screen = Screen::WifiConnecting;
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::WifiConnecting);
+}
+
+#[test]
+fn connectivity_event_sets_online_flag() {
+    let mut app = app_with_disks();
+    assert_eq!(app.online, None);
+    app.on_net_event(net::Event::Connectivity(true));
+    assert_eq!(app.online, Some(true));
+    app.on_net_event(net::Event::Connectivity(false));
+    assert_eq!(app.online, Some(false));
 }
 
 #[test]

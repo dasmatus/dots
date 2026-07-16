@@ -62,12 +62,13 @@ in
     after = [
       "systemd-udev-settle.service"
       "getty@tty1.service"
+      "NetworkManager.service"
     ];
     wants = [ "systemd-udev-settle.service" ];
     conflicts = [ "getty@tty1.service" ];
     # Units get a bare default PATH — the TUI spawns lsblk/disko/nixos-facter/
-    # nixos-install/systemd-cryptenroll/nixos-enter/findmnt/shred/systemctl
-    # from the system profile, and `sh` for the copy step.
+    # nixos-install/systemd-cryptenroll/nixos-enter/findmnt/shred/systemctl/
+    # nmcli from the system profile, and `sh` for the copy step.
     path = [
       "/run/current-system/sw"
       pkgs.bash

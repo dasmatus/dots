@@ -83,7 +83,9 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
 /// (`settings.nix`, `facter.json`) at `{mnt}/var/lib/dots` for the
 /// first-login `dots-clone` user service to pick up. The repo itself is
 /// never copied onto the target — `mnt` is only the installation mount root
-/// (/mnt).
+/// (/mnt). `NetworkManager` profiles created by the Wi-Fi screen (credentials
+/// included, root-only 0600 keyfiles) are copied so the installed system
+/// comes up online on first boot; a no-op when nothing was connected.
 #[must_use]
 pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
     let swap = format!("{}G", cfg.swap_size_gib);
@@ -159,6 +161,17 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                         "mkdir -p {mnt}/var/lib/dots && cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json {mnt}/var/lib/dots/"
                     ),
                 ],
+                None,
+                Capture::Stream,
+            ),
+        },
+        Step {
+            title: "Copy network profiles to target".into(),
+            action: cmd(
+                "sh",
+                &["-c", &format!(
+                    "if [ -d /etc/NetworkManager/system-connections ]; then mkdir -p {mnt}/etc/NetworkManager && cp -a /etc/NetworkManager/system-connections {mnt}/etc/NetworkManager/; fi"
+                )],
                 None,
                 Capture::Stream,
             ),

@@ -57,6 +57,92 @@ fn draw_wizard(frame: &mut Frame, app: &App, area: Rect) {
             "Enter continue · Esc quit",
         ),
 
+        Screen::Network => {
+            let mut lines = vec![
+                Line::default(),
+                Line::raw("  Wi-Fi setup — nixos-install pulls from the binary cache,"),
+                Line::raw("  so get online unless this is the offline (iso-full) image."),
+                Line::default(),
+            ];
+            lines.push(match app.online {
+                None => Line::styled("  status: checking…", Style::default().fg(palette::DIM)),
+                Some(true) => {
+                    Line::styled("  status: online ✓", Style::default().fg(palette::GREEN))
+                }
+                Some(false) => {
+                    Line::styled("  status: offline ✗", Style::default().fg(palette::YELLOW))
+                }
+            });
+            if let Some(b) = &app.net_busy {
+                lines.push(Line::styled(
+                    format!("  {b}"),
+                    Style::default().fg(palette::CYAN),
+                ));
+            }
+            lines.push(Line::default());
+            if app.wifi_networks.is_empty() && app.net_busy.is_none() {
+                lines.push(Line::styled(
+                    "  no Wi-Fi networks found (wired is fine too — press s)",
+                    Style::default().fg(palette::DIM),
+                ));
+            }
+            for (i, n) in app.wifi_networks.iter().enumerate() {
+                let marker = if i == app.wifi_selected {
+                    "  ▶ "
+                } else {
+                    "    "
+                };
+                let style = if i == app.wifi_selected {
+                    Style::default()
+                        .fg(palette::CYAN)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                let security = if n.is_open() {
+                    "open"
+                } else {
+                    n.security.as_str()
+                };
+                lines.push(Line::styled(
+                    format!("{marker}{} {}  {security}", n.signal_bars(), n.ssid),
+                    style,
+                ));
+            }
+            (
+                " network ",
+                lines,
+                "↑/↓ select · Enter connect · r rescan · s skip · Esc back",
+            )
+        }
+
+        Screen::WifiPassword => (
+            " Wi-Fi passphrase ",
+            input_lines(
+                &format!("Passphrase for \"{}\":", app.wifi_ssid),
+                &app.input,
+                true,
+            ),
+            "Enter connect · Esc back",
+        ),
+
+        Screen::WifiConnecting => (
+            " connecting ",
+            vec![
+                Line::default(),
+                Line::styled(
+                    format!("  connecting to \"{}\"…", app.wifi_ssid),
+                    Style::default().fg(palette::CYAN),
+                ),
+                Line::default(),
+                Line::styled(
+                    "  asking NetworkManager, this can take a few seconds",
+                    Style::default().fg(palette::DIM),
+                ),
+            ],
+            "please wait",
+        ),
+
         Screen::DiskSelect => {
             let mut lines = vec![
                 Line::default(),

@@ -1,4 +1,4 @@
-use dots_installer::{app, disks, install, ui};
+use dots_installer::{app, disks, install, net, ui};
 
 use std::io;
 use std::sync::mpsc;
@@ -47,6 +47,7 @@ fn main() -> anyhow::Result<()> {
 fn event_loop(app: &mut app::App) -> anyhow::Result<()> {
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let (tx, rx) = mpsc::channel();
+    let (net_tx, net_rx) = mpsc::channel();
     let mut runner_started = false;
 
     while !app.should_quit {
@@ -61,6 +62,14 @@ fn event_loop(app: &mut app::App) -> anyhow::Result<()> {
 
         while let Ok(ev) = rx.try_recv() {
             app.on_install_event(ev);
+        }
+
+        if let Some(op) = app.pending_net_op.take() {
+            let tx = net_tx.clone();
+            std::thread::spawn(move || net::run_op(op, &tx));
+        }
+        while let Ok(ev) = net_rx.try_recv() {
+            app.on_net_event(ev);
         }
 
         if event::poll(Duration::from_millis(100))? {

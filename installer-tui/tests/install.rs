@@ -289,6 +289,48 @@ fn plan_sets_passwords_before_tpm2_enrollment() {
 }
 
 #[test]
+fn plan_copies_network_profiles_to_target() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let copy = steps
+        .iter()
+        .find(|s| s.title == "Copy network profiles to target")
+        .expect("network profile copy step");
+    let Action::Command { program, args, .. } = &copy.action else {
+        panic!("copy step must be a command");
+    };
+    assert_eq!(program, "sh");
+    let script = args.join(" ");
+    assert!(
+        script.contains("if [ -d /etc/NetworkManager/system-connections ]"),
+        "{script}"
+    );
+    assert!(
+        script.contains("mkdir -p /mnt/etc/NetworkManager"),
+        "{script}"
+    );
+    assert!(
+        script.contains("cp -a /etc/NetworkManager/system-connections /mnt/etc/NetworkManager/"),
+        "{script}"
+    );
+}
+
+#[test]
+fn plan_copies_network_profiles_after_mount_before_install() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
+    let disko =
+        idx(&|s| matches!(&s.action, Action::Command { program, .. } if program == "disko"));
+    let copy = idx(&|s| s.title == "Copy network profiles to target");
+    let install = idx(
+        &|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-install"),
+    );
+    assert!(
+        disko < copy && copy < install,
+        "a copy before disko mounts the target would vanish with the tmpfs"
+    );
+}
+
+#[test]
 fn plan_shreds_passfile_last() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let last = steps.last().expect("steps nonempty");

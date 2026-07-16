@@ -7,4 +7,5 @@ pub mod app;
 pub mod config;
 pub mod disks;
 pub mod install;
+pub mod net;
 pub mod ui;
