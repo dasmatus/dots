@@ -1,2 +1,395 @@
-# Placeholder — filled by the nixvim port (W3).
-{ ... }: { }
+# nixvim port of files/nvim (lazy.nvim). Mason is gone: LSP servers and
+# formatters come from nixpkgs. Deliberate deviations from the lua config:
+# TroubleToggle → Trouble v3 command; nvim-tabline (unpackaged) → bufferline
+# in tabs mode; the rainbow treesitter module (dead upstream) →
+# rainbow-delimiters; vls dropped (no nixpkgs package); the never-installed
+# cmp omni/emoji sources and the unconfigured nvim-lint dropped.
+{ pkgs, ... }:
+{
+  programs.nixvim = {
+    enable = true;
+    defaultEditor = true;
+    viAlias = true;
+    vimAlias = true;
+    luaLoader.enable = true;
+    # reuse the host pkgs — keeps the system allowUnfreePredicate
+    # (presence.nvim) instead of nixvim instantiating its own nixpkgs
+    nixpkgs.useGlobalPackages = true;
+
+    globals = {
+      mapleader = "\\";
+      maplocalleader = " ";
+      loaded_netrw = 1;
+      loaded_netrwPlugin = 1;
+      loaded_matchit = 1;
+      loaded_matchparen = 1;
+      ansible_ftdetect_filename_regex = "\\v(playbook|site|main|local|requirements)\\.ya?ml$";
+      ansible_template_syntaxes = {
+        "*.rb.j2" = "ruby";
+        "*.yml.j2" = "yaml";
+      };
+      ansible_loop_keywords_highlight = "Constant";
+      ansible_normal_keywords_highlight = "Constant";
+      ansible_extra_keywords_highlight = 1;
+      ansible_yamlKeyName = "yamlKey";
+    };
+
+    opts = {
+      number = true;
+      showmode = false;
+      shell = "fish";
+      signcolumn = "yes";
+      guifont = "Lilex Nerd Font:style=Bold:h14";
+      termguicolors = true;
+      showtabline = 1;
+    };
+
+    colorschemes.tokyonight = {
+      enable = true;
+      settings.style = "night";
+    };
+
+    keymaps = [
+      {
+        mode = "n";
+        key = "<space>sf";
+        action = "<cmd>NvimTreeToggle<CR>";
+      }
+      {
+        mode = "n";
+        key = "<space>tn";
+        action = "<cmd>tabnew<CR>";
+      }
+      {
+        mode = "n";
+        key = "<space>tc";
+        action = "<cmd>tabclose<CR>";
+      }
+      {
+        mode = "n";
+        key = "<space>nt";
+        action = "<cmd>tabnext<CR>";
+      }
+      {
+        mode = "n";
+        key = "<space>tt";
+        action = "<cmd>ToggleTerm dir=window<CR>";
+      }
+      {
+        mode = "n";
+        key = "<space>lt";
+        action = "<cmd>Trouble diagnostics toggle<CR>";
+      }
+      {
+        mode = [
+          "n"
+          "v"
+        ];
+        key = "<leader>f";
+        action.__raw = ''
+          function()
+            require("conform").format({ async = true, lsp_format = "fallback" })
+          end
+        '';
+        options.desc = "Format buffer";
+      }
+    ];
+
+    autoCmd = [
+      {
+        event = "FileType";
+        pattern = "toggleterm";
+        callback.__raw = ''
+          function()
+            vim.keymap.set('t', '<Esc>', '<cmd>ToggleTerm<CR>', { buffer = true, silent = true })
+          end
+        '';
+      }
+      {
+        event = "TermOpen";
+        pattern = "*";
+        callback.__raw = ''
+          function()
+            local buf = vim.api.nvim_get_current_buf()
+            vim.keymap.set('t', '<Esc>', '<C-\\><C-n><cmd>close<CR>', { buffer = buf, silent = true })
+          end
+        '';
+      }
+    ];
+
+    plugins = {
+      web-devicons.enable = true;
+      which-key.enable = true;
+      mini-pairs.enable = true;
+      mini-sessions = {
+        enable = true;
+        settings.hooks.pre.write.__raw = ''
+          function() vim.api.nvim_exec_autocmds('User', { pattern = 'SessionSavePre' }) end
+        '';
+      };
+
+      lsp = {
+        enable = true;
+        servers = {
+          clangd.enable = true;
+          nil_ls.enable = true;
+          lua_ls.enable = true;
+          ansiblels = {
+            enable = true;
+            package = pkgs.ansible-language-server;
+          };
+        };
+      };
+      rustaceanvim.enable = true;
+      trouble.enable = true;
+      todo-comments.enable = true;
+      barbecue.enable = true;
+
+      treesitter = {
+        enable = true;
+        settings = {
+          highlight = {
+            enable = true;
+            additional_vim_regex_highlighting = false;
+          };
+          indent.enable = true;
+        };
+      };
+      rainbow-delimiters.enable = true;
+
+      lspkind = {
+        enable = true;
+        cmp = {
+          enable = true;
+          menu = {
+            nvim_lsp = "[LSP]";
+            luasnip = "[Snip]";
+            nvim_lua = "[Lua]";
+            path = "[Path]";
+            buffer = "[Buffer]";
+          };
+        };
+        mode = "symbol_text";
+      };
+      luasnip = {
+        enable = true;
+        fromVscode = [ { } ];
+      };
+      friendly-snippets.enable = true;
+      cmp = {
+        enable = true;
+        settings = {
+          snippet.expand = "function(args) require('luasnip').lsp_expand(args.body) end";
+          mapping = {
+            "<Tab>".__raw = ''
+              function(fallback)
+                local cmp = require('cmp')
+                local luasnip = require('luasnip')
+                if cmp.visible() then
+                  cmp.select_next_item()
+                elseif luasnip.expand_or_jumpable() then
+                  luasnip.expand_or_jump()
+                else
+                  fallback()
+                end
+              end
+            '';
+            "<S-Tab>".__raw = ''
+              function(fallback)
+                local cmp = require('cmp')
+                local luasnip = require('luasnip')
+                if cmp.visible() then
+                  cmp.select_prev_item()
+                elseif luasnip.jumpable(-1) then
+                  luasnip.jump(-1)
+                else
+                  fallback()
+                end
+              end
+            '';
+            "<CR>" = "cmp.mapping.confirm({ select = true })";
+            "<C-e>" = "cmp.mapping.abort()";
+            "<Esc>" = "cmp.mapping.close()";
+            "<C-d>" = "cmp.mapping.scroll_docs(-4)";
+            "<C-f>" = "cmp.mapping.scroll_docs(4)";
+          };
+          sources = [
+            { name = "nvim_lsp"; }
+            { name = "luasnip"; }
+            { name = "nvim_lua"; }
+            { name = "path"; }
+            {
+              name = "buffer";
+              keyword_length = 4;
+            }
+            { name = "crates"; }
+          ];
+          window = {
+            completion.__raw = "require('cmp.config.window').bordered()";
+            documentation.__raw = "require('cmp.config.window').bordered()";
+          };
+          completion = {
+            keyword_length = 1;
+            completeopt = "menu,noselect";
+          };
+          view.entries = "custom";
+        };
+      };
+
+      dap.enable = true;
+      dap-ui.enable = true;
+
+      conform-nvim = {
+        enable = true;
+        settings = {
+          formatters_by_ft = {
+            lua = [ "stylua" ];
+            rust = [ "rustfmt" ];
+            c = [ "clang_format" ];
+            cpp = [ "clang_format" ];
+            nix = [ "nixfmt" ];
+            yaml = [ "prettier" ];
+            json = [ "prettier" ];
+            markdown = [ "prettier" ];
+            javascript = [ "prettier" ];
+            typescript = [ "prettier" ];
+          };
+          format_on_save = {
+            timeout_ms = 500;
+            lsp_format = "fallback";
+          };
+        };
+      };
+
+      fugitive.enable = true;
+      crates.enable = true;
+
+      wilder = {
+        enable = true;
+        modes = [
+          ":"
+          "/"
+          "?"
+        ];
+      };
+      lualine.enable = true;
+      bufferline = {
+        enable = true;
+        settings.options.mode = "tabs";
+      };
+      nvim-tree = {
+        enable = true;
+        settings = {
+          sort_by = "case_sensitive";
+          view.width = 30;
+          renderer.group_empty = true;
+          filters.dotfiles = true;
+        };
+      };
+
+      toggleterm = {
+        enable = true;
+        settings = {
+          direction = "float";
+          float_opts = {
+            border = "curved";
+            width = 90;
+            height = 30;
+            winblend = 4;
+          };
+        };
+      };
+
+      presence-nvim = {
+        enable = true;
+        autoUpdate = true;
+        neovimImageText = "The One True Text Editor";
+        mainImage = "neovim";
+        clientId = "793271441293967371";
+        debounceTimeout = 10;
+        enableLineNumber = false;
+        blacklist = [ ];
+        buttons = true;
+        fileAssets = { };
+        showTime = true;
+        editingText = "Editing %s";
+        fileExplorerText = "Browsing %s";
+        gitCommitText = "Committing changes";
+        pluginManagerText = "Managing plugins";
+        readingText = "Reading %s";
+        workspaceText = "Working on %s";
+        lineNumberText = "Line %s out of %s";
+      };
+
+      dashboard = {
+        enable = true;
+        settings = {
+          theme = "hyper";
+          config = {
+            week_header.enable = true;
+            shortcut = [
+              {
+                desc = "󰊳 Update";
+                group = "@property";
+                action = "NixvimUpdate";
+                key = "u";
+              }
+              {
+                icon = " ";
+                icon_hl = "@variable";
+                desc = "Files";
+                group = "Label";
+                action = "NvimTreeOpen .";
+                key = "f";
+              }
+              {
+                desc = "Projects";
+                group = "DiagnosticHint";
+                action = "NvimTreeOpen ~/Dokumente";
+                key = "p";
+              }
+            ];
+          };
+        };
+      };
+
+      auto-save.enable = true;
+    };
+
+    extraPlugins = with pkgs.vimPlugins; [
+      ansible-vim
+      claudecode-nvim
+      (pkgs.vimUtils.buildVimPlugin {
+        pname = "v-vim";
+        version = "2024-unstable";
+        src = pkgs.fetchFromGitHub {
+          owner = "ollykel";
+          repo = "v-vim";
+          rev = "1dc1388bafb89072f8349dbd96f9462ae22237cb";
+          hash = "sha256-AJqSUK05pq//0Nw331oTRUUrm/sO8eInTRYgvDM3i+w=";
+        };
+      })
+    ];
+
+    extraPackages = with pkgs; [
+      lazygit
+      stylua
+      clang-tools
+      nixfmt-rfc-style
+      prettier
+      rustfmt
+    ];
+
+    extraConfigLua = ''
+      vim.opt.sessionoptions:append('globals')
+
+      require('claudecode').setup()
+
+      local Terminal = require('toggleterm.terminal').Terminal
+      local lazygit = Terminal:new({ cmd = "lazygit", hidden = true })
+      function _lazygit_toggle()
+        lazygit:toggle()
+      end
+    '';
+  };
+}

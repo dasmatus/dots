@@ -1,5 +1,5 @@
 # Base system: nix daemon settings, locale, timezone, core CLI tools.
-# Parity: installer/chroot_base.py (locale en_US.UTF-8, TZ UTC) and the
+# Parity: installer/chroot_base.py (locale de_DE.UTF-8, BA UTC) and the
 # always-present parts of SYSTEM_PACKAGES (installer/chroot_system.py).
 {
   pkgs,
@@ -16,6 +16,8 @@
     pkg:
     builtins.elem (lib.getName pkg) [
       "claude-code"
+      # no upstream license → nixpkgs marks it unfree
+      "presence.nvim"
     ];
 
   nix.settings = {
@@ -29,12 +31,11 @@
     ];
   };
 
-  time.timeZone = "UTC";
-  i18n.defaultLocale = "en_US.UTF-8";
+  time.timeZone = "Europe/Bratislava";
+  i18n.defaultLocale = "de_DE.UTF-8";
 
   environment.systemPackages = with pkgs; [
     git
-    neovim
     bat
     eza
     btrfs-progs

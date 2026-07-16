@@ -61,13 +61,6 @@ in
     "picom/picom.conf".source = ../../files/picom.conf;
     "libinput-gestures.conf".source = ../../files/libinput-gestures.conf;
 
-    # lazy.nvim writes lazy-lock.json into the config dir — needs a real,
-    # writable directory, not a store symlink.
-    "nvim" = {
-      source = ../../files/nvim;
-      recursive = true;
-    };
-
     "hypr/hyprland.conf".text = hyprlandConf;
 
     "gtk-3.0/bookmarks".text = ''
