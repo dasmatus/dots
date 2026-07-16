@@ -51,9 +51,46 @@
   ];
   fonts.fontconfig.defaultFonts.monospace = [ "Lilex Nerd Font" ];
 
-  # System-wide Brave enterprise policies — matches the retired Gentoo
-  # installer's files/brave/policies → /etc/brave/policies copy (git history).
-  environment.etc."brave/policies".source = ../../files/brave/policies;
+  # System-wide Brave enterprise policies — inlined from the retired
+  # files/brave/policies tree (git history); same /etc/brave/policies/managed
+  # layout. Stays system-level: Chromium on Linux has no per-user managed
+  # policies, so this cannot live in Home Manager.
+  environment.etc."brave/policies/managed/hardening.json".text = builtins.toJSON {
+    BraveWalletDisabled = true;
+    BraveRewardsDisabled = true;
+    BraveNewsDisabled = true;
+    BraveAIChatEnabled = false;
+    PasswordManagerEnabled = false;
+    SafeBrowsingEnabled = false;
+    SafeBrowsingExtendedReportingEnabled = false;
+    MetricsReportingEnabled = false;
+    CloudReportingEnabled = false;
+    DeviceMetricsReportingEnabled = false;
+    AutofillAddressEnabled = false;
+    AutofillCreditCardEnabled = false;
+    BackgroundModeEnabled = false;
+    NetworkPredictionOptions = 2;
+    DnsOverHttpsMode = "secure";
+    DnsOverHttpsTemplates = "https://family.dns.mullvad.net/dns-query";
+    DefaultWebBluetoothGuardSetting = 2;
+    DefaultWebUsbGuardSetting = 2;
+    WebUsbAskForUrls = [ "https://grapheneos.org" ];
+    DefaultSerialGuardSetting = 2;
+    BrowserSignin = 0;
+    SyncDisabled = true;
+    HttpsOnlyMode = "force_enabled";
+    WebRtcIPHandlingPolicy = "disable_non_proxied_udp";
+  };
+  environment.etc."brave/policies/managed/extensions.json".text = builtins.toJSON {
+    ExtensionInstallForcelist = [
+      "nngceckbapebfimnlniiiahkandclblb;https://clients2.google.com/service/update2/crx"
+      "fcoeoabgfenejglbffodgkkbkcdhcgfn;https://clients2.google.com/service/update2/crx"
+      "nomnklagbgmgghhjidfhnoelnjfndfpd;https://clients2.google.com/service/update2/crx"
+      "cebifddlogbjhoibpjobhlamopmlpckl;https://clients2.google.com/service/update2/crx"
+      "febipmhaonfflclkijaehmhnacjilggf;https://clients2.google.com/service/update2/crx"
+      "mnjggcdmjocbbbhaepdhchncahnbgone;https://clients2.google.com/service/update2/crx"
+    ];
+  };
 
   xdg.portal = {
     enable = true;
