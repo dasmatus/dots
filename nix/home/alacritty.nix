@@ -4,11 +4,14 @@
 # dropped without porting. The Shift+Return chars escape is written as the
 # literal text \u001b\u000d — home-manager's alacritty module rewrites \uXXXX
 # placeholders into real TOML escapes (ESC + CR).
-{ ... }:
+# Addition vs the original: terminal.shell spawns zellij (which runs fish
+# inside, per zellij.nix default_shell) instead of the login shell.
+{ pkgs, lib, ... }:
 {
   programs.alacritty = {
     enable = true;
     settings = {
+      terminal.shell.program = lib.getExe pkgs.zellij;
       colors = {
         primary = {
           background = "0x1a1b26";

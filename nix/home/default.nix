@@ -13,6 +13,7 @@
 {
   imports = [
     ./alacritty.nix
+    ./zellij.nix
     ./fish.nix
     ./claude.nix
     ./random_wp.nix
@@ -44,7 +45,6 @@
   };
 
   xdg.configFile = {
-    "zellij".source = ../../files/zellij;
     "gtk-2.0".source = ../../files/gtk-2.0;
 
     "gtk-3.0/bookmarks".text = ''
