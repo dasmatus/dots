@@ -10,14 +10,26 @@
 #  plus mmx64.efi (MokManager) and the public cert on the ESP so factory
 #  Secure Boot machines can enroll it once from disk. Machines whose db
 #  already contains the cert (e.g. sbctl enroll-keys --microsoft + this
-#  cert) boot with no prompt — that's what tests/nix-smoke.sh --secure-boot
-#  proves in a VM.
+#  cert) boot with no prompt — that's what tests/nix-smoke.sh proves in a
+#  VM (its default mode).
 #
-#  Usage:  scripts/sign-iso.sh [-o OUT.iso] [-k KEYDIR] [--shim DIR] UNSIGNED.iso
+#  Usage:  scripts/sign-iso.sh [-o OUT.iso] [-k KEYDIR] [--shim DIR]
+#                              [--sbctl | --extra-sign KEY CERT] UNSIGNED.iso
 #    -o      output path        (default result-iso-signed/<name>-signed.iso)
 #    -k      key directory      (default secrets/secureboot/ — gitignored;
 #                                MOK.key/MOK.crt/MOK.cer generated once, reused)
 #    --shim  shim binaries dir  (default: nix build .#shim-signed)
+#    --extra-sign KEY CERT      cosign GRUB + kernels with a SECOND key on top
+#                               of the MOK (both signatures are kept; PE files
+#                               carry both). Machines whose Secure Boot db
+#                               already trusts CERT boot with no MokManager
+#                               prompt at all, while factory machines still
+#                               enroll the MOK once. KEY may be root-owned —
+#                               it is read via sudo in place, never copied.
+#    --sbctl                    sugar for --extra-sign against the local sbctl
+#                               db key (SBCTL_DB or /var/lib/sbctl/keys/db,
+#                               files db.key/db.pem) — the same key lanzaboote
+#                               signs your installed systems with.
 #
 #  Tools come from the flake's .#sb-tools — the script re-execs itself
 #  inside `nix shell` when they're missing from PATH.
@@ -47,14 +59,18 @@ fi
 
 # ── Arguments ────────────────────────────────────────────────────
 OUT="" KEYDIR="${REPO_ROOT}/secrets/secureboot" SHIM_DIR="" ISO_IN=""
+EXTRA_KEY="" EXTRA_CERT=""
+SBCTL_DB="${SBCTL_DB:-/var/lib/sbctl/keys/db}"
 while (( $# )); do
   case "$1" in
-    -o)     OUT="$2"; shift 2 ;;
-    -k)     KEYDIR="$2"; shift 2 ;;
-    --shim) SHIM_DIR="$2"; shift 2 ;;
-    -*)     die "unknown option: $1" ;;
-    *)      [[ -z "${ISO_IN}" ]] || die "only one input ISO allowed"
-            ISO_IN="$1"; shift ;;
+    -o)           OUT="$2"; shift 2 ;;
+    -k)           KEYDIR="$2"; shift 2 ;;
+    --shim)       SHIM_DIR="$2"; shift 2 ;;
+    --extra-sign) EXTRA_KEY="$2"; EXTRA_CERT="$3"; shift 3 ;;
+    --sbctl)      EXTRA_KEY="${SBCTL_DB}/db.key"; EXTRA_CERT="${SBCTL_DB}/db.pem"; shift ;;
+    -*)           die "unknown option: $1" ;;
+    *)            [[ -z "${ISO_IN}" ]] || die "only one input ISO allowed"
+                  ISO_IN="$1"; shift ;;
   esac
 done
 [[ -n "${ISO_IN}" && -f "${ISO_IN}" ]] || die "input ISO not found: '${ISO_IN:-}'"
@@ -90,6 +106,27 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
+# ── Optional cosign key (e.g. the sbctl db key) ──────────────────
+# The private key may be root-owned (sbctl keeps 0700 dirs); read it in
+# place via sudo, never copy it. The cert is public — copy it out so
+# sbsign/sbverify can read it as us.
+EXTRA_SUDO=""
+if [[ -n "${EXTRA_KEY}" ]]; then
+  [[ -f "${EXTRA_KEY}" ]] || die "cosign key not found: ${EXTRA_KEY}"
+  if [[ ! -r "${EXTRA_KEY}" ]]; then
+    command -v sudo &>/dev/null \
+      || die "cosign key ${EXTRA_KEY} is unreadable and sudo is unavailable"
+    EXTRA_SUDO="sudo"
+    log "cosign key is root-owned — sudo will read it for the extra sbsign"
+  fi
+  if [[ ! -r "${EXTRA_CERT}" ]]; then
+    ${EXTRA_SUDO} cat "${EXTRA_CERT}" > "${WORK}/extra.pem" 2>/dev/null \
+      || die "cannot read cosign cert ${EXTRA_CERT}"
+    EXTRA_CERT="${WORK}/extra.pem"
+  fi
+  log "cosigning with $(openssl x509 -in "${EXTRA_CERT}" -noout -subject 2>/dev/null | sed 's/^subject=//')"
+fi
+
 # ── Pull the EFI pieces out of the unsigned ISO ──────────────────
 log "extracting EFI boot files from $(basename "${ISO_IN}")"
 xorriso -osirrox on -indev "${ISO_IN}" \
@@ -121,11 +158,26 @@ objdump -h "${WORK}/grubx64.unsigned.efi" | grep -q '\.sbat' \
   || die ".sbat section missing after objcopy"
 
 # ── Sign GRUB, rEFInd and every kernel referenced by grub.cfg ────
+# Primary signature is always the MOK. When a cosign key is given, sbsign
+# APPENDS a second signature (the PE keeps both); either trusted cert then
+# satisfies shim/firmware independently.
 sign() {
+  local in="$1" out="$2"
   sbsign --key "${KEYDIR}/MOK.key" --cert "${KEYDIR}/MOK.crt" \
-    --output "$2" "$1" 2>/dev/null
-  sbverify --cert "${KEYDIR}/MOK.crt" "$2" >/dev/null \
-    || die "sbverify failed for $2"
+    --output "${out}" "${in}" 2>/dev/null
+  sbverify --cert "${KEYDIR}/MOK.crt" "${out}" >/dev/null \
+    || die "sbverify (MOK) failed for ${out}"
+  if [[ -n "${EXTRA_KEY}" ]]; then
+    ${EXTRA_SUDO} sbsign --key "${EXTRA_KEY}" --cert "${EXTRA_CERT}" \
+      --output "${out}.x" "${out}" 2>/dev/null || die "cosign failed for ${out}"
+    [[ -n "${EXTRA_SUDO}" ]] \
+      && ${EXTRA_SUDO} chown "$(id -u):$(id -g)" "${out}.x"
+    mv "${out}.x" "${out}"
+    sbverify --cert "${EXTRA_CERT}" "${out}" >/dev/null \
+      || die "sbverify (cosign) failed for ${out}"
+    sbverify --cert "${KEYDIR}/MOK.crt" "${out}" >/dev/null \
+      || die "MOK signature lost after cosign for ${out}"
+  fi
 }
 sign "${WORK}/grubx64.unsigned.efi" "${WORK}/grubx64.efi"
 ok "signed grubx64.efi (with .sbat @ ${sbat_vma})"
@@ -213,6 +265,9 @@ grep -q 'GPT partition name.*EFI' <<<"${report}" \
 mv "${OUT}.tmp" "${OUT}"
 
 ok "signed ISO: ${OUT} ($(du -h "${OUT}" | cut -f1))"
-log "cert: $(openssl x509 -in "${KEYDIR}/MOK.crt" -noout -fingerprint -sha256 \
+log "MOK cert: $(openssl x509 -in "${KEYDIR}/MOK.crt" -noout -fingerprint -sha256 \
   | cut -d= -f2)"
+if [[ -n "${EXTRA_KEY}" ]]; then
+  log "cosigned: machines whose Secure Boot db trusts that key boot with no prompt"
+fi
 log "factory Secure Boot machines: enroll /EFI/BOOT/${CERT_BASENAME} once via MokManager"
