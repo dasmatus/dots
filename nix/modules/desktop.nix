@@ -1,26 +1,38 @@
-# Desktop: i3 (X11, started via startx from fish on tty1) + Hyprland (Wayland,
-# launched manually), pipewire, fonts and themes referenced by files/ configs.
-# redshift/picom/polybar are exec'd by the i3/hypr configs themselves, so they
-# are provided as packages, not as NixOS services (avoids double instances).
+# Desktop: GNOME (GDM/Wayland) + Hyprland, pipewire, fonts and themes.
+# GNOME core apps are delivered as verified flatpaks (nix/modules/flatpak.nix);
+# only the apps without a Flathub presence stay native below.
 { pkgs, ... }:
 {
   services = {
     displayManager.gdm.enable = true;
     desktopManager.gnome.enable = true;
     gnome = {
-      core-apps.enable = true;
+      core-apps.enable = false;
       core-developer-tools.enable = true;
       games.enable = true;
+      # nautilus previews; core-apps-gated upstream, so re-enable explicitly
+      sushi.enable = true;
     };
   };
-  environment.systemPackages = with pkgs.gnomeExtensions; [
-    blur-my-shell
-    dash-to-dock
-    user-themes
-    appindicator
-    screentospace
-    tiling-assistant
-  ];
+  environment.systemPackages =
+    # core-apps replacements with no (verified) Flathub equivalent
+    (with pkgs; [
+      nautilus
+      gnome-console
+      gnome-system-monitor
+      gnome-tecla
+      yelp
+    ])
+    ++ (with pkgs.gnomeExtensions; [
+      blur-my-shell
+      dash-to-dock
+      user-themes
+      appindicator
+      screentospace
+      tiling-assistant
+    ]);
+  programs.gnome-disks.enable = true;
+  programs.seahorse.enable = true;
   programs.hyprland.enable = true;
 
   services.pipewire = {
@@ -41,24 +53,6 @@
   # files/brave/policies → /etc/brave/policies copy.
   environment.etc."brave/policies".source = ../../files/brave/policies;
 
-  # i3/hypr configs run KeePassXC and Flameshot via `flatpak run`. NixOS's
-  # flatpak module configures no remotes, so add flathub once — without it
-  # every `flatpak install/run` fails on a fresh system.
-  services.flatpak.enable = true;
-  systemd.services.flathub-remote = {
-    description = "Add the flathub flatpak remote";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
-    path = [ pkgs.flatpak ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    script = ''
-      flatpak remote-add --if-not-exists --verified flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-    '';
-  };
   xdg.portal = {
     enable = true;
     extraPortals = [ pkgs.xdg-desktop-portal-gtk ];

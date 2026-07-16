@@ -49,6 +49,7 @@
             ./nix/modules/boot.nix
             ./nix/modules/network.nix
             ./nix/modules/desktop.nix
+            ./nix/modules/flatpak.nix
             ./nix/modules/virtualisation.nix
             ./nix/modules/users.nix
             ./nix/modules/hardening.nix
