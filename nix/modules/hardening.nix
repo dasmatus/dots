@@ -13,9 +13,11 @@
     type = lib.types.bool;
     default = true;
     description = ''
-      USBGuard with devices present at boot allowed (so keyboards keep
-      working) and new devices blocked. Disable if plugging unknown USB
-      devices needs to Just Work.
+      USBGuard in audit-only posture: devices present at boot and newly
+      plugged ones are both allowed (implicitPolicyTarget "allow" below;
+      flip it back to "block" for enforcement once a ruleset exists that
+      cannot lock the keyboard out). Disable to not run the daemon at
+      all.
     '';
   };
 
@@ -57,7 +59,6 @@
     ];
 
     systemd.coredump.enable = false;
-
     security.apparmor = {
       enable = true;
       packages = [ pkgs.apparmor-profiles ];
@@ -66,7 +67,7 @@
     services.usbguard = lib.mkIf config.dots.hardening.usbguard.enable {
       enable = true;
       presentDevicePolicy = "allow";
-      implicitPolicyTarget = "block";
+      implicitPolicyTarget = "allow";
       IPCAllowedGroups = [ "wheel" ];
     };
 

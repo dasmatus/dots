@@ -23,8 +23,7 @@
 
     shellAliases = {
       cat = "bat --paging=never";
-      ls = "eza -lhi --git --icons";
-      claude = "claude --worktree";
+      ls = "eza -lhi --git --icons always";
     };
 
     functions.claude-dev = ''

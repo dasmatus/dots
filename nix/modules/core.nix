@@ -17,6 +17,8 @@
     pkg:
     builtins.elem (lib.getName pkg) [
       "claude-code"
+      # proprietary Electron app, ex-flatpak (nix/home/pkgs.nix)
+      "obsidian"
       # no upstream license → nixpkgs marks it unfree
       "presence.nvim"
       # proprietary driver + settings tool, pulled in when nix/hosts.nix

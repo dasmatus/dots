@@ -3,7 +3,8 @@
 # module imported below (alacritty.nix, zellij.nix, fastfetch.nix, fish.nix,
 # claude.nix, hyprland.nix, waybar.nix, dunst.nix, rofi/, nixvim.nix,
 # librewolf.nix, dots-repo.nix) or was deliberately dropped (BetterDiscord —
-# Vesktop flatpak covers it; gtk-2.0 filechooser state). The only generated
+# Vesktop covers it; gtk-2.0 filechooser state). GUI apps that used to be
+# flatpaks live in pkgs.nix with their configs. The only generated
 # raw text left is gtk-3.0/bookmarks (needs the real home directory
 # interpolated).
 # The X11-era stack (i3, polybar, picom, libinput-gestures, swaybg wallpaper
@@ -26,6 +27,8 @@
     ./waybar.nix
     ./dunst.nix
     ./rofi
+    ./git.nix
+    ./pkgs.nix
   ];
 
   home.stateVersion = "26.05";
@@ -69,7 +72,7 @@
       package = pkgs.adw-gtk3;
     };
     iconTheme = {
-      name = "morewaita";
+      name = "MoreWaita";
       package = pkgs.morewaita-icon-theme;
     };
   };

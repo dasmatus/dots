@@ -50,16 +50,21 @@ sudo nixos-rebuild switch --flake .#tokyonight
 - `facter.json` — committed stub (`{}`) that keeps evaluation green with all
   detection off; the installer overwrites it on the target.
 - `modules/` — system configuration split by concern: `boot.nix`, `core.nix`,
-  `desktop.nix` (GNOME/GDM + Hyprland + pipewire), `flatpak.nix` (declarative
-  Flathub packages), `hardening.nix`, `maintenance.nix`, `network.nix`,
-  `secureboot.nix`, `users.nix`, `virtualisation.nix`.
+  `desktop.nix` (GNOME/GDM + Hyprland + pipewire; GNOME core apps via
+  `services.gnome.core-apps`), `hardening.nix`, `maintenance.nix`,
+  `network.nix`, `secureboot.nix`, `users.nix`, `virtualisation.nix`.
+  The former `flatpak.nix` (declarative Flathub packages) is gone — every
+  GUI app is native now (see `home/pkgs.nix`).
 - `home/` — home-manager profile, fully native modules (the raw `files/`
   dotfile tree is deleted — git history): `alacritty.nix`, `zellij.nix`,
   `fastfetch.nix` (ported from the old neofetch config), `fish.nix`,
   `hyprland.nix`, `waybar.nix`, `dunst.nix`, `rofi/`, `nixvim.nix`,
-  `librewolf.nix`, `claude.nix`, `random_wp.nix` (Wallhaven wallpaper timer),
-  `dots-repo.nix` (first-login clone of this repo + install-answer restore)
-  and `dokumente.nix`/`dokumente/` (haumea `~/Dokumente` skeleton).
+  `librewolf.nix`, `claude.nix` (Claude Code + nix-built `ccbar` statusline),
+  `pkgs.nix` (ex-flatpak GUI apps incl. the Haveno AppImage wrap and the
+  Newelle→Claude Code wiring), `git.nix`, `random_wp.nix` (Wallhaven
+  wallpaper timer), `dots-repo.nix` (first-login clone of this repo +
+  install-answer restore) and `dokumente.nix`/`dokumente/` (haumea
+  `~/Dokumente` skeleton).
 - `iso.nix` — the LiveISO: embeds this flake at `/etc/dots`, auto-launches
   `dots-installer` on tty1. The installer stages a writable copy of that
   flake at `/tmp/dots-flake` and runs `nixos-install` from there; the

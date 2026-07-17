@@ -7,12 +7,14 @@ let
   wallhavenRandom = pkgs.writeShellScriptBin "wallhaven-random-wallpaper" ''
     set -euo pipefail
 
-    # Wallhaven query knobs (env-overridable; API key/seed optional)
-    WH_API_KEY="''${WH_API_KEY:-}"
-    WH_SEED="''${WH_SEED:-}"
-    WH_PURITY="''${WH_PURITY:-111}"
-    WH_CATS="''${WH_CATS:-111}"
-    WH_ATLEAST="''${WH_ATLEAST:-1920x1080}"
+    # Wallhaven query knobs — pinned SFW-only. purity/categories are the
+    # API's 3-bit masks: sfw/sketchy/nsfw and general/anime/people; an
+    # invalid apikey (anything non-empty that isn't real) makes the API 401.
+    WH_API_KEY=""
+    WH_SEED=""
+    WH_PURITY="100"
+    WH_CATS="111"
+    WH_ATLEAST="1920x1080"
 
     CACHE_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/wallhaven"
     mkdir -p "$CACHE_DIR"

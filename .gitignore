@@ -15,3 +15,10 @@ result-*
 # Secure Boot signing keys (scripts/sign-iso.sh). The private key must never
 # be committed; the public MOK.cer may be force-added if wanted.
 secrets/
+
+# Machine answers the installer restores on first login (dots-clone). They
+# stay tracked as generic stubs so the flake evals green — gitignore can't
+# hide tracked files, so local copies are parked via
+# `git update-index --skip-worktree`; these entries document the intent.
+nix/facter.json
+nix/settings.nix

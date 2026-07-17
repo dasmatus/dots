@@ -1,5 +1,31 @@
 # Native port of files/claude/settings.json (deleted — see git history).
-{ pkgs, ... }: {
+# ccbar used to be an imperative `cargo install ccbar` (~/.cargo/bin); it is
+# now built from its crates.io release below and wired into the statusline,
+# and goes on PATH so the 5-hour/weekly limits can be polled directly.
+{ pkgs, lib, ... }:
+let
+  # Claude Code statusline with 5-hour and 7-day (weekly) rate-limit bars.
+  # Hashes verified by building against the pinned nixpkgs; pure-Rust deps
+  # (serde, serde_json, toml, ureq/rustls), no native libraries.
+  ccbar = pkgs.rustPlatform.buildRustPackage rec {
+    pname = "ccbar";
+    version = "0.3.0";
+    src = pkgs.fetchCrate {
+      inherit pname version;
+      hash = "sha256-1FMxK/DfbLQAn4qG+gwvUUsELQpxHCIGlgZq4Of89uE=";
+    };
+    cargoHash = "sha256-GM0ofr1uPrF2/5keE/4TZXiXg+wodJefTBhzYHOvTCs=";
+    meta = {
+      description = "Fast, configurable statusline for Claude Code";
+      homepage = "https://github.com/Saturate/ccbar";
+      license = lib.licenses.mit;
+      mainProgram = "ccbar";
+    };
+  };
+in
+{
+  home.packages = [ ccbar ];
+
   programs.claude-code = {
     enable = true;
     settings = {
@@ -31,7 +57,7 @@
 
       statusLine = {
         type = "command";
-        command = "~/.cargo/bin/ccbar";
+        command = lib.getExe ccbar;
         refreshInterval = 1;
       };
 
@@ -54,6 +80,8 @@
 
       skipWorkflowUsageWarning = true;
       theme = "dark";
+      tui = "fullscreen";
+      disableAgentView = true;
       remoteControlAtStartup = true;
       inputNeededNotifEnabled = true;
       agentPushNotifEnabled = true;

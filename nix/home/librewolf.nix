@@ -1,9 +1,8 @@
-# LibreWolf runs as a flatpak (io.gitlab.librewolf-community). Flatpak's
-# `--persist=.librewolf` redirects the app's $HOME/.librewolf into
-# ~/.var/app/io.gitlab.librewolf-community/.librewolf/, so that's where a
-# profile has to be injected for home-manager to manage it declaratively.
-# profiles.ini below pins a single, always-default "default" profile so
-# LibreWolf never falls back to its own auto-generated one.
+# LibreWolf runs natively (programs.librewolf, Home Manager's firefox-module
+# wrapper) since the flatpak migration; the module owns ~/.librewolf, writes
+# profiles.ini itself and pins the single, always-default "default" profile
+# below so LibreWolf never falls back to an auto-generated one. The old
+# ~/.var/app/io.gitlab.librewolf-community injection is gone with the flatpak.
 #
 # LibreWolf itself already ships an arkenfox-derived set of hardened
 # defaults baked into the browser (see LibreWolf's own defaults/pref
@@ -103,19 +102,11 @@ let
     + "\n";
 in
 {
-  home.file = {
-    ".var/app/io.gitlab.librewolf-community/.librewolf/profiles.ini".text = ''
-      [Profile0]
-      Name=default
-      IsRelative=1
-      Path=default
-      Default=1
-
-      [General]
-      StartWithLastProfile=1
-      Version=2
-    '';
-
-    ".var/app/io.gitlab.librewolf-community/.librewolf/default/user.js".text = userJs;
+  programs.librewolf = {
+    enable = true;
+    profiles.default = {
+      isDefault = true;
+      extraConfig = userJs;
+    };
   };
 }

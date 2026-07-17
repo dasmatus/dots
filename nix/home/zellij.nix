@@ -26,6 +26,7 @@ in
   programs.zellij = {
     enable = true;
     settings = {
+      show_startup_tips = false;
       keybinds = {
         _props."clear-defaults" = false;
         tmux._children = [

@@ -3,7 +3,6 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flatpaks.url = "github:in-a-dil-emma/declarative-flatpak/latest";
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -37,7 +36,6 @@
       home-manager,
       disko,
       lanzaboote,
-      flatpaks,
       nixvim,
       haumea,
     }:
@@ -93,7 +91,6 @@
           inherit system;
           specialArgs = { inherit inputs settings; };
           modules = [
-            flatpaks.nixosModules.default
             disko.nixosModules.disko
             home-manager.nixosModules.home-manager
             lanzaboote.nixosModules.lanzaboote
@@ -102,7 +99,6 @@
             ./nix/modules/boot.nix
             ./nix/modules/network.nix
             ./nix/modules/desktop.nix
-            ./nix/modules/flatpak.nix
             ./nix/modules/virtualisation.nix
             ./nix/modules/users.nix
             ./nix/modules/hardening.nix

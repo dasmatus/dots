@@ -1,37 +1,32 @@
 # Desktop: GNOME (GDM/Wayland) + Hyprland, pipewire, fonts and themes.
-# GNOME core apps are delivered as verified flatpaks (nix/modules/flatpak.nix);
-# only the apps without a Flathub presence stay native below.
+# Since the flatpak migration the GNOME core apps come from
+# services.gnome.core-apps below; hand-picked GUI apps live per-user in
+# Home Manager (nix/home/pkgs.nix).
 { pkgs, ... }:
 {
   services = {
     displayManager.gdm.enable = true;
     desktopManager.gnome.enable = true;
     gnome = {
-      core-apps.enable = false;
+      # also brings sushi, gnome-disks and seahorse; gnome-software stays
+      # out because it is gated on services.flatpak.enable upstream
+      core-apps.enable = true;
       core-developer-tools.enable = false;
       games.enable = false;
-      # nautilus previews; core-apps-gated upstream, so re-enable explicitly
-      sushi.enable = true;
     };
   };
   environment = {
-    systemPackages =
-      # core-apps replacements with no (verified) Flathub equivalent
-      (with pkgs; [
-        nautilus
-        gnome-console
-        gnome-system-monitor
-        gnome-tecla
-        yelp
-      ])
-      ++ (with pkgs.gnomeExtensions; [
+    systemPackages = (
+      with pkgs.gnomeExtensions;
+      [
         blur-my-shell
         dash-to-dock
         user-themes
         appindicator
         screentospace
         tiling-assistant
-      ]);
+      ]
+    );
 
     # System-wide Brave enterprise policies — inlined from the retired
     # files/brave/policies tree (git history); same /etc/brave/policies/managed
@@ -74,8 +69,6 @@
       ];
     };
   };
-  programs.gnome-disks.enable = true;
-  programs.seahorse.enable = true;
   programs.hyprland.enable = true;
   # hyprlock (home-manager) can only unlock with a system PAM service
   security.pam.services.hyprlock = { };

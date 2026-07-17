@@ -10,7 +10,11 @@
 #   - all four `exec = gsettings ...` theme lines dropped: gtk/dconf
 #     (default.nix) own theming now
 #   - light -A/-U → brightnessctl (light was removed from nixpkgs)
-#   - Obsidian launched via its flatpak instead of a native binary
+#   - KeePassXC/Obsidian/Flameshot launched as native binaries (nix/home/
+#     pkgs.nix) since the flatpak migration; OBSIDIAN_USE_WAYLAND (flatpak-
+#     only) became NIXOS_OZONE_WL, which the nixpkgs Electron wrappers
+#     (obsidian, vesktop — signal-desktop's ignores it) key off for
+#     native Wayland
 #   - lock bind switched from swaylock to hyprlock; the resize bind still
 #     shares the same $mainMod ALT, L chord as the original conf did
 #
@@ -32,7 +36,7 @@
       "exec-once" = [
         "waybar"
         "nm-applet --indicator"
-        "flatpak run org.keepassxc.KeePassXC"
+        "keepassxc"
       ];
 
       env = [
@@ -44,7 +48,7 @@
         "QT_QPA_PLATFORM,wayland"
         "QT_QPA_PLATFORMTHEME,gtk3"
         "MOZ_ENABLE_WAYLAND,1"
-        "OBSIDIAN_USE_WAYLAND,1"
+        "NIXOS_OZONE_WL,1"
         "GDK_BACKEND,wayland,x11"
       ];
 
@@ -122,9 +126,9 @@
       };
 
       windowrulev2 = [
-        "float, class:^(org.keepassxc.KeePassXC)$"
-        "workspace special:scratch silent, class:^(org.keepassxc.KeePassXC)$"
-        "float, class:^(org.flameshot.Flameshot)$"
+        "float, class:^(org.keepassxc.KeePassXC|keepassxc)$"
+        "workspace special:scratch silent, class:^(org.keepassxc.KeePassXC|keepassxc)$"
+        "float, class:^(org.flameshot.Flameshot|flameshot)$"
         "float, title:^(nm-connection-editor)$"
         "float, class:^(pavucontrol)$"
 
@@ -141,8 +145,8 @@
         "$mainMod, Return, exec, alacritty"
         "$mainMod, D, exec, rofi -show drun -show-icons -theme tokyonight"
         "$mainMod SHIFT, F, exec, ~/.config/rofi/rofi-files.sh"
-        "$mainMod, O, exec, flatpak run md.obsidian.Obsidian"
-        "$mainMod SHIFT, S, exec, flatpak run org.flameshot.Flameshot gui"
+        "$mainMod, O, exec, obsidian"
+        "$mainMod SHIFT, S, exec, flameshot gui"
 
         "$mainMod, Q, killactive"
         "$mainMod SHIFT, Space, togglefloating"
