@@ -6,7 +6,12 @@
 # credential helper (replacing the former libsecret helper outright, so a
 # stale keyring PAT cannot shadow it); glab only answers for its
 # configured GitLab hosts, and other hosts use SSH via the same agent.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 {
   programs.git = {
     enable = true;
@@ -22,7 +27,7 @@
       gpg.ssh.allowedSignersFile = "${config.xdg.configHome}/git/allowed_signers";
       commit.gpgsign = true;
       tag.gpgsign = true;
-      credential.helper = "!${lib.getExe pkgs.glab} auth git-credential";
+      credential.helper = "${lib.getExe pkgs.glab} auth git-credential";
     };
   };
 }
