@@ -43,7 +43,9 @@
     "randomize_kstack_offset=on"
     "slab_nomerge"
   ];
-  environment.memoryAllocator.provider = "graphene-hardened";
+  environment.memoryAllocator.provider = "scudo";
+  environment.variables.SCUDO_OPTIONS = "zero_contents=true";
+
   security.virtualisation.flushL1DataCache = "always";
   security.apparmor.killUnconfinedConfinables = true;
   security.lockKernelModules = true;
