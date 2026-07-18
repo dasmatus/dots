@@ -9,7 +9,7 @@
 # NVIDIA is deliberately not auto-configured upstream (facter filters out
 # nouveau), so it is switched via if-then-else on the parsed report.
 # PCI ids are decimal in facter reports: 4318 == 0x10de (NVIDIA).
-{ config, ... }:
+{ config, lib, ... }:
 let
   report = config.hardware.facter.report;
   hasNvidia = builtins.any (card: (card.vendor.value or 0) == 4318) (
@@ -21,7 +21,9 @@ in
 
   # The nvidia module gates the whole driver on this list containing "nvidia"
   # — also on this Wayland-only Hyprland setup where no X server ever runs.
-  services.xserver.videoDrivers = if hasNvidia then [ "nvidia" ] else [ "modesetting" ];
+  # mkForce discards facter's own graphics-module contribution (it appends a
+  # duplicate "modesetting" on real reports) so the flake checks hold on any machine.
+  services.xserver.videoDrivers = lib.mkForce (if hasNvidia then [ "nvidia" ] else [ "modesetting" ]);
 
   # GTX 1660 SUPER = Turing TU116 → open kernel modules (upstream suggestion).
   hardware.nvidia =

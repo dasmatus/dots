@@ -54,6 +54,10 @@ in
     "console=tty0"
   ];
 
+  # 26.11 will default this to false; the live ISO never has a ZFS root to
+  # force-import, so opt in early.
+  boot.zfs.forceImportRoot = false;
+
   systemd.services.dots-installer = {
     description = "tokyonight-dots installer TUI";
     wantedBy = [ "multi-user.target" ];

@@ -231,6 +231,17 @@
     };
   };
 
+  # package = null above means HM's auto-enabled xdg.portal can't add
+  # configPackages for xdg-desktop-portal-hyprland, so it needs an explicit
+  # portal config here. Scoped to Hyprland sessions (hyprland-portals.conf)
+  # so GNOME sessions keep the system-wide gtk default from
+  # nix/modules/desktop.nix; hyprland portal takes ScreenCast/Screenshot,
+  # everything else (FileChooser, Settings) falls through to gtk.
+  xdg.portal.config.hyprland.default = [
+    "hyprland"
+    "gtk"
+  ];
+
   # swayidle → hypridle: same three timers as the original exec-once block
   # (300s lock, 600s dpms off, dpms on on resume), before-sleep locks too.
   services.hypridle = {

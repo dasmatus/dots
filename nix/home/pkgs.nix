@@ -49,11 +49,11 @@ let
         fontconfig
         freetype
         zlib
-        xorg.libX11
-        xorg.libXext
-        xorg.libXrender
-        xorg.libXtst
-        xorg.libXi
+        libx11
+        libxext
+        libxrender
+        libxtst
+        libxi
       ];
   };
 in
