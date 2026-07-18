@@ -20,7 +20,7 @@
       all.
     '';
   };
-
+  security.forcePageTableIsolation = true;
   config = {
     boot.kernel.sysctl = {
       "kernel.kptr_restrict" = 2;
@@ -57,7 +57,10 @@
       "randomize_kstack_offset=on"
       "slab_nomerge"
     ];
-
+    environment.memoryAllocator.provider = "graphene-hardened";
+    security.virtualisation.flushL1DataCache = "always";
+    security.apparmor.killUnconfinedConfinables = true;
+    security.lockKernelModules = true;
     systemd.coredump.enable = false;
     security.apparmor = {
       enable = true;
