@@ -16,6 +16,10 @@
     };
   };
   environment = {
+    # core-apps ships Epiphany; browsing is covered per-user by Brave and
+    # LibreWolf (nix/home), so drop it from the set instead of disabling
+    # core-apps wholesale.
+    gnome.excludePackages = [ pkgs.epiphany ];
     systemPackages = (
       with pkgs.gnomeExtensions;
       [
@@ -31,18 +35,34 @@
     # System-wide Brave enterprise policies — inlined from the retired
     # files/brave/policies tree (git history); same /etc/brave/policies/managed
     # layout. Stays system-level: Chromium on Linux has no per-user managed
-    # policies, so this cannot live in Home Manager.
+    # policies, so this cannot live in Home Manager (the browser itself is
+    # per-user: programs.brave, nix/home/brave.nix).
     etc."brave/policies/managed/hardening.json".text = builtins.toJSON {
-      BraveWalletDisabled = true;
+      # Brave Origin, declaratively: these are the per-feature policies the
+      # brave://settings Origin "Upgrade" toggle flips internally (see the
+      # Group Policy support doc + brave-core's Origin policy manager); the
+      # standalone brave-origin flavor isn't packaged in nixpkgs.
       BraveRewardsDisabled = true;
-      BraveNewsDisabled = true;
+      BraveWalletDisabled = true;
+      BraveVPNDisabled = true;
+      TorDisabled = true;
       BraveAIChatEnabled = false;
+      BraveNewsDisabled = true;
+      BraveTalkDisabled = true;
+      BravePlaylistEnabled = false;
+      BraveSpeedreaderEnabled = false;
+      BraveWaybackMachineEnabled = false;
+      BraveWebDiscoveryEnabled = false;
+      BraveP3AEnabled = false;
+      BraveStatsPingEnabled = false;
+
       PasswordManagerEnabled = false;
-      SafeBrowsingEnabled = false;
+      # SafeBrowsingEnabled is deprecated since Chrome 83 and ignored once
+      # the ProtectionLevel policy is set; 0 = no Safe Browsing.
+      SafeBrowsingProtectionLevel = 0;
       SafeBrowsingExtendedReportingEnabled = false;
       MetricsReportingEnabled = false;
       CloudReportingEnabled = false;
-      DeviceMetricsReportingEnabled = false;
       AutofillAddressEnabled = false;
       AutofillCreditCardEnabled = false;
       BackgroundModeEnabled = false;
@@ -56,7 +76,21 @@
       BrowserSignin = 0;
       SyncDisabled = true;
       HttpsOnlyMode = "force_enabled";
-      WebRtcIPHandlingPolicy = "disable_non_proxied_udp";
+      # Chromium's policy is WebRtcIPHandling — the "…Policy"-suffixed
+      # spelling the old tree used is the extension-API pref name and was
+      # never a managed policy, i.e. it silently did nothing.
+      WebRtcIPHandling = "disable_non_proxied_udp";
+    };
+    # Default search: the local SearXNG instance (nix/modules/searxng.nix).
+    # Tor Browser is deliberately left alone — its stock engine set is part
+    # of the anti-fingerprinting story, and a localhost engine would leak
+    # local state into the Tor profile.
+    etc."brave/policies/managed/search.json".text = builtins.toJSON {
+      DefaultSearchProviderEnabled = true;
+      DefaultSearchProviderName = "SearXNG";
+      DefaultSearchProviderKeyword = "sx";
+      DefaultSearchProviderSearchURL = "http://127.0.0.1:8888/search?q={searchTerms}";
+      DefaultSearchProviderSuggestURL = "http://127.0.0.1:8888/autocompleter?q={searchTerms}";
     };
     etc."brave/policies/managed/extensions.json".text = builtins.toJSON {
       ExtensionInstallForcelist = [

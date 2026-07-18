@@ -27,6 +27,12 @@
       "nvidia-settings"
     ];
 
+  # vesktop 1.6.5 in the current nixpkgs pin still wraps electron-bin 40,
+  # which went EOL with the 2026-07 flake.lock bump and is now refused by
+  # default. Scoped to exactly that version so the next nixpkgs bump that
+  # moves vesktop to a live electron drops the exception automatically.
+  nixpkgs.config.permittedInsecurePackages = [ "electron-40.10.5" ];
+
   nix.settings = {
     experimental-features = [
       "nix-command"

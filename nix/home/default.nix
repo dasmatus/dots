@@ -18,16 +18,18 @@
     ./fastfetch.nix
     ./fish.nix
     ./claude.nix
-    ./random_wp.nix
     ./nixvim.nix
     ./dokumente.nix
     ./dots-repo.nix
     ./librewolf.nix
+    ./brave.nix
+    ./junction.nix
     ./hyprland.nix
     ./waybar.nix
     ./dunst.nix
     ./rofi
     ./git.nix
+    ./proton.nix
     ./pkgs.nix
   ];
 
@@ -38,6 +40,11 @@
   dconf.settings = {
     "org/gnome/desktop/interface" = {
       accent-color = "red";
+    };
+    # Traffic-light order on the left — completes the GTK theme's macos
+    # tweak (gtk.theme below); Brave's caption buttons read this key too.
+    "org/gnome/desktop/wm/preferences" = {
+      button-layout = "close,minimize,maximize:appmenu";
     };
     "org/gnome/desktop/input-sources" = {
       xkb-options = [ "ctrl:esc" ];
@@ -67,10 +74,21 @@
   ];
   gtk = {
     enable = true;
+    # Tokyonight with macOS traffic-light window buttons; the tweak is baked
+    # into the generated CSS by the theme's sassc build.
     theme = {
-      name = "adw-gtk3-dark";
-      package = pkgs.adw-gtk3;
+      name = "Tokyonight-Dark";
+      package = pkgs.tokyonight-gtk-theme.override {
+        colorVariants = [ "dark" ];
+        themeVariants = [ "default" ];
+        sizeVariants = [ "standard" ];
+        tweakVariants = [ "macos" ];
+      };
     };
+    # Since stateVersion 26.05 gtk4 no longer inherits the shared gtk.theme
+    # default; without this no gtk-4.0/gtk.css @import is emitted and
+    # libadwaita apps silently stay Adwaita.
+    gtk4.theme = config.gtk.theme;
     iconTheme = {
       name = "MoreWaita";
       package = pkgs.morewaita-icon-theme;

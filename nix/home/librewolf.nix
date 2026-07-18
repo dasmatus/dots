@@ -4,6 +4,11 @@
 # below so LibreWolf never falls back to an auto-generated one. The old
 # ~/.var/app/io.gitlab.librewolf-community injection is gone with the flatpak.
 #
+# Extensions (Bitwarden, SponsorBlock) come Nix-pinned from the
+# firefox-addons flake input; the chrome is rafaelmardojai's
+# firefox-gnome-theme (nixpkgs) @imported from the store, with its required
+# prefs asserted in personalPrefs below.
+#
 # LibreWolf itself already ships an arkenfox-derived set of hardened
 # defaults baked into the browser (see LibreWolf's own defaults/pref
 # overrides upstream) — those still apply underneath. The user.js written
@@ -33,13 +38,22 @@
 #   - Everything else in `personalPrefs` (smooth scroll physics, bookmark
 #     UI tweaks, pdfjs/newtab/pocket toggles, etc.) was never part of
 #     arkenfox to begin with, so there's nothing upstream to go stale.
-{ pkgs, ... }:
+{ pkgs, inputs, ... }:
 let
   # Pin: https://github.com/arkenfox/user.js/releases — latest as of writing.
   arkenfoxJs = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/arkenfox/user.js/144.0/user.js";
     hash = "sha256-5KszxpFImRdc9wNeDlei1/CKyIfY+VfxGZ5+Sbvn4z4=";
   };
+
+  # Nix-pinned XPIs from the firefox-addons flake input (rycee's subflake,
+  # not the whole NUR); installed into the profile as a buildEnv symlink.
+  addons = inputs.firefox-addons.packages.${pkgs.stdenv.hostPlatform.system};
+
+  # rafaelmardojai/firefox-gnome-theme, imported straight from the store via
+  # userChrome/userContent below. Its nested @imports resolve relative to the
+  # importing sheet, so the single absolute file:// import is enough.
+  gnomeTheme = pkgs.firefox-gnome-theme;
 
   # Personal deltas carried over from the retired repo-root user.js
   # (arkenfox v115.1 base + "// My stuff" section), diffed pref-by-pref
@@ -87,6 +101,18 @@ let
 
     # Delay update-available restart prompts.
     "app.update.suppressPrompts" = true;
+
+    # Auto-enable the declaratively installed extensions (otherwise every
+    # extensions.packages entry needs a manual "Enable" click on first run).
+    "extensions.autoDisableScopes" = 0;
+
+    # firefox-gnome-theme required prefs (its configuration/user.js, minus
+    # legacyUserProfileCustomizations.stylesheets which is already set above;
+    # svg.context-properties is required or the theme icons render black).
+    "svg.context-properties.content.enabled" = true;
+    "browser.uidensity" = 0;
+    "browser.theme.dark-private-windows" = false;
+    "widget.gtk.rounded-bottom-corners.enabled" = true;
   };
 
   renderPref = name: value: "user_pref(${builtins.toJSON name}, ${builtins.toJSON value});";
@@ -107,6 +133,37 @@ in
     profiles.default = {
       isDefault = true;
       extraConfig = userJs;
+
+      # Default search: the local SearXNG instance (nix/modules/searxng.nix).
+      # force is required — LibreWolf rewrites search.json.mozlz4 on every
+      # launch, so a non-forced declarative config loses the race after the
+      # first start. Engines are keyed by id since HM's search schema v7+;
+      # `name` is the display name.
+      search = {
+        force = true;
+        default = "searxng";
+        privateDefault = "searxng";
+        order = [ "searxng" ];
+        engines.searxng = {
+          name = "SearXNG";
+          urls = [ { template = "http://127.0.0.1:8888/search?q={searchTerms}"; } ];
+          definedAliases = [ "@sx" ];
+        };
+      };
+
+      # NB: setting extensions.packages makes the module own the profile's
+      # extensions/ dir — manually installed addons get replaced on switch.
+      extensions.packages = [
+        addons.bitwarden
+        addons.sponsorblock
+      ];
+
+      userChrome = ''
+        @import "file://${gnomeTheme}/share/firefox-gnome-theme/userChrome.css";
+      '';
+      userContent = ''
+        @import "file://${gnomeTheme}/share/firefox-gnome-theme/userContent.css";
+      '';
     };
   };
 }

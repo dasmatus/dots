@@ -22,3 +22,6 @@ secrets/
 # `git update-index --skip-worktree`; these entries document the intent.
 nix/facter.json
 nix/settings.nix
+
+# crash core dumps (core.<pid> — Brave GTK4/Wayland segfault artifacts)
+/core.[0-9]*

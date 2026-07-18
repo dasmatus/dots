@@ -27,6 +27,13 @@
       url = "github:nix-community/haumea/v0.2.2";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # rycee's pre-packaged Firefox addons (Nix-pinned XPIs for the LibreWolf
+    # profile in nix/home/librewolf.nix) — the subflake, not the whole NUR.
+    firefox-addons = {
+      url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -38,6 +45,8 @@
       lanzaboote,
       nixvim,
       haumea,
+      # firefox-addons rides along inside `inputs` (specialArgs)
+      ...
     }:
     let
       system = "x86_64-linux";
@@ -99,6 +108,7 @@
             ./nix/modules/boot.nix
             ./nix/modules/network.nix
             ./nix/modules/desktop.nix
+            ./nix/modules/searxng.nix
             ./nix/modules/virtualisation.nix
             ./nix/modules/users.nix
             ./nix/modules/hardening.nix

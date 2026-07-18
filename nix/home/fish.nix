@@ -7,8 +7,9 @@
 #   - linuxbrew/bun/dotnet/Antigravity PATH cruft dropped (host-specific,
 #     none of it exists on NixOS), along with conf.d/rustup.fish and the
 #     vendored completions/bun.fish (neither tool is declared here)
-#   - fish_variables dropped: its only content was BROWSER=brave-browser-stable
-#     and Brave isn't installed; home.sessionVariables.BROWSER is the native
+#   - fish_variables dropped: its only content was BROWSER=brave-browser-stable,
+#     a stale pre-migration value (Brave is back via brave.nix, but LibreWolf
+#     stays the main browser); home.sessionVariables.BROWSER is the native
 #     replacement if one is ever wanted
 #   - functions/claude-dev.fish is ported verbatim below
 { ... }:

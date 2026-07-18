@@ -37,7 +37,7 @@ Comments should only be top-level (`//!`) and per-symbol (`///`). Only use inlin
 Since we eventually want to submit this to various "competitions", like for my uni keynote, please refrain from promoting yourself and doxxing me with the session link both on GitLab and in git commits. Even Linux kernel devs [complain about the Co-Authored-By/Assisted-By tags and compare it with adverts](https://lore.kernel.org/lkml/20260701-work-coding-assistants-v1-1-a20a94d1d606@kernel.org/).
 
 # Accuracy
-1. When unsure, use the Web search tool.
+1. When unsure, search the web via the `searxng` MCP tool (local SearXNG; built-in WebSearch is the fallback).
 2. When the information the tool in the first point is unreliable, ask user what he meant
 3. Do a `find` on files in his parent directory. When some useful information is found, apply it and save it to memory.
 # Additional notes
