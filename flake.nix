@@ -34,6 +34,16 @@
       url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Encrypted repo secrets (nix/modules/secrets.nix); darwin cut — this
+    # flake is x86_64-linux only and the follows keeps nix-darwin out of
+    # the lock file.
+    agenix = {
+      url = "github:ryantm/agenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+      inputs.darwin.follows = "";
+    };
   };
 
   outputs =
@@ -103,6 +113,7 @@
             disko.nixosModules.disko
             home-manager.nixosModules.home-manager
             lanzaboote.nixosModules.lanzaboote
+            inputs.agenix.nixosModules.default
             (import ./nix/disko.nix { inherit (settings) disk swapSize; })
             ./nix/modules/core.nix
             ./nix/modules/boot.nix
@@ -113,6 +124,7 @@
             ./nix/modules/users.nix
             ./nix/modules/hardening.nix
             ./nix/modules/maintenance.nix
+            ./nix/modules/secrets.nix
             ./nix/modules/secureboot.nix
             ./nix/hosts.nix
           ];

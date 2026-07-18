@@ -13,6 +13,12 @@
       core-apps.enable = true;
       core-developer-tools.enable = false;
       games.enable = false;
+      # rbw's built-in SSH agent (nix/home/bitwarden.nix) is the only SSH
+      # agent here: gnome-keyring otherwise pulls in gcr-ssh-agent, whose
+      # socket unit runs `systemctl --user set-environment SSH_AUTH_SOCK`
+      # at login and would clobber the rbw socket. gnome-keyring itself
+      # stays — Secret Service for glab's keyring token and proton bridge.
+      gcr-ssh-agent.enable = false;
     };
   };
   environment = {

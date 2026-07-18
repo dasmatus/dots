@@ -13,8 +13,13 @@ result
 result-*
 
 # Secure Boot signing keys (scripts/sign-iso.sh). The private key must never
-# be committed; the public MOK.cer may be force-added if wanted.
-secrets/
+# be committed; the public MOK.cer may be force-added if wanted. The glob
+# (not a bare `secrets/` dir ignore) is what lets the negations below
+# re-include the agenix artifacts — git cannot un-ignore files under an
+# ignored directory.
+secrets/*
+!secrets/*.age
+!secrets/secrets.nix
 
 # Machine answers the installer restores on first login (dots-clone). They
 # stay tracked as generic stubs so the flake evals green — gitignore can't

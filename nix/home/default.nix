@@ -29,6 +29,7 @@
     ./dunst.nix
     ./rofi
     ./git.nix
+    ./bitwarden.nix
     ./proton.nix
     ./pkgs.nix
   ];
