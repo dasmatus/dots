@@ -31,7 +31,7 @@
     configType = "hyprlang";
 
     settings = {
-      monitor = "eDP-1, 1920x1200, 0x0, 1";
+      monitor = "eDP-1, 1920x1080, 0x0, 1";
 
       "exec-once" = [
         "waybar"
@@ -94,7 +94,6 @@
       };
 
       dwindle = {
-        pseudotile = true;
         preserve_split = true;
       };
 
@@ -105,11 +104,6 @@
       misc = {
         force_default_wallpaper = 0;
         disable_hyprland_logo = true;
-      };
-
-      gestures = {
-        workspace_swipe = true;
-        workspace_swipe_fingers = 3;
       };
 
       input = {
@@ -125,20 +119,6 @@
         };
       };
 
-      windowrulev2 = [
-        "float, class:^(org.keepassxc.KeePassXC|keepassxc)$"
-        "workspace special:scratch silent, class:^(org.keepassxc.KeePassXC|keepassxc)$"
-        "float, class:^(org.flameshot.Flameshot|flameshot)$"
-        "float, title:^(nm-connection-editor)$"
-        "float, class:^(pavucontrol)$"
-
-        "opacity 0.0 override 0.0 override, class:^(xwaylandvideobridge)$"
-        "noanim, class:^(xwaylandvideobridge)$"
-        "noinitialfocus, class:^(xwaylandvideobridge)$"
-        "maxsize 1 1, class:^(xwaylandvideobridge)$"
-        "noblur, class:^(xwaylandvideobridge)$"
-      ];
-
       "$mainMod" = "SUPER";
 
       bind = [
@@ -152,7 +132,6 @@
         "$mainMod SHIFT, Space, togglefloating"
         "$mainMod, F, fullscreen, 0"
         "$mainMod, P, pseudo"
-        "$mainMod, J, togglesplit"
 
         "$mainMod, minus, togglespecialworkspace, scratch"
         "$mainMod SHIFT, minus, movetoworkspace, special:scratch"
