@@ -1,43 +1,3 @@
-# LibreWolf runs natively (programs.librewolf, Home Manager's firefox-module
-# wrapper) since the flatpak migration; the module owns ~/.librewolf, writes
-# profiles.ini itself and pins the single, always-default "default" profile
-# below so LibreWolf never falls back to an auto-generated one. The old
-# ~/.var/app/io.gitlab.librewolf-community injection is gone with the flatpak.
-#
-# Extensions (Bitwarden, SponsorBlock) come Nix-pinned from the
-# firefox-addons flake input; the chrome is rafaelmardojai's
-# firefox-gnome-theme (nixpkgs) @imported from the store, with its required
-# prefs asserted in personalPrefs below.
-#
-# LibreWolf itself already ships an arkenfox-derived set of hardened
-# defaults baked into the browser (see LibreWolf's own defaults/pref
-# overrides upstream) — those still apply underneath. The user.js written
-# here stacks on top of that: first the upstream arkenfox base verbatim,
-# then this repo's personal overrides last (so they win on any conflict).
-#
-# History: the repo used to ship a hand-maintained user.js at the repo
-# root — stock arkenfox v115 (115.1, 27 August 2023) plus a personal
-# "// My stuff" section appended at the end, plus one inline value flip
-# (4504 letterboxing) in the middle of the arkenfox block. That file was
-# retired in favour of this module; arkenfox is now fetched fresh (so it
-# tracks current Firefox/LibreWolf versions) and the personal deltas were
-# ported forward into `personalPrefs` below.
-#
-# Delta audit against arkenfox 144.0 (current pin, see `arkenfoxJs`): none
-# of the ported prefs are renamed/removed in the new base.
-#   - privacy.resistFingerprinting.letterboxing: v115 arkenfox set this
-#     `true` by default (4504) and the old user.js flipped it to `false`.
-#     In 144.0 arkenfox no longer sets 4504 by default (left commented,
-#     i.e. Firefox default applies) — the pref itself is unchanged/still
-#     valid, so the explicit `false` override below still does exactly
-#     what it did before.
-#   - browser.download.alwaysOpenPanel / .manager.addToRecentDocs /
-#     always_ask_before_handling_new_types: present verbatim in 144.0
-#     arkenfox (2652/2653/2654) with the same values the old user.js
-#     re-asserted — kept for explicitness even though redundant.
-#   - Everything else in `personalPrefs` (smooth scroll physics, bookmark
-#     UI tweaks, pdfjs/newtab/pocket toggles, etc.) was never part of
-#     arkenfox to begin with, so there's nothing upstream to go stale.
 { pkgs, inputs, ... }:
 let
   # Pin: https://github.com/arkenfox/user.js/releases — latest as of writing.
@@ -128,7 +88,7 @@ let
     + "\n";
 in
 {
-  programs.librewolf = {
+  programs.firefox = {
     enable = true;
     profiles.default = {
       isDefault = true;
