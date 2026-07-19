@@ -12,7 +12,8 @@
       modules-left = [ "hyprland/workspaces" ];
       modules-center = [ "hyprland/window" ];
       modules-right = [
-        "disk"
+        "disk#home"
+        "disk#nix"
         "backlight"
         "pulseaudio"
         "network"
@@ -22,20 +23,68 @@
       ];
 
       "hyprland/workspaces" = {
-        format = "{id}";
-        on-click = "activate";
+        format = "{icon}";
+        format-icons = {
+          default = "●";
+          active = "●";
+          urgent = "●";
+          empty = "●";
+          persistent = "●";
+          visible = "●";
+          special = "●";
+        };
+        persistent-workspaces = {
+          "1" = [ ];
+          "2" = [ ];
+          "3" = [ ];
+          "4" = [ ];
+          "5" = [ ];
+        };
       };
 
       "hyprland/window" = {
+        icon = true;
+        icon-size = 20;
+        icon-spacing = 8;
+        expand = true;
         format = "{title}";
         max-length = 60;
+        separate-outputs = true;
+        fallback = "";
+        # Strip the trailing app-name suffix so the real app icon (icon = true,
+        # resolved from gtk.iconTheme = MoreWaita) is the only icon shown — no
+        # redundant nerd-font glyph next to it.
+        rewrite = {
+          "(.*) - Mozilla Firefox" = "$1";
+          "(.*) — Mozilla Firefox" = "$1";
+          "(.*) - Google Chrome" = "$1";
+          "(.*) - Chromium" = "$1";
+          "(.*) - Visual Studio Code" = "$1";
+          "(.*) - Code - OSS" = "$1";
+          "(.*) - Kitty" = "$1";
+          "(.*) - Alacritty" = "$1";
+          "(.*) - Discord" = "$1";
+          "(.*) - Spotify" = "$1";
+          "(.*) - YouTube" = "$1";
+          "(.*) - zsh" = "$1";
+          "(.*) - fish" = "$1";
+        };
       };
 
-      disk = {
-        path = "/";
-        format = "󰋊 {percentage_used}%";
+      "disk#home" = {
+        path = "/home";
         interval = 30;
+        format = "󰋊 {percentage_used}%";
+        tooltip-format = "{used} / {total} on {path} ({percentage_used}%)";
       };
+
+      "disk#nix" = {
+        path = "/nix/store";
+        interval = 30;
+        format = "󰆚 {percentage_used}%";
+        tooltip-format = "{used} / {total} on {path} ({percentage_used}%)";
+      };
+
       backlight = {
         format = "{icon} {percent}%";
         format-icons = [
@@ -88,8 +137,8 @@
 
       clock = {
         interval = 1;
-        format = " {:%H:%M}";
-        format-alt = " {:%d.%m.%Y %H:%M:%S}";
+        format = " {:%H:%M}";
+        format-alt = " {:%d.%m.%Y %H:%M:%S}";
         tooltip-format = "{:%d.%m.%Y %H:%M:%S}";
       };
 
@@ -104,12 +153,13 @@
         min-height: 0;
       }
 
+      /* Fully transparent bar surface so the pills float on the desktop. */
       window#waybar {
-        background-color: #1a1b26;
+        background-color: transparent;
         color: #c0caf5;
       }
 
-      /* Pill base: every module is a rounded capsule with a gap. */
+      /* Pill base: every module is a rounded capsule with dark text on accent. */
       #workspaces button,
       #window,
       #disk,
@@ -122,34 +172,87 @@
         border-radius: 9999px;
         padding: 0 14px;
         margin: 4px 3px;
-        color: #c0caf5;
+        color: #1a1b26;
         background-color: #1f2335;
       }
 
+      /* Workspaces render as bullet dots, state conveyed via color only. */
       #workspaces button {
         padding: 0 10px;
         color: #737aa2;
+        background-color: transparent;
       }
 
       #workspaces button.active {
-        color: #1a1b26;
-        background-color: #7aa2f7;
+        color: #7aa2f7;
+        background-color: transparent;
       }
 
       #workspaces button.urgent {
-        color: #1a1b26;
-        background-color: #f7768e;
+        color: #f7768e;
+        background-color: transparent;
       }
 
-      /* Centered window title stays a quiet ghost pill. */
+      #workspaces button.empty {
+        color: #3b4261;
+      }
+
+      #workspaces button.visible {
+        color: #737aa2;
+      }
+
+      /* Centered window module: app icon + clearly visible title. */
       #window {
         background-color: transparent;
-        color: #545c7e;
+        color: #c0caf5;
+        font-weight: 600;
+        margin: 0 8px;
       }
 
-      #clock {
+      #window label {
+        color: inherit;
+        opacity: 1;
+      }
+
+      #window image {
+        color: #c0caf5;
+        opacity: 1;
+        margin-right: 4px;
+      }
+
+      #window.empty {
+        color: #737aa2;
+      }
+
+      /* Color-coded right-side pills: dark text on Tokyo Night accents. */
+      #disk.home {
+        color: #1a1b26;
+        background-color: #9ece6a;
+      }
+
+      #disk.nix {
+        color: #1a1b26;
+        background-color: #bb9af7;
+      }
+
+      #backlight {
+        color: #1a1b26;
+        background-color: #7dcfff;
+      }
+
+      #pulseaudio {
+        color: #1a1b26;
+        background-color: #ff9e64;
+      }
+
+      #network {
         color: #1a1b26;
         background-color: #7aa2f7;
+      }
+
+      #battery {
+        color: #1a1b26;
+        background-color: #9ece6a;
       }
 
       #battery.warning {
@@ -161,6 +264,16 @@
         color: #1a1b26;
         background-color: #f7768e;
         font-weight: bold;
+      }
+
+      #clock {
+        color: #1a1b26;
+        background-color: #bb9af7;
+      }
+
+      #tray {
+        color: #c0caf5;
+        background-color: #1f2335;
       }
 
       #tray > .passive {
