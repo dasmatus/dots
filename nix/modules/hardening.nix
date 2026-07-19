@@ -20,9 +20,6 @@
     "fs.protected_symlinks" = 1;
     "fs.protected_fifos" = 2;
     "fs.protected_regular" = 2;
-    # loose instead of strict: strict rp_filter breaks libvirt NAT return
-    # traffic (documented conflict in the retired konkrit firstboot catalog;
-    # Gentoo era, see git history)
     "net.ipv4.conf.all.rp_filter" = 2;
     "net.ipv4.conf.default.rp_filter" = 2;
     "net.ipv4.tcp_syncookies" = 1;
@@ -43,12 +40,10 @@
     "randomize_kstack_offset=on"
     "slab_nomerge"
   ];
-  environment.memoryAllocator.provider = "scudo";
-  environment.variables.SCUDO_OPTIONS = "zero_contents=true";
+  environment.memoryAllocator.provider = "graphene-hardened";
 
   security.virtualisation.flushL1DataCache = "always";
   security.apparmor.killUnconfinedConfinables = true;
-  security.lockKernelModules = true;
   systemd.coredump.enable = false;
   security.apparmor = {
     enable = true;

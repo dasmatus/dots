@@ -1,17 +1,3 @@
-# Brave, back as a native package (the Gentoo-era install predated the NixOS
-# migration — fish.nix still notes its orphaned BROWSER variable). nixpkgs'
-# brave is MPL-2.0 (repackaged official .deb), so no allowUnfree needed.
-# Chromium ≥14x auto-selects Ozone/Wayland on Wayland sessions regardless of
-# NIXOS_OZONE_WL, so no wrapper flag is needed for that either.
-#
-# All policy lives system-side in nix/modules/desktop.nix
-# (/etc/brave/policies/managed): the long-standing hardening set plus the
-# full Brave Origin feature-strip (Rewards/Wallet/VPN/Tor/Leo/News/Talk/
-# Playlist/Speedreader/Wayback/Web Discovery/P3A/stats ping all off). Brave
-# Origin's consumer "Upgrade" toggle (brave://settings > System, free on
-# Linux) flips exactly those policies through its internal Origin policy
-# manager, and the standalone brave-origin package isn't in nixpkgs — so
-# managed policies ARE the declarative way to run Origin here.
 {
   config,
   lib,
