@@ -5,11 +5,14 @@
 #  (ratatui frontend driving disko + nixos-install).
 #
 #  Usage:
-#    curl -fsSL https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main/install.sh | bash
+#    curl -fsSL https://codeberg.org/dasmatus/dots/raw/branch/main/install.sh | bash
 # ================================================================
 set -euo pipefail
 
-REMOTE_FLAKE="gitlab:TenTypekMatus/tokyonight-dots"
+# nix has no `codeberg:` shorthand scheme, so use the generic git+https
+# flake URL (resolves the default branch). The repo is public, so this
+# anonymous fetch needs no credentials.
+REMOTE_FLAKE="git+https://codeberg.org/dasmatus/dots"
 
 die() { printf '\033[0;31m[✗]\033[0m %s\n' "$*" >&2; exit 1; }
 

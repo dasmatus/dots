@@ -1,44 +1,49 @@
-# Vault-backed git credentials: rbw (unofficial Bitwarden CLI; bitwarden.com
-# is its default server, so no base_url/identity_url) plus its built-in SSH
-# agent ($XDG_RUNTIME_DIR/rbw/ssh-agent-socket, rbw >= 1.15) serving the
-# vault-held SSH key for both SSH auth and SSH commit signing (git.nix);
-# glab's credential helper answers HTTPS git auth. No plaintext secret is
-# stored declaratively: rbw fetches at runtime, so no private key or token
-# ever lands in the world-readable Nix store or in unencrypted form in git
-# (the PAT may additionally live agenix-encrypted in the repo —
-# nix/modules/secrets.nix). GNOME's gcr-ssh-agent is disabled in
-# nix/modules/desktop.nix so this agent owns SSH_AUTH_SOCK.
+# Vault-backed git credentials over SSH. rbw (unofficial Bitwarden CLI;
+# bitwarden.com is its default server, so no base_url/identity_url) plus
+# its built-in SSH agent ($XDG_RUNTIME_DIR/rbw/ssh-agent-socket, rbw >=
+# 1.15) serves the vault-held ed25519 key for BOTH transport auth
+# (push/pull to codeberg.org/dasmatus/dots over SSH) and SSH commit
+# signing (git.nix). No PAT, no forge CLI, no HTTPS credential helper:
+# the repo is public, so the first-login clone is anonymous HTTPS and
+# everything after is SSH. No private key or token ever lands in the
+# world-readable Nix store or in git. GNOME's gcr-ssh-agent is disabled
+# in nix/modules/desktop.nix so the rbw agent owns SSH_AUTH_SOCK.
 #
 # One-time imperative step this module cannot do for you: run `dots-keys`
-# once after first login. It unlocks/logs in rbw (master password + 2FA via
-# the gcr pinentry; if bitwarden.com answers with a captcha error, run
-# `rbw register` once with the personal API key from the web vault's
+# once after first login. It unlocks/logs in rbw (master password + 2FA
+# via the gcr pinentry; if bitwarden.com answers with a captcha error,
+# run `rbw register` once with the personal API key from the web vault's
 # security settings, then re-run), syncs the vault, exports the vault SSH
 # key's public half to ~/.ssh/id_ed25519.pub (git's signingkey), writes
-# ~/.config/git/allowed_signers, feeds the vault's GitLab PAT (scopes:
-# api + write_repository, stored in the item's password field) to glab,
-# and uploads the public key to GitLab as auth_and_signing. Safe to re-run.
-# Prerequisite in the vault: an SSH-key-type item (created in the web
-# vault/app — rbw serves keys, it cannot create them). The PAT prefers the
-# agenix-decrypted repo secret when one exists (nix/modules/secrets.nix);
-# the vault item is the fallback for machines that can't decrypt it yet.
+# ~/.config/git/allowed_signers, and ensures the dots repo's Codeberg
+# remote is on SSH. Safe to re-run. Prerequisite in the vault: an
+# SSH-key-type item (created in the web vault/app — rbw serves keys, it
+# cannot create them).
+#
+# One-time-EVER (per vault key, not per machine — the key is shared
+# across all your hosts): upload ~/.ssh/id_ed25519.pub to Codeberg's
+# Settings → SSH/GPG keys, marked for auth AND signing (Forgejo verifies
+# SSH-signed commits). Until then SSH push/pull fail; the public HTTPS
+# clone still works.
 #
 # Day-to-day UX: the agent is spawned on demand by any rbw command and
-# starts *locked* — after a reboot, run `rbw unlock` before the first push
-# or signed commit (lock_timeout re-locks after an hour). Deliberate
+# starts *locked* — after a reboot, run `rbw unlock` before the first
+# push or signed commit (lock_timeout re-locks after an hour). Deliberate
 # trade-off for a key that never touches disk. Escape hatch while
 # un-bootstrapped: `git -c commit.gpgsign=false commit`.
 { config, pkgs, ... }:
 
 let
   # User-owned values — not derivable from the repo. The Bitwarden account
-  # email is NOT assumed to equal the git/proton address; the PAT item name
-  # must match the vault entry whose password field holds the token.
+  # email is NOT assumed to equal the git/proton address.
   bitwardenEmail = "Shadiness9530@pm.me";
-  gitlabPatItem = "gitlab-pat";
 
   gitEmail = config.programs.git.settings.user.email;
   pubkeyFile = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
+  # Mirrors nix/home/dots-repo.nix's repoRel — the legacy "gitlab" segment
+  # is just a folder name now; the repo lives on codeberg.org/dasmatus/dots.
+  dotsRepo = "${config.home.homeDirectory}/Dokumente/gitlab/personal/dots";
+  codebergSsh = "ssh://git@codeberg.org/dasmatus/dots";
 
   dotsKeys = pkgs.writeShellScriptBin "dots-keys" ''
     set -euo pipefail
@@ -68,26 +73,28 @@ let
       "$(${pkgs.gawk}/bin/awk '{ print $1 " " $2 }' "${pubkeyFile}")" \
       > "$HOME/.config/git/allowed_signers"
 
-    # PAT source order: the agenix-decrypted repo secret (nix/modules/
-    # secrets.nix) when present, else the vault item. --use-keyring parks
-    # the token in gnome-keyring instead of a plaintext config.yml.
-    if ! ${pkgs.glab}/bin/glab auth status --hostname gitlab.com > /dev/null 2>&1; then
-      if [ -r /run/agenix/gitlab-pat ]; then
-        ${pkgs.glab}/bin/glab auth login --hostname gitlab.com --stdin --use-keyring \
-          < /run/agenix/gitlab-pat
-      else
-        ${pkgs.rbw}/bin/rbw get "${gitlabPatItem}" \
-          | ${pkgs.glab}/bin/glab auth login --hostname gitlab.com --stdin --use-keyring
+    # Keep the dots repo's Codeberg remote on SSH so push/pull ride the
+    # vault key. Flip any existing remote already pointing at codeberg.org
+    # to SSH; add a 'codeberg' remote if none does. A non-codeberg remote
+    # (e.g. a legacy gitlab origin) is never touched. set-url only records
+    # the URL — no connection, safe before the key is unlocked.
+    if [ -d "${dotsRepo}/.git" ]; then
+      found=0
+      for r in $(${pkgs.git}/bin/git -C "${dotsRepo}" remote); do
+        case "$(${pkgs.git}/bin/git -C "${dotsRepo}" remote get-url "$r")" in
+          *codeberg.org/dasmatus/dots*)
+            ${pkgs.git}/bin/git -C "${dotsRepo}" remote set-url "$r" "${codebergSsh}"
+            found=1
+            ;;
+        esac
+      done
+      if [ "$found" = 0 ]; then
+        ${pkgs.git}/bin/git -C "${dotsRepo}" remote add codeberg "${codebergSsh}"
       fi
     fi
 
-    # glab 1.106 defaults --usage-type to auth_and_signing.
-    blob="$(${pkgs.gawk}/bin/awk '{ print $2 }' "${pubkeyFile}")"
-    if ! ${pkgs.glab}/bin/glab api user/keys | ${pkgs.gnugrep}/bin/grep -qF "$blob"; then
-      ${pkgs.glab}/bin/glab ssh-key add "${pubkeyFile}" --title "$(uname -n)"
-    fi
-
-    echo "dots-keys: vault SSH agent + commit signing + glab HTTPS auth ready."
+    echo "dots-keys: vault SSH agent + commit signing ready; Codeberg remote on SSH."
+    echo "dots-keys: one-time-ever — upload ~/.ssh/id_ed25519.pub to Codeberg (Settings → SSH/GPG keys) as auth + signing."
     echo "dots-keys: after a reboot, run 'rbw unlock' before the first push or signed commit."
   '';
 in

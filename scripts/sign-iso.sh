@@ -148,7 +148,7 @@ sbat_vma=$(printf '0x%x' $(( (0x${last_vma} + 0x${last_size} + 0xfff) & ~0xfff )
 cat > "${WORK}/sbat.csv" <<'EOF'
 sbat,1,SBAT Version,sbat,1,https://github.com/rhboot/shim/blob/main/SBAT.md
 grub,4,Free Software Foundation,grub,2.12,https://www.gnu.org/software/grub/
-grub.tokyonight-dots,1,tokyonight-dots,grub,2.12,https://gitlab.com/tentypekmatus/tokyonight-dots
+grub.tokyonight-dots,1,tokyonight-dots,grub,2.12,https://codeberg.org/dasmatus/dots
 EOF
 objcopy --add-section .sbat="${WORK}/sbat.csv" \
   --set-section-flags .sbat=contents,alloc,load,readonly,data \

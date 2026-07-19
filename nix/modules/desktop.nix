@@ -1,5 +1,9 @@
 { pkgs, ... }: {
   services.gnome.gnome-keyring.enable = true;
+  # GUI frontend for gnome-keyring (also wires ssh askpass). This is a
+  # NixOS option, not a home-manager one — it previously sat in
+  # nix/home/hyprland.nix, where HM eval rejected it.
+  programs.seahorse.enable = true;
   services.displayManager.ly.enable = true;
   programs.hyprland = {
     enable = true;

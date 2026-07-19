@@ -1,20 +1,20 @@
-# Git identity, SSH commit signing, and HTTPS auth. Signing is SSH-format
-# against the public half of the Bitwarden-vault SSH key: dots-keys
-# (bitwarden.nix) exports ~/.ssh/id_ed25519.pub, and with a .pub-only
-# signingkey git's ssh-keygen -Y sign pulls the private key from the rbw
-# agent — it never exists on disk. HTTPS auth goes through glab's
-# credential helper (replacing the former libsecret helper outright, so a
-# stale keyring PAT cannot shadow it); glab only answers for its
-# configured GitLab hosts, and other hosts use SSH via the same agent.
+# Git identity + SSH commit signing. Signing is SSH-format against the
+# public half of the Bitwarden-vault SSH key: dots-keys (bitwarden.nix)
+# exports ~/.ssh/id_ed25519.pub, and with a .pub-only signingkey git's
+# ssh-keygen -Y sign pulls the private key from the rbw agent — it never
+# exists on disk. Transport auth is SSH-only too: the same vault key
+# pushes to Codeberg over ssh://git@codeberg.org/dasmatus/dots
+# (dots-repo.nix flips the dots clone's origin to SSH after the
+# first-login clone; dots-keys keeps it there). No HTTPS credential
+# helper and no forge CLI — the repo is public, so the bootstrap clone is
+# anonymous HTTPS and everything after is SSH.
 {
   config,
-  pkgs,
   ...
 }:
 {
   programs.git = {
     enable = true;
-    package = pkgs.git.override { withLibsecret = true; };
     settings = {
       user = {
         name = "Matus Mastena";
@@ -27,7 +27,6 @@
       gpg.ssh.allowedSignersFile = "${config.xdg.configHome}/git/allowed_signers";
       commit.gpgsign = true;
       tag.gpgsign = true;
-      credential.helper = "libsecret";
     };
   };
 }

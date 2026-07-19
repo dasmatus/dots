@@ -54,7 +54,6 @@
     eza
     btrfs-progs
     gnupg
-    glab
     curl
     file
     tpm2-tools
