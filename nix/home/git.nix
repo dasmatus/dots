@@ -15,7 +15,7 @@
   programs.git = {
     enable = true;
     package = pkgs.git.override { withLibsecret = true; };
-    config = {
+    settings = {
       user = {
         name = "Matus Mastena";
         email = "Shadiness9530@proton.me";
