@@ -107,30 +107,11 @@
       window#waybar {
         background-color: #1a1b26;
         color: #c0caf5;
-        border-radius: 7px;
       }
 
-      #workspaces button {
-        padding: 0 8px;
-        color: #737aa2;
-        background: transparent;
-      }
-
-      #workspaces button.active {
-        color: #c0caf5;
-        background-color: #1f2335;
-        border-radius: 7px;
-      }
-
-      #workspaces button.urgent {
-        color: #f7768e;
-      }
-
-      #window {
-        color: #545c7e;
-        padding: 0 10px;
-      }
-
+      /* Pill base: every module is a rounded capsule with a gap. */
+      #workspaces button,
+      #window,
       #disk,
       #backlight,
       #pulseaudio,
@@ -138,20 +119,47 @@
       #battery,
       #clock,
       #tray {
-        padding: 0 10px;
+        border-radius: 9999px;
+        padding: 0 14px;
+        margin: 4px 3px;
         color: #c0caf5;
+        background-color: #1f2335;
       }
 
-      #clock {
+      #workspaces button {
+        padding: 0 10px;
+        color: #737aa2;
+      }
+
+      #workspaces button.active {
+        color: #1a1b26;
+        background-color: #7aa2f7;
+      }
+
+      #workspaces button.urgent {
+        color: #1a1b26;
+        background-color: #f7768e;
+      }
+
+      /* Centered window title stays a quiet ghost pill. */
+      #window {
+        background-color: transparent;
         color: #545c7e;
       }
 
+      #clock {
+        color: #1a1b26;
+        background-color: #7aa2f7;
+      }
+
       #battery.warning {
-        color: #f7768e;
+        color: #1a1b26;
+        background-color: #e0af68;
       }
 
       #battery.critical {
-        color: #f7768e;
+        color: #1a1b26;
+        background-color: #f7768e;
         font-weight: bold;
       }
 
