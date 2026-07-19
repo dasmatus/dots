@@ -1,7 +1,9 @@
 # Por of files/hypr/hyprland.conf (deleted — see git history) plus its
 # Wayland session daemons. Deliberate deviations from the X11-era conf:
-#   - wallpaper exec-once dropped: the wallhaven-wallpaper user service
-#     (random_wp.nix) sets it via swaybg instead
+#   - wallpaper exec-once dropped: waytrogen (nix/home/waytrogen.nix) owns
+#     it now — `waytrogen --restore` re-applies the saved wallpaper on login;
+#     the old static `swaybg -i …stripes…` line was removed because it ran
+#     after waytrogen and clobbered it
 #   - gentoo-pipewire-launcher dropped (Gentoo-only, already dead on NixOS)
 #   - swayidle/swaylock exec-once dropped in favour of services.hypridle and
 #     programs.hyprlock below
@@ -38,7 +40,6 @@
         "waybar"
         "nm-applet --indicator"
         "${pkgs.waytrogen}/bin/waytrogen --restore"
-        "swaybg -i ~/Dokumente/gitlab/personal/dots/Wallpapers/night/minimal/stripes_00_1920x1080.png"
       ];
 
       env = [

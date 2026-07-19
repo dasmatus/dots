@@ -6,7 +6,7 @@
     settings.mainBar = {
       layer = "top";
       position = "top";
-      height = 24;
+      height = 30;
       spacing = 4;
 
       modules-left = [ "hyprland/workspaces" ];
@@ -100,7 +100,7 @@
       * {
         font-family: "Lilex Nerd Font";
         font-weight: bold;
-        font-size: 13px;
+        font-size: 15px;
         min-height: 0;
       }
 
