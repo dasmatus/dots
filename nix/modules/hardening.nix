@@ -40,7 +40,6 @@
     "randomize_kstack_offset=on"
     "slab_nomerge"
   ];
-  environment.memoryAllocator.provider = "graphene-hardened";
 
   security.virtualisation.flushL1DataCache = "always";
   security.apparmor.killUnconfinedConfinables = true;

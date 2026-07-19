@@ -87,7 +87,7 @@ let
 in
 {
   home.packages = [ ccbar ];
-
+  services.ollama.enable = true;
   programs.claude-code = {
     enable = true;
 

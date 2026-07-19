@@ -27,7 +27,12 @@
       url = "github:nix-community/haumea/v0.2.2";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
+    # rycee's pre-packaged Firefox addons (Nix-pinned XPIs for the LibreWolf
+    # profile in nix/home/librewolf.nix) — the subflake, not the whole NUR.
+    firefox-addons = {
+      url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # Encrypted repo secrets (nix/modules/secrets.nix); darwin cut — this
     # flake is x86_64-linux only and the follows keeps nix-darwin out of
     # the lock file.

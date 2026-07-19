@@ -26,6 +26,7 @@
     ./hyprland.nix
     ./waybar.nix
     ./dunst.nix
+    ./librewolf.nix
     ./rofi
     ./git.nix
     ./bitwarden.nix
