@@ -10,11 +10,13 @@
 # anonymous HTTPS and everything after is SSH.
 {
   config,
+  pkgs,
   ...
 }:
 {
   programs.git = {
     enable = true;
+    package = pkgs.git.override { withLibsecret = true; };
     settings = {
       user = {
         name = "Matus Mastena";
@@ -22,6 +24,7 @@
         # Absolute path — git does not tilde-expand signingkey.
         signingkey = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
       };
+      credential.helper = "libsecret";
       gpg.format = "ssh";
       # Written by dots-keys; lets `git log --show-signature` verify locally.
       gpg.ssh.allowedSignersFile = "${config.xdg.configHome}/git/allowed_signers";
