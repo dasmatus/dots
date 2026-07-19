@@ -190,6 +190,8 @@
         "$mainMod SHIFT, C, exec, hyprctl reload"
         "$mainMod SHIFT, E, exit"
 
+        ", Print, exec, flameshot gui"
+
         ", XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
         ", XF86AudioMicMute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
       ];
