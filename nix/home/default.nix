@@ -32,10 +32,6 @@
     ./proton.nix
     ./pkgs.nix
   ];
-  environment.pathsToLink = [
-    "/share/applications"
-    "/share/xdg-desktop-portal"
-  ];
   home.stateVersion = "26.05";
   programs.home-manager.enable = true;
   dconf.enable = true;

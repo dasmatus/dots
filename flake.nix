@@ -125,6 +125,7 @@
             ./nix/modules/maintenance.nix
             ./nix/modules/secrets.nix
             ./nix/modules/secureboot.nix
+./nix/modules/desktop.nix
             ./nix/hosts.nix
           ];
         };
