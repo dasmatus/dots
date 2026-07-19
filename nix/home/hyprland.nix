@@ -25,6 +25,7 @@
 # classic hyprland.conf format instead.
 { pkgs, ... }:
 {
+  programs.seahorse.enable = true;
   wayland.windowManager.hyprland = {
     systemd.enable = false;
     enable = true;

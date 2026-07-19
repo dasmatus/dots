@@ -9,6 +9,7 @@
   ...
 }:
 {
+  security.pam.services.login.enableGnomeKeyring = true;
   networking.hostName = settings.hostname;
 
   # Unfree is opt-in per package; claude-code comes in via home-manager
@@ -61,11 +62,6 @@
 
   programs.fish.enable = true;
 
-  # GnuPG smartcard support — matches the retired Gentoo package.use gpg file
-  # (app-crypt/gnupg smartcard usb, gnutls pkcs11; git history). pinentry was
-  # built without gtk there; GNOME is the desktop now, so use pinentry-gnome3.
-  services.pcscd.enable = true;
-  hardware.gpgSmartcards.enable = true;
   programs.gnupg.agent = {
     enable = true;
     pinentryPackage = pkgs.pinentry-gnome3;
