@@ -8,14 +8,14 @@
 # configured GitLab hosts, and other hosts use SSH via the same agent.
 {
   config,
-  lib,
   pkgs,
   ...
 }:
 {
   programs.git = {
     enable = true;
-    settings = {
+    package = pkgs.git.override { withLibsecret = true; };
+    config = {
       user = {
         name = "Matus Mastena";
         email = "Shadiness9530@proton.me";
@@ -27,7 +27,7 @@
       gpg.ssh.allowedSignersFile = "${config.xdg.configHome}/git/allowed_signers";
       commit.gpgsign = true;
       tag.gpgsign = true;
-      credential.helper = "${lib.getExe pkgs.glab} auth git-credential";
+      credential.helper = "libsecret";
     };
   };
 }
