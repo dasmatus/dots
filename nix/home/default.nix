@@ -21,7 +21,6 @@
     ./nixvim.nix
     ./dokumente.nix
     ./dots-repo.nix
-    ./librewolf.nix
     ./brave.nix
     ./junction.nix
     ./hyprland.nix

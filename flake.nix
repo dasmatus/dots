@@ -118,7 +118,6 @@
             ./nix/modules/core.nix
             ./nix/modules/boot.nix
             ./nix/modules/network.nix
-            ./nix/modules/desktop.nix
             ./nix/modules/searxng.nix
             ./nix/modules/virtualisation.nix
             ./nix/modules/users.nix
