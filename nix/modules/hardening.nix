@@ -55,13 +55,6 @@
     packages = [ pkgs.apparmor-profiles ];
   };
 
-  services.usbguard = {
-    enable = true;
-    presentDevicePolicy = "allow";
-    implicitPolicyTarget = "allow";
-    IPCAllowedGroups = [ "wheel" ];
-  };
-
   networking.firewall.enable = true;
 
   security.sudo = {
