@@ -1,4 +1,4 @@
-# Port of files/hypr/hyprland.conf (deleted — see git history) plus its
+# Por of files/hypr/hyprland.conf (deleted — see git history) plus its
 # Wayland session daemons. Deliberate deviations from the X11-era conf:
 #   - wallpaper exec-once dropped: the wallhaven-wallpaper user service
 #     (random_wp.nix) sets it via swaybg instead
@@ -23,8 +23,17 @@
 # Hyprland system-wide; configType is pinned to "hyprlang" because Home
 # Manager 26.05 defaults new configs to the Lua DSL, and this port keeps the
 # classic hyprland.conf format instead.
-{ ... }:
+{ pkgs, ... }:
 {
+  programs.keepassxc = {
+    autostart = true;
+    enable = true;
+    settings = {
+      # For available settings, see https://github.com/keepassxreboot/keepassxc/blob/develop/src/core/Config.cpp
+      FdoSecrets.Enabled = true; # Enable Secret Service Integration
+    };
+  };
+  xdg.autostart.enable = true; # Enable creation of XDG autostart entries.
   wayland.windowManager.hyprland = {
     systemd.enable = false;
     enable = true;
@@ -37,7 +46,8 @@
       "exec-once" = [
         "waybar"
         "nm-applet --indicator"
-        "keepassxc"
+        "${pkgs.waytrogen}/bin/waytrogen --restore"
+        "swaybg -i ~/Dokumente/gitlab/personal/dots/Wallpapers/night/minimal/stripes_00_1920x1080.png"
       ];
 
       env = [

@@ -25,6 +25,7 @@
     shellAliases = {
       cat = "bat --paging=never";
       ls = "eza -lhi --git --icons always";
+      claude = "ollama launch claude";
     };
 
     functions.claude-dev = ''

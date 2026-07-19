@@ -1,15 +1,3 @@
-# programs.waybar port of files/polybar/config.ini (deleted — see git
-# history) for a Hyprland session. Module mapping from the polybar bar:
-#   i3 → hyprland/workspaces, xwindow → hyprland/window, filesystem → disk,
-#   brightness → backlight, volume(custom script) → pulseaudio,
-#   wifi+ethernet(custom scripts) → network, battery → battery, date →
-#   clock, tray-position right → tray. xkeyboard is dropped (kb_options is
-#   fixed to caps:escape, nothing to indicate). Colors/font/radius taken
-#   from the polybar [colors] section and bar/example font-0.
-#
-# programs.waybar.enable installs the waybar binary, so it's dropped from
-# home.packages (default.nix). Systemd integration is left off: hyprland.nix
-# starts waybar itself via exec-once, matching the original conf.
 { ... }:
 {
   programs.waybar = {
@@ -48,7 +36,6 @@
         format = "󰋊 {percentage_used}%";
         interval = 30;
       };
-
       backlight = {
         format = "{icon} {percent}%";
         format-icons = [
@@ -101,8 +88,8 @@
 
       clock = {
         interval = 1;
-        format = "  {:%H:%M}";
-        format-alt = "  {:%d.%m.%Y %H:%M:%S}";
+        format = " {:%H:%M}";
+        format-alt = " {:%d.%m.%Y %H:%M:%S}";
         tooltip-format = "{:%d.%m.%Y %H:%M:%S}";
       };
 
