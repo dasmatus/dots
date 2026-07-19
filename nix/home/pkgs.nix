@@ -91,7 +91,6 @@ in
       prismlauncher
       signal-desktop
       refine
-
       # X11 automation for the claude-linux-computer plugin; X11-only tools,
       # so under Hyprland they act through XWayland (enabled by default)
       xdotool
