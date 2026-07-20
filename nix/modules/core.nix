@@ -1,5 +1,5 @@
 # Base system: nix daemon settings, locale, timezone, core CLI tools.
-# Locale/timezone are the user's picks (de_DE.UTF-8, Europe/Bratislava);
+# Locale/timezone come from nix/defaults.nix (settings.timezone, settings.locale);
 # the package set matches the retired Gentoo installer's SYSTEM_PACKAGES
 # (git history).
 {
@@ -45,8 +45,8 @@
     ];
   };
 
-  time.timeZone = "Europe/Bratislava";
-  i18n.defaultLocale = "de_DE.UTF-8";
+  time.timeZone = settings.timezone;
+  i18n.defaultLocale = settings.locale;
 
   environment.systemPackages = with pkgs; [
     git
