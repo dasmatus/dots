@@ -50,7 +50,12 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
-      settings = import ./nix/settings.nix;
+      # defaults.nix holds the non-install-time params (timezone, locale,
+      # desktop, boot knobs, network backend); the installer TUI rewrites only
+      # the four install answers (username/hostname/disk/swapSize) into
+      # settings.nix on the target, so it is merged *under* settings.nix to
+      # survive an install. See nix/defaults.nix.
+      settings = (import ./nix/defaults.nix) // (import ./nix/settings.nix);
 
       # Everything scripts/sign-iso.sh needs: shared by the sb-tools buildEnv
       # (host-side signing) and the in-sandbox signing fixture in tests/.
