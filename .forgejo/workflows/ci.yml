@@ -1,23 +1,31 @@
 # Codeberg CI — Forgejo Actions (GitHub-Actions-compatible syntax).
-# Hosted runner labels (https://codeberg.org/actions/meta):
-#   codeberg-tiny   1 vCPU / 2 GB / 2 min   — linters only
-#   codeberg-small  2 vCPU / 4 GB / 5 min
-#   codeberg-medium 4 vCPU / 8 GB / 10 min
-# Hosted runners have NO /dev/kvm and no Docker-in-Docker, so the two LiveISO
-# boot oracles (tests/default.nix) — which carry requiredSystemFeatures ["kvm"]
-# and need QEMU accel — cannot run there. They stay on a self-hosted runner
-# with the `kvm` label, gated to schedule + manual so they never block the
-# lint lane. Register one at https://codeberg.org/<you>/<repo>/settings/actions
-# (run `forgejo-runner` with labels `self-hosted,kvm` on a /dev/kvm host) to
-# re-enable them; until then the jobs simply stay pending and are ignored.
+#
+# Runner: a self-hosted Forgejo runner registered with the `medium` label
+# (medium@actions-tiny.aburayama.m.codeberg.org — 4 vCPU / 8 GB, with
+# /dev/kvm). Unlike the hosted codeberg-{tiny,small,medium} runners this one
+# has no job time cap and exposes KVM, so both the lint lane and the LiveISO
+# boot oracles run here.
+#
+# Nix is installed by DeterminateSystems/nix-installer-action@v22 — the
+# idiomatic GitHub-Actions setup, which Forgejo Actions runs unchanged (it
+# fetches the action from github.com, same as actions/checkout). The action
+# installs Determinate Nix with flakes + nix-command on by default and
+# auto-enables KVM when /dev/kvm is present (exports DETERMINATE_NIX_KVM=1).
+# The action's `determinate: false` upstream-Nix option was retired
+# 2026-01-01, so Determinate Nix is what we get — same `nix` CLI, flakes on.
+# Jobs are container-less: the installer puts Nix on the runner host, and
+# the rust job mirrors that with dtolnay/rust-toolchain on the host (no
+# Docker dependency on the self-hosted runner).
 #
 # Lanes (mirror the retired .gitlab-ci.yml):
 #   lint (every push + PR)  flake eval + cheap checks; cargo fmt/clippy/test.
-#   vm   (weekly + manual)  the two LiveISO boot oracles.
+#   vm   (weekly + manual)  the two LiveISO boot oracles (tests/default.nix).
 #
-# If a lint job hits the hosted-runner 10 min cap on a cold cache, move it to
-# a self-hosted runner (runs-on: [self-hosted, <label>]) or wire up a binary
-# cache (Cachix/attic) so the ISO closure substitutes instead of building.
+# Cold-cache escape hatch: the 1.5 GB ISO closure in vm-boot builds in-job.
+# On a persistent self-hosted runner the Nix store survives between runs, so
+# only the first run pays the full build — but to make it substitute instead
+# of build, wire up a binary cache (Cachix/attic) or
+# DeterminateSystems/flakehub-cache-action and point the jobs at it.
 
 on:
   push:
@@ -28,16 +36,13 @@ on:
     - cron: '57 3 * * 1'
   workflow_dispatch:
 
-env:
-  NIX_CONFIG: "experimental-features = nix-command flakes"
-
 jobs:
   nix-eval:
     name: "nix: flake check + cheap checks"
-    runs-on: codeberg-medium
-    container: nixos/nix:2.35.1
+    runs-on: medium
     steps:
       - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
       # The cheap non-VM checks are worth actually building.
@@ -49,14 +54,18 @@ jobs:
 
   rust:
     name: "rust: fmt + clippy + test"
-    runs-on: codeberg-medium
-    container: rust:1.97
-    env:
-      CARGO_HOME: /tmp/cargo
+    runs-on: medium
     steps:
       - uses: actions/checkout@v4
-      # The official rust images ship the minimal rustup profile.
-      - run: rustup component add rustfmt clippy
+      # Pinned toolchain on the runner host (replaces the rust:1.97 container;
+      # no Docker needed on the self-hosted runner).
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: installer-tui
       - working-directory: installer-tui
         run: |
           cargo fmt --check
@@ -66,8 +75,7 @@ jobs:
   vm-boot:
     name: "vm: ${{ matrix.check }}"
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, kvm]
-    container: nixos/nix:2.35.1
+    runs-on: medium
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -75,6 +83,10 @@ jobs:
         check: [iso-boot, iso-secureboot]
     steps:
       - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      # --option system-features is still needed: even with /dev/kvm present,
+      # Nix won't schedule nixos-test derivations unless kvm/nixos-test are
+      # declared on the (per-invocation) system-features.
       - run: |
           nix build -L ".#checks.x86_64-linux.${{ matrix.check }}" \
             --option system-features "nixos-test benchmark big-parallel kvm"
@@ -86,7 +98,7 @@ jobs:
           cp -rL result/* test-logs/ 2>/dev/null || true
           nix log ".#checks.x86_64-linux.${{ matrix.check }}" > test-logs/build.log 2>/dev/null || true
       - if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-logs-${{ matrix.check }}
           path: test-logs/
