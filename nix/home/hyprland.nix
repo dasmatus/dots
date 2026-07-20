@@ -22,195 +22,695 @@
 #
 # wayland.windowManager.hyprland.package is set to null because
 # programs.hyprland.enable (nix/modules/desktop.nix) already installs
-# Hyprland system-wide; configType is pinned to "hyprlang" because Home
-# Manager 26.05 defaults new configs to the Lua DSL, and this port keeps the
-# classic hyprland.conf format instead.
-{ pkgs, ... }:
+# Hyprland system-wide. configType is "lua": Home Manager 26.05 defaults
+# new configs to the Lua DSL and this module uses it. `settings` is a Nix
+# attrset that HM walks into hl.<key>(...) calls (lib.nix renderSettings):
+# `_args` makes a multi-arg call, `_var` declares a `local`, and the `lua`
+# alias (lib.generators.mkLuaInline) injects raw lua for key expressions
+# (mod .. " + Q") and hl.dsp.* dispatchers. hyprlang-only keys are gone —
+# exec-once → on("hyprland.start",…), binde → {repeating=true},
+# bindm → {mouse=true}, bezier/animation → curve/animation.
+{ pkgs, lib, ... }:
+let
+  lua = lib.generators.mkLuaInline;
+in
 {
   wayland.windowManager.hyprland = {
     systemd.enable = false;
     enable = true;
     package = null;
-    configType = "hyprlang";
+    configType = "lua";
 
     settings = {
-      monitor = "eDP-1, 1920x1080, 0x0, 1";
-
-      "exec-once" = [
-        "waybar"
-        "nm-applet --indicator"
-        "${pkgs.waytrogen}/bin/waytrogen --restore"
-      ];
-
-      env = [
-        "XCURSOR_SIZE,24"
-        "XCURSOR_THEME,Adwaita"
-        "XDG_CURRENT_DESKTOP,Hyprland"
-        "XDG_SESSION_TYPE,wayland"
-        "XDG_SESSION_DESKTOP,Hyprland"
-        "QT_QPA_PLATFORM,wayland"
-        "QT_QPA_PLATFORMTHEME,gtk3"
-        "MOZ_ENABLE_WAYLAND,1"
-        "NIXOS_OZONE_WL,1"
-        "GDK_BACKEND,wayland,x11"
-      ];
-
-      general = {
-        gaps_in = 5;
-        gaps_out = 15;
-        border_size = 2;
-        "col.active_border" = "rgba(9aa5ceff)";
-        "col.inactive_border" = "rgba(16161dff)";
-        layout = "dwindle";
-        allow_tearing = false;
+      # local mod = "SUPER" — renderSettings emits all _var locals before
+      # the call entries, so this precedes every hl.bind(mod .. …) below.
+      mod = {
+        _var = "SUPER";
       };
 
-      decoration = {
-        rounding = 10;
-
-        blur = {
-          enabled = true;
-          size = 3;
-          passes = 1;
-          new_optimizations = true;
-        };
-
-        shadow = {
-          enabled = true;
-          range = 10;
-          render_power = 3;
-          color = "rgba(1a1a2ecc)";
-        };
+      monitor = {
+        output = "eDP-1";
+        mode = "1920x1080";
+        position = "0x0";
+        scale = 1;
       };
 
-      animations = {
-        enabled = true;
-        bezier = "myBezier, 0.05, 0.9, 0.1, 1.05";
-        animation = [
-          "windows, 1, 7, myBezier"
-          "windowsOut, 1, 7, default, popin 80%"
-          "border, 1, 10, default"
-          "borderangle, 1, 8, default"
-          "fade, 1, 7, default"
-          "workspaces, 1, 6, default"
+      # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
+      # has no exec-once; hyprland.start fires once at compositor boot.
+      # ${pkgs.waytrogen} interpolates the store path into the lua string.
+      on = {
+        _args = [
+          "hyprland.start"
+          (lua ''
+            function()
+              hl.exec_cmd("waybar")
+              hl.exec_cmd("nm-applet --indicator")
+              hl.exec_cmd("${pkgs.waytrogen}/bin/waytrogen --restore")
+            end'')
         ];
       };
 
-      dwindle = {
-        preserve_split = true;
-      };
+      # env = [ "X,24" … ] (hyprlang comma-strings) → one hl.env(name, val)
+      # call per pair, via _args.
+      env = [
+        {
+          _args = [
+            "XCURSOR_SIZE"
+            "24"
+          ];
+        }
+        {
+          _args = [
+            "XCURSOR_THEME"
+            "Adwaita"
+          ];
+        }
+        {
+          _args = [
+            "XDG_CURRENT_DESKTOP"
+            "Hyprland"
+          ];
+        }
+        {
+          _args = [
+            "XDG_SESSION_TYPE"
+            "wayland"
+          ];
+        }
+        {
+          _args = [
+            "XDG_SESSION_DESKTOP"
+            "Hyprland"
+          ];
+        }
+        {
+          _args = [
+            "QT_QPA_PLATFORM"
+            "wayland"
+          ];
+        }
+        {
+          _args = [
+            "QT_QPA_PLATFORMTHEME"
+            "gtk3"
+          ];
+        }
+        {
+          _args = [
+            "MOZ_ENABLE_WAYLAND"
+            "1"
+          ];
+        }
+        {
+          _args = [
+            "NIXOS_OZONE_WL"
+            "1"
+          ];
+        }
+        {
+          _args = [
+            "GDK_BACKEND"
+            "wayland,x11"
+          ];
+        }
+      ];
 
-      master = {
-        new_status = "master";
-      };
+      # general/decoration/dwindle/master/misc/input/animations.enabled
+      # all go into ONE hl.config({ … }) call. `col.*` (dotted in
+      # hyprlang) becomes a nested `col` table — the Lua API reads
+      # col.active_border / col.inactive_border, not ["col.active_border"].
+      config = {
+        general = {
+          gaps_in = 5;
+          gaps_out = 15;
+          border_size = 2;
+          col = {
+            active_border = "rgba(9aa5ceff)";
+            inactive_border = "rgba(16161dff)";
+          };
+          layout = "dwindle";
+          allow_tearing = false;
+        };
 
-      misc = {
-        force_default_wallpaper = 0;
-        disable_hyprland_logo = true;
-      };
+        decoration = {
+          rounding = 10;
+          blur = {
+            enabled = true;
+            size = 3;
+            passes = 1;
+            new_optimizations = true;
+          };
+          shadow = {
+            enabled = true;
+            range = 10;
+            render_power = 3;
+            color = "rgba(1a1a2ecc)";
+          };
+        };
 
-      input = {
-        kb_layout = "us";
-        kb_options = "caps:escape";
-        follow_mouse = 1;
-        sensitivity = 0;
+        dwindle = {
+          preserve_split = true;
+        };
+        master = {
+          new_status = "master";
+        };
 
-        touchpad = {
-          natural_scroll = false;
-          "tap-to-click" = true;
-          drag_lock = false;
+        misc = {
+          force_default_wallpaper = 0;
+          disable_hyprland_logo = true;
+        };
+
+        input = {
+          kb_layout = "us";
+          kb_options = "caps:escape";
+          follow_mouse = 1;
+          sensitivity = 0;
+          touchpad = {
+            natural_scroll = false;
+            "tap-to-click" = true;
+            drag_lock = false;
+          };
+        };
+
+        # animations.enabled lives in hl.config; the bezier curve and the
+        # per-leaf animation calls are the top-level `curve`/`animation`
+        # keys below (HM's importantPrefixes emits `curve` first).
+        animations = {
+          enabled = true;
         };
       };
 
-      "$mainMod" = "SUPER";
+      # myBezier, 0.05, 0.9, 0.1, 1.05 →
+      # hl.curve("myBezier", { type = "bezier", points = {{0.05,0.9},{0.1,1.05}} }).
+      curve = [
+        {
+          _args = [
+            "myBezier"
+            {
+              type = "bezier";
+              points = [
+                [
+                  0.05
+                  0.9
+                ]
+                [
+                  0.1
+                  1.05
+                ]
+              ];
+            }
+          ];
+        }
+      ];
 
+      animation = [
+        {
+          leaf = "windows";
+          enabled = true;
+          speed = 7;
+          bezier = "myBezier";
+        }
+        {
+          leaf = "windowsOut";
+          enabled = true;
+          speed = 7;
+          bezier = "default";
+          style = "popin 80%";
+        }
+        {
+          leaf = "border";
+          enabled = true;
+          speed = 10;
+          bezier = "default";
+        }
+        {
+          leaf = "borderangle";
+          enabled = true;
+          speed = 8;
+          bezier = "default";
+        }
+        {
+          leaf = "fade";
+          enabled = true;
+          speed = 7;
+          bezier = "default";
+        }
+        {
+          leaf = "workspaces";
+          enabled = true;
+          speed = 6;
+          bezier = "default";
+        }
+      ];
+
+      # Binds. hyprlang `bind`/`binde`/`bindm` collapse to one `hl.bind`
+      # API: hl.bind(key, dispatcher, opts?). opts carries the flags that
+      # were separate keywords — { repeating = true } for binde,
+      # { mouse = true } for bindm. `lua` (mkLuaInline) wraps both the key
+      # expression (mod .. " + Q") and the dispatcher (hl.dsp.*) so HM
+      # emits them verbatim. Plain Nix strings ("Print", "XF86AudioMute")
+      # pass through as quoted lua strings for binds with no modifier.
       bind = [
-        "$mainMod, Return, exec, alacritty"
-        "$mainMod, D, exec, rofi -show drun -show-icons -theme tokyonight"
-        "$mainMod SHIFT, F, exec, ~/.config/rofi/rofi-files.sh"
-        "$mainMod, O, exec, obsidian"
-        "$mainMod SHIFT, S, exec, flameshot gui"
+        # launchers
+        {
+          _args = [
+            (lua ''mod .. " + Return"'')
+            (lua ''hl.dsp.exec_cmd("alacritty")'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + D"'')
+            (lua ''hl.dsp.exec_cmd("rofi -show drun -show-icons -theme tokyonight")'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + F"'')
+            (lua ''hl.dsp.exec_cmd("~/.config/rofi/rofi-files.sh")'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + O"'')
+            (lua ''hl.dsp.exec_cmd("obsidian")'')
+          ];
+        }
+        # flameshot now lives on Print (below); SUPER+SHIFT+S is reserved
+        # for the magic special workspace (was double-bound in hyprlang).
 
-        "$mainMod, Q, killactive"
-        "$mainMod SHIFT, Space, togglefloating"
-        "$mainMod, F, fullscreen, 0"
-        "$mainMod, P, pseudo"
+        # window ops
+        {
+          _args = [
+            (lua ''mod .. " + Q"'')
+            (lua "hl.dsp.window.close()")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + Space"'')
+            (lua ''hl.dsp.window.float({ action = "toggle" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + F"'')
+            (lua "hl.dsp.window.fullscreen()")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + P"'')
+            (lua "hl.dsp.window.pseudo()")
+          ];
+        }
 
-        "$mainMod, minus, togglespecialworkspace, scratch"
-        "$mainMod SHIFT, minus, movetoworkspace, special:scratch"
+        # scratch special workspace
+        {
+          _args = [
+            (lua ''mod .. " + minus"'')
+            (lua ''hl.dsp.workspace.toggle_special("scratch")'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + minus"'')
+            (lua ''hl.dsp.window.move({ workspace = "special:scratch" })'')
+          ];
+        }
 
-        "$mainMod, H, movefocus, l"
-        "$mainMod, L, movefocus, r"
-        "$mainMod, K, movefocus, u"
-        "$mainMod, J, movefocus, d"
-        "$mainMod, Left, movefocus, l"
-        "$mainMod, Right, movefocus, r"
-        "$mainMod, Up, movefocus, u"
-        "$mainMod, Down, movefocus, d"
+        # focus directional (HJKL + arrows)
+        {
+          _args = [
+            (lua ''mod .. " + H"'')
+            (lua ''hl.dsp.focus({ direction = "l" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + L"'')
+            (lua ''hl.dsp.focus({ direction = "r" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + K"'')
+            (lua ''hl.dsp.focus({ direction = "u" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + J"'')
+            (lua ''hl.dsp.focus({ direction = "d" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + Left"'')
+            (lua ''hl.dsp.focus({ direction = "l" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + Right"'')
+            (lua ''hl.dsp.focus({ direction = "r" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + Up"'')
+            (lua ''hl.dsp.focus({ direction = "u" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + Down"'')
+            (lua ''hl.dsp.focus({ direction = "d" })'')
+          ];
+        }
 
-        "$mainMod SHIFT, H, movewindow, l"
-        "$mainMod SHIFT, L, movewindow, r"
-        "$mainMod SHIFT, K, movewindow, u"
-        "$mainMod SHIFT, J, movewindow, d"
-        "$mainMod SHIFT, Left, movewindow, l"
-        "$mainMod SHIFT, Right, movewindow, r"
-        "$mainMod SHIFT, Up, movewindow, u"
-        "$mainMod SHIFT, Down, movewindow, d"
+        # move window directional (SHIFT + HJKL/arrows)
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + H"'')
+            (lua ''hl.dsp.window.move({ direction = "l" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + L"'')
+            (lua ''hl.dsp.window.move({ direction = "r" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + K"'')
+            (lua ''hl.dsp.window.move({ direction = "u" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + J"'')
+            (lua ''hl.dsp.window.move({ direction = "d" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + Left"'')
+            (lua ''hl.dsp.window.move({ direction = "l" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + Right"'')
+            (lua ''hl.dsp.window.move({ direction = "r" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + Up"'')
+            (lua ''hl.dsp.window.move({ direction = "u" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + Down"'')
+            (lua ''hl.dsp.window.move({ direction = "d" })'')
+          ];
+        }
 
-        "$mainMod, 1, workspace, 1"
-        "$mainMod, 2, workspace, 2"
-        "$mainMod, 3, workspace, 3"
-        "$mainMod, 4, workspace, 4"
-        "$mainMod, 5, workspace, 5"
-        "$mainMod, 6, workspace, 6"
-        "$mainMod, 7, workspace, 7"
-        "$mainMod, 8, workspace, 8"
-        "$mainMod, 9, workspace, 9"
-        "$mainMod, 0, workspace, 10"
+        # workspace 1-10 (key 0 → workspace 10)
+        {
+          _args = [
+            (lua ''mod .. " + 1"'')
+            (lua "hl.dsp.focus({ workspace = 1 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 2"'')
+            (lua "hl.dsp.focus({ workspace = 2 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 3"'')
+            (lua "hl.dsp.focus({ workspace = 3 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 4"'')
+            (lua "hl.dsp.focus({ workspace = 4 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 5"'')
+            (lua "hl.dsp.focus({ workspace = 5 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 6"'')
+            (lua "hl.dsp.focus({ workspace = 6 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 7"'')
+            (lua "hl.dsp.focus({ workspace = 7 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 8"'')
+            (lua "hl.dsp.focus({ workspace = 8 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 9"'')
+            (lua "hl.dsp.focus({ workspace = 9 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + 0"'')
+            (lua "hl.dsp.focus({ workspace = 10 })")
+          ];
+        }
 
-        "$mainMod SHIFT, 1, movetoworkspace, 1"
-        "$mainMod SHIFT, 2, movetoworkspace, 2"
-        "$mainMod SHIFT, 3, movetoworkspace, 3"
-        "$mainMod SHIFT, 4, movetoworkspace, 4"
-        "$mainMod SHIFT, 5, movetoworkspace, 5"
-        "$mainMod SHIFT, 6, movetoworkspace, 6"
-        "$mainMod SHIFT, 7, movetoworkspace, 7"
-        "$mainMod SHIFT, 8, movetoworkspace, 8"
-        "$mainMod SHIFT, 9, movetoworkspace, 9"
-        "$mainMod SHIFT, 0, movetoworkspace, 10"
+        # move window to workspace 1-10
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 1"'')
+            (lua "hl.dsp.window.move({ workspace = 1 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 2"'')
+            (lua "hl.dsp.window.move({ workspace = 2 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 3"'')
+            (lua "hl.dsp.window.move({ workspace = 3 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 4"'')
+            (lua "hl.dsp.window.move({ workspace = 4 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 5"'')
+            (lua "hl.dsp.window.move({ workspace = 5 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 6"'')
+            (lua "hl.dsp.window.move({ workspace = 6 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 7"'')
+            (lua "hl.dsp.window.move({ workspace = 7 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 8"'')
+            (lua "hl.dsp.window.move({ workspace = 8 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 9"'')
+            (lua "hl.dsp.window.move({ workspace = 9 })")
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + 0"'')
+            (lua "hl.dsp.window.move({ workspace = 10 })")
+          ];
+        }
 
-        "$mainMod, mouse_down, workspace, e+1"
-        "$mainMod, mouse_up, workspace, e-1"
+        # mouse-wheel workspace cycling
+        {
+          _args = [
+            (lua ''mod .. " + mouse_down"'')
+            (lua ''hl.dsp.focus({ workspace = "e+1" })'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + mouse_up"'')
+            (lua ''hl.dsp.focus({ workspace = "e-1" })'')
+          ];
+        }
 
-        "$mainMod, S, togglespecialworkspace, magic"
-        "$mainMod SHIFT, S, movetoworkspace, special:magic"
+        # magic special workspace
+        {
+          _args = [
+            (lua ''mod .. " + S"'')
+            (lua ''hl.dsp.workspace.toggle_special("magic")'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + S"'')
+            (lua ''hl.dsp.window.move({ workspace = "special:magic" })'')
+          ];
+        }
 
-        "$mainMod ALT, L, exec, hyprlock"
+        # lock + session
+        {
+          _args = [
+            (lua ''mod .. " + ALT + L"'')
+            (lua ''hl.dsp.exec_cmd("hyprlock")'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + C"'')
+            (lua ''hl.dsp.exec_cmd("hyprctl reload")'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + E"'')
+            (lua "hl.dsp.exit()")
+          ];
+        }
 
-        "$mainMod SHIFT, C, exec, hyprctl reload"
-        "$mainMod SHIFT, E, exit"
+        # flameshot (no modifier) — migrated off SUPER+SHIFT+S to Print
+        {
+          _args = [
+            "Print"
+            (lua ''hl.dsp.exec_cmd("flameshot gui")'')
+          ];
+        }
 
-        ", Print, exec, flameshot gui"
+        # audio mute toggles (plain bind — not locked, not repeating)
+        {
+          _args = [
+            "XF86AudioMute"
+            (lua ''hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle")'')
+          ];
+        }
+        {
+          _args = [
+            "XF86AudioMicMute"
+            (lua ''hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle")'')
+          ];
+        }
 
-        ", XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
-        ", XF86AudioMicMute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
-      ];
+        # repeating binds (was `binde`): window resize + volume/brightness.
+        # { repeating = true } as the third _args element replaces `binde`.
+        # Not locked — the hyprlang source used `binde`, not `bindle`.
+        {
+          _args = [
+            (lua ''mod .. " + ALT + H"'')
+            (lua "hl.dsp.window.resize({ x = -40, y = 0, relative = true })")
+            { repeating = true; }
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + ALT + L"'')
+            (lua "hl.dsp.window.resize({ x = 40, y = 0, relative = true })")
+            { repeating = true; }
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + ALT + K"'')
+            (lua "hl.dsp.window.resize({ x = 0, y = -40, relative = true })")
+            { repeating = true; }
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + ALT + J"'')
+            (lua "hl.dsp.window.resize({ x = 0, y = 40, relative = true })")
+            { repeating = true; }
+          ];
+        }
 
-      binde = [
-        "$mainMod ALT, H, resizeactive, -40 0"
-        "$mainMod ALT, L, resizeactive, 40 0"
-        "$mainMod ALT, K, resizeactive, 0 -40"
-        "$mainMod ALT, J, resizeactive, 0 40"
+        {
+          _args = [
+            "XF86AudioRaiseVolume"
+            (lua ''hl.dsp.exec_cmd("wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+")'')
+            { repeating = true; }
+          ];
+        }
+        {
+          _args = [
+            "XF86AudioLowerVolume"
+            (lua ''hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-")'')
+            { repeating = true; }
+          ];
+        }
+        {
+          _args = [
+            "XF86MonBrightnessUp"
+            (lua ''hl.dsp.exec_cmd("brightnessctl set 5%+")'')
+            { repeating = true; }
+          ];
+        }
+        {
+          _args = [
+            "XF86MonBrightnessDown"
+            (lua ''hl.dsp.exec_cmd("brightnessctl set 5%-")'')
+            { repeating = true; }
+          ];
+        }
 
-        ", XF86AudioRaiseVolume, exec, wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+"
-        ", XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
-        ", XF86MonBrightnessUp, exec, brightnessctl set 5%+"
-        ", XF86MonBrightnessDown, exec, brightnessctl set 5%-"
-      ];
-
-      bindm = [
-        "$mainMod, mouse:272, movewindow"
-        "$mainMod, mouse:273, resizewindow"
+        # mouse binds (was `bindm`): { mouse = true } replaces the keyword.
+        # movewindow → hl.dsp.window.drag(), resizewindow → hl.dsp.window.resize()
+        # (mouse-drag form, no args).
+        {
+          _args = [
+            (lua ''mod .. " + mouse:272"'')
+            (lua "hl.dsp.window.drag()")
+            { mouse = true; }
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + mouse:273"'')
+            (lua "hl.dsp.window.resize()")
+            { mouse = true; }
+          ];
+        }
       ];
     };
   };
