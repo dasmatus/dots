@@ -221,7 +221,6 @@ in
           match = {
             class = ".*";
           };
-          blur = true;
         }
       ];
 

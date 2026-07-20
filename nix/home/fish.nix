@@ -14,6 +14,10 @@
 #   - functions/claude-dev.fish is ported verbatim below
 { ... }:
 {
+  programs.zoxide = {
+    enable = true;
+    enableFishIntegration = true;
+  };
   programs.fish = {
     enable = true;
 
