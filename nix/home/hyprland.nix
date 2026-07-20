@@ -162,7 +162,7 @@ in
           # active_opacity/inactive_opacity are typed Lua fields (guaranteed to
           # eval), whereas the override-style window-rule field isn't in the
           # shipped hl.meta.lua — same visual result, no crash risk.
-          active_opacity = 0.75;
+          active_opacity = 0.9;
           inactive_opacity = 0.75;
           blur = {
             enabled = true;
