@@ -186,8 +186,7 @@ in
           follow_mouse = 1;
           sensitivity = 0;
           touchpad = {
-            natural_scroll = false;
-            "tap-to-click" = true;
+            natural_scroll = true;
             drag_lock = false;
           };
         };
