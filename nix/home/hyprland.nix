@@ -249,15 +249,115 @@
     };
   };
 
-  # swaylock -f -c 000000 → hyprlock, solid black background to match.
-  # NOTE: hyprlock needs `security.pam.services.hyprlock = {};` on the NixOS
-  # side (nix/modules/*) to actually be able to unlock the session — out of
-  # scope here, left for the orchestrator.
+  # swaylock -f -c 000000 → hyprlock. Was a solid black background; now a
+  # blurred, dimmed screenshot of the live desktop with a Tokyonight-themed
+  # digital clock (matching waybar.nix's palette + Lilex Nerd Font) and a
+  # password input field. PAM U2F unlock is wired up on the NixOS side in
+  # nix/modules/desktop.nix (security.pam.services.hyprlock.u2fAuth).
   programs.hyprlock = {
     enable = true;
     settings = {
+      general = {
+        hide_cursor = true;
+        disable_loading_bar = false;
+        no_fade_in = false;
+        no_fade_out = false;
+      };
+
+      # Background: screenshot of the desktop at launch, GPU-blurred and
+      # dimmed so the clock/input read clearly over it. brightness < 1
+      # darkens the framebuffer; a touch of noise avoids banding in the
+      # blur. color is only used when path is empty/missing, so it's kept
+      # as a fallback fill (pure Tokyonight bg) for the no-screenshot case.
       background = [
-        { color = "rgba(000000ff)"; }
+        {
+          monitor = "";
+          path = "screenshot";
+          color = "rgba(1a1b26ff)";
+          blur_passes = 3;
+          blur_size = 4;
+          new_optimizations = true;
+          brightness = 0.5;
+          contrast = 1.0;
+          noise = 0.02;
+        }
+      ];
+
+      # Subtle fade so the lock doesn't slap in. bezier must be defined
+      # before the animation that references it (hyprlang parses top-down).
+      animations = {
+        enabled = true;
+        bezier = "linear, 1, 1, 0, 0";
+        animation = [
+          "fadeIn, 1, 5, linear"
+          "fadeOut, 1, 5, linear"
+        ];
+      };
+
+      # Digital clock — $TIME is a hyprlock built-in that ticks every
+      # second on its own, so no cmd polling needed. Centered column over
+      # the input field: TIME (130px above center) → DATE (40px above) →
+      # input (110px below). In hyprlock, +Y is up.
+      label = [
+        {
+          monitor = "";
+          text = "$TIME";
+          color = "rgb(c0caf5)";
+          font_size = 96;
+          font_family = "Lilex Nerd Font";
+          position = "0, 130";
+          halign = "center";
+          valign = "center";
+          shadow_passes = 2;
+          shadow_size = 3;
+          shadow_color = "rgba(000000aa)";
+          shadow_boost = 1.0;
+        }
+        {
+          monitor = "";
+          text = "cmd[update:60000] date +\"%A, %d %B %Y\"";
+          color = "rgb(737aa2)";
+          font_size = 28;
+          font_family = "Lilex Nerd Font";
+          position = "0, 40";
+          halign = "center";
+          valign = "center";
+          shadow_passes = 1;
+          shadow_size = 2;
+          shadow_color = "rgba(000000aa)";
+        }
+      ];
+
+      # Password input. Translucent Tokyonight-bg fill, accent-blue ring
+      # that turns yellow while authenticating (check_color) and red on
+      # failure (fail_color), with orange when caps lock is on. dots_center
+      # centers the per-keystroke dots; rounding echoes hyprland's
+      # decoration.rounding.
+      input-field = [
+        {
+          monitor = "";
+          size = "25%, 4%";
+          outline_thickness = 2;
+          dots_size = 0.33;
+          dots_spacing = 0.3;
+          dots_center = true;
+          outer_color = "rgba(7aa2f7cc)";
+          inner_color = "rgba(1a1b26cc)";
+          font_color = "rgb(c0caf5)";
+          font_family = "Lilex Nerd Font";
+          fade_on_empty = false;
+          placeholder_text = "Enter password";
+          hide_input = false;
+          rounding = 12;
+          check_color = "rgba(e0af68ee)";
+          fail_color = "rgba(f7768eee)";
+          fail_text = "$PAMFAIL";
+          fail_transition = 300;
+          capslock_color = "rgba(ff9e64ee)";
+          position = "0, -110";
+          halign = "center";
+          valign = "center";
+        }
       ];
     };
   };
