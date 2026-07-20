@@ -68,11 +68,13 @@ assertions are console-only — `wait_for_console_text`, not
 
 ## CI
 
-`.gitlab-ci.yml` runs two lanes on gitlab.com shared runners:
+`.forgejo/workflows/ci.yml` (Codeberg Forgejo Actions) runs two lanes:
 
-- **lint** (every push): `nix flake check --no-build` + the cheap eval
-  checks, and `cargo fmt/clippy/test` for `installer-tui/`.
-- **vm** (manual + scheduled): builds each boot check with
-  `--option system-features "… kvm"` — shared runners have no `/dev/kvm`,
-  so QEMU degrades to TCG emulation. Slow (hours); serial/driver logs are
-  kept as job artifacts either way.
+- **lint** (every push + PR): `nix flake check --no-build` + the cheap eval
+  checks, and `cargo fmt/clippy/test` for `installer-tui/`. Runs on the hosted
+  `codeberg-medium` runner inside `nixos/nix` / `rust` containers.
+- **vm** (weekly + manual): builds each boot check with
+  `--option system-features "… kvm"`. Codeberg's hosted runners have no
+  `/dev/kvm`, so these jobs target a `self-hosted, kvm` runner — until one is
+  registered they stay pending and don't block the lint lane. Serial/driver
+  logs are kept as job artifacts either way.

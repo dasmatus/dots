@@ -1,0 +1,92 @@
+# Codeberg CI — Forgejo Actions (GitHub-Actions-compatible syntax).
+# Hosted runner labels (https://codeberg.org/actions/meta):
+#   codeberg-tiny   1 vCPU / 2 GB / 2 min   — linters only
+#   codeberg-small  2 vCPU / 4 GB / 5 min
+#   codeberg-medium 4 vCPU / 8 GB / 10 min
+# Hosted runners have NO /dev/kvm and no Docker-in-Docker, so the two LiveISO
+# boot oracles (tests/default.nix) — which carry requiredSystemFeatures ["kvm"]
+# and need QEMU accel — cannot run there. They stay on a self-hosted runner
+# with the `kvm` label, gated to schedule + manual so they never block the
+# lint lane. Register one at https://codeberg.org/<you>/<repo>/settings/actions
+# (run `forgejo-runner` with labels `self-hosted,kvm` on a /dev/kvm host) to
+# re-enable them; until then the jobs simply stay pending and are ignored.
+#
+# Lanes (mirror the retired .gitlab-ci.yml):
+#   lint (every push + PR)  flake eval + cheap checks; cargo fmt/clippy/test.
+#   vm   (weekly + manual)  the two LiveISO boot oracles.
+#
+# If a lint job hits the hosted-runner 10 min cap on a cold cache, move it to
+# a self-hosted runner (runs-on: [self-hosted, <label>]) or wire up a binary
+# cache (Cachix/attic) so the ISO closure substitutes instead of building.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # ~03:57 UTC Mondays (off the :00 mark; see Justfile ethos)
+    - cron: '57 3 * * 1'
+  workflow_dispatch:
+
+env:
+  NIX_CONFIG: "experimental-features = nix-command flakes"
+
+jobs:
+  nix-eval:
+    name: "nix: flake check + cheap checks"
+    runs-on: codeberg-medium
+    container: nixos/nix:2.35.1
+    steps:
+      - uses: actions/checkout@v4
+      # Evaluates every output incl. both VM test derivations; builds nothing.
+      - run: nix flake check --no-build -L
+      # The cheap non-VM checks are worth actually building.
+      - run: |
+          nix build -L \
+            .#checks.x86_64-linux.settings-eval \
+            .#checks.x86_64-linux.facter-stub-eval \
+            .#checks.x86_64-linux.facter-nvidia-eval
+
+  rust:
+    name: "rust: fmt + clippy + test"
+    runs-on: codeberg-medium
+    container: rust:1.97
+    env:
+      CARGO_HOME: /tmp/cargo
+    steps:
+      - uses: actions/checkout@v4
+      # The official rust images ship the minimal rustup profile.
+      - run: rustup component add rustfmt clippy
+      - working-directory: installer-tui
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+  vm-boot:
+    name: "vm: ${{ matrix.check }}"
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, kvm]
+    container: nixos/nix:2.35.1
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [iso-boot, iso-secureboot]
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          nix build -L ".#checks.x86_64-linux.${{ matrix.check }}" \
+            --option system-features "nixos-test benchmark big-parallel kvm"
+      # result/ holds the test driver output incl. the serial log; on a build
+      # failure it doesn't exist, so also grab the derivation's build log.
+      - if: always()
+        run: |
+          mkdir -p test-logs
+          cp -rL result/* test-logs/ 2>/dev/null || true
+          nix log ".#checks.x86_64-linux.${{ matrix.check }}" > test-logs/build.log 2>/dev/null || true
+      - if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-logs-${{ matrix.check }}
+          path: test-logs/
