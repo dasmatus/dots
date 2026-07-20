@@ -37,10 +37,28 @@
           libu2f-host # U2F HID
         ];
 
-        # PAM U2F: allow the security key to unlock hyprlock
-        security.pam.services.hyprlock = {
-          u2fAuth = true;
+        # pamu2fcfg: enrolls a key into ~/.config/Yubico/u2f_keys (one line
+        # per key — `just enroll-fido` runs it once per key). pam_u2f.so itself
+        # is pulled into the PAM stack automatically by the u2fAuth options
+        # below; this package only provides the enrollment CLI.
+        environment.systemPackages = [ pkgs.pam_u2f ];
+
+        # PAM U2F: let the FIDO2 key unlock hyprlock, the ly display manager,
+        # console login, and sudo. control defaults to "sufficient" and the
+        # authfile defaults to per-user ~/.config/Yubico/u2f_keys, so at any
+        # of these prompts press Enter on the empty password field and tap
+        # the key to unlock (no password typed). Enroll with `just
+        # enroll-fido` once per key — two keys = two lines in the authfile.
+        security.pam.services = {
+          hyprlock.u2fAuth = true;
+          ly.u2fAuth = true;
+          login.u2fAuth = true;
+          # Dormant while sudo-rs runs NOPASSWD for all wheel (hardening.nix);
+          # only prompts if wheelNeedsPassword is flipped back to true.
+          sudo.u2fAuth = true;
         };
+        # Show a "Please touch the device" cue at every U2F prompt.
+        security.pam.u2f.settings.cue = true;
 
         environment = {
           etc."brave/policies/managed/hardening.json".text = builtins.toJSON {

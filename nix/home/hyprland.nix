@@ -154,6 +154,16 @@ in
 
         decoration = {
           rounding = 10;
+          # 0.75 opacity on every window (active + inactive) so the background
+          # blur below shows through — every window becomes frosted glass.
+          # Hyprland opacity is a PRODUCT, so this multiplies with any per-app
+          # opacity (terminals etc.), nudging them slightly more transparent.
+          # Chosen over a per-window `opacity 0.75 override, .*` rule because
+          # active_opacity/inactive_opacity are typed Lua fields (guaranteed to
+          # eval), whereas the override-style window-rule field isn't in the
+          # shipped hl.meta.lua — same visual result, no crash risk.
+          active_opacity = 0.75;
+          inactive_opacity = 0.75;
           blur = {
             enabled = true;
             size = 3;
@@ -198,6 +208,22 @@ in
           enabled = true;
         };
       };
+
+      # Force blur on every window (the hyprlang `blur, .*` rule, in Lua form:
+      # hl.window_rule({ name=…, match={ class=".*" }, blur=true })). The
+      # global active_opacity/inactive_opacity in config.decoration above
+      # already makes windows translucent so the background blur reads through;
+      # this rule additionally forces blur on windows that would otherwise opt
+      # out, so the effect is uniform across everything.
+      window_rule = [
+        {
+          name = "force-blur";
+          match = {
+            class = ".*";
+          };
+          blur = true;
+        }
+      ];
 
       # myBezier, 0.05, 0.9, 0.1, 1.05 →
       # hl.curve("myBezier", { type = "bezier", points = {{0.05,0.9},{0.1,1.05}} }).

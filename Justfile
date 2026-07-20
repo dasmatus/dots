@@ -72,6 +72,21 @@ nix-smoke *ARGS:
 nix-smoke-interactive:
     nix run .#checks.x86_64-linux.iso-secureboot.driverInteractive
 
+# ── FIDO2 ──────────────────────────────────────────────────────────
+# Enroll a FIDO2/U2F key for passwordless unlock (hyprlock, ly, login, sudo).
+# Run once PER KEY — tap the key when prompted. Each run appends one line to
+# ~/.config/Yubico/u2f_keys (two keys = two runs = two lines). Afterward lock
+# (hyprlock) or log out and tap the key at the prompt to unlock passwordless.
+# Requires the pkgs.pam_u2f (pamu2fcfg) added in nix/modules/desktop.nix.
+enroll-fido:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ~/.config/Yubico
+    touch ~/.config/Yubico/u2f_keys
+    chmod 600 ~/.config/Yubico/u2f_keys
+    pamu2fcfg >> ~/.config/Yubico/u2f_keys
+    echo "Key enrolled ($(wc -l < ~/.config/Yubico/u2f_keys) key(s) total). Run again for each extra key."
+
 # ── Housekeeping ─────────────────────────────────────────────────
 # Remove local build/test leftovers (safe — all gitignored).
 clean:
