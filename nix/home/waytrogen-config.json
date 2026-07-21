@@ -2,12 +2,12 @@
   "executable_script_doc": "Executable Script Description",
   "executable_script": "",
   "wallpaper_folder_doc": "Current Wallpaper Path Description",
-  "wallpaper_folder": "@HOME@/Dokumente/gitlab/personal/dots/Wallpapers/wh",
+  "wallpaper_folder": "@HOME@/Dokumente/codeberg/personal/dots/Wallpapers/wh",
   "saved_wallpapers_doc": "Wallpaper State Description",
   "saved_wallpapers": [
     {
       "monitor": "eDP-1",
-      "path": "@HOME@/Dokumente/gitlab/personal/dots/Wallpapers/wh/wallhaven-k81776.jpg",
+      "path": "@HOME@/Dokumente/codeberg/personal/dots/Wallpapers/wh/wallhaven-k81776.jpg",
       "changer": {
         "Swaybg": {
           "mode": "Fill",
