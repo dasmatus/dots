@@ -82,6 +82,26 @@ mkHyprlandPlugin (finalAttrs: {
   # default); they have no install rules and only slow the build.
   cmakeFlags = [ "-DBUILD_TESTING=OFF" ];
 
+  # Make the selection overlay fully transparent — i.e. drop the hard-coded
+  # dim mask so the desktop shows at full brightness while a region is drawn.
+  # CaptureOverlay::paintEvent (src/ui/capture_overlay.cpp) clears the layer
+  # to transparent, paints a frozen desktop snapshot via paintDesktop, then
+  # washes the whole surface with `painter.fillRect(rect(), QColor(0,0,0,80))`
+  # — the ~31% black that visually "dims" the non-selected area. Replacing
+  # that colour with Qt::transparent makes the fill a no-op in SourceOver
+  # mode (painting transparent over the snapshot darkens nothing), so the
+  # snapshot stays at full brightness and only the selection rectangle/handles
+  # remain. There is no plugin config knob for this — registerConfigValues in
+  # src/plugin/main.cpp exposes no overlay-opacity/dim option — so a source
+  # patch is the only route. The companion hl.layer_rule in
+  # nix/home/hyprland.nix frosts the overlay during its fade in/out.
+  # --replace-fail turns an upstream rename of this line into a build error
+  # rather than a silent re-dim.
+  postPatch = ''
+    substituteInPlace src/ui/capture_overlay.cpp \
+      --replace-fail "QColor(0, 0, 0, 80)" "Qt::transparent"
+  '';
+
   dontStrip = true; # matches hy3 — plugin is loaded into Hyprland's process
 
   passthru.updateScript = nix-update-script { };

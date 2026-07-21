@@ -163,7 +163,13 @@
 
           xdg.portal = {
             enable = true;
-            extraPortals = [ pkgs.xdg-desktop-portal-hyprland ];
+            # Both portal backends must be present in the system portal dir so
+            # hyprland-portals.conf can dispatch Screenshot/ScreenCast to
+            # hyprland and Settings/FileChooser to gtk.
+            extraPortals = [
+              pkgs.xdg-desktop-portal-hyprland
+              pkgs.xdg-desktop-portal-gtk
+            ];
           };
 
           programs.dconf.enable = true;

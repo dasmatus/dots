@@ -18,6 +18,7 @@
     ./fastfetch.nix
     ./fish.nix
     ./claude.nix
+    ./codex.nix
     ./nixvim.nix
     ./dokumente.nix
     ./dots-repo.nix

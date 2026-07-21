@@ -260,6 +260,33 @@ in
         }
       ];
 
+      # Frost the HyprCapture selection overlay so it reads as part of the
+      # frosted-glass desktop (every window is blurred at 0.75 opacity above).
+      # hl.layer_rule is the layer-shell analogue of hl.window_rule — same
+      # renderSettings walk, so a list of attrsets emits one hl.layer_rule({...})
+      # call per entry. The overlay's layer namespace is "hyprcapture-ui", set
+      # via LayerShellQt::Window::setScope in src/ui/capture_overlay.cpp.
+      #
+      # Caveat: the overlay paints its own frozen desktop snapshot
+      # (paintDesktop at m_overlayOpacity, which fades 0→1.0 on open), so while
+      # a selection is active the layer buffer is fully opaque and Hyprland's
+      # compositor-side blur has nothing to blur *behind* — this frosting only
+      # reads through the semi-transparent fade in/out transitions. The dim
+      # mask that used to cover the snapshot is patched out in
+      # nix/hyprcapture.nix (postPatch), so the snapshot itself is at full
+      # brightness. ignore_alpha 0.5 mirrors the rofi pattern (see Hyprland
+      # wiki Window-Rules.md) so blur is only applied where the layer is
+      # actually transparent, not over the opaque snapshot pixels.
+      layer_rule = [
+        {
+          match = {
+            namespace = "hyprcapture-ui";
+          };
+          blur = true;
+          ignore_alpha = 0.5;
+        }
+      ];
+
       # myBezier, 0.05, 0.9, 0.1, 1.05 →
       # hl.curve("myBezier", { type = "bezier", points = {{0.05,0.9},{0.1,1.05}} }).
       curve = [
@@ -813,18 +840,29 @@ in
   # HYPRCAPTURE_HELPER (above), not $PATH, so this is only for ad-hoc CLI use
   # (e.g. `hyprcapture-ui --help`). The .so is loaded by `plugins`, not by
   # being on $PATH, so this entry is not load-bearing for the bind on Print.
-  home.packages = [ hyprcapture ];
+  #
+  # xdg-desktop-portal-gtk is also listed here (not just in the system
+  # xdg.portal.extraPortals) because NixOS sets NIX_XDG_DESKTOP_PORTAL_DIR to
+  # the per-user profile portal dir, so xdg-desktop-portal only sees portal
+  # backends that are in the user's environment.
+  home.packages = [
+    hyprcapture
+    pkgs.xdg-desktop-portal-gtk
+  ];
 
   # package = null above means HM's auto-enabled xdg.portal can't add
   # configPackages for xdg-desktop-portal-hyprland, so it needs an explicit
   # portal config here. Scoped to Hyprland sessions (hyprland-portals.conf)
   # so GNOME sessions keep the system-wide gtk default from
   # nix/modules/desktop.nix; hyprland portal takes ScreenCast/Screenshot,
-  # everything else (FileChooser, Settings) falls through to gtk.
-  xdg.portal.config.hyprland.default = [
-    "hyprland"
-    "gtk"
-  ];
+  # and gtk handles the rest (FileChooser, Settings, Inhibit, etc.).
+  xdg.portal.config.hyprland = {
+    default = [
+      "hyprland"
+      "gtk"
+    ];
+    "org.freedesktop.portal.Settings" = "gtk";
+  };
 
   # swayidle → hypridle: same three timers as the original exec-once block
   # (300s lock, 600s dpms off, dpms on on resume), before-sleep locks too.
