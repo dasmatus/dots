@@ -82,8 +82,7 @@
   programs.wallpaper-tui = {
     enable = true;
     currentOutput = "eDP-1";
-    outputs.eDP-1.path =
-      "${config.home.homeDirectory}/Dokumente/codeberg/personal/dots/Wallpapers/wh/wallhaven-k81776.jpg";
+    outputs.eDP-1.path = "${config.home.homeDirectory}/Dokumente/codeberg/personal/dots/Wallpapers/wh/wallhaven-k81776.jpg";
   };
   gtk = {
     enable = true;

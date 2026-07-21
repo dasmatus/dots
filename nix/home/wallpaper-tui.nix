@@ -34,28 +34,23 @@ let
     "tile"
   ];
 
-  wallpaper-tui-py =
-    pkgs.writers.writePython3Bin "wallpaper-tui.py"
-      {
-        libraries = [
-          pkgs.python3Packages.textual
-          pkgs.python3Packages.pillow
-        ];
-        flakeIgnore = [ "E501" ];
-      }
-      (builtins.readFile ./wallpaper-tui.py);
+  wallpaper-tui-py = pkgs.writers.writePython3Bin "wallpaper-tui.py" {
+    libraries = [
+      pkgs.python3Packages.textual
+      pkgs.python3Packages.pillow
+    ];
+    flakeIgnore = [ "E501" ];
+  } (builtins.readFile ./wallpaper-tui.py);
 
   # Thin wrapper that injects the read-only Nix-store base paths for the SVG
   # tint targets (Kvantum + MoreWaita) before exec-ing the Python script. Each
   # is overridable via env so tests/dev can point at a tmp base.
-  wallpaper-tui =
-    pkgs.writeShellScriptBin "wallpaper-tui"
-      ''
-        export WALLPAPER_TUI_KVANTUM_BASE="''${WALLPAPER_TUI_KVANTUM_BASE:-${pkgs.catppuccin-kvantum}/share/Kvantum/catppuccin-frappe-blue}"
-        export WALLPAPER_TUI_ICON_BASE="''${WALLPAPER_TUI_ICON_BASE:-${pkgs.morewaita-icon-theme}/share/icons/MoreWaita}"
-        export PATH="${lib.makeBinPath [ pkgs.chafa ]}:$PATH"
-        exec ${lib.getExe wallpaper-tui-py} "$@"
-      '';
+  wallpaper-tui = pkgs.writeShellScriptBin "wallpaper-tui" ''
+    export WALLPAPER_TUI_KVANTUM_BASE="''${WALLPAPER_TUI_KVANTUM_BASE:-${pkgs.catppuccin-kvantum}/share/Kvantum/catppuccin-frappe-blue}"
+    export WALLPAPER_TUI_ICON_BASE="''${WALLPAPER_TUI_ICON_BASE:-${pkgs.morewaita-icon-theme}/share/icons/MoreWaita}"
+    export PATH="${lib.makeBinPath [ pkgs.chafa ]}:$PATH"
+    exec ${lib.getExe wallpaper-tui-py} "$@"
+  '';
 
   declarativeConfig = builtins.toJSON {
     wallpaper_folder = cfg.wallpaperFolder;
@@ -94,8 +89,20 @@ in
 
     transitionType = lib.mkOption {
       type = lib.types.enum [
-        "none" "simple" "fade" "left" "right" "top" "bottom"
-        "wipe" "wave" "grow" "center" "any" "outer" "random"
+        "none"
+        "simple"
+        "fade"
+        "left"
+        "right"
+        "top"
+        "bottom"
+        "wipe"
+        "wave"
+        "grow"
+        "center"
+        "any"
+        "outer"
+        "random"
       ];
       default = "grow";
       description = "awww transition effect between wallpapers.";
@@ -114,25 +121,27 @@ in
     };
 
     outputs = lib.mkOption {
-      type = lib.types.attrsOf (lib.types.submodule {
-        options = {
-          path = lib.mkOption {
-            type = lib.types.nullOr lib.types.str;
-            default = null;
-            description = "Default wallpaper path for this output (null = none).";
+      type = lib.types.attrsOf (
+        lib.types.submodule {
+          options = {
+            path = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = "Default wallpaper path for this output (null = none).";
+            };
+            mode = lib.mkOption {
+              type = lib.types.enum modes;
+              default = "fill";
+              description = "awww --resize mode (was swaybg scaling mode).";
+            };
+            fillColor = lib.mkOption {
+              type = lib.types.str;
+              default = "#d2a1a1";
+              description = "Fill color (hex) for letterbox modes.";
+            };
           };
-          mode = lib.mkOption {
-            type = lib.types.enum modes;
-            default = "fill";
-            description = "awww --resize mode (was swaybg scaling mode).";
-          };
-          fillColor = lib.mkOption {
-            type = lib.types.str;
-            default = "#d2a1a1";
-            description = "Fill color (hex) for letterbox modes.";
-          };
-        };
-      });
+        }
+      );
       default = { };
       description = "Per-output declarative wallpaper defaults.";
     };

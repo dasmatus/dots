@@ -38,7 +38,12 @@
 #   - Everything else in `personalPrefs` (smooth scroll physics, bookmark
 #     UI tweaks, pdfjs/newtab/pocket toggles, etc.) was never part of
 #     arkenfox to begin with, so there's nothing upstream to go stale.
-{ config, pkgs, inputs, ... }:
+{
+  config,
+  pkgs,
+  inputs,
+  ...
+}:
 let
   # Pin: https://github.com/arkenfox/user.js/releases — latest as of writing.
   arkenfoxJs = pkgs.fetchurl {
@@ -71,13 +76,16 @@ let
   firefoxAppId = "{ec8030f7-c20a-464f-9b0e-13a3a9e97384}";
   aipageId = "edupage-ai-sidebar@hesburger.dev";
   aipageVersion = "1.7.0";
-  aipageXpi = pkgs.runCommand "aipage-${aipageVersion}" {
-    passthru.addonId = aipageId;
-  } ''
-    extDir="$out/share/mozilla/extensions/${firefoxAppId}"
-    mkdir -p "$extDir"
-    ( cd "${aipageFirefox}" && ${pkgs.lib.getExe pkgs.zip} -rX "$extDir/${aipageId}.xpi" . )
-  '';
+  aipageXpi =
+    pkgs.runCommand "aipage-${aipageVersion}"
+      {
+        passthru.addonId = aipageId;
+      }
+      ''
+        extDir="$out/share/mozilla/extensions/${firefoxAppId}"
+        mkdir -p "$extDir"
+        ( cd "${aipageFirefox}" && ${pkgs.lib.getExe pkgs.zip} -rX "$extDir/${aipageId}.xpi" . )
+      '';
 
   # rafaelmardojai/firefox-gnome-theme, imported straight from the store via
   # userChrome/userContent below. Its nested @imports resolve relative to the
