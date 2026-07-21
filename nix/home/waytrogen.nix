@@ -33,6 +33,12 @@ in
       needs_seed=1
     elif ${pkgs.jq}/bin/jq -e '.wallpaper_folder == null' "$cfg_file" > /dev/null 2>&1; then
       needs_seed=1
+    # Migration: re-seed when the existing config still carries the OLD
+    # default folder (.../Wallpapers, pre-wh-restriction) so the picker scope
+    # change propagates to already-deployed machines. Any other folder value
+    # means the user customized it in the GUI — leave it alone.
+    elif [[ $(${pkgs.jq}/bin/jq -r '.wallpaper_folder' "$cfg_file") == "${homeDir}/Dokumente/gitlab/personal/dots/Wallpapers" ]]; then
+      needs_seed=1
     fi
     if [[ "$needs_seed" == 1 ]]; then
       $DRY_RUN_CMD mkdir -p "$cfg_dir"

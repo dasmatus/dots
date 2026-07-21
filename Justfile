@@ -73,10 +73,13 @@ nix-smoke-interactive:
     nix run .#checks.x86_64-linux.iso-secureboot.driverInteractive
 
 # ── FIDO2 ──────────────────────────────────────────────────────────
-# Enroll a FIDO2/U2F key for passwordless unlock (hyprlock, ly, login, sudo).
+# Enroll a FIDO2/U2F key as a MANDATORY second factor for hyprlock, the ly
+# display manager, and console login (2FA: key + password — both required).
 # Run once PER KEY — tap the key when prompted. Each run appends one line to
-# ~/.config/Yubico/u2f_keys (two keys = two runs = two lines). Afterward lock
-# (hyprlock) or log out and tap the key at the prompt to unlock passwordless.
+# ~/.config/Yubico/u2f_keys (two keys = two runs = two lines). After enrolling,
+# lock (hyprlock) or log out: TAP THE KEY FIRST, then type your password and
+# press Enter — both are required. NB: hyprlock shows "Password:" even during
+# the touch phase (hyprlock issue #723), so just tap when the screen is up.
 # Requires the pkgs.pam_u2f (pamu2fcfg) added in nix/modules/desktop.nix.
 enroll-fido:
     #!/usr/bin/env bash

@@ -206,6 +206,40 @@
           assert builtins.elem "amd_pstate=active" config.boot.kernelParams;
           assert failed == [ ];
           pkgs.writeText "facter-nvidia-ok" "nvidia";
+        # Asserts the FIDO2 2FA tightening lands in the generated PAM rules
+        # for hyprlock/ly/login: u2f required + unix required + deny disabled,
+        # u2f rendered before unix. The dormant sudo service is intentionally
+        # untouched (unix still "sufficient", deny still present); the global
+        # u2f.control=required does flow into sudo's u2f rule, but sudo-rs
+        # NOPASSWD skips PAM auth entirely. Catches a future nixpkgs bump that
+        # silently changes the auto-rule controls/order or the deny
+        # terminator. Eval-only (no build); reads the already-evaluated
+        # tokyonight config (the tightening is in the module, requireKey=true
+        # by default).
+        fido-2fa-eval =
+          let
+            cfg = self.nixosConfigurations.tokyonight.config;
+            svc = cfg.security.pam.services;
+            need = [
+              "hyprlock"
+              "ly"
+              "login"
+            ];
+            twoFa =
+              s:
+              let
+                r = svc.${s}.rules.auth;
+              in
+              r.u2f.control == "required"
+              && r.unix.control == "required"
+              && !r.deny.enable
+              && r.u2f.order < r.unix.order;
+          in
+          assert builtins.all twoFa need;
+          assert cfg.security.pam.u2f.control == "required";
+          assert svc.sudo.rules.auth.unix.control == "sufficient";
+          assert svc.sudo.rules.auth.deny.enable;
+          pkgs.writeText "fido-2fa-ok" "required+required";
       }
       # LiveISO boot oracles (NixOS test framework) — see tests/README.md.
       // import ./tests {
