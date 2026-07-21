@@ -38,6 +38,40 @@ let
       fi
     '';
   };
+
+  # Network status pill. waybar's built-in network module auto-selects the
+  # interface with the default route, which on this machine is the Proton VPN
+  # killswitch dummy interface (pvpnksintrf0) — exposing its IP in the bar.
+  # This pill queries NetworkManager directly, ignores VPN/tunnel/killswitch
+  # connections, and shows the Wi-Fi ESSID (or the wired profile name) instead.
+  networkPill = pkgs.writeShellApplication {
+    name = "dots-network-pill";
+    text = ''
+      set -euo pipefail
+      active=$(nmcli -t -f NAME,DEVICE,TYPE connection show --active 2>/dev/null \
+        | awk -F: '
+            $3 == "802-11-wireless" { print "wifi:"$1":"$2; exit }
+            $3 == "802-3-ethernet" && !eth { eth="eth:"$1":"$2 }
+            END { if (eth) print eth }
+          ')
+      if [[ -z "$active" ]]; then
+        printf '{"text":"󱚼 disconnected","class":"disconnected","tooltip":"No active network connection"}\n'
+        exit 0
+      fi
+      kind=''${active%%:*}
+      rest=''${active#*:}
+      name=''${rest%%:*}
+      device=''${rest#*:}
+      case "$kind" in
+        wifi)
+          printf '{"text":"󰖩 %s","class":"wifi","tooltip":"Wi-Fi: %s on %s"}\n' "$name" "$name" "$device"
+          ;;
+        eth)
+          printf '{"text":"󰈀 %s","class":"ethernet","tooltip":"Wired: %s on %s"}\n' "$name" "$name" "$device"
+          ;;
+      esac
+    '';
+  };
 in
 {
   programs.waybar = {
@@ -56,7 +90,7 @@ in
         "disk#nix"
         "backlight"
         "pulseaudio"
-        "network"
+        "custom/network"
         "custom/vpn"
         "custom/protonmail-bridge"
         "battery"
@@ -123,11 +157,12 @@ in
         scroll-step = 5;
       };
 
-      network = {
-        format-wifi = "󰖩 {essid}";
-        format-ethernet = "󰈀 {ipaddr}";
-        format-disconnected = "󱚼 disconnected";
-        tooltip-format = "{ifname} via {gwaddr}";
+      # Network: NM-driven pill that shows the Wi-Fi ESSID (or wired profile name)
+      # and never leaks interface IPs. VPN/tunnel/killswitch connections are ignored.
+      "custom/network" = {
+        exec = "${networkPill}/bin/dots-network-pill";
+        interval = 5;
+        return-type = "json";
       };
 
       # Proton VPN: tunnel interface `proton0` == connected (see vpnPill).
@@ -201,7 +236,7 @@ in
       #disk,
       #backlight,
       #pulseaudio,
-      #network,
+      #custom-network,
       #custom-vpn,
       #custom-protonmail-bridge,
       #battery,
@@ -283,9 +318,14 @@ in
         background-color: #ff9e64;
       }
 
-      #network {
+      #custom-network {
         color: #1a1b26;
         background-color: #7aa2f7;
+      }
+
+      #custom-network.disconnected {
+        color: #737aa2;
+        background-color: #1f2335;
       }
 
       /* VPN pill: green when tunneled, dim when off (off is normal, not alarming). */
