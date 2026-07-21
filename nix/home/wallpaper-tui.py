@@ -1,4 +1,4 @@
-"""swaybg-based TUI wallpaper changer (waytrogen replacement).
+"""awww-based TUI wallpaper changer (waytrogen replacement).
 
 Reads a declarative, read-only config (from Nix) for the wallpaper folder,
 recursive flag, current output and per-output defaults, and a writable state
@@ -32,6 +32,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
 CONFIG_FILE = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "wallpaper-tui" / "config.json"
@@ -134,28 +135,106 @@ def effective_output(config, state, output):
     }
 
 
-def apply_wallpaper(groups):
-    """Kill any running swaybg and spawn a fresh instance applying `groups`.
+SWWW_RESIZE = {
+    "fill": "crop",
+    "stretch": "stretch",
+    "fit": "fit",
+    "center": "no",
+    "tile": "no",
+}
+TRANSITION_TYPES = [
+    "none", "simple", "fade", "left", "right", "top", "bottom",
+    "wipe", "wave", "grow", "center", "any", "outer", "random",
+]
 
-    groups: list of dicts with keys: output, path, mode, fill_color.
-    One swaybg process holds one -o group per entry, so multi-output
-    restore is a single spawn. The child must be detached so it survives
-    this process exiting (both the TUI and the --restore one-shot return
-    immediately after launching). Returns the spawned Popen, or None if
-    there was nothing to apply.
+
+def map_resize(mode):
+    """Map a swaybg scaling mode to an awww ``--resize`` value.
+
+    awww has no ``tile`` (degrades to centered ``no``); it does support
+    ``stretch`` (distort) directly, unlike swww. Unknown modes default to
+    ``crop`` (fill).
+    """
+    return SWWW_RESIZE.get(mode, "crop")
+
+
+def _normalize_fill_color(color):
+    """Normalize a ``#rrggbb``/``rrggbb``/``#rrggbbaa`` fill color to bare ``RRGGBBAA``.
+
+    awww's ``--fill-color`` takes an 8-digit RGBA hex (default ``000000ff``),
+    no leading ``#``. Empty input falls back to opaque black.
+    """
+    c = (color or "").lstrip("#")
+    if not c:
+        return "000000ff"
+    if len(c) == 6:
+        c += "ff"
+    return c.lower()
+
+
+def awww_img_args(group, transition_type, transition_duration):
+    """Build the argv for one ``awww img`` IPC command for a single output group.
+
+    ``-o`` is omitted for the ``*``/all-outputs case (awww has no ``*``; an
+    empty ``--outputs`` list means all outputs). ``fill_color`` is normalized
+    to ``RRGGBBAA``.
+    """
+    args = ["awww", "img"]
+    if group.get("output") and group["output"] != "*":
+        args += ["-o", group["output"]]
+    args += [
+        group["path"],
+        "--resize", map_resize(group.get("mode", "fill")),
+        "--fill-color", _normalize_fill_color(group.get("fill_color", "")),
+        "--transition-type", transition_type,
+        "--transition-duration", str(transition_duration),
+    ]
+    return args
+
+
+def ensure_awww_daemon():
+    """Best-effort: make sure ``awww-daemon`` is running before sending img IPC.
+
+    awww has no ``init`` subcommand (unlike swww). ``awww query`` returns
+    nonzero if the daemon is down; in that case spawn ``awww-daemon`` detached
+    (setsid-equivalent) and give it a moment. hyprland.start also exec-onces
+    the daemon, so this is a defensive fallback for manual ``--restore`` from
+    a terminal. Never raises.
+    """
+    try:
+        subprocess.run(["awww", "query"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    except (subprocess.CalledProcessError, OSError):
+        pass
+    try:
+        subprocess.Popen(["awww-daemon"], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+        import time
+        time.sleep(0.3)
+    except OSError:
+        pass
+
+
+def apply_wallpaper(groups, transition_type="grow", transition_duration=1.0):
+    """Apply `groups` via the awww daemon (one ``awww img`` per output).
+
+    awww is IPC-driven: one persistent ``awww-daemon`` holds the wallpaper, so
+    (unlike swaybg) there is no kill+respawn per apply. ``ensure_awww_daemon``
+    starts the daemon if it isn't already up. Each ``awww img`` is a short-lived
+    IPC client that returns once the transition begins. Returns the list of
+    spawned Popen objects (one per group), or [] if there was nothing to apply.
     """
     if not groups:
-        return None
-    # swaybg refuses to replace a running instance, so kill any first
-    # (check=False tolerates "no such process"); mirrors random_wp.nix:48.
-    subprocess.run(["pkill", "-u", os.environ.get("USER", ""), "-x", "swaybg"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # One flat command: a repeated -o/-i/-m/-c group per output entry.
-    args = ["swaybg"]
+        return []
+    ensure_awww_daemon()
+    procs = []
     for g in groups:
-        args += ["-o", g["output"], "-i", g["path"], "-m", g["mode"], "-c", g["fill_color"]]
-    # start_new_session=True (setsid) + std streams to DEVNULL detaches
-    # the child so it outlives this process (nohup-equivalent).
-    return subprocess.Popen(args, start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        procs.append(subprocess.Popen(
+            awww_img_args(g, transition_type, transition_duration),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    return procs
 
 
 # ── Tint: palette extraction ───────────────────────────────────────────────
@@ -483,7 +562,11 @@ def restore_all(config, state, *, no_tint=False):
     if not groups:
         print("wallpaper-tui: nothing to restore.", file=sys.stderr)
         return 1
-    apply_wallpaper(groups)
+    apply_wallpaper(
+        groups,
+        transition_type=config.get("transition_type", "grow"),
+        transition_duration=config.get("transition_duration", 1.0),
+    )
     # Tint from the first output's wallpaper; on a multi-monitor setup the
     # accent follows the primary/first-declared output.
     apply_tint(groups[0]["path"], no_tint=no_tint)
@@ -491,8 +574,196 @@ def restore_all(config, state, *, no_tint=False):
     return 0
 
 
+# ── Preview (chafa -> Rich Text) ───────────────────────────────────────────
+# alacritty supports no image protocol, so previews render as chafa unicode-art
+# (block symbols) parsed from ANSI into a Rich Text that a Textual Static can
+# display. chafa is forced to --format=ansi --symbols=block so output is
+# deterministic regardless of whether stdout is a tty. The thumbnail cache
+# (cache_previews, below) feeds _thumb_for so the TUI decodes a 320x200 PNG
+# instead of a full-res image on every cursor move.
+
+PREVIEW_CACHE = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "wallpaper-tui" / "thumbs"
+
+
+def _apply_sgr(params, style):
+    """Apply one SGR parameter list (``"38;2;r;g;b;48;2;r;g;b"``) to a Rich Style.
+
+    Handles the subset chafa emits: 24-bit fg (``38;2;...``), 24-bit bg
+    (``48;2;...``), and ``0`` reset. Unknown params (bold, etc.) are tolerated
+    -- the current colors are kept so a chafa version change can't break
+    rendering.
+    """
+    from rich.style import Style
+    from rich.color import Color
+
+    parts = [p for p in params.split(";") if p != ""]
+    if not parts or parts == ["0"]:
+        return Style()
+    fg = style.color
+    bg = style.bgcolor
+    k = 0
+    while k < len(parts):
+        p = parts[k]
+        if p == "0":
+            fg = None
+            bg = None
+        elif p == "38" and k + 4 < len(parts) and parts[k + 1] == "2":
+            fg = Color.from_rgb(int(parts[k + 2]), int(parts[k + 3]), int(parts[k + 4]))
+            k += 4
+        elif p == "48" and k + 4 < len(parts) and parts[k + 1] == "2":
+            bg = Color.from_rgb(int(parts[k + 2]), int(parts[k + 3]), int(parts[k + 4]))
+            k += 4
+        # else: unknown SGR -- ignore, keep current colors.
+        k += 1
+    return Style(color=fg, bgcolor=bg)
+
+
+def ansi_to_textual(ansi):
+    """Parse chafa's ANSI SGR stream into a Rich Text with per-cell colors.
+
+    Handles combined ``38;2;r;g;b;48;2;r;g;b`` SGR sequences, ``0`` reset, and
+    skips non-SGR CSI sequences (the ``?25l``/``?25h`` cursor private modes).
+    Non-CSI bytes are appended as plain text (UTF-8 block glyphs included).
+    Returns a ``rich.text.Text`` safe to feed ``Static.update()``.
+    """
+    from rich.text import Text
+    from rich.style import Style
+
+    text = Text()
+    style = Style()
+    i = 0
+    n = len(ansi)
+    while i < n:
+        if ansi[i] == "\x1b" and i + 1 < n and ansi[i + 1] == "[":
+            j = i + 2
+            while j < n and not (0x40 <= ord(ansi[j]) <= 0x7E):
+                j += 1
+            if j >= n:
+                break
+            if ansi[j] == "m":
+                style = _apply_sgr(ansi[i + 2:j], style)
+            # else: non-SGR CSI (e.g. ?25l/?25h) -> skip, emit no text.
+            i = j + 1
+        elif ansi[i] == "\x1b":
+            # Lone/trailing ESC or a non-CSI escape (e.g. ESC(B, ESC=):
+            # skip the ESC byte (and, for a 2-byte Fe/Fp escape, its one
+            # following byte) so the outer loop always advances. Never
+            # append the raw control byte as text.
+            i += 2 if (i + 1 < n and 0x30 <= ord(ansi[i + 1]) <= 0x7E) else 1
+        else:
+            k = i
+            while k < n and ansi[k] != "\x1b":
+                k += 1
+            text.append(ansi[i:k], style=style)
+            i = k
+    return text
+
+
+def render_preview_ansi(path, cols, rows):
+    """Run chafa on `path` (a wallpaper or cached thumbnail) -> ANSI string.
+
+    Forced flags keep output deterministic in a non-tty pipe. Returns "" on
+    any failure (caller shows a placeholder).
+    """
+    try:
+        out = subprocess.run(
+            ["chafa", "--format=ansi", "--symbols=block",
+             f"--size={cols}x{rows}", "--color-space=rgb",
+             "--dither=ordered", str(path)],
+            capture_output=True, text=True, check=True,
+        )
+        return out.stdout
+    except (subprocess.CalledProcessError, OSError):
+        return ""
+
+
+def _thumb_for(path):
+    """Return the cached thumbnail path for `path` if it exists, else `path`."""
+    import hashlib
+
+    key = hashlib.sha1(f"{path}:{Path(path).stat().st_mtime}".encode()).hexdigest()
+    thumb = PREVIEW_CACHE / f"{key}.png"
+    return str(thumb) if thumb.exists() else str(path)
+
+
+def cache_previews(folder, recursive, out_dir, size=(320, 200)):
+    """Generate/refresh downsampled PNG thumbnails for every wallpaper.
+
+    Idempotent + mtime-skipped: a thumbnail is regenerated only when the
+    source's mtime is newer than the cached one (or the cache is missing).
+    Returns ``{"written": n, "skipped": m}``. Unreadable images are skipped
+    with a stderr warning and never crash the run.
+    """
+    import hashlib
+    import os
+    import tempfile
+    from PIL import Image
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = 0
+    skipped = 0
+    for p in list_wallpapers(folder, recursive):
+        key = hashlib.sha1(f"{p}:{p.stat().st_mtime}".encode()).hexdigest()
+        thumb = out_dir / f"{key}.png"
+        if thumb.exists() and thumb.stat().st_mtime >= p.stat().st_mtime:
+            skipped += 1
+            continue
+        # Write to a sibling temp then os.replace onto `thumb` so a failed/
+        # interrupted save never leaves a partial PNG that the mtime-skip
+        # guard would then treat as valid forever.
+        fd, tmp = tempfile.mkstemp(prefix=f"{key}.", suffix=".png", dir=str(out_dir))
+        os.close(fd)
+        try:
+            with Image.open(p) as im:
+                im = im.convert("RGB")
+                im.thumbnail(size)
+                im.save(tmp, "PNG")
+            os.replace(tmp, thumb)
+            written += 1
+        except Exception as e:  # noqa: BLE001 -- best-effort
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            print(f"wallpaper-tui: cache skip {p}: {e}", file=sys.stderr)
+    return {"written": written, "skipped": skipped}
+
+
+class Preview(Static):
+    """Chafa-rendered unicode-art preview of the currently-selected wallpaper."""
+
+    PREVIEW_COLS = 48
+    PREVIEW_ROWS = 20
+
+    def show_path(self, path):
+        """Render `path` (cached thumbnail preferred) into this widget."""
+        from rich.text import Text
+
+        # Plain Text (not a bare str) so the bracketed placeholder is shown
+        # literally instead of being parsed as Rich markup and rendered blank.
+        if not path or not Path(path).exists():
+            self.update(Text("[preview unavailable]"))
+            return
+        ansi = render_preview_ansi(_thumb_for(path), self.PREVIEW_COLS, self.PREVIEW_ROWS)
+        if not ansi:
+            self.update(Text("[preview unavailable]"))
+            return
+        self.update(ansi_to_textual(ansi))
+
+
 class WallpaperTUI(App):
     """Textual picker: browse wallpapers, tune mode/color/output, apply."""
+
+    # Size the horizontal layout: the list takes the remaining space (1fr) and
+    # the chafa preview pane gets a fixed 52-col width (~48 glyph cols + a
+    # little padding) and full height. Without this, Horizontal would collapse
+    # the preview to zero width beside the list.
+    CSS = """
+    Horizontal { height: 1fr; }
+    #list { width: 1fr; }
+    #preview { width: 52; height: 1fr; padding: 0 1; border: round $accent; }
+    """
 
     BINDINGS = [
         Binding("j", "cursor_down", "Down", show=False),
@@ -501,6 +772,7 @@ class WallpaperTUI(App):
         Binding("m", "cycle_mode", "Mode"),
         Binding("c", "set_color", "Color"),
         Binding("o", "cycle_output", "Output"),
+        Binding("p", "toggle_preview", "Preview"),
         Binding("r", "restore", "Restore"),
         Binding("q", "quit", "Quit"),
     ]
@@ -527,6 +799,8 @@ class WallpaperTUI(App):
             self.config.get("wallpaper_folder", ""),
             self.config.get("recursive", True),
         )
+        self._preview_cache = {}
+        self._show_preview = True
 
     def output_state(self):
         return self.state.setdefault("outputs", {}).setdefault(self.current_output, {})
@@ -534,9 +808,12 @@ class WallpaperTUI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         if self.wallpapers:
-            yield ListView(
-                *[ListItem(Label(p.name), name=str(p)) for p in self.wallpapers],
-                id="list",
+            yield Horizontal(
+                ListView(
+                    *[ListItem(Label(p.name), name=str(p)) for p in self.wallpapers],
+                    id="list",
+                ),
+                Preview(id="preview"),
             )
         else:
             yield Label(
@@ -545,6 +822,9 @@ class WallpaperTUI(App):
             )
         yield Static(self.info_text(), id="info")
         yield Footer()
+
+    def on_mount(self) -> None:
+        self._refresh_preview()
 
     def info_text(self):
         eff = effective_output(self.config, self.state, self.current_output)
@@ -566,8 +846,29 @@ class WallpaperTUI(App):
         child = lv.highlighted_child
         return child.name if child is not None else None
 
+    def _refresh_preview(self):
+        """Re-render the preview pane for the current selection (memoized)."""
+        if not self._show_preview:
+            return
+        try:
+            preview = self.query_one("#preview", Preview)
+        except Exception:
+            return
+        path = self.selected_path()
+        if not path:
+            return
+        ansi = self._preview_cache.get(path, "")
+        if not ansi and path not in self._preview_cache:
+            ansi = render_preview_ansi(_thumb_for(path), Preview.PREVIEW_COLS, Preview.PREVIEW_ROWS)
+            self._preview_cache[path] = ansi
+        if ansi:
+            preview.update(ansi_to_textual(ansi))
+        else:
+            preview.show_path(path)
+
     def on_list_view_selected(self, event):
         # Enter/click on a list row → apply it to the current output.
+        self._refresh_preview()
         self.action_apply()
 
     def action_cursor_up(self):
@@ -576,6 +877,7 @@ class WallpaperTUI(App):
             lv.highlighted = len(lv.children) - 1
         elif lv.highlighted > 0:
             lv.highlighted -= 1
+        self._refresh_preview()
 
     def action_cursor_down(self):
         lv = self.query_one("#list", ListView)
@@ -583,6 +885,7 @@ class WallpaperTUI(App):
             lv.highlighted = 0
         elif lv.highlighted < len(lv.children) - 1:
             lv.highlighted += 1
+        self._refresh_preview()
 
     def action_cycle_mode(self):
         idx = MODES.index(self.fill_mode) if self.fill_mode in MODES else 0
@@ -611,29 +914,42 @@ class WallpaperTUI(App):
         st["mode"] = self.fill_mode
         st["fill_color"] = self.current_color
         save_state(self.state)
-        apply_wallpaper([{
-            "output": self.current_output,
-            "path": path,
-            "mode": self.fill_mode,
-            "fill_color": self.current_color,
-        }])
+        apply_wallpaper(
+            [{
+                "output": self.current_output,
+                "path": path,
+                "mode": self.fill_mode,
+                "fill_color": self.current_color,
+            }],
+            transition_type=self.config.get("transition_type", "grow"),
+            transition_duration=self.config.get("transition_duration", 1.0),
+        )
         apply_tint(path, no_tint=self.no_tint)
         self.refresh_info()
 
     def action_restore(self):
         restore_all(self.config, self.state, no_tint=self.no_tint)
 
+    def action_toggle_preview(self):
+        self._show_preview = not self._show_preview
+        try:
+            self.query_one("#preview", Preview).display = self._show_preview
+        except Exception:
+            pass
+
     def action_quit(self):
         self.exit()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="swaybg-based TUI wallpaper changer")
+    parser = argparse.ArgumentParser(description="awww-based TUI wallpaper changer")
     parser.add_argument("--restore", action="store_true", help="re-apply effective wallpapers and exit")
     parser.add_argument("--output", help="output name (non-interactive apply)")
     parser.add_argument("--mode", choices=MODES, default="fill")
     parser.add_argument("--color", default=DEFAULT_COLOR)
     parser.add_argument("--no-tint", action="store_true", help="skip wallpaper-derived accent tinting")
+    parser.add_argument("--cache-previews", action="store_true", help="regenerate the wallpaper thumbnail cache and exit")
+    parser.add_argument("--preview-size", default="320x200", help="thumbnail size WxH for --cache-previews")
     parser.add_argument("path", nargs="?", help="wallpaper path (non-interactive apply)")
     args = parser.parse_args()
 
@@ -642,6 +958,13 @@ def main():
 
     if args.restore:
         sys.exit(restore_all(config, state, no_tint=args.no_tint))
+
+    if args.cache_previews:
+        w, h = (int(x) for x in args.preview_size.lower().split("x"))
+        r = cache_previews(config.get("wallpaper_folder", ""),
+                           config.get("recursive", True), PREVIEW_CACHE, size=(w, h))
+        print(f"wallpaper-tui: cached {r['written']} new, skipped {r['skipped']}.", file=sys.stderr)
+        return
 
     if args.path:
         if not args.output:
@@ -652,12 +975,16 @@ def main():
             "fill_color": args.color,
         }
         save_state(state)
-        apply_wallpaper([{
-            "output": args.output,
-            "path": args.path,
-            "mode": args.mode,
-            "fill_color": args.color,
-        }])
+        apply_wallpaper(
+            [{
+                "output": args.output,
+                "path": args.path,
+                "mode": args.mode,
+                "fill_color": args.color,
+            }],
+            transition_type=config.get("transition_type", "grow"),
+            transition_duration=config.get("transition_duration", 1.0),
+        )
         apply_tint(args.path, no_tint=args.no_tint)
         print(f"wallpaper-tui: applied {args.path} to {args.output}.", file=sys.stderr)
         return

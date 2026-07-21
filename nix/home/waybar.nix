@@ -1,4 +1,44 @@
-{ ... }:
+{ pkgs, ... }:
+let
+  # Proton VPN status pill. The GTK app (nixpkgs `proton-vpn`) drives
+  # NetworkManager and hard-codes its tunnel interface to `proton0` (set as
+  # NM.SETTING_CONNECTION_INTERFACE_NAME in proton-vpn-api-core, for both the
+  # WireGuard and OpenVPN backends). The connection's NM *id* is the server
+  # name (no stable prefix), but the *interface* name is fixed — so its
+  # presence == connected. The active NM connection on device `proton0` gives
+  # the server name for the tooltip. The `pvpn-*` kill-switch connections are
+  # intentionally ignored.
+  vpnPill = pkgs.writeShellApplication {
+    name = "dots-vpn-pill";
+    text = ''
+      set -euo pipefail
+      if [[ -d /sys/class/net/proton0 ]]; then
+        server=$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null \
+          | awk -F: '$2 == "proton0" { print $1; exit }')
+        server=''${server:-ProtonVPN}
+        printf '{"text":"󰖂 %s","class":"connected","tooltip":"Proton VPN — %s"}\n' "$server" "$server"
+      else
+        printf '{"text":"󰖂 off","class":"disconnected","tooltip":"Proton VPN — not connected"}\n'
+      fi
+    '';
+  };
+
+  # Proton Mail Bridge status pill. Bridge runs as a systemd user service
+  # (services.protonmail-bridge) with `--noninteractive`, so liveness is
+  # `systemctl --user is-active`. Its IMAP/SMTP proxy listens on 127.0.0.1
+  # :1143 / :1025 (STARTTLS).
+  bridgePill = pkgs.writeShellApplication {
+    name = "dots-bridge-pill";
+    text = ''
+      set -euo pipefail
+      if systemctl --user is-active --quiet protonmail-bridge.service; then
+        printf '{"text":"󰇨 bridge","class":"connected","tooltip":"Proton Mail Bridge — running (IMAP :1143 / SMTP :1025)"}\n'
+      else
+        printf '{"text":"󰇨 down","class":"disconnected","tooltip":"Proton Mail Bridge — stopped"}\n'
+      fi
+    '';
+  };
+in
 {
   programs.waybar = {
     enable = true;
@@ -17,6 +57,8 @@
         "backlight"
         "pulseaudio"
         "network"
+        "custom/vpn"
+        "custom/protonmail-bridge"
         "battery"
         "clock"
         "tray"
@@ -33,13 +75,6 @@
           visible = "●";
           special = "●";
         };
-        persistent-workspaces = {
-          "1" = [ ];
-          "2" = [ ];
-          "3" = [ ];
-          "4" = [ ];
-          "5" = [ ];
-        };
       };
 
       "hyprland/window" = {
@@ -51,38 +86,20 @@
         max-length = 60;
         separate-outputs = true;
         fallback = "";
-        # Strip the trailing app-name suffix so the real app icon (icon = true,
-        # resolved from gtk.iconTheme = MoreWaita) is the only icon shown — no
-        # redundant nerd-font glyph next to it.
-        rewrite = {
-          "(.*) - Mozilla Firefox" = "$1";
-          "(.*) — Mozilla Firefox" = "$1";
-          "(.*) - Google Chrome" = "$1";
-          "(.*) - Chromium" = "$1";
-          "(.*) - Visual Studio Code" = "$1";
-          "(.*) - Code - OSS" = "$1";
-          "(.*) - Kitty" = "$1";
-          "(.*) - Alacritty" = "$1";
-          "(.*) - Discord" = "$1";
-          "(.*) - Spotify" = "$1";
-          "(.*) - YouTube" = "$1";
-          "(.*) - zsh" = "$1";
-          "(.*) - fish" = "$1";
-        };
       };
 
       "disk#home" = {
         path = "/home";
         interval = 30;
         format = "󰋊 {percentage_used}%";
-        tooltip-format = "{used} / {total} on {path} ({percentage_used}%)";
+        tooltip-format = "{used} / {total} on '{path}' ({percentage_used}%)";
       };
 
       "disk#nix" = {
         path = "/nix/store";
         interval = 30;
         format = "󰆚 {percentage_used}%";
-        tooltip-format = "{used} / {total} on {path} ({percentage_used}%)";
+        tooltip-format = "{used} / {total} on '{path}' ({percentage_used}%)";
       };
 
       backlight = {
@@ -111,6 +128,25 @@
         format-ethernet = "󰈀 {ipaddr}";
         format-disconnected = "󱚼 disconnected";
         tooltip-format = "{ifname} via {gwaddr}";
+      };
+
+      # Proton VPN: tunnel interface `proton0` == connected (see vpnPill).
+      # Click launches the GTK app to connect.
+      "custom/vpn" = {
+        exec = "${vpnPill}/bin/dots-vpn-pill";
+        interval = 5;
+        return-type = "json";
+        on-click = "protonvpn-app";
+      };
+
+      # Proton Mail Bridge: systemd user service liveness (see bridgePill).
+      # The unit runs `--noninteractive`, so restart (never spawn a GUI) on
+      # click — recovers a wedged/stopped bridge.
+      "custom/protonmail-bridge" = {
+        exec = "${bridgePill}/bin/dots-bridge-pill";
+        interval = 5;
+        return-type = "json";
+        on-click = "systemctl --user restart protonmail-bridge.service";
       };
 
       battery = {
@@ -166,6 +202,8 @@
       #backlight,
       #pulseaudio,
       #network,
+      #custom-vpn,
+      #custom-protonmail-bridge,
       #battery,
       #clock,
       #tray {
@@ -248,6 +286,28 @@
       #network {
         color: #1a1b26;
         background-color: #7aa2f7;
+      }
+
+      /* VPN pill: green when tunneled, dim when off (off is normal, not alarming). */
+      #custom-vpn.connected {
+        color: #1a1b26;
+        background-color: #9ece6a;
+      }
+
+      #custom-vpn.disconnected {
+        color: #737aa2;
+        background-color: #1f2335;
+      }
+
+      /* Bridge pill: cyan when the daemon is up, red when mail sync is down. */
+      #custom-protonmail-bridge.connected {
+        color: #1a1b26;
+        background-color: #7dcfff;
+      }
+
+      #custom-protonmail-bridge.disconnected {
+        color: #1a1b26;
+        background-color: #f7768e;
       }
 
       #battery {

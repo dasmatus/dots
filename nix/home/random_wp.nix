@@ -1,5 +1,5 @@
 # Random Wallhaven wallpaper on login + hourly (user service/timer).
-# Sets the wallpaper via swaybg under Hyprland and gsettings under GNOME;
+# Sets the wallpaper via awww under Hyprland and gsettings under GNOME;
 # customize the query with WH_* environment variables on the service.
 { pkgs, lib, ... }:
 
@@ -46,9 +46,9 @@ let
 
     if [ -n "''${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v wallpaper-tui > /dev/null 2>&1; then
       # Route through wallpaper-tui so the hourly random pick also re-tints
-      # borders/Rofi/GTK/Qt/icons from the new wallpaper, and the swaybg
-      # spawn/detach logic lives in one place. The '*' output matches the old
-      # swaybg -o '*' behaviour; --restore on login re-applies the declarative
+      # borders/Rofi/GTK/Qt/icons from the new wallpaper, and the awww
+      # img/daemon logic lives in one place. The '*' output means "all outputs"
+      # (awww omits -o for that); --restore on login re-applies the declarative
       # eDP-1 default, so random picks stay session-only by design.
       wallpaper-tui --output '*' "$img_path"
       echo "Set wallpaper via wallpaper-tui (Hyprland): $img_path"
@@ -64,7 +64,7 @@ let
       exit 0
     fi
 
-    echo "Could not set wallpaper: missing swaybg/gsettings." >&2
+    echo "Could not set wallpaper: missing awww/gsettings." >&2
     exit 1
   '';
 in

@@ -68,10 +68,11 @@
   };
 
   home.packages = with pkgs; [
-    # Wayland session tools exec'd by hyprland.nix binds; swaybg is kept for
-    # the wallhaven-wallpaper service (random_wp.nix) and the wallpaper-tui
-    # module, both of which shell out to it directly.
-    swaybg
+    # Wayland wallpaper daemon (renamed swww) exec'd by wallpaper-tui via
+    # `awww img` for animated transitions; random_wp.nix routes through
+    # wallpaper-tui so it inherits awww too. awww-daemon is started at
+    # hyprland.start (hyprland.nix).
+    awww
     brightnessctl
   ];
 
