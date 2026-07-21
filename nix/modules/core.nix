@@ -66,5 +66,4 @@
     pinentryPackage = pkgs.pinentry-gnome3;
   };
 
-  system.stateVersion = "26.05";
 }
