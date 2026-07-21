@@ -1,5 +1,11 @@
 /*
- * ROFI color theme — Tokyonight grid launcher (right sidebar)
+ * ROFI color theme — Tokyonight Spotlight grid launcher.
+ *
+ * Same 4×6 icon grid as the old right-sidebar layout, but centered and
+ * enlarged to read like macOS Spotlight: wide window pinned to the upper
+ * third, rounded, with a tall search bar above the grid. Shared by the
+ * drun launcher, the file manager (rofi-files.sh) and rofi-power-menu so
+ * every entry point looks identical.
  */
 
 configuration {
@@ -44,34 +50,34 @@ configuration {
 
 window {
   transparency: "real";
-  width:    400px;
-  height:   100%;
-  location: east;
-  anchor:   east;
-  x-offset: 0px;
-  y-offset: 0px;
+  width:        720px;
+  location:     north;
+  anchor:       north;
+  x-offset:     0px;
+  y-offset:     120px;
+  border-radius: 16px;
 }
 
 mainbox {
   children: [inputbar, listview];
-  padding:  12px;
-  spacing:  12px;
+  padding:  16px;
+  spacing:  16px;
 }
 
 inputbar {
   background-color: @bg-alt;
-  border-radius:    8px;
+  border-radius:    12px;
   children:         [prompt, entry];
 }
 
 entry {
   background-color: inherit;
-  padding:          12px 6px;
+  padding:          16px 8px;
 }
 
 prompt {
   background-color: inherit;
-  padding:          12px;
+  padding:          16px;
   text-color:       @accent;
 }
 
@@ -81,14 +87,14 @@ listview {
   cycle:    true;
   dynamic:  true;
   layout:   vertical;
-  spacing:  6px;
+  spacing:  10px;
 }
 
 element {
   orientation:  vertical;
   children:     [element-icon, element-text];
-  padding:      10px 6px;
-  border-radius: 8px;
+  padding:      14px 8px;
+  border-radius: 12px;
   cursor:       pointer;
 }
 
@@ -97,7 +103,7 @@ element selected {
 }
 
 element-icon {
-  size:             44px;
+  size:             56px;
   horizontal-align: 0.5;
   cursor:           inherit;
 }
@@ -105,8 +111,8 @@ element-icon {
 element-text {
   horizontal-align: 0.5;
   vertical-align:   0.5;
-  padding:          6px 0 0 0;
-  font:             "Lilex Nerd Font Bold 9";
+  padding:          8px 0 0 0;
+  font:             "Lilex Nerd Font Bold 10";
   cursor:           inherit;
 }
 

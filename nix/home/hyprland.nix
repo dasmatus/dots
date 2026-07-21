@@ -623,15 +623,22 @@ in
           ];
         }
         {
+          # rofi-power-menu grid (logout/suspend/hibernate/reboot/shutdown).
+          # --no-symbols keeps the icon in the \0icon hint only, so the
+          # shared tokyonight grid renders one glyph over the label just
+          # like the drun launcher. lockscreen is excluded — see rofi/default.nix.
+          # Supersedes the old Mod+Shift+E → hl.dsp.exit(): "log out" in the
+          # grid runs `loginctl terminate-session`, which ends the session
+          # the way a raw Hyprland quit used to.
           _args = [
-            (lua ''mod .. " + SHIFT + C"'')
-            (lua ''hl.dsp.exec_cmd("hyprctl reload")'')
+            (lua ''mod .. " + SHIFT + E"'')
+            (lua ''hl.dsp.exec_cmd("rofi -show powermenu -modi 'powermenu:rofi-power-menu --choices=logout/suspend/hibernate/reboot/shutdown --no-symbols' -theme tokyonight -show-icons")'')
           ];
         }
         {
           _args = [
-            (lua ''mod .. " + SHIFT + E"'')
-            (lua "hl.dsp.exit()")
+            (lua ''mod .. " + SHIFT + C"'')
+            (lua ''hl.dsp.exec_cmd("hyprctl reload")'')
           ];
         }
 
