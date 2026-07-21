@@ -64,7 +64,6 @@ in
       dconf-editor
       gnome-extension-manager
       gnome-firmware
-      waytrogen
       # apps (ex flathub-verified)
       vesktop
       carburetor

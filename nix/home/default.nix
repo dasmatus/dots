@@ -1,7 +1,7 @@
 # home-manager profile aggregator — fully native modules; the raw files/
 # dotfile tree is gone (git history). Every former dotfile is either a native
 # module imported below (alacritty.nix, zellij.nix, fastfetch.nix, fish.nix,
-# claude.nix, hyprland.nix, waybar.nix, waytrogen.nix, dunst.nix, rofi/, nixvim.nix,
+# claude.nix, hyprland.nix, waybar.nix, wallpaper-tui.nix, dunst.nix, rofi/, nixvim.nix,
 # librewolf.nix, dots-repo.nix) or was deliberately dropped (BetterDiscord —
 # Vesktop covers it; gtk-2.0 filechooser state). GUI apps that used to be
 # flatpaks live in pkgs.nix with their configs. The only generated
@@ -25,7 +25,7 @@
     ./junction.nix
     ./hyprland.nix
     ./waybar.nix
-    ./waytrogen.nix
+    ./wallpaper-tui.nix
     ./dunst.nix
     ./librewolf.nix
     ./rofi
@@ -68,11 +68,21 @@
 
   home.packages = with pkgs; [
     # Wayland session tools exec'd by hyprland.nix binds; swaybg is kept for
-    # the wallhaven-wallpaper service (random_wp.nix), which shells out to
-    # it directly instead of going through a Home Manager module.
+    # the wallhaven-wallpaper service (random_wp.nix) and the wallpaper-tui
+    # module, both of which shell out to it directly.
     swaybg
     brightnessctl
   ];
+
+  # Declarative wallpaper config consumed by wallpaper-tui.nix. Runtime picks
+  # made in the TUI override these per output in writable state; to make a
+  # pick permanent, edit `outputs.eDP-1.path` here and rebuild.
+  programs.wallpaper-tui = {
+    enable = true;
+    currentOutput = "eDP-1";
+    outputs.eDP-1.path =
+      "${config.home.homeDirectory}/Dokumente/codeberg/personal/dots/Wallpapers/wh/wallhaven-k81776.jpg";
+  };
   gtk = {
     enable = true;
     # Tokyonight with macOS traffic-light window buttons; the tweak is baked

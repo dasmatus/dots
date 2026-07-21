@@ -141,7 +141,7 @@ in
       enabledPlugins = {
         "superpowers@claude-plugins-official" = true;
         "explanatory-output-style@claude-plugins-official" = true;
-        "learning-output-style@claude-plugins-official" = true;
+        "learning-output-style@claude-plugins-official" = false;
         "clangd-lsp@claude-plugins-official" = true;
         "linux-computer@claude-linux-computer" = true;
       };

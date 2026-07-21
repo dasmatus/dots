@@ -1,9 +1,10 @@
 # Por of files/hypr/hyprland.conf (deleted — see git history) plus its
 # Wayland session daemons. Deliberate deviations from the X11-era conf:
-#   - wallpaper exec-once dropped: waytrogen (nix/home/waytrogen.nix) owns
-#     it now — `waytrogen --restore` re-applies the saved wallpaper on login;
-#     the old static `swaybg -i …stripes…` line was removed because it ran
-#     after waytrogen and clobbered it
+#   - wallpaper exec-once dropped: wallpaper-tui (nix/home/wallpaper-tui.nix)
+#     owns it now — `wallpaper-tui --restore` re-applies the effective wallpaper
+#     (declarative defaults merged with TUI runtime state) on login; the old
+#     static `swaybg -i …stripes…` line was removed because it clobbered the
+#     restore
 #   - gentoo-pipewire-launcher dropped (Gentoo-only, already dead on NixOS)
 #   - swayidle/swaylock exec-once dropped in favour of services.hypridle and
 #     programs.hyprlock below
@@ -56,8 +57,8 @@ in
       };
 
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
-      # has no exec-once; hyprland.start fires once at compositor boot.
-      # ${pkgs.waytrogen} interpolates the store path into the lua string.
+      # has no exec-once; hyprland.start fires once at compositor boot. Called
+      # by name (like waybar/nm-applet) since wallpaper-tui is in home.packages.
       on = {
         _args = [
           "hyprland.start"
@@ -65,7 +66,7 @@ in
             function()
               hl.exec_cmd("waybar")
               hl.exec_cmd("nm-applet --indicator")
-              hl.exec_cmd("${pkgs.waytrogen}/bin/waytrogen --restore")
+              hl.exec_cmd("wallpaper-tui --restore")
             end'')
         ];
       };
