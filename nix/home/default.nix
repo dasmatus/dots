@@ -100,6 +100,19 @@
     # default; without this no gtk-4.0/gtk.css @import is emitted and
     # libadwaita apps silently stay Adwaita.
     gtk4.theme = config.gtk.theme;
+    # wallpaper-tui accent tint: each extraCss @imports a runtime-state file
+    # (~/.local/state/wallpaper-tui/tint/gtkN.css) that the Python script
+    # writes after every wallpaper change. HM appends extraCss AFTER the
+    # Tokyonight theme @import, so the @define-color overrides win. If the
+    # state file doesn't exist yet (fresh boot, before the first tint), GTK
+    # logs a CSS warning and falls back to the base theme — corrected within
+    # seconds by the wallhaven-wallpaper login service / wallpaper-tui --restore.
+    gtk3.extraCss = ''
+      @import url("file://${config.xdg.stateHome}/wallpaper-tui/tint/gtk3.css");
+    '';
+    gtk4.extraCss = ''
+      @import url("file://${config.xdg.stateHome}/wallpaper-tui/tint/gtk4.css");
+    '';
     iconTheme = {
       name = "MoreWaita";
       package = pkgs.morewaita-icon-theme;

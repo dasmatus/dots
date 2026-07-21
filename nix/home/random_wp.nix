@@ -44,10 +44,14 @@ let
     mv -f "$tmp_path" "$img_path"
     trap - EXIT
 
-    if [ -n "''${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v swaybg > /dev/null 2>&1; then
-      pkill -u "$USER" -x swaybg || true
-      nohup swaybg -m fill -o '*' "$img_path" > /dev/null 2>&1 &
-      echo "Set wallpaper via swaybg (Hyprland): $img_path"
+    if [ -n "''${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v wallpaper-tui > /dev/null 2>&1; then
+      # Route through wallpaper-tui so the hourly random pick also re-tints
+      # borders/Rofi/GTK/Qt/icons from the new wallpaper, and the swaybg
+      # spawn/detach logic lives in one place. The '*' output matches the old
+      # swaybg -o '*' behaviour; --restore on login re-applies the declarative
+      # eDP-1 default, so random picks stay session-only by design.
+      wallpaper-tui --output '*' "$img_path"
+      echo "Set wallpaper via wallpaper-tui (Hyprland): $img_path"
       exit 0
     fi
 

@@ -25,6 +25,13 @@ nix-lint:
     nix flake check --no-build
     cd installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
+# Python unit tests for the wallpaper-tui accent-tint layer (pytest, hermetic).
+# Pure-function + tmp-path tests; run under the flake's nixpkgs so the Pillow
+# / Textual versions match the ones writers.writePython3Bin pulls in at build.
+py-test:
+    nix shell --impure --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.legacyPackages.x86_64-linux.python3.withPackages (p: [p.pillow p.textual p.pytest])' \
+      -c bash -c 'cd tests/wallpaper_tui && python3 -m pytest -q'
+
 # The MOK key is auto-generated into secrets/secureboot/ on the first run
 # (shim + MOK chain); ./result-iso/iso/ keeps the raw unsigned nix output.
 # Build + Secure Boot-sign the LiveISO — dd ./result-iso-signed/*.iso

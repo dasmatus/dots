@@ -3,7 +3,15 @@
 # Usage: rofi-files.sh [starting-directory]
 
 DIR="${1:-$HOME}"
-THEME="$HOME/.config/rofi/themes/tokyonight.rasi"
+# wallpaper-tui accent tint: prefer the generated rasi, fall back to the base
+# Tokyonight theme if the tint file doesn't exist yet (fresh boot, before the
+# first wallpaper-tui --restore at hyprland.start writes it).
+_TINT="${XDG_STATE_HOME:-$HOME/.local/state}/wallpaper-tui/tint/rofi.rasi"
+if [[ -f "$_TINT" ]]; then
+    THEME="$_TINT"
+else
+    THEME="$HOME/.config/rofi/themes/tokyonight.rasi"
+fi
 
 rofi_cmd() {
     rofi -dmenu -i \

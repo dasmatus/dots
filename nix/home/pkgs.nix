@@ -78,8 +78,6 @@ in
       # torbrowser-launcher was never packaged; nixpkgs builds the browser
       tor-browser
       keepassxc
-      # built with enableWlrSupport by default → grim-based Hyprland grabs
-      flameshot
       rewaita
       # ex flathub (unverified subset)
       simplex-chat-desktop

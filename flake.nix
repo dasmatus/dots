@@ -139,6 +139,13 @@
         iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
         # Microsoft-signed Fedora shim for the Secure Boot ISO chain.
         shim-signed = pkgs.callPackage ./nix/shim-signed.nix { };
+        # HyprCapture screenshot/recording Hyprland plugin — see nix/hyprcapture.nix.
+        # Built via nixpkgs' mkHyprlandPlugin (re-exported from hyprlandPlugins) so
+        # the .so links against this flake's exact Hyprland headers. Consumed by
+        # nix/home/hyprland.nix's `plugins` option + HYPRCAPTURE_HELPER env.
+        hyprcapture = pkgs.callPackage ./nix/hyprcapture.nix {
+          inherit (pkgs.hyprlandPlugins) mkHyprlandPlugin;
+        };
         # Toolbelt for scripts/sign-iso.sh + the Secure Boot smoke test
         # (the script `nix shell`s this when the tools aren't on PATH).
         sb-tools = pkgs.buildEnv {

@@ -13,11 +13,12 @@
 #   - all four `exec = gsettings ...` theme lines dropped: gtk/dconf
 #     (default.nix) own theming now
 #   - light -A/-U → brightnessctl (light was removed from nixpkgs)
-#   - KeePassXC/Obsidian/Flameshot launched as native binaries (nix/home/
-#     pkgs.nix) since the flatpak migration; OBSIDIAN_USE_WAYLAND (flatpak-
-#     only) became NIXOS_OZONE_WL, which the nixpkgs Electron wrappers
-#     (obsidian, vesktop — signal-desktop's ignores it) key off for
-#     native Wayland
+#   - KeePassXC/Obsidian launched as native binaries (nix/home/pkgs.nix)
+#     since the flatpak migration; Flameshot was dropped in favour of the
+#     HyprCapture Hyprland plugin (nix/hyprcapture.nix, loaded via `plugins`
+#     and bound on Print below). OBSIDIAN_USE_WAYLAND (flatpak-only) became
+#     NIXOS_OZONE_WL, which the nixpkgs Electron wrappers (obsidian, vesktop
+#     — signal-desktop's ignores it) key off for native Wayland
 #   - lock bind switched from swaylock to hyprlock; the resize bind still
 #     shares the same $mainMod ALT, L chord as the original conf did
 #
@@ -31,9 +32,27 @@
 # (mod .. " + Q") and hl.dsp.* dispatchers. hyprlang-only keys are gone —
 # exec-once → on("hyprland.start",…), binde → {repeating=true},
 # bindm → {mouse=true}, bezier/animation → curve/animation.
-{ pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  inputs,
+  ...
+}:
 let
   lua = lib.generators.mkLuaInline;
+  # HyprCapture screenshot/recording plugin (nix/hyprcapture.nix, built via
+  # mkHyprlandPlugin and exposed through the flake's packages output). Listed
+  # in `plugins` below so Home Manager emits
+  # hl.plugin.load("$out/lib/libhyprcapture.so") at the top of hyprland.lua,
+  # which loads the plugin at compositor start. The plugin's `hyprcapture-ui`
+  # helper is looked up via HYPRCAPTURE_HELPER (env entry below); it does NOT
+  # search $PATH. The Nix store path cannot be used directly because the plugin
+  # requires every parent directory to be non-group-/other-writable, and
+  # /nix/store is group-writable (1775 root:nixbld). We therefore install a
+  # tiny launcher wrapper into ~/.local/bin (which the plugin also checks by
+  # default) and point HYPRCAPTURE_HELPER at that.
+  hyprcapture = inputs.self.packages.${pkgs.system}.hyprcapture;
 in
 {
   wayland.windowManager.hyprland = {
@@ -41,6 +60,12 @@ in
     enable = true;
     package = null;
     configType = "lua";
+
+    # Loaded at compositor start: HM renders hl.plugin.load(…/libhyprcapture.so)
+    # at the top of hyprland.lua. Works with package = null — `plugins` only
+    # writes config directives, it doesn't touch the Hyprland package; the
+    # NixOS-side programs.hyprland.enable installs the compositor itself.
+    plugins = [ hyprcapture ];
 
     settings = {
       # local mod = "SUPER" — renderSettings emits all _var locals before
@@ -132,6 +157,16 @@ in
           _args = [
             "GDK_BACKEND"
             "wayland,x11"
+          ];
+        }
+        # HyprCapture locates its hyprcapture-ui helper in this order:
+        # HYPRCAPTURE_HELPER → ~/.local/bin → /usr/local/bin → /usr/bin — it
+        # does NOT consult $PATH. Point it at the ~/.local/bin wrapper (not the
+        # Nix store binary) so the plugin's parent-directory trust check passes.
+        {
+          _args = [
+            "HYPRCAPTURE_HELPER"
+            "${config.home.homeDirectory}/.local/bin/hyprcapture-ui"
           ];
         }
       ];
@@ -306,7 +341,7 @@ in
         {
           _args = [
             (lua ''mod .. " + D"'')
-            (lua ''hl.dsp.exec_cmd("rofi -show drun -show-icons -theme tokyonight")'')
+            (lua ''hl.dsp.exec_cmd("rofi -show drun -show-icons -theme \"$(f=~/.local/state/wallpaper-tui/tint/rofi.rasi; [ -f \"$f\" ] && echo \"$f\" || echo tokyonight)\"")'')
           ];
         }
         {
@@ -321,7 +356,7 @@ in
             (lua ''hl.dsp.exec_cmd("obsidian")'')
           ];
         }
-        # flameshot now lives on Print (below); SUPER+SHIFT+S is reserved
+        # HyprCapture now lives on Print (below); SUPER+SHIFT+S is reserved
         # for the magic special workspace (was double-bound in hyprlang).
 
         # window ops
@@ -633,7 +668,7 @@ in
           # the way a raw Hyprland quit used to.
           _args = [
             (lua ''mod .. " + SHIFT + E"'')
-            (lua ''hl.dsp.exec_cmd("rofi -show powermenu -modi 'powermenu:rofi-power-menu --choices=logout/suspend/hibernate/reboot/shutdown --no-symbols' -theme tokyonight -show-icons")'')
+            (lua ''hl.dsp.exec_cmd("rofi -show powermenu -modi 'powermenu:rofi-power-menu --choices=logout/suspend/hibernate/reboot/shutdown --no-symbols' -theme \"$(f=~/.local/state/wallpaper-tui/tint/rofi.rasi; [ -f \"$f\" ] && echo \"$f\" || echo tokyonight)\" -show-icons")'')
           ];
         }
         {
@@ -643,11 +678,17 @@ in
           ];
         }
 
-        # flameshot (no modifier) — migrated off SUPER+SHIFT+S to Print
+        # HyprCapture overlay on Print (no modifier) — the successor to the
+        # old `flameshot gui` / grim|satty pipeline. hl.plugin.hyprcapture.open
+        # is a direct action, not a dispatcher factory, so it must be wrapped in
+        # a Lua closure so it is invoked when Print is pressed, not while the
+        # config chunk is executing. The closure launches the region overlay
+        # (default mode) with the toolbar, matching flameshot gui's interactive
+        # behaviour.
         {
           _args = [
             "Print"
-            (lua ''hl.dsp.exec_cmd('${pkgs.grim}/bin/grim - | ${pkgs.satty}/bin/satty -f - --copy-command ${pkgs.wl-copy}/bin/wl-copy -o "~/Pictures/Screenshots/%Y%m%d_%H%M%S.png"')'')
+            (lua "function() hl.plugin.hyprcapture.open() end")
           ];
         }
 
@@ -746,6 +787,33 @@ in
       ];
     };
   };
+
+  # Launcher wrapper for the HyprCapture helper. The plugin's trust check walks
+  # every parent directory of the helper and rejects paths whose directories are
+  # group- or other-writable; /nix/store is group-writable (1775), so the store
+  # binary fails that check. A small script in ~/.local/bin passes it and simply
+  # re-execs the wrapped derivation binary, inheriting its Qt/wayland env setup.
+  #
+  # We use an activation script (not home.file) because the plugin calls
+  # std::filesystem::weakly_canonical on the helper path, which resolves
+  # home.file symlinks back into /nix/store and fails the trust check again.
+  home.activation.hyprcaptureHelper = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    helperDir=${lib.escapeShellArg "${config.home.homeDirectory}/.local/bin"}
+    helperPath="$helperDir/hyprcapture-ui"
+    $DRY_RUN_CMD mkdir -p "$helperDir"
+    $DRY_RUN_CMD rm -f "$helperPath"
+    $DRY_RUN_CMD cat > "$helperPath" <<'EOF'
+    #!/usr/bin/env bash
+    exec ${hyprcapture}/bin/hyprcapture-ui "$@"
+    EOF
+    $DRY_RUN_CMD chmod 755 "$helperPath"
+  '';
+
+  # Put the HyprCapture helper on $PATH. The plugin itself locates it via
+  # HYPRCAPTURE_HELPER (above), not $PATH, so this is only for ad-hoc CLI use
+  # (e.g. `hyprcapture-ui --help`). The .so is loaded by `plugins`, not by
+  # being on $PATH, so this entry is not load-bearing for the bind on Print.
+  home.packages = [ hyprcapture ];
 
   # package = null above means HM's auto-enabled xdg.portal can't add
   # configPackages for xdg-desktop-portal-hyprland, so it needs an explicit
