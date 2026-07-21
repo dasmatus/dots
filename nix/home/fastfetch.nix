@@ -1,7 +1,7 @@
 # programs.fastfetch port of files/neofetch/config.conf (deleted — see git
 # history; neofetch itself was removed from nixpkgs). Carried over: the
 # print_info module order with its Nerd Font glyph keys (os keeps the literal
-# "os" key of the original), the "󰇙 " separator, the NixOS ascii logo
+# "os" key of the original), the "󰇙 " separator, the small NixOS ascii logo
 # with distro colours, tiny distro shorthand ({name}), kernel shorthand
 # ({release}), the song format, and the 0-15 colour blocks at width 3.
 # Not ported: title/underline/memory/disk — neofetch had those options
@@ -14,7 +14,7 @@
     settings = {
       logo = {
         type = "builtin";
-        source = "nixos";
+        source = "nixos_small";
       };
       display.separator = "  󰇙 ";
       modules = [
