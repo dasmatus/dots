@@ -647,7 +647,7 @@ in
         {
           _args = [
             "Print"
-            (lua ''hl.dsp.exec_cmd("flameshot gui")'')
+            (lua ''hl.dsp.exec_cmd('${pkgs.grim}/bin/grim - | ${pkgs.satty}/bin/satty -f - --copy-command ${pkgs.wl-copy}/bin/wl-copy -o "~/Pictures/Screenshots/%Y%m%d_%H%M%S.png"')'')
           ];
         }
 
