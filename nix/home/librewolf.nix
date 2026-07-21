@@ -38,7 +38,7 @@
 #   - Everything else in `personalPrefs` (smooth scroll physics, bookmark
 #     UI tweaks, pdfjs/newtab/pocket toggles, etc.) was never part of
 #     arkenfox to begin with, so there's nothing upstream to go stale.
-{ pkgs, inputs, ... }:
+{ config, pkgs, inputs, ... }:
 let
   # Pin: https://github.com/arkenfox/user.js/releases — latest as of writing.
   arkenfoxJs = pkgs.fetchurl {
@@ -49,6 +49,35 @@ let
   # Nix-pinned XPIs from the firefox-addons flake input (rycee's subflake,
   # not the whole NUR); installed into the profile as a buildEnv symlink.
   addons = inputs.firefox-addons.packages.${pkgs.stdenv.hostPlatform.system};
+
+  # AIPage (EduPage AI sidebar — codeberg.org/dasmatus/aipage), built from
+  # source in the sibling aipage repo. The gitignored dist-firefox dir can't
+  # be a flake input (path inputs outside this flake aren't store-copied), so
+  # a deterministic tarball of it lives at
+  # ~/.local/share/aipage/dist-firefox.tar and is pulled in here as an
+  # eval-time fixed-output derivation (builtins.fetchTarball fetches outside
+  # the build sandbox, so sandbox=true is fine). HM's firefox module installs
+  # each extensions.packages entry by symlinking a buildEnv of
+  # share/mozilla/extensions/<Firefox-app-GUID>/ into the profile's
+  # extensions/ dir, so the package must expose passthru.addonId and place
+  # the XPI at <GUID>/<addonId>.xpi. {ec8030f7-…} is Firefox/LibreWolf's app
+  # GUID; the gecko id + version come from the built manifest — hardcoded
+  # here (pure-eval `nix flake check` can't readFile a path input). Bump the
+  # sha256 + version when aipage is rebuilt (see scripts/update-aipage.sh).
+  aipageFirefox = builtins.fetchTarball {
+    url = "file://${config.home.homeDirectory}/.local/share/aipage/dist-firefox.tar";
+    sha256 = "0ygv4w01p5a2rqspmry26ncyf0h77v1x69va8vv3cz14izc1ssh1";
+  };
+  firefoxAppId = "{ec8030f7-c20a-464f-9b0e-13a3a9e97384}";
+  aipageId = "edupage-ai-sidebar@hesburger.dev";
+  aipageVersion = "1.7.0";
+  aipageXpi = pkgs.runCommand "aipage-${aipageVersion}" {
+    passthru.addonId = aipageId;
+  } ''
+    extDir="$out/share/mozilla/extensions/${firefoxAppId}"
+    mkdir -p "$extDir"
+    ( cd "${aipageFirefox}" && ${pkgs.lib.getExe pkgs.zip} -rX "$extDir/${aipageId}.xpi" . )
+  '';
 
   # rafaelmardojai/firefox-gnome-theme, imported straight from the store via
   # userChrome/userContent below. Its nested @imports resolve relative to the
@@ -155,6 +184,7 @@ in
       extensions.packages = [
         addons.bitwarden
         addons.sponsorblock
+        aipageXpi
       ];
 
       userChrome = ''

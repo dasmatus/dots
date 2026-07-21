@@ -15,8 +15,10 @@
 #   - light -A/-U → brightnessctl (light was removed from nixpkgs)
 #   - KeePassXC/Obsidian launched as native binaries (nix/home/pkgs.nix)
 #     since the flatpak migration; Flameshot was dropped in favour of the
-#     HyprCapture Hyprland plugin (nix/hyprcapture.nix, loaded via `plugins`
-#     and bound on Print below). OBSIDIAN_USE_WAYLAND (flatpak-only) became
+#     HyprCapture Hyprland plugin, which in turn was replaced by dots-snip
+#     (a grim-backed Tauri overlay — see snip/ and nix/dots-snip.nix, bound
+#     on Print below) after HyprCapture started capturing blank screenshots.
+#     OBSIDIAN_USE_WAYLAND (flatpak-only) became
 #     NIXOS_OZONE_WL, which the nixpkgs Electron wrappers (obsidian, vesktop
 #     — signal-desktop's ignores it) key off for native Wayland
 #   - lock bind switched from swaylock to hyprlock; the resize bind still
@@ -41,18 +43,15 @@
 }:
 let
   lua = lib.generators.mkLuaInline;
-  # HyprCapture screenshot/recording plugin (nix/hyprcapture.nix, built via
-  # mkHyprlandPlugin and exposed through the flake's packages output). Listed
-  # in `plugins` below so Home Manager emits
-  # hl.plugin.load("$out/lib/libhyprcapture.so") at the top of hyprland.lua,
-  # which loads the plugin at compositor start. The plugin's `hyprcapture-ui`
-  # helper is looked up via HYPRCAPTURE_HELPER (env entry below); it does NOT
-  # search $PATH. The Nix store path cannot be used directly because the plugin
-  # requires every parent directory to be non-group-/other-writable, and
-  # /nix/store is group-writable (1775 root:nixbld). We therefore install a
-  # tiny launcher wrapper into ~/.local/bin (which the plugin also checks by
-  # default) and point HYPRCAPTURE_HELPER at that.
-  hyprcapture = inputs.self.packages.${pkgs.system}.hyprcapture;
+  # dots-snip — the Snipping Tool-style Tauri overlay that replaces HyprCapture
+  # (the Qt plugin captured blank screenshots). Built in nix/dots-snip.nix and
+  # exposed through the flake's packages output. Launched by the Print bind
+  # below. The dim/frost effect is the global decoration.blur (every translucent
+  # window is frosted) showing through the overlay's per-pixel alpha — there is
+  # no per-window `blur` field in Hyprland's Lua DSL (only `no_blur`), so the
+  # `snip-overlay` window rule below only pins/floats/undecorates the window.
+  # Capture is done with grim + wl-copy, both on $PATH via home.packages.
+  snip = inputs.self.packages.${pkgs.system}.dots-snip;
 in
 {
   wayland.windowManager.hyprland = {
@@ -60,12 +59,6 @@ in
     enable = true;
     package = null;
     configType = "lua";
-
-    # Loaded at compositor start: HM renders hl.plugin.load(…/libhyprcapture.so)
-    # at the top of hyprland.lua. Works with package = null — `plugins` only
-    # writes config directives, it doesn't touch the Hyprland package; the
-    # NixOS-side programs.hyprland.enable installs the compositor itself.
-    plugins = [ hyprcapture ];
 
     settings = {
       # local mod = "SUPER" — renderSettings emits all _var locals before
@@ -159,16 +152,6 @@ in
             "wayland,x11"
           ];
         }
-        # HyprCapture locates its hyprcapture-ui helper in this order:
-        # HYPRCAPTURE_HELPER → ~/.local/bin → /usr/local/bin → /usr/bin — it
-        # does NOT consult $PATH. Point it at the ~/.local/bin wrapper (not the
-        # Nix store binary) so the plugin's parent-directory trust check passes.
-        {
-          _args = [
-            "HYPRCAPTURE_HELPER"
-            "${config.home.homeDirectory}/.local/bin/hyprcapture-ui"
-          ];
-        }
       ];
 
       # general/decoration/dwindle/master/misc/input/animations.enabled
@@ -258,34 +241,31 @@ in
             class = ".*";
           };
         }
-      ];
-
-      # Frost the HyprCapture selection overlay so it reads as part of the
-      # frosted-glass desktop (every window is blurred at 0.75 opacity above).
-      # hl.layer_rule is the layer-shell analogue of hl.window_rule — same
-      # renderSettings walk, so a list of attrsets emits one hl.layer_rule({...})
-      # call per entry. The overlay's layer namespace is "hyprcapture-ui", set
-      # via LayerShellQt::Window::setScope in src/ui/capture_overlay.cpp.
-      #
-      # Caveat: the overlay paints its own frozen desktop snapshot
-      # (paintDesktop at m_overlayOpacity, which fades 0→1.0 on open), so while
-      # a selection is active the layer buffer is fully opaque and Hyprland's
-      # compositor-side blur has nothing to blur *behind* — this frosting only
-      # reads through the semi-transparent fade in/out transitions. The dim
-      # mask that used to cover the snapshot is patched out in
-      # nix/hyprcapture.nix (postPatch), so the snapshot itself is at full
-      # brightness. ignore_alpha 0.5 mirrors the rofi pattern (see Hyprland
-      # wiki Window-Rules.md) so blur is only applied where the layer is
-      # actually transparent, not over the opaque snapshot pixels.
-      layer_rule = [
+        # dots-snip overlay: a fullscreen, transparent Tauri window (app_id
+        # "dots.snip" — set via enableGTKAppId in snip/tauri.conf.json). The
+        # frosting is NOT a per-window `blur` field: Hyprland's Lua window
+        # rules only expose `no_blur` (default false), so blur is the global
+        # decoration.blur applied to every translucent window. The overlay's
+        # per-pixel alpha does the rest — the rgba dim frosts, the alpha-0
+        # selection hole reads as a crisp live desktop. `pin` keeps it on top
+        # (Wayland has no always-on-top for xdg_toplevels, so Tauri's
+        # alwaysOnTop hint alone is unreliable), `float` keeps it out of the
+        # tile tree, `decorate = false` drops the border. Focus is taken on
+        # purpose so the overlay receives the Esc/Enter keydown.
         {
+          name = "snip-overlay";
           match = {
-            namespace = "hyprcapture-ui";
+            class = "dots.snip";
           };
-          blur = true;
-          ignore_alpha = 0.5;
+          float = true;
+          pin = true;
+          decorate = false;
         }
       ];
+
+      # No layer_rule entries: the old `hyprcapture-ui` layer-shell rule is
+      # gone now that the screenshot overlay is a Tauri xdg-toplevel window
+      # (matched by the `snip-overlay` window_rule above), not a layer surface.
 
       # myBezier, 0.05, 0.9, 0.1, 1.05 →
       # hl.curve("myBezier", { type = "bezier", points = {{0.05,0.9},{0.1,1.05}} }).
@@ -383,7 +363,7 @@ in
             (lua ''hl.dsp.exec_cmd("obsidian")'')
           ];
         }
-        # HyprCapture now lives on Print (below); SUPER+SHIFT+S is reserved
+        # dots-snip now lives on Print (below); SUPER+SHIFT+S is reserved
         # for the magic special workspace (was double-bound in hyprlang).
 
         # window ops
@@ -705,17 +685,15 @@ in
           ];
         }
 
-        # HyprCapture overlay on Print (no modifier) — the successor to the
-        # old `flameshot gui` / grim|satty pipeline. hl.plugin.hyprcapture.open
-        # is a direct action, not a dispatcher factory, so it must be wrapped in
-        # a Lua closure so it is invoked when Print is pressed, not while the
-        # config chunk is executing. The closure launches the region overlay
-        # (default mode) with the toolbar, matching flameshot gui's interactive
-        # behaviour.
+        # dots-snip overlay on Print (no modifier) — the grim-backed successor
+        # to HyprCapture (which captured blank screenshots) and the old
+        # `flameshot gui` / grim|satty pipeline. Launches the fullscreen Tauri
+        # selection overlay; the dim frosting is the global decoration.blur, and
+        # the capture itself runs `grim -g` after the overlay hides (see snip/).
         {
           _args = [
             "Print"
-            (lua "function() hl.plugin.hyprcapture.open() end")
+            (lua ''hl.dsp.exec_cmd("${lib.getExe snip}")'')
           ];
         }
 
@@ -815,38 +793,18 @@ in
     };
   };
 
-  # Launcher wrapper for the HyprCapture helper. The plugin's trust check walks
-  # every parent directory of the helper and rejects paths whose directories are
-  # group- or other-writable; /nix/store is group-writable (1775), so the store
-  # binary fails that check. A small script in ~/.local/bin passes it and simply
-  # re-execs the wrapped derivation binary, inheriting its Qt/wayland env setup.
-  #
-  # We use an activation script (not home.file) because the plugin calls
-  # std::filesystem::weakly_canonical on the helper path, which resolves
-  # home.file symlinks back into /nix/store and fails the trust check again.
-  home.activation.hyprcaptureHelper = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    helperDir=${lib.escapeShellArg "${config.home.homeDirectory}/.local/bin"}
-    helperPath="$helperDir/hyprcapture-ui"
-    $DRY_RUN_CMD mkdir -p "$helperDir"
-    $DRY_RUN_CMD rm -f "$helperPath"
-    $DRY_RUN_CMD cat > "$helperPath" <<'EOF'
-    #!/usr/bin/env bash
-    exec ${hyprcapture}/bin/hyprcapture-ui "$@"
-    EOF
-    $DRY_RUN_CMD chmod 755 "$helperPath"
-  '';
-
-  # Put the HyprCapture helper on $PATH. The plugin itself locates it via
-  # HYPRCAPTURE_HELPER (above), not $PATH, so this is only for ad-hoc CLI use
-  # (e.g. `hyprcapture-ui --help`). The .so is loaded by `plugins`, not by
-  # being on $PATH, so this entry is not load-bearing for the bind on Print.
+  # Runtime tools for the dots-snip screenshot overlay: the Tauri binary
+  # itself, plus grim (region capture) and wl-clipboard (wl-copy to the
+  # Wayland clipboard) which the overlay shells out to after the selection.
   #
   # xdg-desktop-portal-gtk is also listed here (not just in the system
   # xdg.portal.extraPortals) because NixOS sets NIX_XDG_DESKTOP_PORTAL_DIR to
   # the per-user profile portal dir, so xdg-desktop-portal only sees portal
   # backends that are in the user's environment.
   home.packages = [
-    hyprcapture
+    snip
+    pkgs.grim
+    pkgs.wl-clipboard
     pkgs.xdg-desktop-portal-gtk
   ];
 

@@ -4,6 +4,20 @@
   pkgs,
   ...
 }:
+let
+  # AIPage (EduPage AI sidebar — codeberg.org/dasmatus/aipage), built from
+  # source in the sibling aipage repo. The gitignored dist-chrome dir can't
+  # be a flake input (path inputs outside this flake aren't store-copied),
+  # so a deterministic tarball of it lives at
+  # ~/.local/share/aipage/dist-chrome.tar and is pulled in here as an
+  # eval-time fixed-output derivation (builtins.fetchTarball fetches outside
+  # the build sandbox, so sandbox=true is fine). Bump the sha256 when aipage
+  # is rebuilt (see scripts/update-aipage.sh).
+  aipageChrome = builtins.fetchTarball {
+    url = "file://${config.home.homeDirectory}/.local/share/aipage/dist-chrome.tar";
+    sha256 = "0zvhcav57ixb9dnq58xzy8gb095zc9vhq5izqmx6m1iz6rk7j0x5";
+  };
+in
 {
   programs.brave = {
     enable = true;
@@ -13,7 +27,17 @@
     # session — bisected: --ozone-platform=x11 runs, wayland+gtk4 crashes,
     # wayland+gtk3 runs. Pin the GTK3 path until the upstream GTK4/Wayland
     # shim works against nixpkgs' GTK 4.22.
-    commandLineArgs = [ "--gtk-version=3" ];
+    #
+    # --load-extension: AIPage, the unpacked MV2 extension from the tarball
+    # above. Chromium has no policy to force-install an *unpacked* MV2
+    # extension without a hosted CRX + update_url, so --load-extension is
+    # the declarative equivalent: it reloads the unpacked dir on every
+    # launch. Cost is a "developer mode extensions" banner on startup; the
+    # extension itself (MV2) loads fine as long as Brave keeps MV2 support.
+    commandLineArgs = [
+      "--gtk-version=3"
+      "--load-extension=${aipageChrome}"
+    ];
   };
 
   # Appearance "GTK" mode has no browser policy and no HM option: the choice

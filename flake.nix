@@ -33,6 +33,11 @@
       url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # AIPage (codeberg.org/dasmatus/aipage) is NOT a flake input: its built
+    # dist-* dirs are gitignored in the sibling repo, so no flake input can
+    # reach them (path inputs outside this flake aren't store-copied). Instead
+    # nix/home/{brave,librewolf}.nix fetch the deterministic tarballs in
+    # ~/.local/share/aipage/ via builtins.fetchTarball (an eval-time FOD).
   };
 
   outputs =
@@ -139,13 +144,11 @@
         iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
         # Microsoft-signed Fedora shim for the Secure Boot ISO chain.
         shim-signed = pkgs.callPackage ./nix/shim-signed.nix { };
-        # HyprCapture screenshot/recording Hyprland plugin — see nix/hyprcapture.nix.
-        # Built via nixpkgs' mkHyprlandPlugin (re-exported from hyprlandPlugins) so
-        # the .so links against this flake's exact Hyprland headers. Consumed by
-        # nix/home/hyprland.nix's `plugins` option + HYPRCAPTURE_HELPER env.
-        hyprcapture = pkgs.callPackage ./nix/hyprcapture.nix {
-          inherit (pkgs.hyprlandPlugins) mkHyprlandPlugin;
-        };
+        # Snipping Tool-style screenshot overlay (Tauri v2) — the grim-backed
+        # replacement for the HyprCapture plugin. See nix/dots-snip.nix and
+        # the `snip/` crate. Consumed by nix/home/hyprland.nix's Print bind +
+        # the `dots-snip` window rule; shells out to grim/wl-copy at runtime.
+        dots-snip = pkgs.callPackage ./nix/dots-snip.nix { };
         # Toolbelt for scripts/sign-iso.sh + the Secure Boot smoke test
         # (the script `nix shell`s this when the tools aren't on PATH).
         sb-tools = pkgs.buildEnv {
@@ -155,6 +158,32 @@
       };
 
       formatter.${system} = pkgs.nixfmt-tree;
+
+      # Dev shell for the snip/ Tauri crate: cargo/rustc/clippy/rustfmt plus the
+      # webkit2gtk-4.1 / gtk3 stack it links against, so `cargo clippy`/`cargo
+      # test`/`cargo run` work locally without building the whole Nix package.
+      # `just snip-lint` drives fmt/clippy/test inside this shell.
+      devShells.${system}.default = pkgs.mkShell {
+        nativeBuildInputs = [
+          pkgs.cargo
+          pkgs.rustc
+          pkgs.rustfmt
+          pkgs.clippy
+          pkgs.pkg-config
+          pkgs.gobject-introspection
+        ];
+        buildInputs = [
+          pkgs.webkitgtk_4_1
+          pkgs.gtk3
+          pkgs.librsvg
+          pkgs.glib
+          pkgs.cairo
+          pkgs.pango
+          pkgs.gdk-pixbuf
+          pkgs.openssl
+        ];
+        RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
+      };
 
       checks.${system} = {
         dots-installer = self.packages.${system}.dots-installer;

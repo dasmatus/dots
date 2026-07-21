@@ -7,8 +7,10 @@ __pycache__/
 *.qcow2
 vm-state-*/
 
-# Nix + installer-tui build outputs
+# Nix + Rust build outputs
 installer-tui/target/
+snip/target/
+snip/gen/
 result
 result-*
 
