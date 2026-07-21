@@ -9,8 +9,6 @@ vm-state-*/
 
 # Nix + Rust build outputs
 installer-tui/target/
-snip/target/
-snip/gen/
 result
 result-*
 

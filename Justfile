@@ -2,8 +2,6 @@
 #
 #   just            → list recipes
 #   just nix-lint   → static checks: flake eval + installer-tui fmt/clippy/test
-#   just snip-lint  → fmt/clippy/test for the snip/ Tauri crate (in devShell)
-#   just snip       → launch the dots-snip screenshot overlay (needs Hyprland)
 #   just iso        → build + Secure Boot-sign the LiveISO (the default)
 #   just iso-full   → same, with both intel+amd system closures embedded
 #   just iso-unsigned → plain unsigned LiveISO (no signing keys touched)
@@ -26,17 +24,6 @@ default:
 nix-lint:
     nix flake check --no-build
     cd installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-
-# fmt/clippy/test for the snip/ Tauri crate, inside the flake's devShell (it
-# needs the webkit2gtk-4.1/gtk3 dev headers to compile, unlike installer-tui).
-# Heavier than nix-lint — run it separately when touching snip/.
-snip-lint:
-    nix develop --command bash -c 'cd snip && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test'
-
-# Launch the dots-snip overlay for manual testing (needs a running Hyprland
-# session — the Print keybind in nix/home/hyprland.nix is the real entrypoint).
-snip:
-    nix run .#dots-snip
 
 # Python unit tests for the wallpaper-tui accent-tint layer (pytest, hermetic).
 # Pure-function + tmp-path tests; run under the flake's nixpkgs so the Pillow

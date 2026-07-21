@@ -14,10 +14,11 @@
 #     (default.nix) own theming now
 #   - light -A/-U → brightnessctl (light was removed from nixpkgs)
 #   - KeePassXC/Obsidian launched as native binaries (nix/home/pkgs.nix)
-#     since the flatpak migration; Flameshot was dropped in favour of the
-#     HyprCapture Hyprland plugin, which in turn was replaced by dots-snip
-#     (a grim-backed Tauri overlay — see snip/ and nix/dots-snip.nix, bound
-#     on Print below) after HyprCapture started capturing blank screenshots.
+#     since the flatpak migration; the screenshot stack went Flameshot →
+#     HyprCapture (Qt plugin, captured blank screenshots) → dots-snip (a
+#     grim-backed Tauri overlay, since removed) → bare `grim` + notify-send
+#     bound on Print below. Selection overlays kept blanking out, so Print
+#     now grabs the whole desktop and notifies the saved path instead.
 #     OBSIDIAN_USE_WAYLAND (flatpak-only) became
 #     NIXOS_OZONE_WL, which the nixpkgs Electron wrappers (obsidian, vesktop
 #     — signal-desktop's ignores it) key off for native Wayland
@@ -38,20 +39,10 @@
   config,
   pkgs,
   lib,
-  inputs,
   ...
 }:
 let
   lua = lib.generators.mkLuaInline;
-  # dots-snip — the Snipping Tool-style Tauri overlay that replaces HyprCapture
-  # (the Qt plugin captured blank screenshots). Built in nix/dots-snip.nix and
-  # exposed through the flake's packages output. Launched by the Print bind
-  # below. The dim/frost effect is the global decoration.blur (every translucent
-  # window is frosted) showing through the overlay's per-pixel alpha — there is
-  # no per-window `blur` field in Hyprland's Lua DSL (only `no_blur`), so the
-  # `snip-overlay` window rule below only pins/floats/undecorates the window.
-  # Capture is done with grim + wl-copy, both on $PATH via home.packages.
-  snip = inputs.self.packages.${pkgs.system}.dots-snip;
 in
 {
   wayland.windowManager.hyprland = {
@@ -241,41 +232,12 @@ in
             class = ".*";
           };
         }
-        # dots-snip overlay: a fullscreen, transparent Tauri window. The
-        # frosting is NOT a per-window `blur` field: Hyprland's Lua window
-        # rules only expose `no_blur` (default false), so blur is the global
-        # decoration.blur applied to every translucent window. The overlay's
-        # per-pixel alpha does the rest — the rgba dim frosts, the alpha-0
-        # selection hole reads as a crisp live desktop.
-        {
-          name = "snip-overlay";
-          # The Wayland app_id/class is the Tauri `productName` ("dots-snip",
-          # dashed), NOT the `identifier` ("dots.snip") — `enableGTKAppId`
-          # doesn't derive the app_id from the identifier, so match the
-          # productName-derived class or the rule silently never applies.
-          match = {
-            class = "dots-snip";
-          };
-          # `fullscreen = 1` (Hyprland expects the mode integer 1/2/3, not a
-          # boolean) forces the toplevel to cover the whole monitor on
-          # creation. This needs `resizable: true` in tauri.conf.json: a
-          # non-resizable window can't be fullscreened/maximized (those
-          # resize it), so the rule was silently ignored until that flag
-          # flipped — the window opened as a small 1006x806 floated box
-          # instead. `pin` keeps it sticky across workspaces and helps it
-          # layer above normal windows (Wayland has no always-on-top for
-          # xdg_toplevels, so Tauri's alwaysOnTop hint alone is unreliable).
-          # `decorate = false` drops the border. Focus is taken on purpose so
-          # the overlay receives the Esc/Enter keydown.
-          fullscreen = 1;
-          pin = true;
-          decorate = false;
-        }
       ];
 
-      # No layer_rule entries: the old `hyprcapture-ui` layer-shell rule is
-      # gone now that the screenshot overlay is a Tauri xdg-toplevel window
-      # (matched by the `snip-overlay` window_rule above), not a layer surface.
+      # No layer_rule entries: the old `hyprcapture-ui` layer-shell rule went
+      # away with HyprCapture, and the dots-snip Tauri overlay that followed it
+      # has now been removed too — Print just runs `grim` directly (see the
+      # bind below), so there's no special surface to layer-rule anymore.
 
       # myBezier, 0.05, 0.9, 0.1, 1.05 →
       # hl.curve("myBezier", { type = "bezier", points = {{0.05,0.9},{0.1,1.05}} }).
@@ -373,7 +335,7 @@ in
             (lua ''hl.dsp.exec_cmd("obsidian")'')
           ];
         }
-        # dots-snip now lives on Print (below); SUPER+SHIFT+S is reserved
+        # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved
         # for the magic special workspace (was double-bound in hyprlang).
 
         # window ops
@@ -695,15 +657,17 @@ in
           ];
         }
 
-        # dots-snip overlay on Print (no modifier) — the grim-backed successor
-        # to HyprCapture (which captured blank screenshots) and the old
-        # `flameshot gui` / grim|satty pipeline. Launches the fullscreen Tauri
-        # selection overlay; the dim frosting is the global decoration.blur, and
-        # the capture itself runs `grim -g` after the overlay hides (see snip/).
+        # Print (no modifier) grabs the whole desktop with grim. grim writes a
+        # timestamped file but never prints the path, so we name the file
+        # ourselves under $XDG_PICTURES_DIR/Screenshots (mirroring grim's own
+        # dir resolution) and pass it explicitly — that makes $screen_pwd the
+        # actual path grim saved to, which notify-send surfaces. mkdir -p keeps
+        # it robust the first time; `&&` skips the notify if the capture failed.
+        # `''${` is the Nix `''...''`-string escape for a literal shell `${`.
         {
           _args = [
             "Print"
-            (lua ''hl.dsp.exec_cmd("${lib.getExe snip}")'')
+            (lua ''hl.dsp.exec_cmd("d=\"''${XDG_PICTURES_DIR:-$HOME/Pictures}/Screenshots\"; mkdir -p \"$d\"; screen_pwd=\"$d/$(date +%Y-%m-%d_%H-%M-%S).png\"; grim \"$screen_pwd\" && notify-send \"Screenshot saved as $screen_pwd\"")'')
           ];
         }
 
@@ -803,18 +767,17 @@ in
     };
   };
 
-  # Runtime tools for the dots-snip screenshot overlay: the Tauri binary
-  # itself, plus grim (region capture) and wl-clipboard (wl-copy to the
-  # Wayland clipboard) which the overlay shells out to after the selection.
+  # Runtime tools for the Print-key screenshot: grim (Wayland capture) and
+  # libnotify (notify-send, which surfaces the saved path — dunst in
+  # nix/home/dunst.nix is the daemon that displays it).
   #
   # xdg-desktop-portal-gtk is also listed here (not just in the system
   # xdg.portal.extraPortals) because NixOS sets NIX_XDG_DESKTOP_PORTAL_DIR to
   # the per-user profile portal dir, so xdg-desktop-portal only sees portal
   # backends that are in the user's environment.
   home.packages = [
-    snip
     pkgs.grim
-    pkgs.wl-clipboard
+    pkgs.libnotify
     pkgs.xdg-desktop-portal-gtk
   ];
 

@@ -144,11 +144,6 @@
         iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
         # Microsoft-signed Fedora shim for the Secure Boot ISO chain.
         shim-signed = pkgs.callPackage ./nix/shim-signed.nix { };
-        # Snipping Tool-style screenshot overlay (Tauri v2) — the grim-backed
-        # replacement for the HyprCapture plugin. See nix/dots-snip.nix and
-        # the `snip/` crate. Consumed by nix/home/hyprland.nix's Print bind +
-        # the `dots-snip` window rule; shells out to grim/wl-copy at runtime.
-        dots-snip = pkgs.callPackage ./nix/dots-snip.nix { };
         # Toolbelt for scripts/sign-iso.sh + the Secure Boot smoke test
         # (the script `nix shell`s this when the tools aren't on PATH).
         sb-tools = pkgs.buildEnv {
@@ -156,31 +151,19 @@
           paths = sbToolPackages;
         };
       };
-
       formatter.${system} = pkgs.nixfmt-tree;
 
-      # Dev shell for the snip/ Tauri crate: cargo/rustc/clippy/rustfmt plus the
-      # webkit2gtk-4.1 / gtk3 stack it links against, so `cargo clippy`/`cargo
-      # test`/`cargo run` work locally without building the whole Nix package.
-      # `just snip-lint` drives fmt/clippy/test inside this shell.
+      # Dev shell for hacking on installer-tui (the only Rust crate now that
+      # snip/ is gone): a plain Rust toolchain so `cargo fmt`/`cargo clippy`/
+      # `cargo test`/`cargo run` work locally without a system rust install.
+      # installer-tui is a pure TUI with no native deps, so no pkg-config /
+      # webkit / gtk stack is needed here (the old Tauri dev shell carried it).
       devShells.${system}.default = pkgs.mkShell {
         nativeBuildInputs = [
           pkgs.cargo
           pkgs.rustc
           pkgs.rustfmt
           pkgs.clippy
-          pkgs.pkg-config
-          pkgs.gobject-introspection
-        ];
-        buildInputs = [
-          pkgs.webkitgtk_4_1
-          pkgs.gtk3
-          pkgs.librsvg
-          pkgs.glib
-          pkgs.cairo
-          pkgs.pango
-          pkgs.gdk-pixbuf
-          pkgs.openssl
         ];
         RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
       };
