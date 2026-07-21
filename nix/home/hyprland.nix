@@ -241,23 +241,33 @@ in
             class = ".*";
           };
         }
-        # dots-snip overlay: a fullscreen, transparent Tauri window (app_id
-        # "dots.snip" — set via enableGTKAppId in snip/tauri.conf.json). The
+        # dots-snip overlay: a fullscreen, transparent Tauri window. The
         # frosting is NOT a per-window `blur` field: Hyprland's Lua window
         # rules only expose `no_blur` (default false), so blur is the global
         # decoration.blur applied to every translucent window. The overlay's
         # per-pixel alpha does the rest — the rgba dim frosts, the alpha-0
-        # selection hole reads as a crisp live desktop. `pin` keeps it on top
-        # (Wayland has no always-on-top for xdg_toplevels, so Tauri's
-        # alwaysOnTop hint alone is unreliable), `float` keeps it out of the
-        # tile tree, `decorate = false` drops the border. Focus is taken on
-        # purpose so the overlay receives the Esc/Enter keydown.
+        # selection hole reads as a crisp live desktop.
         {
           name = "snip-overlay";
+          # The Wayland app_id/class is the Tauri `productName` ("dots-snip",
+          # dashed), NOT the `identifier` ("dots.snip") — `enableGTKAppId`
+          # doesn't derive the app_id from the identifier, so match the
+          # productName-derived class or the rule silently never applies.
           match = {
-            class = "dots.snip";
+            class = "dots-snip";
           };
-          float = true;
+          # `fullscreen = 1` (Hyprland expects the mode integer 1/2/3, not a
+          # boolean) forces the toplevel to cover the whole monitor on
+          # creation. This needs `resizable: true` in tauri.conf.json: a
+          # non-resizable window can't be fullscreened/maximized (those
+          # resize it), so the rule was silently ignored until that flag
+          # flipped — the window opened as a small 1006x806 floated box
+          # instead. `pin` keeps it sticky across workspaces and helps it
+          # layer above normal windows (Wayland has no always-on-top for
+          # xdg_toplevels, so Tauri's alwaysOnTop hint alone is unreliable).
+          # `decorate = false` drops the border. Focus is taken on purpose so
+          # the overlay receives the Esc/Enter keydown.
+          fullscreen = 1;
           pin = true;
           decorate = false;
         }
