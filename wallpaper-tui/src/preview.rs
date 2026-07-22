@@ -100,7 +100,7 @@ fn mtime_secs(t: &std::time::SystemTime) -> u64 {
 }
 
 fn make_thumbnail(src: &Path, dst: &Path, size: (u32, u32)) -> anyhow::Result<()> {
-    let thumb = image::open(src)?.thumbnail(size.0, size.1).to_rgb8();
+    let thumb = image::open(src)?.thumbnail(size.0, size.1);
     // Write to a sibling temp then rename, so an interrupted save can't leave a
     // partial PNG that the mtime-skip guard would treat as valid forever. Save
     // with an explicit format — the `.tmp` temp name has no recognized image

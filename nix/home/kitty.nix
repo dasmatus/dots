@@ -44,7 +44,7 @@
       cursor_stop_blinking_after = "0";
       font_family = "LilexNF-Bold";
       bold_font = "LilexNF-Bold";
-      font_size = "13";
+      font_size = "16";
     };
     # Shift+Return sends ESC + CR, matching the Alacritty binding
     # (chars \u001b\u000d). kitty's send_text takes \x1b (ESC) and \x0d (CR).
