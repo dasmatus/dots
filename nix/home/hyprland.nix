@@ -315,7 +315,7 @@ in
         {
           _args = [
             (lua ''mod .. " + Return"'')
-            (lua ''hl.dsp.exec_cmd("alacritty")'')
+            (lua ''hl.dsp.exec_cmd("kitty")'')
           ];
         }
         {

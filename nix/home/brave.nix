@@ -43,7 +43,7 @@ in
   # Appearance "GTK" mode has no browser policy and no HM option: the choice
   # lives per-profile in Preferences → extensions.theme.system_theme
   # (ui::SystemTheme::kGtk = 1). Assert it on activation so Brave's chrome
-  # follows Tokyonight-Dark GTK3 — the same palette alacritty.nix hardcodes.
+  # follows Tokyonight-Dark GTK3 — the same palette kitty.nix hardcodes.
   # No-op before Brave's first launch; a Brave exit during a switch may
   # rewrite the file, so the next switch re-asserts it. Default profile only.
   home.activation.braveGtkTheme = lib.hm.dag.entryAfter [ "writeBoundary" ] ''

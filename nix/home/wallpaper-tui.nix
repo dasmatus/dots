@@ -1,8 +1,8 @@
 # awww-based TUI wallpaper changer — terminal replacement for waytrogen.
-# Declarative Nix options own the settings; the Textual script in
-# ./wallpaper-tui.py (packaged via writers.writePython3Bin, then wrapped so it
-# can inject the read-only Nix-store base paths for the SVG tint targets) reads
-# them and writes only runtime overrides.
+# Declarative Nix options own the settings; the Rust crate in ../../wallpaper-tui
+# (built inline via rustPlatform.buildRustPackage, then wrapped so it can inject
+# the read-only Nix-store base paths for the SVG tint targets) reads them and
+# writes only runtime overrides.
 #
 # Two-file split (avoids waytrogen.nix's read-only-symlink workaround):
 #   ~/.config/wallpaper-tui/config.json  — declarative, read-only, from Nix
@@ -11,12 +11,13 @@
 # output for the session; --restore applies the effective merge. To make a pick
 # permanent, declare it in Nix instead of relying on state.
 #
-# The script also derives an accent color from the applied wallpaper and tints
+# The binary also derives an accent color from the applied wallpaper and tints
 # Hyprland borders, the Rofi theme, GTK 3/4, the Kvantum (Qt) theme and the
 # MoreWaita icon theme. The SVG base dirs for Kvantum/icons are passed in via
 # WALLPAPER_TUI_KVANTUM_BASE / WALLPAPER_TUI_ICON_BASE by the wrapper below so
-# the Python stays free of store-path globbing (and unit-testable with tmp
-# dirs). See docs/superpowers/specs/2026-07-21-wallpaper-tint-design.md.
+# the Rust code stays free of store-path globbing (and unit-testable with tmp
+# dirs). Previews are pure-Rust half-block cells (no chafa). See
+# docs/superpowers/specs/2026-07-21-wallpaper-tint-design.md.
 {
   config,
   lib,
@@ -34,22 +35,20 @@ let
     "tile"
   ];
 
-  wallpaper-tui-py = pkgs.writers.writePython3Bin "wallpaper-tui.py" {
-    libraries = [
-      pkgs.python3Packages.textual
-      pkgs.python3Packages.pillow
-    ];
-    flakeIgnore = [ "E501" ];
-  } (builtins.readFile ./wallpaper-tui.py);
+  wallpaper-tui-bin = pkgs.rustPlatform.buildRustPackage {
+    pname = "wallpaper-tui";
+    version = "0.1.0";
+    src = ../../wallpaper-tui;
+    cargoLock.lockFile = ../../wallpaper-tui/Cargo.lock;
+  };
 
   # Thin wrapper that injects the read-only Nix-store base paths for the SVG
-  # tint targets (Kvantum + MoreWaita) before exec-ing the Python script. Each
-  # is overridable via env so tests/dev can point at a tmp base.
+  # tint targets (Kvantum + MoreWaita) before exec-ing the Rust binary. Each is
+  # overridable via env so tests/dev can point at a tmp base.
   wallpaper-tui = pkgs.writeShellScriptBin "wallpaper-tui" ''
     export WALLPAPER_TUI_KVANTUM_BASE="''${WALLPAPER_TUI_KVANTUM_BASE:-${pkgs.catppuccin-kvantum}/share/Kvantum/catppuccin-frappe-blue}"
     export WALLPAPER_TUI_ICON_BASE="''${WALLPAPER_TUI_ICON_BASE:-${pkgs.morewaita-icon-theme}/share/icons/MoreWaita}"
-    export PATH="${lib.makeBinPath [ pkgs.chafa ]}:$PATH"
-    exec ${lib.getExe wallpaper-tui-py} "$@"
+    exec ${lib.getExe wallpaper-tui-bin} "$@"
   '';
 
   declarativeConfig = builtins.toJSON {
@@ -152,9 +151,9 @@ in
     home.packages = [ wallpaper-tui ];
 
     # Periodically regenerate the wallpaper thumbnail cache the TUI reads for
-    # instant chafa previews. oneshot + daily timer (cadence via
+    # instant half-block previews. oneshot + daily timer (cadence via
     # cfg.cacheInterval); scoped to the graphical session so it doesn't run on
-    # a headless box. ExecStart is the wrapper so chafa/Pillow/env are present.
+    # a headless box. ExecStart is the wrapper so the tint-base env is present.
     systemd.user.services.wallpaper-preview-cache = {
       Unit = {
         Description = "Cache wallpaper-tui preview thumbnails";

@@ -9,6 +9,7 @@ vm-state-*/
 
 # Nix + Rust build outputs
 installer-tui/target/
+wallpaper-tui/target/
 result
 result-*
 
