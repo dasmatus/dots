@@ -191,11 +191,10 @@ sleep 0.5
 kill "$INSTALLER_PID" 2>/dev/null || true
 wait "$INSTALLER_PID" 2>/dev/null || true
 
-# ── Stage 2: update README links ──────────────────────────────────────────────
+# ── Stage 2: update README screenshots section ────────────────────────────────
 if [[ -f "$README" ]]; then
-    info "updating README links"
-    update_readme_link "installer-welcome.png" "<!-- screenshot:installer-welcome -->" "Installer welcome screen" "installer-welcome.png"
-    update_readme_link "installer-disk.png" "<!-- screenshot:installer-disk -->" "Installer disk selection" "installer-disk.png"
+    info "updating README screenshots section"
+    update_readme_screenshots_section
 fi
 
 info "done. Generated files:"
