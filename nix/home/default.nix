@@ -29,6 +29,7 @@
     ./waybar.nix
     ./wallpaper-tui.nix
     ./dunst.nix
+    ./random_wp.nix
     ./librewolf.nix
     ./rofi
     ./git.nix
