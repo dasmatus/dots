@@ -5,9 +5,8 @@
 # ~/.var/app/io.gitlab.librewolf-community injection is gone with the flatpak.
 #
 # Extensions (Bitwarden, SponsorBlock) come Nix-pinned from the
-# firefox-addons flake input; the chrome is rafaelmardojai's
-# firefox-gnome-theme (nixpkgs) @imported from the store, with its required
-# prefs asserted in personalPrefs below.
+# firefox-addons flake input. The profile ships stock chrome (no
+# userChrome/userContent); personal pref deltas live in personalPrefs.
 #
 # LibreWolf itself already ships an arkenfox-derived set of hardened
 # defaults baked into the browser (see LibreWolf's own defaults/pref
@@ -87,11 +86,6 @@ let
         ( cd "${aipageFirefox}" && ${pkgs.lib.getExe pkgs.zip} -rX "$extDir/${aipageId}.xpi" . )
       '';
 
-  # rafaelmardojai/firefox-gnome-theme, imported straight from the store via
-  # userChrome/userContent below. Its nested @imports resolve relative to the
-  # importing sheet, so the single absolute file:// import is enough.
-  gnomeTheme = pkgs.firefox-gnome-theme;
-
   # Personal deltas carried over from the retired repo-root user.js
   # (arkenfox v115.1 base + "// My stuff" section), diffed pref-by-pref
   # against arkenfox 115.1 and re-applied here so they win over both
@@ -132,7 +126,7 @@ let
     "browser.newtabpage.activity-stream.feeds.topsites" = false;
     "browser.newtabpage.activity-stream.feeds.section.topstories" = false;
 
-    # Force dark content color-scheme, allow userChrome/userContent.
+    # Force dark content color-scheme.
     "layout.css.prefers-color-scheme.content-override" = 2;
 
     # Delay update-available restart prompts.
@@ -141,14 +135,6 @@ let
     # Auto-enable the declaratively installed extensions (otherwise every
     # extensions.packages entry needs a manual "Enable" click on first run).
     "extensions.autoDisableScopes" = 0;
-
-    # firefox-gnome-theme required prefs (its configuration/user.js, minus
-    # legacyUserProfileCustomizations.stylesheets which is already set above;
-    # svg.context-properties is required or the theme icons render black).
-    "svg.context-properties.content.enabled" = true;
-    "browser.uidensity" = 0;
-    "browser.theme.dark-private-windows" = false;
-    "widget.gtk.rounded-bottom-corners.enabled" = true;
   };
 
   renderPref = name: value: "user_pref(${builtins.toJSON name}, ${builtins.toJSON value});";
@@ -194,13 +180,6 @@ in
         addons.sponsorblock
         aipageXpi
       ];
-
-      userChrome = ''
-        @import "file://${gnomeTheme}/share/firefox-gnome-theme/userChrome.css";
-      '';
-      userContent = ''
-        @import "file://${gnomeTheme}/share/firefox-gnome-theme/userContent.css";
-      '';
     };
   };
 }
