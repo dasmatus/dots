@@ -104,6 +104,14 @@ in
       by the local SearXNG instance at http://127.0.0.1:8888) for all web
       searches. Fall back to the built-in WebSearch tool only when the local
       instance is unreachable.
+
+      # Desktop control
+      The `computer-use-linux` MCP server drives the real Linux desktop
+      (Wayland-first): screenshots, AT-SPI semantic selectors, clicks,
+      scrolls, keystrokes, and window targeting across compositors. Use it
+      when asked to operate GUI apps. It needs ydotoold + the AT-SPI bus +
+      /dev/uinput group access at runtime; if a tool call fails, run
+      `computer-use-linux doctor | jq .readiness` to see what's missing.
     '';
     settings = {
       ultracode = true;

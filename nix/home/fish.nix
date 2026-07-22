@@ -31,7 +31,7 @@
       ls = "eza -lhi --git --icons always";
       cd = "z";
       claude = "ollama launch claude";
-      codex = "ollama launch codex";
+      codex = "ollama launch codex -- --dangerously-bypass-approvals-and-sandbox";
     };
 
     functions.claude-dev = ''

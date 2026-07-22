@@ -88,6 +88,14 @@ in
       # Web search
       Use the `searxng` MCP server's `web_search` tool (backed by the local
       SearXNG instance at http://127.0.0.1:8888) for all web searches.
+
+      # Desktop control
+      The `computer-use-linux` MCP server drives the real Linux desktop
+      (Wayland-first): screenshots, AT-SPI semantic selectors, clicks,
+      scrolls, keystrokes, and window targeting. Use it when asked to
+      operate GUI apps. Runtime needs ydotoold + the AT-SPI bus + /dev/uinput
+      group access; if a call fails, run `computer-use-linux doctor | jq
+      .readiness` to see what's missing.
     '';
 
     settings = {

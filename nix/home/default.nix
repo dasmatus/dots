@@ -19,6 +19,7 @@
     ./fish.nix
     ./claude.nix
     ./codex.nix
+    ./computer-use-linux.nix
     ./nixvim.nix
     ./dokumente.nix
     ./dots-repo.nix
@@ -37,6 +38,10 @@
   ];
   home.stateVersion = "26.05";
   programs.home-manager.enable = true;
+
+  # computer-use-linux MCP server + CLI, registered into every harness
+  # present here (Claude Code + Codex). See nix/home/computer-use-linux.nix.
+  programs.computer-use-linux.enable = true;
   dconf.enable = true;
   dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
   dconf.settings = {
