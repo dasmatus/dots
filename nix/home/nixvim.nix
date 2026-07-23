@@ -162,6 +162,7 @@
             nvim_lua = "[Lua]";
             path = "[Path]";
             buffer = "[Buffer]";
+            minuet = "[Ollama]";
           };
           mode = "symbol_text";
         };
@@ -213,6 +214,7 @@
             { name = "luasnip"; }
             { name = "nvim_lua"; }
             { name = "path"; }
+            { name = "minuet"; }
             {
               name = "buffer";
               keyword_length = 4;
@@ -228,6 +230,7 @@
             completeopt = "menu,noselect";
           };
           view.entries = "custom";
+          performance.fetching_timeout = 2000;
         };
       };
 
@@ -387,7 +390,7 @@
 
     extraPlugins = with pkgs.vimPlugins; [
       ansible-vim
-      claudecode-nvim
+      minuet-ai-nvim
       (pkgs.vimUtils.buildVimPlugin {
         pname = "v-vim";
         version = "2024-unstable";
@@ -401,6 +404,7 @@
     ];
 
     extraPackages = with pkgs; [
+      curl
       lazygit
       stylua
       clang-tools
@@ -412,7 +416,24 @@
     extraConfigLua = ''
       vim.opt.sessionoptions:append('globals')
 
-      require('claudecode').setup()
+      require('minuet').setup({
+        provider = 'openai_fim_compatible',
+        n_completions = 1,
+        context_window = 512,
+        request_timeout = 5,
+        provider_options = {
+          openai_fim_compatible = {
+            name = 'Ollama',
+            api_key = 'TERM',
+            model = 'qwen2.5-coder:7b',
+            end_point = 'http://localhost:11434/v1/completions',
+            optional = {
+              max_tokens = 56,
+              top_p = 0.9,
+            },
+          },
+        },
+      })
 
       local Terminal = require('toggleterm.terminal').Terminal
       local lazygit = Terminal:new({ cmd = "lazygit", hidden = true })
