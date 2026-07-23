@@ -42,9 +42,9 @@
       cursor_shape = "beam";
       cursor_blink_interval = "0.5";
       cursor_stop_blinking_after = "0";
-      font_family = "LilexNF-Bold";
-      bold_font = "LilexNF-Bold";
-      font_size = "16";
+      font_family = "LilexNF";
+      bold_font = "LilexNF";
+      font_size = "12";
     };
     # Shift+Return sends ESC + CR, matching the Alacritty binding
     # (chars \u001b\u000d). kitty's send_text takes \x1b (ESC) and \x0d (CR).
