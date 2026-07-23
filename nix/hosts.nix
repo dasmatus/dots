@@ -40,7 +40,15 @@ in
       }
     else
       { };
-  services.ollama.package = if hasNvidia then pkgs.ollama-cuda else pkgs.ollama-rocm;
+
+  services.ollama = {
+    enable = true;
+    loadModels = [
+      "ornith:9b"
+      "gemma4:e4b"
+    ];
+    package = if hasNvidia then pkgs.ollama-cuda else pkgs.ollama-rocm;
+  };
   # Facter only enables this when the report lists a monitor; keep the old
   # hosts/{intel,amd}.nix guarantee unconditionally.
   hardware.graphics.enable = true;
