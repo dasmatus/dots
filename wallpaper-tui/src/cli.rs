@@ -7,6 +7,7 @@
 use clap::builder::PossibleValuesParser;
 use clap::Parser;
 
+use crate::accent::TintBackend;
 use crate::awww::{apply_wallpaper, restore_groups, Group, LiveAwww};
 use crate::config::{preview_cache_dir, Config, State, DEFAULT_COLOR, MODES};
 use crate::preview::{cache_previews, parse_preview_size};
@@ -30,10 +31,13 @@ pub struct Args {
     /// Skip wallpaper-derived accent tinting.
     #[arg(long = "no-tint")]
     pub no_tint: bool,
+    /// Palette backend used to extract the wallpaper accent.
+    #[arg(long = "tint-backend", value_parser = PossibleValuesParser::new(["internal", "pywal"]))]
+    pub tint_backend: Option<String>,
     /// Regenerate the wallpaper thumbnail cache and exit.
     #[arg(long = "cache-previews")]
     pub cache_previews: bool,
-    /// Thumbnail size WxH for --cache-previews.
+    /// Thumbnail size `WxH` for --cache-previews.
     #[arg(long = "preview-size", default_value = "320x200")]
     pub preview_size: String,
     /// Wallpaper path (non-interactive apply).
@@ -42,7 +46,8 @@ pub struct Args {
 
 /// Re-apply every declared output, using overrides where present; tint from
 /// the first output's wallpaper. Returns the process exit code.
-pub fn restore_all(config: &Config, state: &State, no_tint: bool) -> i32 {
+#[must_use]
+pub fn restore_all(config: &Config, state: &State, no_tint: bool, backend: TintBackend) -> i32 {
     let groups = restore_groups(config, state);
     if groups.is_empty() {
         eprintln!("wallpaper-tui: nothing to restore.");
@@ -54,12 +59,13 @@ pub fn restore_all(config: &Config, state: &State, no_tint: bool) -> i32 {
         &config.transition_type,
         config.transition_duration,
     );
-    apply_tint(&groups[0].path, no_tint);
+    let _ = apply_tint(&groups[0].path, no_tint, backend);
     eprintln!("wallpaper-tui: restored {} output(s).", groups.len());
     0
 }
 
 /// Non-interactive apply of one path to one output, with tint.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_noninteractive(
     config: &Config,
     state: &mut State,
@@ -68,6 +74,7 @@ pub fn apply_noninteractive(
     mode: &str,
     color: &str,
     no_tint: bool,
+    backend: TintBackend,
 ) -> anyhow::Result<()> {
     use crate::config::OutputOverride;
     state.outputs.insert(
@@ -91,7 +98,7 @@ pub fn apply_noninteractive(
         &config.transition_type,
         config.transition_duration,
     );
-    apply_tint(path, no_tint);
+    let _ = apply_tint(path, no_tint, backend);
     eprintln!("wallpaper-tui: applied {path} to {output}.");
     Ok(())
 }
@@ -114,6 +121,7 @@ pub fn run_cache(config: &Config, preview_size: &str) -> anyhow::Result<()> {
 
 /// `--mode` value parser passthrough — re-exported so tests can build the
 /// allowed set without depending on clap internals.
+#[must_use]
 pub fn modes() -> &'static [&'static str] {
     MODES
 }

@@ -12,7 +12,13 @@
 # bus (accessibility tree), xdg-desktop-portal (screenshots), and a udev
 # rule giving the input group access to /dev/uinput. Run `computer-use-linux
 # doctor | jq .readiness` after switching to see what's missing on this box.
-{ lib, stdenv, fetchurl, autoPatchelfHook, libgcc }:
+{
+  lib,
+  stdenv,
+  fetchurl,
+  autoPatchelfHook,
+  libgcc,
+}:
 let
   version = "0.4.1";
   asset = "computer-use-linux-x86_64-unknown-linux-gnu";

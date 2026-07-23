@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 
+use crate::accent::TintBackend;
 use crate::awww::Group;
 use crate::config::{effective_output, Config, State, COLOR_PALETTE, DEFAULT_COLOR, MODES};
 
@@ -21,6 +22,7 @@ pub enum PendingOp {
         transition_type: String,
         transition_duration: f64,
         no_tint: bool,
+        backend: TintBackend,
     },
     /// Re-apply every declared output + tint the first one.
     Restore {
@@ -28,6 +30,7 @@ pub enum PendingOp {
         transition_type: String,
         transition_duration: f64,
         no_tint: bool,
+        backend: TintBackend,
     },
     /// Decode the preview thumbnail for a path into a `DynamicImage`.
     Preview { path: String },
@@ -50,6 +53,7 @@ pub struct App {
     pub config: Config,
     pub state: State,
     pub no_tint: bool,
+    pub backend: TintBackend,
     pub wallpapers: Vec<PathBuf>,
     pub outputs: Vec<String>,
     pub current_output: usize,
@@ -81,7 +85,13 @@ pub struct App {
 
 impl App {
     #[must_use]
-    pub fn new(config: Config, state: State, no_tint: bool, picker: Picker) -> Self {
+    pub fn new(
+        config: Config,
+        state: State,
+        no_tint: bool,
+        picker: Picker,
+        backend: TintBackend,
+    ) -> Self {
         let wallpapers =
             crate::wallpapers::list_wallpapers(&config.wallpaper_folder, config.recursive);
         let mut outputs = crate::wallpapers::detect_outputs();
@@ -105,6 +115,7 @@ impl App {
             config,
             state,
             no_tint,
+            backend,
             wallpapers,
             outputs,
             current_output,
@@ -122,11 +133,13 @@ impl App {
         }
     }
 
+    #[must_use]
     pub fn output_name(&self) -> &str {
         &self.outputs[self.current_output]
     }
 
     /// The currently-highlighted wallpaper path, if any.
+    #[must_use]
     pub fn selected_path(&self) -> Option<String> {
         self.wallpapers
             .get(self.selected)
@@ -134,6 +147,7 @@ impl App {
     }
 
     /// One-line info bar text.
+    #[must_use]
     pub fn info_text(&self) -> String {
         let eff = effective_output(&self.config, &self.state, self.output_name());
         let name = if eff.path.is_empty() {
@@ -141,8 +155,7 @@ impl App {
         } else {
             PathBuf::from(&eff.path)
                 .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| eff.path.clone())
+                .map_or_else(|| eff.path.clone(), |n| n.to_string_lossy().into_owned())
         };
         let mut s = format!(
             " Output: {} | Mode: {} | Color: {} | Current: {} ",
@@ -265,6 +278,7 @@ impl App {
             transition_type: self.config.transition_type.clone(),
             transition_duration: self.config.transition_duration,
             no_tint: self.no_tint,
+            backend: self.backend,
         });
     }
 
@@ -279,6 +293,7 @@ impl App {
             transition_type: self.config.transition_type.clone(),
             transition_duration: self.config.transition_duration,
             no_tint: self.no_tint,
+            backend: self.backend,
         });
     }
 
@@ -301,6 +316,7 @@ impl App {
 }
 
 /// Default fill color (re-exported for the CLI's `--color` default).
+#[must_use]
 pub fn default_color() -> &'static str {
     DEFAULT_COLOR
 }

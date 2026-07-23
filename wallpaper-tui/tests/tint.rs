@@ -9,6 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use tempfile::tempdir;
+use wallpaper_tui::accent::TintBackend;
 use wallpaper_tui::accent::{hex_to_hls, hls_to_hex};
 use wallpaper_tui::config::TintState;
 use wallpaper_tui::tint::{
@@ -185,7 +186,7 @@ fn apply_tint_generates_all_targets() {
     let d = tempdir().unwrap();
     let ctx = ctx_with_bases(d.path());
     let wp = wallpaper(d.path());
-    let s = apply_tint_ctx(&ctx, wp.to_str().unwrap(), false).expect("ran");
+    let s = apply_tint_ctx(&ctx, wp.to_str().unwrap(), false, TintBackend::Internal).expect("ran");
     assert!(s.accent.starts_with('#'));
     assert_eq!(s.rofi, "ok");
     assert_eq!(s.gtk, "ok");
@@ -214,8 +215,8 @@ fn apply_tint_caches_svg_trees_on_same_accent() {
     let ctx = ctx_with_bases(d.path());
     let wp = wallpaper(d.path());
     let wp = wp.to_str().unwrap();
-    let first = apply_tint_ctx(&ctx, wp, false).unwrap();
-    let second = apply_tint_ctx(&ctx, wp, false).unwrap();
+    let first = apply_tint_ctx(&ctx, wp, false, TintBackend::Internal).unwrap();
+    let second = apply_tint_ctx(&ctx, wp, false, TintBackend::Internal).unwrap();
     assert_eq!(first.accent, second.accent);
     assert_eq!(second.qt, "cached");
     assert_eq!(second.icons, "cached");
@@ -226,7 +227,7 @@ fn apply_tint_no_tint_returns_none() {
     let d = tempdir().unwrap();
     let ctx = tint_ctx(d.path(), None, None);
     let wp = wallpaper(d.path());
-    assert!(apply_tint_ctx(&ctx, wp.to_str().unwrap(), true).is_none());
+    assert!(apply_tint_ctx(&ctx, wp.to_str().unwrap(), true, TintBackend::Internal).is_none());
 }
 
 #[test]
@@ -234,7 +235,7 @@ fn apply_tint_skips_missing_bases() {
     let d = tempdir().unwrap();
     let ctx = tint_ctx(d.path(), None, None); // no kvantum/icon base
     let wp = wallpaper(d.path());
-    let s = apply_tint_ctx(&ctx, wp.to_str().unwrap(), false).unwrap();
+    let s = apply_tint_ctx(&ctx, wp.to_str().unwrap(), false, TintBackend::Internal).unwrap();
     assert_eq!(s.qt, "skipped");
     assert_eq!(s.icons, "skipped");
     // cheap targets still ran.
@@ -246,6 +247,6 @@ fn apply_tint_skips_missing_bases() {
 fn apply_tint_missing_path_is_noop() {
     let d = tempdir().unwrap();
     let ctx = tint_ctx(d.path(), None, None);
-    assert!(apply_tint_ctx(&ctx, "/no/such/wp.png", false).is_none());
+    assert!(apply_tint_ctx(&ctx, "/no/such/wp.png", false, TintBackend::Internal).is_none());
     let _ = Path::new("/no/such/wp.png");
 }

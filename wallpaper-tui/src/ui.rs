@@ -64,10 +64,10 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         .wallpapers
         .iter()
         .map(|p| {
-            let name = p
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| p.to_string_lossy().into_owned());
+            let name = p.file_name().map_or_else(
+                || p.to_string_lossy().into_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            );
             ListItem::new(Line::from(name))
         })
         .collect();
@@ -90,15 +90,12 @@ fn draw_preview(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    match app.preview.as_mut() {
-        Some(proto) => f.render_stateful_widget(StatefulImage::default(), inner, proto),
-        None => {
-            let label = match app.preview_pending.as_deref() {
-                Some(_) => "rendering…",
-                None => "[preview unavailable]",
-            };
-            f.render_widget(Paragraph::new(Line::from(label)), inner);
-        }
+    if let Some(proto) = app.preview.as_mut() { f.render_stateful_widget(StatefulImage::default(), inner, proto) } else {
+        let label = match app.preview_pending.as_deref() {
+            Some(_) => "rendering…",
+            None => "[preview unavailable]",
+        };
+        f.render_widget(Paragraph::new(Line::from(label)), inner);
     }
 }
 

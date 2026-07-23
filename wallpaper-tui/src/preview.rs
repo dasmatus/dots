@@ -17,6 +17,7 @@ use crate::wallpapers::list_wallpapers;
 
 /// sha1(`"{path}:{mtime}"`) → the cached thumbnail path, mirroring the Python
 /// hash key. Returns `path` unchanged when no cached thumbnail exists.
+#[must_use]
 pub fn thumb_for(path: &str) -> String {
     let Ok(meta) = fs::metadata(path) else {
         return path.to_string();
@@ -26,8 +27,7 @@ pub fn thumb_for(path: &str) -> String {
     };
     let secs = mtime
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let key = sha1_hex(format!("{path}:{secs}"));
     let thumb = crate::config::preview_cache_dir().join(format!("{key}.png"));
     if thumb.exists() {
@@ -54,6 +54,7 @@ pub struct CacheStats {
     pub skipped: usize,
 }
 
+#[must_use]
 pub fn cache_previews(
     folder: &str,
     recursive: bool,
@@ -96,8 +97,7 @@ pub fn cache_previews(
 
 fn mtime_secs(t: &std::time::SystemTime) -> u64 {
     t.duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }
 
 fn make_thumbnail(src: &Path, dst: &Path, size: (u32, u32)) -> anyhow::Result<()> {
@@ -121,6 +121,7 @@ pub fn load_preview(path: &str) -> anyhow::Result<image::DynamicImage> {
 }
 
 /// Parse a ``WxH`` preview-size argument (e.g. ``"320x200"``).
+#[must_use]
 pub fn parse_preview_size(s: &str) -> Option<(u32, u32)> {
     let lower = s.to_ascii_lowercase();
     let (w, h) = lower.split_once('x')?;

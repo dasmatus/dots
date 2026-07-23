@@ -13,7 +13,12 @@
 # giving the `input` group access to /dev/uinput. Those are NixOS system
 # modules and live outside home-manager; run `computer-use-linux doctor` (or
 # `doctor | jq .readiness`) to see what's missing on this box.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.programs.computer-use-linux;
 

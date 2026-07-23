@@ -26,6 +26,7 @@ fn mtime(path: &Path) -> SystemTime {
 
 /// List wallpapers in `folder`, newest-first (mtime, descending) — matches
 /// waytrogen's default sort. Returns an empty vec when the folder is missing.
+#[must_use]
 pub fn list_wallpapers(folder: &str, recursive: bool) -> Vec<PathBuf> {
     if folder.is_empty() || !Path::new(folder).is_dir() {
         return Vec::new();
@@ -34,7 +35,7 @@ pub fn list_wallpapers(folder: &str, recursive: bool) -> Vec<PathBuf> {
     if recursive {
         for entry in walkdir::WalkDir::new(folder)
             .into_iter()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
         {
             if entry.file_type().is_file() && is_image(entry.path()) {
                 let p = entry.path().to_path_buf();
@@ -60,6 +61,7 @@ struct Monitor {
 
 /// Best-effort output enumeration via `hyprctl monitors -j`; `[]` when not on
 /// Hyprland or hyprctl is unavailable.
+#[must_use]
 pub fn detect_outputs() -> Vec<String> {
     if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
         return Vec::new();
