@@ -26,7 +26,7 @@
       # detects an NVIDIA card in the facter report
       "nvidia-x11"
       "nvidia-settings"
-      "vscode-extension-fill-labs-dependi-0.7.2"
+      "vscode-extension-fill-labs-dependi"
     ];
 
   # vesktop 1.6.5 in the current nixpkgs pin still wraps electron-bin 40,
