@@ -5,6 +5,7 @@
 //! frame. Mirrors `installer-tui/src/main.rs`.
 
 use std::io;
+use std::str::FromStr;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -17,6 +18,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
+use wallpaper_tui::accent::TintBackend;
 use wallpaper_tui::app::{App, Event, PendingOp, PREVIEW_COLS, PREVIEW_ROWS};
 use wallpaper_tui::awww::{apply_wallpaper, LiveAwww};
 use wallpaper_tui::cli::{self, Args};
@@ -25,13 +27,23 @@ use wallpaper_tui::preview;
 use wallpaper_tui::tint;
 use wallpaper_tui::ui;
 
+fn resolve_backend(args_backend: Option<String>, config_backend: &str) -> TintBackend {
+    if let Some(b) = args_backend {
+        if let Ok(backend) = TintBackend::from_str(&b) {
+            return backend;
+        }
+    }
+    TintBackend::from_str(config_backend).unwrap_or_default()
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let config = Config::load();
     let state = State::load();
+    let backend = resolve_backend(args.tint_backend.clone(), &config.tint_backend);
 
     if args.restore {
-        std::process::exit(cli::restore_all(&config, &state, args.no_tint));
+        std::process::exit(cli::restore_all(&config, &state, args.no_tint, backend));
     }
     if args.cache_previews {
         return cli::run_cache(&config, &args.preview_size);
@@ -49,6 +61,7 @@ fn main() -> anyhow::Result<()> {
             &args.mode,
             &args.color,
             args.no_tint,
+            backend,
         );
     }
 
@@ -63,15 +76,20 @@ fn main() -> anyhow::Result<()> {
         orig_hook(info);
     }));
 
-    let result = run_tui(config, state, args.no_tint);
+    let result = run_tui(config, state, args.no_tint, backend);
     let _ = disable_raw_mode();
     let _ = execute!(io::stdout(), LeaveAlternateScreen);
     result
 }
 
-fn run_tui(config: Config, state: State, no_tint: bool) -> anyhow::Result<()> {
+fn run_tui(
+    config: Config,
+    state: State,
+    no_tint: bool,
+    backend: TintBackend,
+) -> anyhow::Result<()> {
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let mut app = App::new(config, state, no_tint);
+    let mut app = App::new(config, state, no_tint, backend);
     // Kick off the preview for the initial selection.
     app.request_preview();
 
@@ -97,12 +115,13 @@ fn run_tui(config: Config, state: State, no_tint: bool) -> anyhow::Result<()> {
                     transition_type,
                     transition_duration,
                     no_tint,
+                    backend,
                 } => {
                     let tx = apply_tx.clone();
                     std::thread::spawn(move || {
                         let groups = vec![group.clone()];
                         apply_wallpaper(&LiveAwww, &groups, &transition_type, transition_duration);
-                        let status = tint::apply_tint(&group.path, no_tint);
+                        let status = tint::apply_tint(&group.path, no_tint, backend);
                         let msg = match status {
                             Some(s) => format!("applied {} (tint {})", group.path, s.qt),
                             None => format!("applied {}", group.path),
@@ -115,15 +134,16 @@ fn run_tui(config: Config, state: State, no_tint: bool) -> anyhow::Result<()> {
                     transition_type,
                     transition_duration,
                     no_tint,
+                    backend,
                 } => {
                     let tx = apply_tx.clone();
                     std::thread::spawn(move || {
                         apply_wallpaper(&LiveAwww, &groups, &transition_type, transition_duration);
-                        let tint_path = groups.first().map(|g| g.path.as_str()).unwrap_or("");
+                        let tint_path = groups.first().map_or("", |g| g.path.as_str());
                         let status = if tint_path.is_empty() {
                             None
                         } else {
-                            tint::apply_tint(tint_path, no_tint)
+                            tint::apply_tint(tint_path, no_tint, backend)
                         };
                         let msg = match status {
                             Some(s) => format!("restored {} (tint {})", groups.len(), s.qt),

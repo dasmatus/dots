@@ -72,7 +72,7 @@ fn cache_previews_skips_unchanged() {
     fs::create_dir_all(&folder).unwrap();
     make_image(&folder.join("a.png"), (10, 20, 30), 64);
     let out = d.path().join("thumbs");
-    cache_previews(folder.to_str().unwrap(), true, &out, (32, 32));
+    let _ = cache_previews(folder.to_str().unwrap(), true, &out, (32, 32));
     // Second run: same mtime -> skip.
     let stats = cache_previews(folder.to_str().unwrap(), true, &out, (32, 32));
     assert_eq!(stats.written, 0);

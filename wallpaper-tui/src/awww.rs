@@ -13,6 +13,7 @@ use crate::config::Effective;
 /// Map a swaybg scaling mode to an awww ``--resize`` value. awww has no
 /// ``tile`` (degrades to centered ``no``); it supports ``stretch`` directly.
 /// Unknown modes default to ``crop`` (fill).
+#[must_use]
 pub fn map_resize(mode: &str) -> &'static str {
     match mode {
         "fill" => "crop",
@@ -27,6 +28,7 @@ pub fn map_resize(mode: &str) -> &'static str {
 /// Normalize a ``#rrggbb``/``rrggbb``/``#rrggbbaa`` fill color to bare
 /// ``RRGGBBAA``. awww's ``--fill-color`` is 8-digit RGBA (default
 /// ``000000ff``), no leading ``#``. Empty input falls back to opaque black.
+#[must_use]
 pub fn normalize_fill_color(color: &str) -> String {
     let c = color.trim_start_matches('#');
     if c.is_empty() {
@@ -39,7 +41,7 @@ pub fn normalize_fill_color(color: &str) -> String {
 }
 
 /// One apply group: the output name (or ``"*"`` for all-outputs) and the
-/// effective path/mode/fill_color to apply.
+/// effective `path/mode/fill_color` to apply.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
     pub output: String,
@@ -49,6 +51,7 @@ pub struct Group {
 }
 
 impl Group {
+    #[must_use]
     pub fn from_effective(output: &str, eff: &Effective) -> Self {
         Self {
             output: output.to_string(),
@@ -62,6 +65,7 @@ impl Group {
 /// Build the argv for one ``awww img`` IPC command. ``-o`` is omitted for the
 /// ``*``/all-outputs case (awww has no ``*``; an empty ``--outputs`` list means
 /// all outputs). ``fill_color`` is normalized to ``RRGGBBAA``.
+#[must_use]
 pub fn awww_img_args(
     group: &Group,
     transition_type: &str,
@@ -115,8 +119,7 @@ impl AwwwBackend for LiveAwww {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+            .is_ok_and(|s| s.success())
     }
 
     fn spawn_img(&self, argv: &[String]) {
@@ -166,6 +169,7 @@ pub fn apply_wallpaper<B: AwwwBackend>(
 
 /// Build the groups for a full restore: every declared output whose effective
 /// path still exists.
+#[must_use]
 pub fn restore_groups(config: &crate::config::Config, state: &crate::config::State) -> Vec<Group> {
     let mut groups = Vec::new();
     for output in config.outputs.keys() {

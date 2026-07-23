@@ -62,10 +62,10 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         .wallpapers
         .iter()
         .map(|p| {
-            let name = p
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| p.to_string_lossy().into_owned());
+            let name = p.file_name().map_or_else(
+                || p.to_string_lossy().into_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            );
             ListItem::new(Line::from(name))
         })
         .collect();
@@ -88,15 +88,14 @@ fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let lines = match app.preview_lines() {
-        Some(lines) => lines.clone(),
-        None => {
-            let label = match app.preview_pending.as_deref() {
-                Some(_) => "rendering…".to_string(),
-                None => "[preview unavailable]".to_string(),
-            };
-            vec![Line::from(label)]
-        }
+    let lines = if let Some(lines) = app.preview_lines() {
+        lines.clone()
+    } else {
+        let label = match app.preview_pending.as_deref() {
+            Some(_) => "rendering…".to_string(),
+            None => "[preview unavailable]".to_string(),
+        };
+        vec![Line::from(label)]
     };
     let para = Paragraph::new(lines).wrap(Wrap { trim: false });
     f.render_widget(para, inner);

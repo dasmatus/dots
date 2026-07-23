@@ -7,7 +7,9 @@
 mod common;
 
 use tempfile::tempdir;
-use wallpaper_tui::accent::{extract_accent, hex_to_hls};
+use wallpaper_tui::accent::{
+    accent_shades, extract_accent, hex_to_hls, parse_pywal_colors, TintBackend,
+};
 use wallpaper_tui::config::{DEFAULT_ACCENT, DEFAULT_ACCENT_DARK, DEFAULT_ACCENT_LIGHT};
 
 use common::{make_image, make_image_with_patch};
@@ -30,7 +32,7 @@ fn solid_red_yields_red_hue() {
     let d = tempdir().unwrap();
     let p = d.path().join("red.png");
     make_image(&p, (220, 30, 30), 64);
-    let (accent, _dark, _light) = extract_accent(p.to_str().unwrap());
+    let (accent, _dark, _light) = extract_accent(p.to_str().unwrap(), TintBackend::Internal);
     let h = hue_of(&accent);
     assert!(
         !(0.04..=0.96).contains(&h),
@@ -44,7 +46,7 @@ fn solid_green_yields_green_hue() {
     let d = tempdir().unwrap();
     let p = d.path().join("green.png");
     make_image(&p, (40, 200, 60), 64);
-    let (accent, _, _) = extract_accent(p.to_str().unwrap());
+    let (accent, _, _) = extract_accent(p.to_str().unwrap(), TintBackend::Internal);
     let h = hue_of(&accent);
     assert!(
         h > 0.28 && h < 0.38,
@@ -57,7 +59,7 @@ fn solid_blue_yields_blue_hue() {
     let d = tempdir().unwrap();
     let p = d.path().join("blue.png");
     make_image(&p, (60, 120, 230), 64);
-    let (accent, _, _) = extract_accent(p.to_str().unwrap());
+    let (accent, _, _) = extract_accent(p.to_str().unwrap(), TintBackend::Internal);
     let h = hue_of(&accent);
     assert!(
         h > 0.55 && h < 0.66,
@@ -70,7 +72,7 @@ fn shades_share_hue() {
     let d = tempdir().unwrap();
     let p = d.path().join("magenta.png");
     make_image(&p, (220, 40, 200), 64);
-    let (accent, dark, light) = extract_accent(p.to_str().unwrap());
+    let (accent, dark, light) = extract_accent(p.to_str().unwrap(), TintBackend::Internal);
     let (ha, hd, hl) = (hue_of(&accent), hue_of(&dark), hue_of(&light));
     // all three companions share the accent hue (within bucket resolution).
     assert!(ha.max(hd).max(hl) - ha.min(hd).min(hl) < 0.07);
@@ -84,7 +86,7 @@ fn grayscale_falls_back_to_default() {
     let d = tempdir().unwrap();
     let p = d.path().join("gray.png");
     make_image(&p, (128, 128, 128), 64);
-    let (accent, dark, light) = extract_accent(p.to_str().unwrap());
+    let (accent, dark, light) = extract_accent(p.to_str().unwrap(), TintBackend::Internal);
     assert_eq!(accent, DEFAULT_ACCENT);
     assert_eq!(dark, DEFAULT_ACCENT_DARK);
     assert_eq!(light, DEFAULT_ACCENT_LIGHT);
@@ -95,7 +97,7 @@ fn near_black_falls_back_to_default() {
     let d = tempdir().unwrap();
     let p = d.path().join("black.png");
     make_image(&p, (5, 5, 5), 64);
-    let triple = extract_accent(p.to_str().unwrap());
+    let triple = extract_accent(p.to_str().unwrap(), TintBackend::Internal);
     assert_eq!(triple.0, DEFAULT_ACCENT);
     assert_eq!(triple.1, DEFAULT_ACCENT_DARK);
     assert_eq!(triple.2, DEFAULT_ACCENT_LIGHT);
@@ -103,7 +105,7 @@ fn near_black_falls_back_to_default() {
 
 #[test]
 fn missing_path_falls_back() {
-    let triple = extract_accent("/no/such/file.png");
+    let triple = extract_accent("/no/such/file.png", TintBackend::Internal);
     assert_eq!(triple.0, DEFAULT_ACCENT);
     assert_eq!(triple.1, DEFAULT_ACCENT_DARK);
     assert_eq!(triple.2, DEFAULT_ACCENT_LIGHT);
@@ -116,10 +118,42 @@ fn dominant_vibrant_beats_small_saturated_patch() {
     let d = tempdir().unwrap();
     let p = d.path().join("mostly_blue.png");
     make_image_with_patch(&p, (60, 120, 230), (220, 30, 30));
-    let (accent, _, _) = extract_accent(p.to_str().unwrap());
+    let (accent, _, _) = extract_accent(p.to_str().unwrap(), TintBackend::Internal);
     let h = hue_of(&accent);
     assert!(
         h > 0.55 && h < 0.66,
         "dominant blue should win, got hue {h} ({accent})"
     );
+}
+
+#[test]
+fn accent_shades_keeps_hue() {
+    let (accent, dark, light) = accent_shades("#ff00aa");
+    assert_eq!(accent, "#ff00aa");
+    let (ha, hd, hl) = (hue_of(&accent), hue_of(&dark), hue_of(&light));
+    assert!((ha - hd).abs() < 0.001 && (ha - hl).abs() < 0.001);
+    assert!(light_of(&dark) < light_of(&accent) && light_of(&accent) < light_of(&light));
+}
+
+#[test]
+fn parse_pywal_colors_extracts_color5_family() {
+    let json = r##"{
+        "special": {"background": "#1a1b26", "foreground": "#c0caf5"},
+        "colors": {
+            "color0": "#15161e", "color1": "#f7768e", "color2": "#9ece6a",
+            "color3": "#e0af68", "color4": "#7aa2f7", "color5": "#bb9af7",
+            "color6": "#7dcfff", "color7": "#c0caf5"
+        }
+    }"##;
+    let (accent, dark, light) = parse_pywal_colors(json).expect("parse ok");
+    assert_eq!(accent, "#bb9af7");
+    assert_ne!(dark, accent);
+    assert_ne!(light, accent);
+    assert!(light_of(&dark) < light_of(&accent) && light_of(&accent) < light_of(&light));
+}
+
+#[test]
+fn parse_pywal_colors_rejects_malformed() {
+    assert!(parse_pywal_colors(r#"{"colors": {"color5": "nope"}}"#).is_none());
+    assert!(parse_pywal_colors("not json").is_none());
 }

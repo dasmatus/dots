@@ -16,6 +16,7 @@ use crate::wallpapers::list_wallpapers;
 
 /// sha1(`"{path}:{mtime}"`) → the cached thumbnail path, mirroring the Python
 /// hash key. Returns `path` unchanged when no cached thumbnail exists.
+#[must_use]
 pub fn thumb_for(path: &str) -> String {
     let Ok(meta) = fs::metadata(path) else {
         return path.to_string();
@@ -25,8 +26,7 @@ pub fn thumb_for(path: &str) -> String {
     };
     let secs = mtime
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let key = sha1_hex(format!("{path}:{secs}"));
     let thumb = crate::config::preview_cache_dir().join(format!("{key}.png"));
     if thumb.exists() {
@@ -53,6 +53,7 @@ pub struct CacheStats {
     pub skipped: usize,
 }
 
+#[must_use]
 pub fn cache_previews(
     folder: &str,
     recursive: bool,
@@ -95,8 +96,7 @@ pub fn cache_previews(
 
 fn mtime_secs(t: &std::time::SystemTime) -> u64 {
     t.duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }
 
 fn make_thumbnail(src: &Path, dst: &Path, size: (u32, u32)) -> anyhow::Result<()> {
@@ -114,9 +114,10 @@ fn make_thumbnail(src: &Path, dst: &Path, size: (u32, u32)) -> anyhow::Result<()
 /// Decode `path` (cached thumbnail preferred) into a grid of half-block
 /// [`Line`]s `cols` wide by `rows` tall. Two image rows per terminal row. Any
 /// decode error → a one-line placeholder.
+#[must_use]
 pub fn render_cells(path: &str, cols: u16, rows: u16) -> Vec<Line<'static>> {
-    let cols = cols.max(1) as u32;
-    let rows = rows.max(1) as u32;
+    let cols = u32::from(cols.max(1));
+    let rows = u32::from(rows.max(1));
     let resolved = thumb_for(path);
     match image::open(Path::new(&resolved)) {
         Ok(img) => {
@@ -131,7 +132,7 @@ pub fn render_cells(path: &str, cols: u16, rows: u16) -> Vec<Line<'static>> {
         }
         Err(_) => Err(()),
     }
-    .unwrap_or_else(|_| vec![Line::from("[preview unavailable]")])
+    .unwrap_or_else(|()| vec![Line::from("[preview unavailable]")])
 }
 
 fn cells_from_rgb(img: &image::RgbImage, cols: u32, rows: u32) -> Vec<Line<'static>> {
@@ -201,6 +202,7 @@ fn sample(
 }
 
 /// Parse a ``WxH`` preview-size argument (e.g. ``"320x200"``).
+#[must_use]
 pub fn parse_preview_size(s: &str) -> Option<(u32, u32)> {
     let lower = s.to_ascii_lowercase();
     let (w, h) = lower.split_once('x')?;

@@ -44,8 +44,10 @@ let
 
   # Thin wrapper that injects the read-only Nix-store base paths for the SVG
   # tint targets (Kvantum + MoreWaita) before exec-ing the Rust binary. Each is
-  # overridable via env so tests/dev can point at a tmp base.
+  # overridable via env so tests/dev can point at a tmp base. Also puts pywal on
+  # PATH so the ``Pywal`` tint backend can shell out to ``wal``.
   wallpaper-tui = pkgs.writeShellScriptBin "wallpaper-tui" ''
+    export PATH="${lib.makeBinPath [ pkgs.pywal ]}:$PATH"
     export WALLPAPER_TUI_KVANTUM_BASE="''${WALLPAPER_TUI_KVANTUM_BASE:-${pkgs.catppuccin-kvantum}/share/Kvantum/catppuccin-frappe-blue}"
     export WALLPAPER_TUI_ICON_BASE="''${WALLPAPER_TUI_ICON_BASE:-${pkgs.morewaita-icon-theme}/share/icons/MoreWaita}"
     exec ${lib.getExe wallpaper-tui-bin} "$@"
@@ -57,6 +59,7 @@ let
     current_output = cfg.currentOutput;
     transition_type = cfg.transitionType;
     transition_duration = cfg.transitionDuration;
+    tint_backend = cfg.tintBackend;
     outputs = lib.mapAttrs (_: o: {
       path = o.path;
       mode = o.mode;
@@ -111,6 +114,12 @@ in
       type = lib.types.float;
       default = 1.0;
       description = "awww transition duration in seconds.";
+    };
+
+    tintBackend = lib.mkOption {
+      type = lib.types.enum [ "internal" "pywal" ];
+      default = "pywal";
+      description = "Palette backend used to extract the wallpaper accent.";
     };
 
     cacheInterval = lib.mkOption {

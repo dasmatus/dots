@@ -1,5 +1,5 @@
 //! Per-target accent tinting: Hyprland borders, Rofi, GTK 3/4, Kvantum (Qt)
-//! and MoreWaita icons. Writers are pure (string in → string out); tree
+//! and `MoreWaita` icons. Writers are pure (string in → string out); tree
 //! tinters and the orchestrator take a [`TintCtx`] holding all base/dest
 //! paths so they are unit-testable with tmp dirs and no env-var mutation
 //! (process-global env would race under parallel `cargo test`).
@@ -9,13 +9,14 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::str::FromStr;
 
 use regex::Regex;
 
-use crate::accent::{hex_to_hls, hls_to_hex};
+use crate::accent::{hex_to_hls, hls_to_hex, TintBackend};
 use crate::config::{self, TintState};
 
-/// Adwaita-blue family used by MoreWaita folder/place icons. Each is recolored
+/// Adwaita-blue family used by `MoreWaita` folder/place icons. Each is recolored
 /// to the accent's hue/saturation while keeping its own lightness, so the
 /// icon's gradient shading is preserved.
 pub const ADWAITA_BLUE_HEXES: &[&str] = &[
@@ -51,6 +52,7 @@ pub struct TintCtx {
 
 impl TintCtx {
     /// Resolve every path from the XDG env vars, exactly as the Python did.
+    #[must_use]
     pub fn from_env() -> Self {
         let xdg_config = xdg("XDG_CONFIG_HOME", ".config");
         let xdg_data = xdg("XDG_DATA_HOME", ".local/share");
@@ -71,6 +73,7 @@ impl TintCtx {
     }
 
     /// `tint/current.json` under this ctx's tint dir.
+    #[must_use]
     pub fn tint_state_file(&self) -> PathBuf {
         self.tint_dir.join("current.json")
     }
@@ -83,9 +86,7 @@ fn xdg(env: &str, default_sub: &str) -> PathBuf {
     }
 }
 fn home() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/"))
+    std::env::var("HOME").map_or_else(|_| PathBuf::from("/"), PathBuf::from)
 }
 fn env_dir(env: &str) -> Option<PathBuf> {
     let s = std::env::var(env).ok()?;
@@ -110,6 +111,7 @@ pub struct Status {
 // ── pure writers ────────────────────────────────────────────────────────────
 
 /// Substitute the `accent:` and `selected-bg:` rasi vars in the base text.
+#[must_use]
 pub fn rofi_rasi_text(base: &str, accent: &str, accent_dark: &str) -> String {
     let accent_re = Regex::new(r"(accent:\s*)#[0-9a-fA-F]{6};").unwrap();
     let sel_re = Regex::new(r"(selected-bg:\s*)#[0-9a-fA-F]{6};").unwrap();
@@ -121,6 +123,7 @@ pub fn rofi_rasi_text(base: &str, accent: &str, accent_dark: &str) -> String {
 }
 
 /// `@define-color` overrides loaded after the Tokyonight theme import.
+#[must_use]
 pub fn gtk_css(accent: &str, accent_dark: &str, _accent_light: &str, version: u8) -> String {
     if version == 4 {
         format!(
@@ -145,6 +148,7 @@ pub fn gtk_css(accent: &str, accent_dark: &str, _accent_light: &str, version: u8
 /// `hyprctl keyword` argv for the border colors, or `None` when Hyprland is
 /// not running (`his` is `None`). Pure: takes the Hyprland instance signature
 /// explicitly so tests don't mutate process-global env.
+#[must_use]
 pub fn hyprland_border_commands_for(
     his: Option<&str>,
     accent: &str,
@@ -168,6 +172,7 @@ pub fn hyprland_border_commands_for(
 }
 
 /// Env-driven wrapper around [`hyprland_border_commands_for`].
+#[must_use]
 pub fn hyprland_border_commands(accent: &str, accent_dark: &str) -> Option<Vec<Vec<String>>> {
     hyprland_border_commands_for(
         std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok().as_deref(),
@@ -177,6 +182,7 @@ pub fn hyprland_border_commands(accent: &str, accent_dark: &str) -> Option<Vec<V
 }
 
 /// Replace the Catppuccin-Frappe accent family; preserve trailing alpha.
+#[must_use]
 pub fn recolor_kvantum_text(
     text: &str,
     accent: &str,
@@ -196,6 +202,7 @@ pub fn recolor_kvantum_text(
 }
 
 /// Recolor the Adwaita-blue family to the accent hue/sat, keeping lightness.
+#[must_use]
 pub fn recolor_icon_text(text: &str, accent: &str) -> String {
     let (ah, _, asat) = hex_to_hls(accent);
     let pattern = ADWAITA_BLUE_HEXES
@@ -220,7 +227,7 @@ pub fn recolor_icon_text(text: &str, accent: &str) -> String {
 fn writable_copytree(src: &Path, dst: &Path) -> std::io::Result<()> {
     for entry in walkdir::WalkDir::new(src)
         .into_iter()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
     {
         let rel = entry.path().strip_prefix(src).unwrap();
         let target = dst.join(rel);
@@ -273,7 +280,7 @@ pub fn tint_kvantum_tree(
         if path.is_file()
             && matches!(
                 path.extension().and_then(|e| e.to_str()),
-                Some("kvconfig") | Some("svg")
+                Some("kvconfig" | "svg")
             )
         {
             let txt = fs::read_to_string(&path)?;
@@ -294,7 +301,7 @@ pub fn tint_icon_tree(base: &Path, dest: &Path, accent: &str) -> std::io::Result
     writable_copytree(base, dest)?;
     for entry in walkdir::WalkDir::new(dest)
         .into_iter()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
     {
         if entry.file_type().is_file()
             && entry.path().extension().and_then(|e| e.to_str()) == Some("svg")
@@ -321,7 +328,7 @@ fn write_text(path: &Path, text: &str) -> std::io::Result<()> {
     fs::write(path, text)
 }
 
-/// Point `kvantum.kvconfig` at WallpaperTint (no-op if dest missing).
+/// Point `kvantum.kvconfig` at `WallpaperTint` (no-op if dest missing).
 fn select_kvantum(ctx: &TintCtx) -> bool {
     if !ctx.kvantum_dest.exists() {
         return false;
@@ -350,11 +357,17 @@ fn select_icon_theme(ctx: &TintCtx) -> bool {
 
 /// The orchestrator. Returns `None` for the no-tint / missing-path no-op
 /// (Python's empty dict); `Some(Status)` when it ran. Each target is isolated.
-pub fn apply_tint_ctx(ctx: &TintCtx, path: &str, no_tint: bool) -> Option<Status> {
+#[must_use]
+pub fn apply_tint_ctx(
+    ctx: &TintCtx,
+    path: &str,
+    no_tint: bool,
+    backend: TintBackend,
+) -> Option<Status> {
     if no_tint || path.is_empty() || !Path::new(path).exists() {
         return None;
     }
-    let (accent, accent_dark, accent_light) = crate::accent::extract_accent(path);
+    let (accent, accent_dark, accent_light) = crate::accent::extract_accent(path, backend);
     let mut s = Status {
         accent: accent.clone(),
         ..Status::default()
@@ -456,9 +469,15 @@ pub fn apply_tint_ctx(ctx: &TintCtx, path: &str, no_tint: bool) -> Option<Status
 }
 
 /// Env-driven entry: build a [`TintCtx`] from the XDG env and orchestrate.
-pub fn apply_tint(path: &str, no_tint: bool) -> Option<Status> {
+/// The backend may be overridden at runtime by `WALLPAPER_TUI_TINT_BACKEND`.
+#[must_use]
+pub fn apply_tint(path: &str, no_tint: bool, backend: TintBackend) -> Option<Status> {
+    let backend = std::env::var("WALLPAPER_TUI_TINT_BACKEND")
+        .ok()
+        .and_then(|s| TintBackend::from_str(&s).ok())
+        .unwrap_or(backend);
     let ctx = TintCtx::from_env();
-    let s = apply_tint_ctx(&ctx, path, no_tint);
+    let s = apply_tint_ctx(&ctx, path, no_tint, backend);
     if let Some(s) = &s {
         eprintln!(
             "wallpaper-tui: tint {} — rofi={} gtk={} borders={} qt={} icons={}",
@@ -470,6 +489,7 @@ pub fn apply_tint(path: &str, no_tint: bool) -> Option<Status> {
 
 /// Map for serde-pretty-printing in tests/log (unused by the app itself).
 #[allow(dead_code)]
+#[must_use]
 pub fn status_map(s: &Status) -> BTreeMap<&'static str, String> {
     let mut m = BTreeMap::new();
     m.insert("accent", s.accent.clone());

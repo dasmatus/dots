@@ -25,7 +25,8 @@ pub const DEFAULT_ACCENT_LIGHT: &str = "#a9b1d6";
 
 /// ad-hoc resolution of an XDG-ish base dir, matching the Python's
 /// ``os.environ.get(..., default)`` behaviour.
-fn xdg_dir(env: &str, default_sub: &str) -> PathBuf {
+#[must_use]
+pub fn xdg_dir(env: &str, default_sub: &str) -> PathBuf {
     match std::env::var(env) {
         Ok(s) if !s.is_empty() => PathBuf::from(s),
         _ => home_dir().join(default_sub),
@@ -33,17 +34,17 @@ fn xdg_dir(env: &str, default_sub: &str) -> PathBuf {
 }
 
 fn home_dir() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/"))
+    std::env::var("HOME").map_or_else(|_| PathBuf::from("/"), PathBuf::from)
 }
 
+#[must_use]
 pub fn config_file() -> PathBuf {
     xdg_dir("XDG_CONFIG_HOME", ".config")
         .join("wallpaper-tui")
         .join("config.json")
 }
 
+#[must_use]
 pub fn state_file() -> PathBuf {
     xdg_dir("XDG_STATE_HOME", ".local/state")
         .join("wallpaper-tui")
@@ -51,12 +52,14 @@ pub fn state_file() -> PathBuf {
 }
 
 /// ``XDG_CACHE_HOME/wallpaper-tui/thumbs`` — chafa-free thumbnail cache.
+#[must_use]
 pub fn preview_cache_dir() -> PathBuf {
     xdg_dir("XDG_CACHE_HOME", ".cache")
         .join("wallpaper-tui")
         .join("thumbs")
 }
 
+#[must_use]
 pub fn tint_dir() -> PathBuf {
     state_file()
         .parent()
@@ -64,6 +67,7 @@ pub fn tint_dir() -> PathBuf {
         .join("tint")
 }
 
+#[must_use]
 pub fn tint_state_file() -> PathBuf {
     tint_dir().join("current.json")
 }
@@ -101,6 +105,12 @@ pub struct Config {
     pub transition_duration: f64,
     #[serde(default)]
     pub outputs: std::collections::BTreeMap<String, OutputConfig>,
+    #[serde(default = "default_tint_backend")]
+    pub tint_backend: String,
+}
+
+fn default_tint_backend() -> String {
+    "pywal".to_string()
 }
 
 fn default_true() -> bool {
@@ -115,10 +125,12 @@ fn default_transition_duration() -> f64 {
 
 impl Config {
     /// Read the declarative config; missing/garbage → a permissive default.
+    #[must_use]
     pub fn load() -> Self {
         Self::load_from(config_file())
     }
 
+    #[must_use]
     pub fn load_from(path: PathBuf) -> Self {
         match fs::read_to_string(&path) {
             Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
@@ -146,10 +158,12 @@ pub struct State {
 }
 
 impl State {
+    #[must_use]
     pub fn load() -> Self {
         Self::load_from(state_file())
     }
 
+    #[must_use]
     pub fn load_from(path: PathBuf) -> Self {
         match fs::read_to_string(&path) {
             Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
@@ -181,6 +195,7 @@ pub struct Effective {
     pub fill_color: String,
 }
 
+#[must_use]
 pub fn effective_output<'a>(config: &'a Config, state: &'a State, output: &str) -> Effective {
     let decl = config.outputs.get(output);
     let over = state.outputs.get(output);
@@ -219,10 +234,12 @@ pub struct TintState {
 }
 
 impl TintState {
+    #[must_use]
     pub fn load() -> Self {
         Self::load_from(tint_state_file())
     }
 
+    #[must_use]
     pub fn load_from(path: PathBuf) -> Self {
         match fs::read_to_string(path) {
             Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
