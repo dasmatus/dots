@@ -1,5 +1,8 @@
 # nixvim port of files/nvim (lazy.nvim). Mason is gone: LSP servers and
-# formatters come from nixpkgs. Deliberate deviations from the lua config:
+# formatters come from nixpkgs. LSP uses the current `lsp` + `plugins.lspconfig`
+# modules (migrated off the deprecated `plugins.lsp`) with a broad curated
+# server set so common filetypes have their server in the closure already.
+# Deliberate deviations from the lua config:
 # TroubleToggle → Trouble v3 command; nvim-tabline (unpackaged) → bufferline
 # in tabs mode; the rainbow treesitter module (dead upstream) →
 # rainbow-delimiters; vls dropped (no nixpkgs package); the never-installed
@@ -128,18 +131,10 @@
         '';
       };
 
-      lsp = {
-        enable = true;
-        servers = {
-          clangd.enable = true;
-          nil_ls.enable = true;
-          lua_ls.enable = true;
-          ansiblels = {
-            enable = true;
-            package = pkgs.ansible-language-server;
-          };
-        };
-      };
+      # nvim-lspconfig plugin only. Server configs + activation live in the
+      # top-level `lsp` module below (nixvim split `plugins.lsp` into
+      # `lsp` + `plugins.lspconfig`; enabling both triggers a warning).
+      lspconfig.enable = true;
       rustaceanvim.enable = true;
       trouble.enable = true;
       todo-comments.enable = true;
@@ -356,6 +351,38 @@
       };
 
       auto-save.enable = true;
+    };
+
+    # LSP servers via nixvim's top-level `lsp` module (drives Neovim 0.11+
+    # `vim.lsp.enable()` / `vim.lsp.config()`). "Auto-install" here is
+    # declarative: each enabled server's nixpkgs package is already in the
+    # Neovim closure, so opening a filetype just works — no Mason, no runtime
+    # downloads. Rust is handled by rustaceanvim above, not listed here.
+    # Keymaps stay empty (parity with the prior `plugins.lsp` config, which
+    # also set none); add `lsp.keymaps` for gd/gr/K/rename bindings.
+    lsp.servers = {
+      clangd.enable = true;
+      nil_ls.enable = true;
+      lua_ls.enable = true;
+      ansiblels = {
+        enable = true;
+        package = pkgs.ansible-language-server;
+      };
+
+      pyright.enable = true;
+      ruff.enable = true;
+      ts_ls.enable = true;
+      gopls.enable = true;
+      bashls.enable = true;
+      yamlls.enable = true;
+      jsonls.enable = true;
+      taplo.enable = true;
+      html.enable = true;
+      cssls.enable = true;
+      marksman.enable = true;
+      texlab.enable = true;
+      dockerls.enable = true;
+      vimls.enable = true;
     };
 
     extraPlugins = with pkgs.vimPlugins; [
