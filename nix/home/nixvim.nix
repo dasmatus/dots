@@ -425,7 +425,7 @@
           openai_fim_compatible = {
             name = 'Ollama',
             api_key = 'TERM',
-            model = 'qwen2.5-coder:7b',
+            model = 'ornith:9b',
             end_point = 'http://localhost:11434/v1/completions',
             optional = {
               max_tokens = 56,
