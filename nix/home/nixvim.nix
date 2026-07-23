@@ -162,7 +162,6 @@
             nvim_lua = "[Lua]";
             path = "[Path]";
             buffer = "[Buffer]";
-            minuet = "[Ollama]";
           };
           mode = "symbol_text";
         };
@@ -214,7 +213,6 @@
             { name = "luasnip"; }
             { name = "nvim_lua"; }
             { name = "path"; }
-            { name = "minuet"; }
             {
               name = "buffer";
               keyword_length = 4;
@@ -390,7 +388,6 @@
 
     extraPlugins = with pkgs.vimPlugins; [
       ansible-vim
-      minuet-ai-nvim
       (pkgs.vimUtils.buildVimPlugin {
         pname = "v-vim";
         version = "2024-unstable";
@@ -415,18 +412,6 @@
 
     extraConfigLua = ''
       vim.opt.sessionoptions:append('globals')
-
-      require('minuet').setup({
-        provider = 'openai_fim_compatible',
-        provider_options = {
-          openai_fim_compatible = {
-            name = 'Ollama',
-            api_key = 'TERM',
-            model = 'ornith:9b',
-            end_point = 'http://localhost:11434/v1/completions',
-          },
-        },
-      })
 
       local Terminal = require('toggleterm.terminal').Terminal
       local lazygit = Terminal:new({ cmd = "lazygit", hidden = true })
