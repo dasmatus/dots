@@ -87,7 +87,13 @@ let
 in
 {
   home.packages = [ ccbar ];
-  services.ollama.enable = true;
+  services.ollama = {
+    enable = true;
+    loadModels = [
+      "ornith:9b"
+      "gemma4:e4b"
+    ];
+  };
   programs.claude-code = {
     enable = true;
 

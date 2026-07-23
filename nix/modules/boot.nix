@@ -52,6 +52,7 @@
       "virtio_pci"
       "virtio_blk"
       "virtio_scsi"
+      "amdgpu"
     ];
   };
 

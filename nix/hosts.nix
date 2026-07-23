@@ -9,7 +9,12 @@
 # NVIDIA is deliberately not auto-configured upstream (facter filters out
 # nouveau), so it is switched via if-then-else on the parsed report.
 # PCI ids are decimal in facter reports: 4318 == 0x10de (NVIDIA).
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   report = config.hardware.facter.report;
   hasNvidia = builtins.any (card: (card.vendor.value or 0) == 4318) (
@@ -35,7 +40,7 @@ in
       }
     else
       { };
-
+  services.ollama.package = if hasNvidia then pkgs.ollama-cuda else pkgs.ollama-rocm;
   # Facter only enables this when the report lists a monitor; keep the old
   # hosts/{intel,amd}.nix guarantee unconditionally.
   hardware.graphics.enable = true;
