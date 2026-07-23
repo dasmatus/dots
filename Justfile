@@ -1,7 +1,8 @@
 # Justfile — task runner for tokyonight-dots (NixOS flake + LiveISO installer)
 #
 #   just            → list recipes
-#   just nix-lint   → static checks: flake eval + installer-tui fmt/clippy/test
+#   just nix-lint   → static checks: flake eval + fmt/clippy/test for both
+#                     Rust crates (installer-tui, wallpaper-tui)
 #   just iso        → build + Secure Boot-sign the LiveISO (the default)
 #   just iso-full   → same, with both intel+amd system closures embedded
 #   just iso-unsigned → plain unsigned LiveISO (no signing keys touched)
@@ -20,17 +21,11 @@ default:
 
 # ── Nix target (flake + LiveISO installer) ───────────────────────
 # Nothing is built here — the VM-test checks are built by nix-smoke instead.
-# Static gate: flake eval (--no-build) + installer-tui fmt/clippy/tests.
+# Static gate: flake eval (--no-build) + fmt/clippy/tests for both Rust crates.
 nix-lint:
     nix flake check --no-build
     cd installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-
-# Python unit tests for the wallpaper-tui accent-tint layer (pytest, hermetic).
-# Pure-function + tmp-path tests; run under the flake's nixpkgs so the Pillow
-# / Textual versions match the ones writers.writePython3Bin pulls in at build.
-py-test:
-    nix shell --impure --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.legacyPackages.x86_64-linux.python3.withPackages (p: [p.pillow p.textual p.pytest])' \
-      -c bash -c 'cd tests/wallpaper_tui && python3 -m pytest -q'
+    cd wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
 # The MOK key is auto-generated into secrets/secureboot/ on the first run
 # (shim + MOK chain); ./result-iso/iso/ keeps the raw unsigned nix output.

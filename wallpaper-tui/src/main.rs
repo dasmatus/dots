@@ -17,7 +17,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use wallpaper_tui::app::{App, Event, PendingOp, PREVIEW_COLS, PREVIEW_ROWS};
+use wallpaper_tui::app::{App, Event, PendingOp};
 use wallpaper_tui::awww::{apply_wallpaper, LiveAwww};
 use wallpaper_tui::cli::{self, Args};
 use wallpaper_tui::config::{Config, State};
@@ -71,7 +71,21 @@ fn main() -> anyhow::Result<()> {
 
 fn run_tui(config: Config, state: State, no_tint: bool) -> anyhow::Result<()> {
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let mut app = App::new(config, state, no_tint);
+
+    // Auto-detect the terminal's image protocol + font size (Kitty graphics on
+    // Kitty/Ghostty, Sixel/iTerm2 elsewhere). Must run after the alternate
+    // screen + raw mode are entered so the DCS capability query rides on raw
+    // stdio (it bypasses crossterm, so there's no ACK race with the event
+    // loop). If the terminal doesn't answer (piped output, a dumb terminal,
+    // Alacritty with no image protocol), fall back to unicode half-blocks at a
+    // fixed font size so a recognizable preview still renders.
+    let picker = ratatui_image::picker::Picker::from_query_stdio().unwrap_or_else(|_| {
+        let mut p = ratatui_image::picker::Picker::from_fontsize((7, 14));
+        p.set_protocol_type(ratatui_image::picker::ProtocolType::Halfblocks);
+        p
+    });
+
+    let mut app = App::new(config, state, no_tint, picker);
     // Kick off the preview for the initial selection.
     app.request_preview();
 
@@ -79,7 +93,7 @@ fn run_tui(config: Config, state: State, no_tint: bool) -> anyhow::Result<()> {
     let (preview_tx, preview_rx) = mpsc::channel::<Event>();
 
     while !app.should_quit {
-        terminal.draw(|f| ui::draw(f, &app))?;
+        terminal.draw(|f| ui::draw(f, &mut app))?;
 
         // Drain worker results.
         while let Ok(ev) = apply_rx.try_recv() {
@@ -135,8 +149,8 @@ fn run_tui(config: Config, state: State, no_tint: bool) -> anyhow::Result<()> {
                 PendingOp::Preview { path } => {
                     let tx = preview_tx.clone();
                     std::thread::spawn(move || {
-                        let cells = preview::render_cells(&path, PREVIEW_COLS, PREVIEW_ROWS);
-                        let _ = tx.send(Event::PreviewReady { path, cells });
+                        let image = preview::load_preview(&path).ok();
+                        let _ = tx.send(Event::PreviewReady { path, image });
                     });
                 }
             }

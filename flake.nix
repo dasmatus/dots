@@ -153,11 +153,11 @@
       };
       formatter.${system} = pkgs.nixfmt-tree;
 
-      # Dev shell for hacking on installer-tui (the only Rust crate now that
-      # snip/ is gone): a plain Rust toolchain so `cargo fmt`/`cargo clippy`/
+      # Dev shell for hacking on the two Rust crates (installer-tui and
+      # wallpaper-tui): a plain Rust toolchain so `cargo fmt`/`cargo clippy`/
       # `cargo test`/`cargo run` work locally without a system rust install.
-      # installer-tui is a pure TUI with no native deps, so no pkg-config /
-      # webkit / gtk stack is needed here (the old Tauri dev shell carried it).
+      # Both are pure TUIs with no native deps, so no pkg-config / webkit /
+      # gtk stack is needed here (the old Tauri dev shell carried it).
       devShells.${system}.default = pkgs.mkShell {
         nativeBuildInputs = [
           pkgs.cargo

@@ -40,6 +40,7 @@ let
     version = "0.1.0";
     src = ../../wallpaper-tui;
     cargoLock.lockFile = ../../wallpaper-tui/Cargo.lock;
+    meta.mainProgram = "wallpaper-tui";
   };
 
   # Thin wrapper that injects the read-only Nix-store base paths for the SVG

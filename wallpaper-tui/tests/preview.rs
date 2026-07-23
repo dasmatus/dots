@@ -1,49 +1,33 @@
-//! Half-block preview rendering and the wallpaper thumbnail cache. Ports
-//! ``test_preview.py`` — the chafa ANSI-parser tests are replaced by
-//! [`render_cells`] tests (chafa was dropped in the Rust rewrite); the
-//! ``cache_previews`` mtime-skip + atomic-write tests port directly.
+//! Preview decode + the wallpaper thumbnail cache. The half-block cell tests
+//! from the Python era are gone — preview rendering is now `ratatui-image`'s
+//! job (Kitty graphics / Sixel / half-blocks, chosen at startup), so we assert
+//! on the decoded [`image::DynamicImage`] dimensions instead of cell colors.
+//! The `cache_previews` mtime-skip + atomic-write tests port directly.
 
 mod common;
 
 use std::fs;
 
-use ratatui::style::Color;
 use tempfile::tempdir;
-use wallpaper_tui::preview::{cache_previews, render_cells};
+use wallpaper_tui::preview::{cache_previews, load_preview};
 
 use common::make_image;
 
-// ── render_cells (half-block preview) ────────────────────────────────────────
+// ── load_preview (decode → DynamicImage) ─────────────────────────────────────
 
 #[test]
-fn render_cells_two_color_image_makes_half_blocks() {
-    // A 1×2 image (top red, bottom blue) at cols=1, rows=1 → one Line with one
-    // ▀ Span whose fg=red (upper pixel) and bg=blue (lower pixel).
+fn load_preview_decodes_image() {
     let d = tempdir().unwrap();
-    let p = d.path().join("two.png");
-    {
-        let mut img: image::RgbImage = image::ImageBuffer::from_pixel(1, 2, image::Rgb([0, 0, 0]));
-        img.put_pixel(0, 0, image::Rgb([255, 0, 0])); // upper
-        img.put_pixel(0, 1, image::Rgb([0, 0, 255])); // lower
-        img.save(&p).unwrap();
-    }
-    let lines = render_cells(p.to_str().unwrap(), 1, 1);
-    assert_eq!(lines.len(), 1);
-    let line = &lines[0];
-    assert_eq!(line.spans.len(), 1);
-    let span = &line.spans[0];
-    assert_eq!(span.content, "▀");
-    let style = span.style;
-    // fg = upper pixel (red), bg = lower pixel (blue).
-    assert_eq!(style.fg, Some(Color::Rgb(255, 0, 0)));
-    assert_eq!(style.bg, Some(Color::Rgb(0, 0, 255)));
+    let p = d.path().join("wp.png");
+    make_image(&p, (60, 120, 230), 64);
+    let img = load_preview(p.to_str().unwrap()).unwrap();
+    assert_eq!(img.width(), 64);
+    assert_eq!(img.height(), 64);
 }
 
 #[test]
-fn render_cells_missing_image_is_placeholder() {
-    let lines = render_cells("/no/such/image.png", 4, 2);
-    assert_eq!(lines.len(), 1);
-    assert_eq!(lines[0].spans[0].content, "[preview unavailable]");
+fn load_preview_missing_image_is_error() {
+    assert!(load_preview("/no/such/image.png").is_err());
 }
 
 // ── cache_previews ───────────────────────────────────────────────────────────

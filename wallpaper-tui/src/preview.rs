@@ -1,16 +1,17 @@
-//! Preview rendering (chafa-free) and the wallpaper thumbnail cache.
+//! The wallpaper thumbnail cache and the preview decode into an
+//! [`image::DynamicImage`] consumed by `ratatui-image`'s protocol state.
 //!
-//! Alacritty has no image protocol, so previews render as colored half-block
-//! cells: each terminal cell holds two image rows (▀ with `fg`=upper pixel,
-//! `bg`=lower pixel), doubling vertical resolution. The thumbnail cache feeds
-//! [`thumb_for`] so the TUI decodes a small PNG instead of a full-res image on
-//! every cursor move.
+//! The TUI renders previews with the terminal's native image protocol (Kitty
+//! graphics on Kitty/Ghostty, falling back to Sixel/iTerm2/half-blocks
+//! elsewhere — chosen by `ratatui_image::picker::Picker` at startup). The
+//! thumbnail cache feeds [`thumb_for`] so the worker decodes a small PNG rather
+//! than the full-res wallpaper on every cursor move; the decoded
+//! `DynamicImage` is sent to the UI thread, which builds a
+//! `ratatui_image::protocol::StatefulProtocol` sized to the preview pane at
+//! render time.
 
 use std::fs;
 use std::path::Path;
-
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
 
 use crate::wallpapers::list_wallpapers;
 
@@ -111,93 +112,12 @@ fn make_thumbnail(src: &Path, dst: &Path, size: (u32, u32)) -> anyhow::Result<()
     Ok(())
 }
 
-/// Decode `path` (cached thumbnail preferred) into a grid of half-block
-/// [`Line`]s `cols` wide by `rows` tall. Two image rows per terminal row. Any
-/// decode error → a one-line placeholder.
-pub fn render_cells(path: &str, cols: u16, rows: u16) -> Vec<Line<'static>> {
-    let cols = cols.max(1) as u32;
-    let rows = rows.max(1) as u32;
+/// Decode `path` (cached thumbnail preferred) into a [`image::DynamicImage`]
+/// for `ratatui-image` to render with the terminal's native image protocol.
+/// Propagates the decode error so the worker can signal a failed preview.
+pub fn load_preview(path: &str) -> anyhow::Result<image::DynamicImage> {
     let resolved = thumb_for(path);
-    match image::open(Path::new(&resolved)) {
-        Ok(img) => {
-            let rgb = img.to_rgb8();
-            let resized = image::imageops::resize(
-                &rgb,
-                cols,
-                rows * 2,
-                image::imageops::FilterType::Triangle,
-            );
-            Ok::<_, ()>(cells_from_rgb(&resized, cols, rows))
-        }
-        Err(_) => Err(()),
-    }
-    .unwrap_or_else(|_| vec![Line::from("[preview unavailable]")])
-}
-
-fn cells_from_rgb(img: &image::RgbImage, cols: u32, rows: u32) -> Vec<Line<'static>> {
-    let (img_w, img_h) = (img.width(), img.height());
-    let mut lines = Vec::with_capacity(rows as usize);
-    for row in 0..rows {
-        let mut spans: Vec<Span> = Vec::with_capacity(cols as usize);
-        let mut run_start = 0u32;
-        let mut run_fg = None::<Color>;
-        let mut run_bg = None::<Color>;
-        let flush =
-            |spans: &mut Vec<Span>, start: u32, end: u32, fg: Option<Color>, bg: Option<Color>| {
-                if end > start {
-                    let style = match (fg, bg) {
-                        (Some(f), Some(b)) => Style::default().fg(f).bg(b),
-                        (Some(f), None) => Style::default().fg(f),
-                        (None, Some(b)) => Style::default().bg(b),
-                        (None, None) => Style::default(),
-                    };
-                    spans.push(Span::styled("▀".repeat((end - start) as usize), style));
-                }
-            };
-        for col in 0..cols {
-            let upper = sample(img, img_w, img_h, col, row * 2, cols, rows * 2);
-            let lower = sample(img, img_w, img_h, col, row * 2 + 1, cols, rows * 2);
-            let fg = Some(Color::Rgb(upper.0, upper.1, upper.2));
-            let bg = Some(Color::Rgb(lower.0, lower.1, lower.2));
-            if run_fg != fg || run_bg != bg {
-                flush(&mut spans, run_start, col, run_fg, run_bg);
-                run_start = col;
-                run_fg = fg;
-                run_bg = bg;
-            }
-        }
-        flush(&mut spans, run_start, cols, run_fg, run_bg);
-        if spans.is_empty() {
-            spans.push(Span::raw(""));
-        }
-        lines.push(Line::from(spans));
-    }
-    lines
-}
-
-/// Nearest-neighbour sample of the source at cell (col, row), mapping the
-/// `cols`×`rows` grid back onto the image's native resolution.
-fn sample(
-    img: &image::RgbImage,
-    img_w: u32,
-    img_h: u32,
-    col: u32,
-    row: u32,
-    cols: u32,
-    rows: u32,
-) -> (u8, u8, u8) {
-    let x = if cols >= img_w {
-        col.min(img_w - 1)
-    } else {
-        col * img_w / cols
-    };
-    let y = if rows >= img_h {
-        row.min(img_h - 1)
-    } else {
-        row * img_h / rows
-    };
-    let px = img.get_pixel(x.min(img_w - 1), y.min(img_h - 1));
-    (px.0[0], px.0[1], px.0[2])
+    Ok(image::open(Path::new(&resolved))?)
 }
 
 /// Parse a ``WxH`` preview-size argument (e.g. ``"320x200"``).

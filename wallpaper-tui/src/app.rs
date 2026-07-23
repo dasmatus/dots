@@ -6,14 +6,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use ratatui::text::Line;
+use ratatui_image::picker::Picker;
+use ratatui_image::protocol::StatefulProtocol;
 
 use crate::awww::Group;
 use crate::config::{effective_output, Config, State, COLOR_PALETTE, DEFAULT_COLOR, MODES};
-
-/// Preview pane cell grid dimensions.
-pub const PREVIEW_COLS: u16 = 48;
-pub const PREVIEW_ROWS: u16 = 20;
 
 /// A request the event loop drains off the TUI thread.
 #[derive(Debug, Clone)]
@@ -32,7 +29,7 @@ pub enum PendingOp {
         transition_duration: f64,
         no_tint: bool,
     },
-    /// Decode + half-block-render the preview for a path.
+    /// Decode the preview thumbnail for a path into a `DynamicImage`.
     Preview { path: String },
 }
 
@@ -41,15 +38,14 @@ pub enum PendingOp {
 pub enum Event {
     /// Apply+tint finished (or failed); `msg` is shown in the info bar.
     ApplyDone { msg: String },
-    /// Preview cells ready for `path`.
+    /// Preview image ready for `path`; `None` means the decode failed.
     PreviewReady {
         path: String,
-        cells: Vec<Line<'static>>,
+        image: Option<image::DynamicImage>,
     },
 }
 
 /// The pure picker state.
-#[derive(Debug)]
 pub struct App {
     pub config: Config,
     pub state: State,
@@ -61,9 +57,19 @@ pub struct App {
     pub fill_mode: String,
     pub current_color: String,
     pub show_preview: bool,
-    /// Rendered preview cells, memoized by path.
-    pub preview_cache: HashMap<String, Vec<Line<'static>>>,
-    /// The path the preview worker is currently rendering (avoids duplicate
+    /// `ratatui-image` protocol auto-picker — queries the terminal once at
+    /// startup for its image-protocol + font size, then builds every preview's
+    /// [`StatefulProtocol`]. Created in `run_tui` after the alternate screen is
+    /// entered (the query rides on raw stdio).
+    pub picker: Picker,
+    /// The on-screen preview's protocol state, sized to the pane at render
+    /// time. `None` until the first decode arrives (or after a failed decode).
+    pub preview: Option<StatefulProtocol>,
+    /// Decoded preview thumbnails, memoized by path. A return to a previously
+    /// seen wallpaper rebuilds the protocol on the UI thread — no worker
+    /// round-trip.
+    pub preview_cache: HashMap<String, image::DynamicImage>,
+    /// The path the preview worker is currently decoding (avoids duplicate
     /// requests for the same selection).
     pub preview_pending: Option<String>,
     /// Set by `handle_key`; the event loop takes it and spawns the worker.
@@ -75,7 +81,7 @@ pub struct App {
 
 impl App {
     #[must_use]
-    pub fn new(config: Config, state: State, no_tint: bool) -> Self {
+    pub fn new(config: Config, state: State, no_tint: bool, picker: Picker) -> Self {
         let wallpapers =
             crate::wallpapers::list_wallpapers(&config.wallpaper_folder, config.recursive);
         let mut outputs = crate::wallpapers::detect_outputs();
@@ -106,6 +112,8 @@ impl App {
             fill_mode: eff.mode,
             current_color: eff.fill_color,
             show_preview: true,
+            picker,
+            preview: None,
             preview_cache: HashMap::new(),
             preview_pending: None,
             pending: None,
@@ -149,20 +157,16 @@ impl App {
         s
     }
 
-    /// Memoized preview cells for the current selection, if already rendered.
-    pub fn preview_lines(&self) -> Option<&Vec<Line<'static>>> {
-        self.selected_path()
-            .and_then(|p| self.preview_cache.get(&p))
-    }
-
-    /// Request a preview render for the current selection (if not cached and
-    /// not already pending).
+    /// Request a preview render for the current selection. A cache hit rebuilds
+    /// the protocol on the UI thread immediately (no worker round-trip); a miss
+    /// asks the worker to decode the thumbnail.
     pub fn request_preview(&mut self) {
         if !self.show_preview {
             return;
         }
         if let Some(path) = self.selected_path() {
-            if self.preview_cache.contains_key(&path) {
+            if let Some(img) = self.preview_cache.get(&path).cloned() {
+                self.preview = Some(self.picker.new_resize_protocol(img));
                 return;
             }
             if self.preview_pending.as_deref() == Some(&path) {
@@ -282,9 +286,15 @@ impl App {
     pub fn on_event(&mut self, ev: Event) {
         match ev {
             Event::ApplyDone { msg } => self.status = Some(msg),
-            Event::PreviewReady { path, cells } => {
+            Event::PreviewReady { path, image } => {
                 self.preview_pending = self.preview_pending.take().filter(|p| p != &path);
-                self.preview_cache.insert(path, cells);
+                match image {
+                    Some(img) => {
+                        self.preview = Some(self.picker.new_resize_protocol(img.clone()));
+                        self.preview_cache.insert(path, img);
+                    }
+                    None => self.preview = None,
+                }
             }
         }
     }

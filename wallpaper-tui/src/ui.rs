@@ -1,12 +1,14 @@
-//! ratatui view. Pure draw over [`App`] state — no I/O, no mutation (the list
-//! highlight is a transient [`ListState`] rebuilt each frame from
-//! `app.selected`).
+//! ratatui view. Pure draw over [`App`] state — no I/O. The one mutation is
+//! `StatefulImage`'s own encode state advanced by `render_stateful_widget`
+//! (the widget's intended design, not our state machine), which is why
+//! [`draw`] takes `&mut App`; the list/info/help helpers stay `&App`.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
+use ratatui_image::StatefulImage;
 
 use crate::app::App;
 
@@ -14,7 +16,7 @@ const HELP: &str = "Enter:apply  j/k:move  m:mode  c:color  o:output  p:preview 
 
 /// Top-level layout: a horizontal split (list | preview) above an info bar
 /// above a one-line help footer.
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -83,23 +85,21 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
+fn draw_preview(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default().borders(Borders::ALL).title("preview");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let lines = match app.preview_lines() {
-        Some(lines) => lines.clone(),
+    match app.preview.as_mut() {
+        Some(proto) => f.render_stateful_widget(StatefulImage::default(), inner, proto),
         None => {
             let label = match app.preview_pending.as_deref() {
-                Some(_) => "rendering…".to_string(),
-                None => "[preview unavailable]".to_string(),
+                Some(_) => "rendering…",
+                None => "[preview unavailable]",
             };
-            vec![Line::from(label)]
+            f.render_widget(Paragraph::new(Line::from(label)), inner);
         }
-    };
-    let para = Paragraph::new(lines).wrap(Wrap { trim: false });
-    f.render_widget(para, inner);
+    }
 }
 
 fn draw_info(f: &mut Frame, app: &App, area: Rect) {
