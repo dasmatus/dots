@@ -2,6 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use dots_installer::app::{App, Screen};
+use dots_installer::disks::Disk;
 use dots_installer::install;
 use dots_installer::net::{self, WifiNetwork};
 
@@ -9,8 +10,30 @@ fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::from(code)
 }
 
+/// An app with autodetection assumed (the common path): no picker shown.
 fn app() -> App {
-    App::new("/dev/nvme0n1".into())
+    App::new(vec![], Some("/dev/nvme0n1".into()))
+}
+
+/// An app where autodetection failed → manual DiskSelect flow is reachable.
+fn app_no_auto() -> App {
+    App::new(
+        vec![
+            Disk {
+                path: "/dev/vda".into(),
+                size_bytes: 64 * 1024 * 1024 * 1024,
+                model: "VMware".into(),
+                removable: false,
+            },
+            Disk {
+                path: "/dev/vdb".into(),
+                size_bytes: 32 * 1024 * 1024 * 1024,
+                model: "USB SSD".into(),
+                removable: true,
+            },
+        ],
+        None,
+    )
 }
 
 fn type_str(app: &mut App, s: &str) {
@@ -231,8 +254,101 @@ fn connectivity_event_sets_online_flag() {
 }
 
 #[test]
-fn app_stores_autodetected_disk() {
-    assert_eq!(app().config.disk, "/dev/nvme0n1");
+fn app_stores_autodetected_disks() {
+    assert_eq!(app().config.disks, vec!["/dev/nvme0n1".to_string()]);
+}
+
+#[test]
+fn no_auto_disk_starts_unpicked_with_picker_reachable() {
+    let app = app_no_auto();
+    assert!(!app.disk_auto);
+    assert!(app.config.disks.is_empty());
+    assert_eq!(app.disks.len(), 2);
+    assert!(app.picked.iter().all(|p| !p));
+}
+
+#[test]
+fn network_skip_opens_disk_select_when_not_autodetected() {
+    let mut app = app_no_auto();
+    app.screen = Screen::Network;
+    app.handle_key(key(KeyCode::Char('s')));
+    assert_eq!(app.screen, Screen::DiskSelect);
+}
+
+#[test]
+fn disk_select_space_toggles_membership() {
+    let mut app = app_no_auto();
+    app.screen = Screen::DiskSelect;
+    assert!(!app.picked[0]);
+    app.handle_key(key(KeyCode::Char(' ')));
+    assert!(app.picked[0]);
+    app.handle_key(key(KeyCode::Char(' ')));
+    assert!(!app.picked[0]);
+}
+
+#[test]
+fn disk_select_enter_requires_at_least_one_picked() {
+    let mut app = app_no_auto();
+    app.screen = Screen::DiskSelect;
+    app.handle_key(key(KeyCode::Enter));
+    assert!(app.config.disks.is_empty());
+    assert_eq!(app.screen, Screen::DiskSelect);
+    assert!(app.error.as_deref().unwrap().contains("at least one disk"));
+}
+
+#[test]
+fn disk_select_confirm_picks_large_enough_disk() {
+    let mut app = app_no_auto();
+    app.screen = Screen::DiskSelect;
+    app.handle_key(key(KeyCode::Char(' '))); // toggle vda (64 GiB) on
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.config.disks, vec!["/dev/vda".to_string()]);
+    assert_eq!(app.screen, Screen::Hostname);
+    assert!(app.error.is_none());
+}
+
+#[test]
+fn disk_select_spans_multiple_disks() {
+    let mut app = app_no_auto();
+    app.screen = Screen::DiskSelect;
+    app.handle_key(key(KeyCode::Char(' '))); // vda
+    app.handle_key(key(KeyCode::Down));
+    app.handle_key(key(KeyCode::Char(' '))); // vdb
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(
+        app.config.disks,
+        vec!["/dev/vda".to_string(), "/dev/vdb".to_string()]
+    );
+    assert_eq!(app.screen, Screen::Hostname);
+}
+
+#[test]
+fn disk_select_rejects_span_below_capacity() {
+    let mut app = app_no_auto();
+    app.selected = 1; // 32 GiB vdb — below 2G ESP + 16G swap + 20G root = 38 GiB
+    app.config.swap_size_gib = 16;
+    app.screen = Screen::DiskSelect;
+    app.handle_key(key(KeyCode::Char(' '))); // pick only vdb
+    app.handle_key(key(KeyCode::Enter));
+    assert!(app.config.disks.is_empty());
+    assert_eq!(app.screen, Screen::DiskSelect);
+    assert!(app.error.as_deref().unwrap().contains("span too small"));
+}
+
+#[test]
+fn disk_select_esc_returns_to_network() {
+    let mut app = app_no_auto();
+    app.screen = Screen::DiskSelect;
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.screen, Screen::Network);
+}
+
+#[test]
+fn wifi_connect_success_opens_disk_select_when_not_autodetected() {
+    let mut app = app_no_auto();
+    app.screen = Screen::WifiConnecting;
+    app.on_net_event(net::Event::ConnectDone(Ok(())));
+    assert_eq!(app.screen, Screen::DiskSelect);
 }
 
 #[test]

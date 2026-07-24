@@ -48,8 +48,10 @@ pub struct Step {
 }
 
 pub const LUKS_PASSFILE: &str = "/tmp/dots-luks-pass";
-/// disko partlabel for disk "main", partition "root" (see nix/disko.nix).
-pub const LUKS_DEVICE: &str = "/dev/disk/by-partlabel/disk-main-root";
+/// The root logical volume in the `tokyonightvg` VG (see nix/disko.nix):
+/// disko puts LUKS on this LV, so TPM2/recovery enrollment targets it
+/// instead of a GPT partition by-partlabel.
+pub const LUKS_DEVICE: &str = "/dev/tokyonightvg/root";
 /// Writable staging copy of the flake on the live system, used by
 /// `nixos-install` — the ISO's `/etc/dots` is a read-only store path. Lives
 /// on ISO tmpfs and is gone after reboot.
@@ -90,6 +92,17 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
 pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
     let swap = format!("{}G", cfg.swap_size_gib);
     let unlock = format!("--unlock-key-file={LUKS_PASSFILE}");
+    // Nix list literal of the selected disks, e.g. ["/dev/sda" "/dev/sdb"],
+    // passed to disko as a non-stringified arg so disko.nix's `disks` list
+    // binds to it directly.
+    let disks_arg = format!(
+        "[ {} ]",
+        cfg.disks
+            .iter()
+            .map(|d| format!("\"{d}\""))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
 
     vec![
         Step {
@@ -108,9 +121,9 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                     "--mode",
                     "destroy,format,mount",
                     "--yes-wipe-all-disks",
-                    "--argstr",
-                    "disk",
-                    &cfg.disk,
+                    "--arg",
+                    "disks",
+                    &disks_arg,
                     "--argstr",
                     "swapSize",
                     &swap,

@@ -7,7 +7,7 @@ use dots_installer::install::{
 
 fn cfg() -> InstallConfig {
     InstallConfig {
-        disk: "/dev/vda".into(),
+        disks: vec!["/dev/vda".into()],
         hostname: "myhost".into(),
         username: "alice".into(),
         root_password: "rootsecret".into(),
@@ -45,7 +45,7 @@ fn plan_writes_luks_passfile_with_root_password_mode_600() {
 }
 
 #[test]
-fn plan_runs_disko_with_autodetected_disk_and_swap() {
+fn plan_runs_disko_with_selected_disks_and_swap() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let args = steps
         .iter()
@@ -55,7 +55,7 @@ fn plan_runs_disko_with_autodetected_disk_and_swap() {
         })
         .expect("disko step");
     let joined = args.join(" ");
-    assert!(joined.contains("--argstr disk /dev/vda"), "{joined}");
+    assert!(joined.contains("--arg disks [ \"/dev/vda\" ]"), "{joined}");
     assert!(joined.contains("--argstr swapSize 16G"), "{joined}");
     assert!(joined.contains("destroy,format,mount"), "{joined}");
 }

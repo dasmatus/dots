@@ -1,60 +1,95 @@
-# Single source of truth for the disk layout — same shape as the retired
-# Gentoo installer's partition.py (git history): systemd-repart with ESP 2G,
-# TPM2-LUKS2 btrfs root, random-key swap.
+# Single source of truth for the disk layout — same goals as the retired
+# Gentoo installer's partition.py (git history): ESP 2G, TPM2-LUKS2 btrfs
+# root, random-key swap. Realised on LVM so the volume group can span every
+# selected disk: one PV per disk, one VG (`tokyonightvg`), logical volumes for
+# swap and the LUKS root. ESP stays a raw partition on the first disk (boot
+# loaders can't read LVM).
 # Consumed two ways, keep them from drifting:
 #   - disko CLI on the LiveISO:
-#       disko --mode destroy,format,mount --argstr disk /dev/sdX --argstr swapSize 32G nix/disko.nix
+#       disko --mode destroy,format,mount --arg disks '["/dev/sda" "/dev/sdb"]' \
+#             --argstr swapSize 32G nix/disko.nix
 #   - imported by flake.nix into the system config (generates fileSystems).
 # When neither disk nor disks is supplied, disko autodetects one whole-disk
-# device. Multiple matches require an explicit choice so autodetection can
-# never wipe several disks.
-# GPT order: ESP, swap (fixed size), LUKS root fills the remainder.
+# device. Multiple matches throw — autodetection must never silently wipe
+# several disks, so a multi-disk span always comes from an explicit `disks`.
 {
   disk ? null,
   disks ? null,
   swapSize ? "32G",
+  lib,
   ...
 }:
 let
   isWholeDisk =
     name: builtins.match "(mmcblk[0-9]+|nvme[0-9]+n[0-9]+|sd[a-z]+|vd[a-z]+|xvd[a-z]+)" name != null;
+  # Normalise every entry path to a single `selectedDisks` list, honouring an
+  # explicit `disks` list, then a legacy single `disk`, then /dev autodetect.
   detectedDisks =
-    if disk != null then
-      [ disk ]
-    else if disks != null then
+    if disks != null then
       if builtins.isList disks then disks else [ disks ]
+    else if disk != null then
+      [ disk ]
     else
       builtins.map (name: "/dev/${name}") (
         builtins.filter isWholeDisk (builtins.attrNames (builtins.readDir "/dev"))
       );
-  selectedDisk =
-    if builtins.length detectedDisks == 1 then
-      builtins.head detectedDisks
-    else if detectedDisks == [ ] then
-      throw "disko could not autodetect a target disk; pass --argstr disk /dev/…"
+  selectedDisks =
+    if detectedDisks == [ ] then
+      throw "disko could not autodetect a target disk; pass --arg disks '[\"/dev/…\"]'"
+    else if builtins.length detectedDisks > 1 && disks == null && disk == null then
+      throw "disko found multiple target disks; pass --arg disks '[\"/dev/…\"]' explicitly"
     else
-      throw "disko found multiple target disks; pass --argstr disk /dev/… explicitly";
+      detectedDisks;
+
+  # One disk attr per selected device. The first disk also carries the ESP;
+  # every disk carries a single LVM-PV partition that joins `tokyonightvg`.
+  vgName = "tokyonightvg";
+  diskEntries = lib.imap0 (
+    i: d:
+    lib.nameValuePair "main${toString i}" {
+      device = d;
+      type = "disk";
+      content = {
+        type = "gpt";
+        partitions =
+          (lib.optionalAttrs (i == 0) {
+            esp = {
+              priority = 1;
+              size = "2G";
+              type = "EF00";
+              content = {
+                type = "filesystem";
+                format = "vfat";
+                mountpoint = "/boot";
+                mountOptions = [ "umask=0077" ];
+              };
+            };
+          })
+          // {
+            pv = {
+              priority = 2;
+              size = "100%";
+              content = {
+                type = "lvm_pv";
+                vg = vgName;
+              };
+            };
+          };
+      };
+    }
+  ) selectedDisks;
 in
 {
-  disko.devices.disk.main = {
-    device = selectedDisk;
-    type = "disk";
-    content = {
-      type = "gpt";
-      partitions = {
-        esp = {
-          priority = 1;
-          size = "2G";
-          type = "EF00";
-          content = {
-            type = "filesystem";
-            format = "vfat";
-            mountpoint = "/boot";
-            mountOptions = [ "umask=0077" ];
-          };
-        };
+  disko.devices = {
+    disk = builtins.listToAttrs diskEntries;
+
+    # disko allocates fixed-size LVs (priority 1000) before any 100%FREE LV
+    # (priority 1251), so `swap` claims its size first and `root` fills the
+    # rest — no need to game LV attribute order.
+    lvm_vg.${vgName} = {
+      type = "lvm_vg";
+      lvs = {
         swap = {
-          priority = 2;
           size = swapSize;
           content = {
             type = "swap";
@@ -62,8 +97,7 @@ in
           };
         };
         root = {
-          priority = 3;
-          size = "100%";
+          size = "100%FREE";
           content = {
             type = "luks";
             name = "cryptroot";

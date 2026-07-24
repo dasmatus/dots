@@ -113,7 +113,7 @@
             disko.nixosModules.disko
             home-manager.nixosModules.home-manager
             lanzaboote.nixosModules.lanzaboote
-            (import ./nix/disko.nix { inherit (settings) disk swapSize; })
+            (import ./nix/disko.nix { inherit (settings) disks swapSize; })
             ./nix/modules/core.nix
             ./nix/modules/boot.nix
             ./nix/modules/network.nix
@@ -175,7 +175,7 @@
           builtins.concatStringsSep "\n" [
             settings.username
             settings.hostname
-            settings.disk
+            (builtins.concatStringsSep "," settings.disks)
             settings.swapSize
           ]
         );

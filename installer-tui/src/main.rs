@@ -16,8 +16,15 @@ fn main() -> anyhow::Result<()> {
     let swap_size_gib = install::swap_size_from_meminfo(
         &std::fs::read_to_string("/proc/meminfo").unwrap_or_default(),
     );
-    let disk = disks::autodetect_disk(&disks::list_disks()?, swap_size_gib)?;
-    let mut app = app::App::new(disk.path);
+    // Best-effort autodetection: when one fixed disk is large enough we skip
+    // the picker, but any failure (ambiguous disks, all too small, lsblk error)
+    // falls back to the manual DiskSelect screen instead of aborting before
+    // the TUI ever renders — which would otherwise crash-loop on a blank tty1.
+    let disks = disks::list_disks().unwrap_or_default();
+    let auto = disks::autodetect_disk(&disks, swap_size_gib)
+        .ok()
+        .map(|disk| disk.path);
+    let mut app = app::App::new(disks, auto);
     app.config.swap_size_gib = swap_size_gib;
 
     enable_raw_mode()?;

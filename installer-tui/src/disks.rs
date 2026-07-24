@@ -19,13 +19,23 @@ impl Disk {
     }
 }
 
+/// One GiB in bytes — the unit `required_gib`/`required_bytes` speak in.
+pub const GIB: u64 = 1024 * 1024 * 1024;
+/// ESP/boot partition size in the disko layout.
+pub const ESP_GIB: u64 = 2;
+/// Floor for the btrfs root: the desktop closure alone is ~12 GiB.
+pub const ROOT_GIB: u64 = 20;
+
+/// Minimum target disk size for the disko layout (ESP + swap + root), in GiB.
+/// Shared by `autodetect_disk` and the manual picker so the two can't drift.
+#[must_use]
+pub fn required_gib(swap_gib: u64) -> u64 {
+    ESP_GIB + swap_gib + ROOT_GIB
+}
+
 /// Choose one sufficiently large target, preferring the sole fixed disk.
 pub fn autodetect_disk(disks: &[Disk], swap_gib: u64) -> Result<Disk> {
-    const GIB: u64 = 1024 * 1024 * 1024;
-    const ESP_GIB: u64 = 2;
-    const ROOT_GIB: u64 = 20;
-
-    let required_gib = ESP_GIB + swap_gib + ROOT_GIB;
+    let required_gib = required_gib(swap_gib);
     let eligible: Vec<&Disk> = disks
         .iter()
         .filter(|disk| disk.size_bytes >= required_gib.saturating_mul(GIB))

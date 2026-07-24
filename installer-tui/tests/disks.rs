@@ -1,6 +1,6 @@
 //! lsblk parsing + partition-suffix tests.
 
-use dots_installer::disks::{autodetect_disk, parent_disk, parse_lsblk, Disk};
+use dots_installer::disks::{autodetect_disk, parent_disk, parse_lsblk, required_gib, Disk};
 
 const FIXTURE: &str = include_str!("fixtures/lsblk.json");
 
@@ -54,6 +54,13 @@ fn autodetects_the_only_fixed_disk() {
     let disks = parse_lsblk(FIXTURE).unwrap();
     let disk = autodetect_disk(&disks, 8).unwrap();
     assert_eq!(disk.path, "/dev/nvme0n1");
+}
+
+#[test]
+fn required_gib_sums_esp_swap_and_root() {
+    assert_eq!(required_gib(0), 22);
+    assert_eq!(required_gib(8), 30);
+    assert_eq!(required_gib(16), 38);
 }
 
 #[test]

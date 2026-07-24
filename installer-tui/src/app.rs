@@ -4,6 +4,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::config::{validate_hostname, validate_username, InstallConfig};
+use crate::disks::{self, Disk};
 use crate::install;
 use crate::net;
 
@@ -13,6 +14,10 @@ pub enum Screen {
     Network,
     WifiPassword,
     WifiConnecting,
+    /// Manual target-disk picker — shown only when `autodetect_disk` couldn't
+    /// pick a single disk unambiguously (multiple fixed disks, or none large
+    /// enough). When autodetection succeeded this screen is skipped.
+    DiskSelect,
     Hostname,
     Username,
     RootPassword,
@@ -29,6 +34,13 @@ pub enum Screen {
 pub struct App {
     pub screen: Screen,
     pub config: InstallConfig,
+    /// Disks offered by the manual picker; empty when autodetection succeeded.
+    pub disks: Vec<Disk>,
+    pub selected: usize,
+    /// Per-`disks` selection mask for the multi-select picker.
+    pub picked: Vec<bool>,
+    /// True when `autodetect_disk` pre-picked the disk → skip `DiskSelect`.
+    pub disk_auto: bool,
     pub input: String,
     pub pending_password: String,
     pub error: Option<String>,
@@ -55,14 +67,25 @@ pub struct App {
 }
 
 impl App {
+    /// Build the wizard. `auto` is the path `autodetect_disk` picked, when it
+    /// could pick one unambiguously — in that case `DiskSelect` is skipped.
+    /// When `auto` is `None`, `disks` is offered via the multi-select picker.
     #[must_use]
-    pub fn new(disk: String) -> Self {
+    pub fn new(disks: Vec<Disk>, auto: Option<String>) -> Self {
+        let (config_disks, disk_auto) = match auto {
+            Some(d) => (vec![d], true),
+            None => (Vec::new(), false),
+        };
         Self {
             screen: Screen::Welcome,
             config: InstallConfig {
-                disk,
+                disks: config_disks,
                 ..InstallConfig::default()
             },
+            picked: vec![false; disks.len()],
+            disks,
+            selected: 0,
+            disk_auto,
             input: String::new(),
             pending_password: String::new(),
             error: None,
@@ -80,6 +103,16 @@ impl App {
             online: None,
             net_busy: None,
             pending_net_op: None,
+        }
+    }
+
+    /// Where the Network screen hands off to: the manual picker when
+    /// autodetection didn't pre-pick the disk, else straight to Hostname.
+    fn after_network(&self) -> Screen {
+        if self.disk_auto {
+            Screen::Hostname
+        } else {
+            Screen::DiskSelect
         }
     }
 
@@ -108,7 +141,7 @@ impl App {
                     self.pending_net_op = Some(net::Op::Scan);
                 }
                 KeyCode::Char('s') => {
-                    self.screen = Screen::Hostname;
+                    self.screen = self.after_network();
                     self.error = None;
                 }
                 KeyCode::Enter if self.net_busy.is_none() => {
@@ -158,6 +191,58 @@ impl App {
                     self.error = None;
                     self.screen = Screen::Network;
                 }
+                _ => {}
+            },
+
+            Screen::DiskSelect => match key.code {
+                KeyCode::Up => self.selected = self.selected.saturating_sub(1),
+                KeyCode::Down => {
+                    if self.selected + 1 < self.disks.len() {
+                        self.selected += 1;
+                    }
+                }
+                // Space toggles membership in the multi-select set; Enter
+                // confirms. The chosen disks span one LVM volume group, so
+                // the capacity gate is on their combined size, not any one.
+                KeyCode::Char(' ') => {
+                    if let Some(p) = self.picked.get_mut(self.selected) {
+                        *p = !*p;
+                        self.error = None;
+                    }
+                }
+                KeyCode::Enter => {
+                    let chosen: Vec<&Disk> = self
+                        .disks
+                        .iter()
+                        .zip(self.picked.iter())
+                        .filter_map(|(d, p)| p.then_some(d))
+                        .collect();
+                    if chosen.is_empty() {
+                        self.error = Some("select at least one disk (Space to toggle)".into());
+                    } else {
+                        let need_gib = disks::required_gib(self.config.swap_size_gib);
+                        let total: u64 = chosen.iter().map(|d| d.size_bytes).sum();
+                        if total < need_gib * disks::GIB {
+                            let paths = chosen
+                                .iter()
+                                .map(|d| d.path.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            self.error = Some(format!(
+                                "span too small: need ≥ {need_gib} GiB across the VG ({}G ESP + {}G swap + {}G root), {paths} total {} GiB",
+                                disks::ESP_GIB,
+                                self.config.swap_size_gib,
+                                disks::ROOT_GIB,
+                                total / disks::GIB
+                            ));
+                        } else {
+                            self.config.disks = chosen.iter().map(|d| d.path.clone()).collect();
+                            self.error = None;
+                            self.screen = Screen::Hostname;
+                        }
+                    }
+                }
+                KeyCode::Esc => self.screen = Screen::Network,
                 _ => {}
             },
 
@@ -271,7 +356,7 @@ impl App {
                 KeyCode::Esc => {
                     self.input.clear();
                     self.error = None;
-                    self.screen = Screen::Hostname;
+                    self.screen = self.after_network();
                 }
                 _ => {}
             },
@@ -337,7 +422,7 @@ impl App {
                 self.online = Some(true);
                 self.error = None;
                 if self.screen == Screen::WifiConnecting {
-                    self.screen = Screen::Hostname;
+                    self.screen = self.after_network();
                 }
             }
             net::Event::ConnectDone(Err(e)) => {

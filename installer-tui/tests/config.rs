@@ -5,7 +5,7 @@ use dots_installer::config::{validate_hostname, validate_username, InstallConfig
 #[test]
 fn settings_nix_renders_all_answers() {
     let cfg = InstallConfig {
-        disk: "/dev/vda".into(),
+        disks: vec!["/dev/vda".into(), "/dev/vdb".into()],
         hostname: "myhost".into(),
         username: "alice".into(),
         swap_size_gib: 16,
@@ -14,7 +14,10 @@ fn settings_nix_renders_all_answers() {
     let out = cfg.settings_nix();
     assert!(out.contains(r#"username = "alice";"#), "{out}");
     assert!(out.contains(r#"hostname = "myhost";"#), "{out}");
-    assert!(out.contains(r#"disk = "/dev/vda";"#), "{out}");
+    assert!(
+        out.contains(r#"disks = [ "/dev/vda" "/dev/vdb" ];"#),
+        "{out}"
+    );
     assert!(out.contains(r#"swapSize = "16G";"#), "{out}");
     assert!(out.trim_start().starts_with('{') && out.trim_end().ends_with('}'));
 }

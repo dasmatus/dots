@@ -2,7 +2,7 @@
 # *under* nix/settings.nix:
 #   settings = (import ./nix/defaults.nix) // (import ./nix/settings.nix);
 # The installer TUI (installer-tui/src/config.rs::settings_nix) rewrites only
-# the four install answers (username/hostname/disk/swapSize) into settings.nix
+# the four install answers (username/hostname/disks/swapSize) into settings.nix
 # on the target, so anything it does not write must live here to survive an
 # install — otherwise the installer would wipe it and the modules that read
 # settings.<key> would lose their values on the next rebuild. Edit this file

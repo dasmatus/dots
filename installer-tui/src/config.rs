@@ -2,7 +2,9 @@
 
 #[derive(Debug, Clone, Default)]
 pub struct InstallConfig {
-    pub disk: String,
+    /// Target disks spanning the LVM volume group (≥1). `disko.nix` puts a
+    /// PV on each and builds `tokyonightvg` across them.
+    pub disks: Vec<String>,
     pub hostname: String,
     pub username: String,
     pub root_password: String,
@@ -14,9 +16,15 @@ impl InstallConfig {
     /// Render the nix/settings.nix the flake consumes on the target.
     #[must_use]
     pub fn settings_nix(&self) -> String {
+        let disks = self
+            .disks
+            .iter()
+            .map(|d| format!("\"{d}\""))
+            .collect::<Vec<_>>()
+            .join(" ");
         format!(
-            "{{\n  username = \"{}\";\n  hostname = \"{}\";\n  disk = \"{}\";\n  swapSize = \"{}G\";\n}}\n",
-            self.username, self.hostname, self.disk, self.swap_size_gib
+            "{{\n  username = \"{}\";\n  hostname = \"{}\";\n  disks = [ {} ];\n  swapSize = \"{}G\";\n}}\n",
+            self.username, self.hostname, disks, self.swap_size_gib
         )
     }
 }
