@@ -16,7 +16,6 @@
   disk ? null,
   disks ? null,
   swapSize ? "32G",
-  lib,
   ...
 }:
 let
@@ -43,28 +42,35 @@ let
 
   # One disk attr per selected device. The first disk also carries the ESP;
   # every disk carries a single LVM-PV partition that joins `tokyonightvg`.
+  # builtins-only (no lib) so the disko CLI can evaluate this file with just
+  # its --arg/--argstr args — it doesn't inject lib the way nixosSystem does.
   vgName = "tokyonightvg";
-  diskEntries = lib.imap0 (
-    i: d:
-    lib.nameValuePair "main${toString i}" {
+  diskEntry = i: d: {
+    name = "main${toString i}";
+    value = {
       device = d;
       type = "disk";
       content = {
         type = "gpt";
         partitions =
-          (lib.optionalAttrs (i == 0) {
-            esp = {
-              priority = 1;
-              size = "2G";
-              type = "EF00";
-              content = {
-                type = "filesystem";
-                format = "vfat";
-                mountpoint = "/boot";
-                mountOptions = [ "umask=0077" ];
-              };
-            };
-          })
+          (
+            if i == 0 then
+              {
+                esp = {
+                  priority = 1;
+                  size = "2G";
+                  type = "EF00";
+                  content = {
+                    type = "filesystem";
+                    format = "vfat";
+                    mountpoint = "/boot";
+                    mountOptions = [ "umask=0077" ];
+                  };
+                };
+              }
+            else
+              { }
+          )
           // {
             pv = {
               priority = 2;
@@ -76,8 +82,11 @@ let
             };
           };
       };
-    }
-  ) selectedDisks;
+    };
+  };
+  diskEntries = builtins.genList (i: diskEntry i (builtins.elemAt selectedDisks i)) (
+    builtins.length selectedDisks
+  );
 in
 {
   disko.devices = {
