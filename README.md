@@ -25,7 +25,7 @@ sudo nixos-rebuild switch --flake .#tokyonight
 ```
 
 `installer-tui/` (package name `dots-installer`) is a Rust/ratatui wizard —
-disk picker → hostname → user → passwords → typed-`ERASE` confirm — that runs
+disk autodetection → hostname → user → passwords → typed-`ERASE` confirm — that runs
 [disko](https://github.com/nix-community/disko), generates a
 [nixos-facter](https://github.com/nix-community/nixos-facter) hardware report
 on the target (no more manual intel/amd picking), runs `nixos-install` from

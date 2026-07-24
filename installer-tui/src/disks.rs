@@ -11,12 +11,46 @@ pub struct Disk {
 }
 
 impl Disk {
-    /// "476.9 GiB" style rendering for the picker.
+    /// "476.9 GiB" style rendering.
     #[must_use]
     pub fn human_size(&self) -> String {
         let gib = self.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
         format!("{gib:.1} GiB")
     }
+}
+
+/// Choose one sufficiently large target, preferring the sole fixed disk.
+pub fn autodetect_disk(disks: &[Disk], swap_gib: u64) -> Result<Disk> {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    const ESP_GIB: u64 = 2;
+    const ROOT_GIB: u64 = 20;
+
+    let required_gib = ESP_GIB + swap_gib + ROOT_GIB;
+    let eligible: Vec<&Disk> = disks
+        .iter()
+        .filter(|disk| disk.size_bytes >= required_gib.saturating_mul(GIB))
+        .collect();
+    let fixed: Vec<&Disk> = eligible
+        .iter()
+        .copied()
+        .filter(|disk| !disk.removable)
+        .collect();
+    let candidates = if fixed.is_empty() { &eligible } else { &fixed };
+
+    anyhow::ensure!(
+        !candidates.is_empty(),
+        "no installable disk has the required {required_gib} GiB capacity"
+    );
+    anyhow::ensure!(
+        candidates.len() == 1,
+        "disk autodetection is ambiguous: {}",
+        candidates
+            .iter()
+            .map(|disk| disk.path.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Ok((*candidates[0]).clone())
 }
 
 /// Parse `lsblk -J -b -d -o NAME,PATH,SIZE,MODEL,RM,TYPE,RO` output.

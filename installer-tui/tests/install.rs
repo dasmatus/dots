@@ -45,7 +45,7 @@ fn plan_writes_luks_passfile_with_root_password_mode_600() {
 }
 
 #[test]
-fn plan_runs_disko_with_chosen_disk_and_swap() {
+fn plan_runs_disko_with_autodetected_disk_and_swap() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let args = steps
         .iter()

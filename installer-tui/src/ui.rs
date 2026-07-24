@@ -143,45 +143,6 @@ fn draw_wizard(frame: &mut Frame, app: &App, area: Rect) {
             "please wait",
         ),
 
-        Screen::DiskSelect => {
-            let mut lines = vec![
-                Line::default(),
-                Line::raw("  Select the target disk (it will be ERASED):"),
-                Line::default(),
-            ];
-            if app.disks.is_empty() {
-                lines.push(Line::styled(
-                    "  no installable disks found",
-                    Style::default().fg(palette::RED),
-                ));
-            }
-            for (i, d) in app.disks.iter().enumerate() {
-                let marker = if i == app.selected { "  ▶ " } else { "    " };
-                let removable = if d.removable { " [removable]" } else { "" };
-                let style = if i == app.selected {
-                    Style::default()
-                        .fg(palette::CYAN)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                lines.push(Line::styled(
-                    format!(
-                        "{marker}{}  {}  {}{removable}",
-                        d.path,
-                        d.human_size(),
-                        d.model
-                    ),
-                    style,
-                ));
-            }
-            (
-                " target disk ",
-                lines,
-                "↑/↓ select · Enter confirm · Esc back",
-            )
-        }
-
         Screen::Hostname => (
             " hostname ",
             input_lines("Hostname (empty = \"tokyonight\"):", &app.input, false),

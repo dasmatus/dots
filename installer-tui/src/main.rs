@@ -13,11 +13,12 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
 fn main() -> anyhow::Result<()> {
-    let disks = disks::list_disks().unwrap_or_default();
-    let mut app = app::App::new(disks);
-    app.config.swap_size_gib = install::swap_size_from_meminfo(
+    let swap_size_gib = install::swap_size_from_meminfo(
         &std::fs::read_to_string("/proc/meminfo").unwrap_or_default(),
     );
+    let disk = disks::autodetect_disk(&disks::list_disks()?, swap_size_gib)?;
+    let mut app = app::App::new(disk.path);
+    app.config.swap_size_gib = swap_size_gib;
 
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen)?;

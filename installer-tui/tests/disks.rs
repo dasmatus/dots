@@ -1,6 +1,6 @@
 //! lsblk parsing + partition-suffix tests.
 
-use dots_installer::disks::{parent_disk, parse_lsblk, Disk};
+use dots_installer::disks::{autodetect_disk, parent_disk, parse_lsblk, Disk};
 
 const FIXTURE: &str = include_str!("fixtures/lsblk.json");
 
@@ -47,4 +47,47 @@ fn parent_disk_strips_partition_suffixes() {
     assert_eq!(parent_disk("/dev/mmcblk0p1"), "/dev/mmcblk0");
     assert_eq!(parent_disk("/dev/vda"), "/dev/vda");
     assert_eq!(parent_disk("/dev/nvme0n1"), "/dev/nvme0n1");
+}
+
+#[test]
+fn autodetects_the_only_fixed_disk() {
+    let disks = parse_lsblk(FIXTURE).unwrap();
+    let disk = autodetect_disk(&disks, 8).unwrap();
+    assert_eq!(disk.path, "/dev/nvme0n1");
+}
+
+#[test]
+fn autodetection_rejects_ambiguous_fixed_disks() {
+    let disks = vec![
+        Disk {
+            path: "/dev/vda".into(),
+            size_bytes: 64 * 1024 * 1024 * 1024,
+            model: String::new(),
+            removable: false,
+        },
+        Disk {
+            path: "/dev/vdb".into(),
+            size_bytes: 64 * 1024 * 1024 * 1024,
+            model: String::new(),
+            removable: false,
+        },
+    ];
+    assert!(autodetect_disk(&disks, 8)
+        .unwrap_err()
+        .to_string()
+        .contains("ambiguous"));
+}
+
+#[test]
+fn autodetection_rejects_disks_that_are_too_small() {
+    let disks = vec![Disk {
+        path: "/dev/vda".into(),
+        size_bytes: 20 * 1024 * 1024 * 1024,
+        model: String::new(),
+        removable: false,
+    }];
+    assert!(autodetect_disk(&disks, 8)
+        .unwrap_err()
+        .to_string()
+        .contains("required 30 GiB"));
 }

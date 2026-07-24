@@ -2,7 +2,6 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use dots_installer::app::{App, Screen};
-use dots_installer::disks::Disk;
 use dots_installer::install;
 use dots_installer::net::{self, WifiNetwork};
 
@@ -10,27 +9,8 @@ fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::from(code)
 }
 
-fn app_with_disks() -> App {
-    App::new(vec![
-        Disk {
-            path: "/dev/nvme0n1".into(),
-            size_bytes: 512_110_190_592,
-            model: "SSD".into(),
-            removable: false,
-        },
-        Disk {
-            path: "/dev/sda".into(),
-            size_bytes: 240_057_409_536,
-            model: "SATA SSD".into(),
-            removable: false,
-        },
-        Disk {
-            path: "/dev/sdb".into(),
-            size_bytes: 15_931_539_456,
-            model: "USB".into(),
-            removable: true,
-        },
-    ])
+fn app() -> App {
+    App::new("/dev/nvme0n1".into())
 }
 
 fn type_str(app: &mut App, s: &str) {
@@ -42,7 +22,7 @@ fn type_str(app: &mut App, s: &str) {
 /// An App parked on the Network screen with a canned two-network list: a
 /// secured one at index 0 and an open one at index 1.
 fn app_on_network_screen() -> App {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Network;
     app.wifi_networks = vec![
         WifiNetwork {
@@ -61,7 +41,7 @@ fn app_on_network_screen() -> App {
 
 #[test]
 fn welcome_enter_opens_network_screen_and_requests_scan() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.screen, Screen::Network);
     assert_eq!(app.pending_net_op, Some(net::Op::Scan));
@@ -70,16 +50,16 @@ fn welcome_enter_opens_network_screen_and_requests_scan() {
 
 #[test]
 fn welcome_esc_quits() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.handle_key(key(KeyCode::Esc));
     assert!(app.should_quit);
 }
 
 #[test]
-fn network_skip_advances_to_disk_select() {
+fn network_skip_advances_to_hostname() {
     let mut app = app_on_network_screen();
     app.handle_key(key(KeyCode::Char('s')));
-    assert_eq!(app.screen, Screen::DiskSelect);
+    assert_eq!(app.screen, Screen::Hostname);
 }
 
 #[test]
@@ -90,16 +70,8 @@ fn network_esc_returns_to_welcome() {
 }
 
 #[test]
-fn disk_select_esc_returns_to_network() {
-    let mut app = app_with_disks();
-    app.screen = Screen::DiskSelect;
-    app.handle_key(key(KeyCode::Esc));
-    assert_eq!(app.screen, Screen::Network);
-}
-
-#[test]
 fn scan_results_populate_list_and_clear_busy() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Network;
     app.net_busy = Some("scanning for networks…".into());
     app.on_net_event(net::Event::ScanDone(Ok(vec![
@@ -121,7 +93,7 @@ fn scan_results_populate_list_and_clear_busy() {
 
 #[test]
 fn scan_failure_surfaces_error() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Network;
     app.net_busy = Some("scanning for networks…".into());
     app.on_net_event(net::Event::ScanDone(Err("nmcli not found".into())));
@@ -210,17 +182,17 @@ fn wifi_password_esc_backs_out_to_network() {
 }
 
 #[test]
-fn connect_success_advances_to_disk_select() {
-    let mut app = app_with_disks();
+fn connect_success_advances_to_hostname() {
+    let mut app = app();
     app.screen = Screen::WifiConnecting;
     app.on_net_event(net::Event::ConnectDone(Ok(())));
-    assert_eq!(app.screen, Screen::DiskSelect);
+    assert_eq!(app.screen, Screen::Hostname);
     assert_eq!(app.online, Some(true));
 }
 
 #[test]
 fn connect_failure_returns_to_network_with_error() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::WifiConnecting;
     app.on_net_event(net::Event::ConnectDone(Err("bad passphrase".into())));
     assert_eq!(app.screen, Screen::Network);
@@ -229,19 +201,19 @@ fn connect_failure_returns_to_network_with_error() {
 
 #[test]
 fn late_scan_event_never_changes_screen() {
-    let mut app = app_with_disks();
-    app.screen = Screen::DiskSelect;
+    let mut app = app();
+    app.screen = Screen::Hostname;
     app.on_net_event(net::Event::ScanDone(Ok(vec![WifiNetwork {
         ssid: "late".into(),
         signal: 10,
         security: String::new(),
     }])));
-    assert_eq!(app.screen, Screen::DiskSelect);
+    assert_eq!(app.screen, Screen::Hostname);
 }
 
 #[test]
 fn wifi_connecting_ignores_keys() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::WifiConnecting;
     app.handle_key(key(KeyCode::Esc));
     app.handle_key(key(KeyCode::Enter));
@@ -250,7 +222,7 @@ fn wifi_connecting_ignores_keys() {
 
 #[test]
 fn connectivity_event_sets_online_flag() {
-    let mut app = app_with_disks();
+    let mut app = app();
     assert_eq!(app.online, None);
     app.on_net_event(net::Event::Connectivity(true));
     assert_eq!(app.online, Some(true));
@@ -259,34 +231,13 @@ fn connectivity_event_sets_online_flag() {
 }
 
 #[test]
-fn disk_select_stores_chosen_path() {
-    let mut app = app_with_disks();
-    app.screen = Screen::DiskSelect;
-    app.handle_key(key(KeyCode::Down));
-    app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.config.disk, "/dev/sda");
-    assert_eq!(app.screen, Screen::Hostname);
-}
-
-#[test]
-fn disk_select_rejects_too_small_disk_before_anything_is_wiped() {
-    let mut app = app_with_disks();
-    app.config.swap_size_gib = 16;
-    app.screen = Screen::DiskSelect;
-    app.selected = 2;
-    app.handle_key(key(KeyCode::Enter));
-    assert_eq!(
-        app.screen,
-        Screen::DiskSelect,
-        "15GB stick can't fit 2+16+20 GiB"
-    );
-    assert!(app.error.as_deref().unwrap().contains("too small"));
-    assert!(app.config.disk.is_empty());
+fn app_stores_autodetected_disk() {
+    assert_eq!(app().config.disk, "/dev/nvme0n1");
 }
 
 #[test]
 fn hostname_empty_uses_default() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Hostname;
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.config.hostname, "tokyonight");
@@ -295,7 +246,7 @@ fn hostname_empty_uses_default() {
 
 #[test]
 fn hostname_rejects_invalid_and_stays() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Hostname;
     type_str(&mut app, "Bad_Host!");
     app.handle_key(key(KeyCode::Enter));
@@ -305,7 +256,7 @@ fn hostname_rejects_invalid_and_stays() {
 
 #[test]
 fn username_is_required() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Username;
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.screen, Screen::Username);
@@ -314,7 +265,7 @@ fn username_is_required() {
 
 #[test]
 fn password_mismatch_restarts_entry_with_error() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::RootPassword;
     type_str(&mut app, "hunter2");
     app.handle_key(key(KeyCode::Enter));
@@ -328,7 +279,7 @@ fn password_mismatch_restarts_entry_with_error() {
 
 #[test]
 fn matching_passwords_advance() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::RootPassword;
     type_str(&mut app, "hunter2");
     app.handle_key(key(KeyCode::Enter));
@@ -340,7 +291,7 @@ fn matching_passwords_advance() {
 
 #[test]
 fn empty_password_rejected() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::RootPassword;
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.screen, Screen::RootPassword);
@@ -349,7 +300,7 @@ fn empty_password_rejected() {
 
 #[test]
 fn confirm_requires_exact_erase() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Confirm;
     type_str(&mut app, "erase");
     app.handle_key(key(KeyCode::Enter));
@@ -364,16 +315,16 @@ fn confirm_requires_exact_erase() {
 }
 
 #[test]
-fn confirm_esc_backs_out_to_disk_select() {
-    let mut app = app_with_disks();
+fn confirm_esc_backs_out_to_hostname() {
+    let mut app = app();
     app.screen = Screen::Confirm;
     app.handle_key(key(KeyCode::Esc));
-    assert_eq!(app.screen, Screen::DiskSelect);
+    assert_eq!(app.screen, Screen::Hostname);
 }
 
 #[test]
 fn installing_ignores_keys() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Installing;
     app.handle_key(key(KeyCode::Esc));
     app.handle_key(key(KeyCode::Enter));
@@ -383,7 +334,7 @@ fn installing_ignores_keys() {
 
 #[test]
 fn install_events_drive_progress_and_completion() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Installing;
     app.on_install_event(install::Event::StepStarted(2, 6, "disko".into()));
     assert_eq!(app.current_step, 2);
@@ -398,7 +349,7 @@ fn install_events_drive_progress_and_completion() {
 
 #[test]
 fn install_failure_shows_failed_screen() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Installing;
     app.on_install_event(install::Event::Failed("boom".into()));
     assert_eq!(app.screen, Screen::Failed);
@@ -407,7 +358,7 @@ fn install_failure_shows_failed_screen() {
 
 #[test]
 fn done_enter_requests_reboot() {
-    let mut app = app_with_disks();
+    let mut app = app();
     app.screen = Screen::Done;
     app.handle_key(key(KeyCode::Enter));
     assert!(app.reboot);

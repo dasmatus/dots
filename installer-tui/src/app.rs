@@ -4,18 +4,8 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::config::{validate_hostname, validate_username, InstallConfig};
-use crate::disks::Disk;
 use crate::install;
 use crate::net;
-
-const GIB: u64 = 1024 * 1024 * 1024;
-/// Floor for the btrfs root: the desktop closure alone is ~12 GiB.
-const MIN_ROOT_GIB: u64 = 20;
-
-/// Minimum target disk size for the disko layout (ESP + swap + root).
-fn required_disk_gib(swap_gib: u64) -> u64 {
-    2 + swap_gib + MIN_ROOT_GIB
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -23,7 +13,6 @@ pub enum Screen {
     Network,
     WifiPassword,
     WifiConnecting,
-    DiskSelect,
     Hostname,
     Username,
     RootPassword,
@@ -40,8 +29,6 @@ pub enum Screen {
 pub struct App {
     pub screen: Screen,
     pub config: InstallConfig,
-    pub disks: Vec<Disk>,
-    pub selected: usize,
     pub input: String,
     pub pending_password: String,
     pub error: Option<String>,
@@ -69,12 +56,13 @@ pub struct App {
 
 impl App {
     #[must_use]
-    pub fn new(disks: Vec<Disk>) -> Self {
+    pub fn new(disk: String) -> Self {
         Self {
             screen: Screen::Welcome,
-            config: InstallConfig::default(),
-            disks,
-            selected: 0,
+            config: InstallConfig {
+                disk,
+                ..InstallConfig::default()
+            },
             input: String::new(),
             pending_password: String::new(),
             error: None,
@@ -120,7 +108,7 @@ impl App {
                     self.pending_net_op = Some(net::Op::Scan);
                 }
                 KeyCode::Char('s') => {
-                    self.screen = Screen::DiskSelect;
+                    self.screen = Screen::Hostname;
                     self.error = None;
                 }
                 KeyCode::Enter if self.net_busy.is_none() => {
@@ -170,36 +158,6 @@ impl App {
                     self.error = None;
                     self.screen = Screen::Network;
                 }
-                _ => {}
-            },
-
-            Screen::DiskSelect => match key.code {
-                KeyCode::Up => self.selected = self.selected.saturating_sub(1),
-                KeyCode::Down => {
-                    if self.selected + 1 < self.disks.len() {
-                        self.selected += 1;
-                    }
-                }
-                KeyCode::Enter => {
-                    if let Some(d) = self.disks.get(self.selected) {
-                        let need_gib = required_disk_gib(self.config.swap_size_gib);
-                        if d.size_bytes < need_gib * GIB {
-                            self.error = Some(format!(
-                                "disk too small: need ≥ {need_gib} GiB (2G ESP + {}G swap + {MIN_ROOT_GIB}G root), {} has {}",
-                                self.config.swap_size_gib,
-                                d.path,
-                                d.human_size()
-                            ));
-                        } else {
-                            self.config.disk = d.path.clone();
-                            self.error = None;
-                            self.screen = Screen::Hostname;
-                        }
-                    } else {
-                        self.error = Some("no installable disks found".into());
-                    }
-                }
-                KeyCode::Esc => self.screen = Screen::Network,
                 _ => {}
             },
 
@@ -313,7 +271,7 @@ impl App {
                 KeyCode::Esc => {
                     self.input.clear();
                     self.error = None;
-                    self.screen = Screen::DiskSelect;
+                    self.screen = Screen::Hostname;
                 }
                 _ => {}
             },
@@ -379,7 +337,7 @@ impl App {
                 self.online = Some(true);
                 self.error = None;
                 if self.screen == Screen::WifiConnecting {
-                    self.screen = Screen::DiskSelect;
+                    self.screen = Screen::Hostname;
                 }
             }
             net::Event::ConnectDone(Err(e)) => {
