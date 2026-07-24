@@ -67,9 +67,8 @@ in
       # apps (ex flathub-verified)
       vesktop
       carburetor
-      cine
+      mpv
       newelle
-      addwater
       obsidian
       # flathub tracked the fresh branch; plain `libreoffice` = still/LTS
       libreoffice-fresh
@@ -78,19 +77,13 @@ in
       # torbrowser-launcher was never packaged; nixpkgs builds the browser
       tor-browser
       keepassxc
-      rewaita
-      # ex flathub (unverified subset)
       simplex-chat-desktop
       transmission_4-gtk
       bleachbit
-      briar-desktop
       pika-backup
       prismlauncher
       signal-desktop
       refine
-      # X11 automation for the claude-linux-computer plugin; X11-only tools,
-      # so under Hyprland they act through XWayland (enabled by default)
-      xdotool
       scrot
       imagemagick
     ])
