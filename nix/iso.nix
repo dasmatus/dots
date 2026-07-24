@@ -46,7 +46,7 @@ in
   ];
 
   networking.networkmanager.enable = true;
-  networking.wireless.enable = lib.mkForce false;
+  networking.wireless.enable = true;
 
   # Serial console for the VM smoke test (harmless on real hardware);
   # tty0 stays last so /dev/console is the local display.
