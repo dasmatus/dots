@@ -33,11 +33,20 @@
       url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # bun2nix vendors aipage's bun.lock JS deps (postcss/tailwind/autoprefixer)
+    # for the in-flake aipage build (nix/aipage.nix). Overlay applied to a
+    # dedicated pkgs instance (pkgsBun) so the system closure's pkgs stays
+    # overlay-free.
+    bun2nix = {
+      url = "github:nix-community/bun2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # AIPage (codeberg.org/dasmatus/aipage) is NOT a flake input: its built
-    # dist-* dirs are gitignored in the sibling repo, so no flake input can
-    # reach them (path inputs outside this flake aren't store-copied). Instead
-    # nix/home/{brave,librewolf}.nix fetch the deterministic tarballs in
-    # ~/.local/share/aipage/ via builtins.fetchTarball (an eval-time FOD).
+    # dist-* dirs are gitignored in the sibling repo and its flake only exposes
+    # an impure `apps.build`, so no flake input can reach a built artifact.
+    # Instead nix/aipage.nix fetchGit-pins `main` at an eval-time FOD and builds
+    # the dists inside this flake; nix/home/{brave,librewolf}.nix consume the
+    # resulting packages.aipage-{chrome,firefox} (threaded via specialArgs).
   };
 
   outputs =
@@ -55,6 +64,16 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      # nixpkgs with the bun2nix overlay, for the in-flake aipage build only.
+      # Kept separate from `pkgs` so the bun2nix overlay doesn't leak into the
+      # system closure (aipage's dists are static files — no runtime deps).
+      pkgsBun = import nixpkgs {
+        inherit system;
+        overlays = [ inputs.bun2nix.overlays.default ];
+      };
+      aipagePackages = pkgsBun.callPackage ./nix/aipage.nix {
+        rustPlatform = pkgsBun.rustPlatform;
+      };
       # defaults.nix holds the non-install-time params (timezone, locale,
       # desktop, boot knobs, network backend); the installer TUI rewrites only
       # the four install answers (username/hostname/disk/swapSize) into
@@ -91,13 +110,24 @@
               # The embedded closure is built against the committed facter.json
               # stub; the installer regenerates the report on real hardware, so
               # the delta (drivers, microcode) still comes from the binary cache.
-              isoImage.storeContents = nixpkgs.lib.optionals embedSystem [
-                self.nixosConfigurations.tokyonight.config.system.build.toplevel
-                nixpkgs.outPath
-                home-manager.outPath
-                disko.outPath
-                lanzaboote.outPath
-              ];
+              #
+              # The aipage dists are embedded on BOTH ISOs (not gated on
+              # embedSystem): they're small static store paths, and embedding
+              # them lets the installer substitute AIPage from the ISO store
+              # instead of rebuilding Rust/WASM/JS at install time (and keeps
+              # lean-ISO installs offline-capable for the extension itself).
+              isoImage.storeContents =
+                [
+                  self.packages.${system}.aipage-firefox
+                  self.packages.${system}.aipage-chrome
+                ]
+                ++ nixpkgs.lib.optionals embedSystem [
+                  self.nixosConfigurations.tokyonight.config.system.build.toplevel
+                  nixpkgs.outPath
+                  home-manager.outPath
+                  disko.outPath
+                  lanzaboote.outPath
+                ];
             }
           ];
         };
@@ -108,7 +138,11 @@
         # nixos-facter report the installer generates on the target.
         tokyonight = nixpkgs.lib.nixosSystem {
           inherit system;
-          specialArgs = { inherit inputs settings; };
+          specialArgs = {
+            inherit inputs settings;
+            aipageFirefox = self.packages.${system}.aipage-firefox;
+            aipageChrome = self.packages.${system}.aipage-chrome;
+          };
           modules = [
             disko.nixosModules.disko
             home-manager.nixosModules.home-manager
@@ -141,6 +175,12 @@
           src = ./installer-tui;
           cargoLock.lockFile = ./installer-tui/Cargo.lock;
         };
+        # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned
+        # fetchGit source — see nix/aipage.nix. Consumed by the LibreWolf and
+        # Brave home modules via specialArgs, and embedded in both ISOs so the
+        # installer substitutes them from the ISO store (offline-capable).
+        aipage-firefox = aipagePackages.firefox;
+        aipage-chrome = aipagePackages.chrome;
         iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
         iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
         # Microsoft-signed Fedora shim for the Secure Boot ISO chain.
@@ -260,6 +300,23 @@
           assert svc.sudo.rules.auth.unix.control == "sufficient";
           assert svc.sudo.rules.auth.deny.enable;
           pkgs.writeText "fido-2fa-ok" "required+required";
+        # Asserts the in-flake aipage build (nix/aipage.nix) evaluates, the
+        # manifest is parseable at eval time (pure-eval readFile of a fetchGit
+        # store path), the gecko addon id is stable, and both targets are MV2.
+        # Eval-only — does not build the wasm (too slow for the lint gate); a
+        # full `nix build .#aipage-firefox .#aipage-chrome` is the build gate.
+        aipage-eval =
+          let
+            ff = self.packages.${system}.aipage-firefox;
+            ch = self.packages.${system}.aipage-chrome;
+            ffMan = ff.passthru.manifest;
+            chMan = ch.passthru.manifest;
+          in
+          assert ffMan.browser_specific_settings.gecko.id == "edupage-ai-sidebar@hesburger.dev";
+          assert ffMan.manifest_version == 2;
+          assert chMan.manifest_version == 2;
+          assert ff.passthru.aipageVersion == ffMan.version;
+          pkgs.writeText "aipage-eval-ok" ff.passthru.aipageVersion;
       }
       # LiveISO boot oracles (NixOS test framework) — see tests/README.md.
       // import ./tests {

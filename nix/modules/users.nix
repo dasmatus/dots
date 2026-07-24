@@ -7,6 +7,8 @@
   pkgs,
   settings,
   inputs,
+  aipageFirefox,
+  aipageChrome,
   ...
 }:
 {
@@ -31,9 +33,10 @@
   home-manager = {
     useGlobalPkgs = true;
     useUserPackages = true;
-    # home modules need flake inputs too (nixvim module, haumea lib)
+    # home modules need flake inputs too (nixvim module, haumea lib), plus
+    # the in-flake aipage dists consumed by nix/home/{librewolf,brave}.nix.
     extraSpecialArgs = {
-      inherit inputs;
+      inherit inputs aipageFirefox aipageChrome;
     };
     sharedModules = [ inputs.nixvim.homeModules.nixvim ];
     users.${settings.username} = import ../home;

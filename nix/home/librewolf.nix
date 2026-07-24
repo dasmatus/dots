@@ -41,6 +41,7 @@
   config,
   pkgs,
   inputs,
+  aipageFirefox,
   ...
 }:
 let
@@ -54,27 +55,21 @@ let
   # not the whole NUR); installed into the profile as a buildEnv symlink.
   addons = inputs.firefox-addons.packages.${pkgs.stdenv.hostPlatform.system};
 
-  # AIPage (EduPage AI sidebar — codeberg.org/dasmatus/aipage), built from
-  # source in the sibling aipage repo. The gitignored dist-firefox dir can't
-  # be a flake input (path inputs outside this flake aren't store-copied), so
-  # a deterministic tarball of it lives at
-  # ~/.local/share/aipage/dist-firefox.tar and is pulled in here as an
-  # eval-time fixed-output derivation (builtins.fetchTarball fetches outside
-  # the build sandbox, so sandbox=true is fine). HM's firefox module installs
-  # each extensions.packages entry by symlinking a buildEnv of
+  # AIPage (EduPage AI sidebar — codeberg.org/dasmatus/aipage), built inside
+  # this flake from a pinned fetchGit source (see nix/aipage.nix +
+  # flake.nix packages.aipage-firefox). `aipageFirefox` is the unpacked
+  # dist dir (a store path); HM's firefox module installs each
+  # extensions.packages entry by symlinking a buildEnv of
   # share/mozilla/extensions/<Firefox-app-GUID>/ into the profile's
-  # extensions/ dir, so the package must expose passthru.addonId and place
+  # extensions/ dir, so the package below exposes passthru.addonId and places
   # the XPI at <GUID>/<addonId>.xpi. {ec8030f7-…} is Firefox/LibreWolf's app
-  # GUID; the gecko id + version come from the built manifest — hardcoded
-  # here (pure-eval `nix flake check` can't readFile a path input). Bump the
-  # sha256 + version when aipage is rebuilt (see scripts/update-aipage.sh).
-  aipageFirefox = builtins.fetchTarball {
-    url = "file://${config.home.homeDirectory}/.local/share/aipage/dist-firefox.tar";
-    sha256 = "0ygv4w01p5a2rqspmry26ncyf0h77v1x69va8vv3cz14izc1ssh1";
-  };
+  # GUID; the gecko id + version are read from the built manifest at eval
+  # time (aipageFirefox.passthru.manifest — pure-eval-safe readFile of a
+  # fetchGit store path), so there's no hardcoded version to drift.
   firefoxAppId = "{ec8030f7-c20a-464f-9b0e-13a3a9e97384}";
-  aipageId = "edupage-ai-sidebar@hesburger.dev";
-  aipageVersion = "1.7.0";
+  aipageManifest = aipageFirefox.passthru.manifest;
+  aipageId = aipageManifest.browser_specific_settings.gecko.id;
+  aipageVersion = aipageManifest.version;
   aipageXpi =
     pkgs.runCommand "aipage-${aipageVersion}"
       {

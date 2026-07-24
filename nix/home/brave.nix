@@ -2,21 +2,15 @@
   config,
   lib,
   pkgs,
+  aipageChrome,
   ...
 }:
 let
-  # AIPage (EduPage AI sidebar — codeberg.org/dasmatus/aipage), built from
-  # source in the sibling aipage repo. The gitignored dist-chrome dir can't
-  # be a flake input (path inputs outside this flake aren't store-copied),
-  # so a deterministic tarball of it lives at
-  # ~/.local/share/aipage/dist-chrome.tar and is pulled in here as an
-  # eval-time fixed-output derivation (builtins.fetchTarball fetches outside
-  # the build sandbox, so sandbox=true is fine). Bump the sha256 when aipage
-  # is rebuilt (see scripts/update-aipage.sh).
-  aipageChrome = builtins.fetchTarball {
-    url = "file://${config.home.homeDirectory}/.local/share/aipage/dist-chrome.tar";
-    sha256 = "0zvhcav57ixb9dnq58xzy8gb095zc9vhq5izqmx6m1iz6rk7j0x5";
-  };
+  # AIPage (EduPage AI sidebar — codeberg.org/dasmatus/aipage), built inside
+  # this flake from a pinned fetchGit source (see nix/aipage.nix +
+  # flake.nix packages.aipage-chrome). `aipageChrome` is the unpacked MV2
+  # dist dir (a store path) — no tarball, no local-file FOD, so it works on
+  # the installer ISO.
 in
 {
   programs.brave = {
@@ -28,8 +22,9 @@ in
     # wayland+gtk3 runs. Pin the GTK3 path until the upstream GTK4/Wayland
     # shim works against nixpkgs' GTK 4.22.
     #
-    # --load-extension: AIPage, the unpacked MV2 extension from the tarball
-    # above. Chromium has no policy to force-install an *unpacked* MV2
+    # --load-extension: AIPage, the unpacked MV2 extension from the
+    # aipageChrome store path (built in-flake, see nix/aipage.nix). Chromium
+    # has no policy to force-install an *unpacked* MV2
     # extension without a hosted CRX + update_url, so --load-extension is
     # the declarative equivalent: it reloads the unpacked dir on every
     # launch. Cost is a "developer mode extensions" banner on startup; the
