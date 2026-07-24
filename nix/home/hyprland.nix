@@ -77,6 +77,10 @@ in
               hl.exec_cmd("waybar")
               hl.exec_cmd("nm-applet --indicator")
               hl.exec_cmd("wallpaper-tui --restore")
+              # First-login keybind cheatsheet (nix/home/keybinds.nix): the
+              # script no-ops once its sentinel exists, so this fires on every
+              # compositor boot but only ever pops rofi once per install.
+              hl.exec_cmd("~/.config/rofi/rofi-keybinds.sh")
             end'')
         ];
       };
@@ -334,6 +338,14 @@ in
           _args = [
             (lua ''mod .. " + O"'')
             (lua ''hl.dsp.exec_cmd("obsidian")'')
+          ];
+        }
+        # Re-open the first-login keybind cheatsheet (nix/home/keybinds.nix)
+        # on demand. --force skips the once-per-install sentinel.
+        {
+          _args = [
+            (lua ''mod .. " + slash"'')
+            (lua ''hl.dsp.exec_cmd("~/.config/rofi/rofi-keybinds.sh --force")'')
           ];
         }
         # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved

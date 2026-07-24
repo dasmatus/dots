@@ -16,6 +16,18 @@
   # (useGlobalPkgs, so the system nixpkgs config applies).
   nixpkgs.config.allowUnfreePredicate =
     pkg:
+    # CUDA runtime: ollama-cuda (nix/hosts.nix, gated on hasNvidia) pulls
+    # cuda_cudart / libcublas / cudnn / libnvjitlink / ... — a dozen-plus
+    # unfree redistributables whose exact set shifts every nixpkgs bump, so
+    # hand-maintaining them here is fragile. nixpkgs ships a curated
+    # pkg→bool predicate that covers exactly the unfree CUDA packages (and
+    # free ones — it's only consulted for unfree pkgs), so OR-ing it in adds
+    # CUDA surgically instead of a blanket allowUnfree. NOT solved via
+    # NIXPKGS_ALLOW_UNFREE on the installer's `nixos-install`: flake eval is
+    # pure, so builtins.getEnv is invisible there, and that env var sets
+    # blanket allowUnfree (every unfree package) + is non-durable across
+    # rebuilds. Eval-safe: pkgs._cuda.lib.allowUnfreeCudaPredicate exists on
+    # the pinned nixpkgs (verified).
     builtins.elem (lib.getName pkg) [
       "claude-code"
       # proprietary Electron app, ex-flatpak (nix/home/pkgs.nix)
@@ -27,7 +39,8 @@
       "nvidia-x11"
       "nvidia-settings"
       "vscode-extension-fill-labs-dependi"
-    ];
+    ]
+    || pkgs._cuda.lib.allowUnfreeCudaPredicate pkg;
 
   # vesktop 1.6.5 in the current nixpkgs pin still wraps electron-bin 40,
   # which went EOL with the 2026-07 flake.lock bump and is now refused by
