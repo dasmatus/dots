@@ -20,7 +20,8 @@ let
 in
 {
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix" ];
-
+  networking.networkmanager.wifi.backend =
+      lib.mkForce "wpa_supplicant";
   image.baseName = lib.mkForce "tokyonight-dots-installer";
   isoImage.squashfsCompression = "zstd -Xcompression-level 6";
 
