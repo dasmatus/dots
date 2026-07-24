@@ -33,13 +33,13 @@ on:
   pull_request:
   schedule:
     # ~03:57 UTC Mondays (off the :00 mark; see Justfile ethos)
-    - cron: '57 3 * * 1'
+    - cron: "57 3 * * 1"
   workflow_dispatch:
 
 jobs:
   nix-eval:
     name: "nix: flake check + cheap checks"
-    runs-on: medium
+    runs-on: codeberg-medium
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v22
