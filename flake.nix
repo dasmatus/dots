@@ -84,6 +84,7 @@
           };
           modules = [
             ./nix/iso.nix
+            ./nix/modules/network.nix
             {
               # System closures alone don't make nixos-install offline-capable:
               # evaluating the flake also needs the locked input sources.
