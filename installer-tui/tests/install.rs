@@ -331,6 +331,47 @@ fn plan_copies_network_profiles_after_mount_before_install() {
 }
 
 #[test]
+fn plan_pre_seeds_sbctl_keys_before_install() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
+    let preseed = idx(&|s| s.title == "Pre-seed Secure Boot keys");
+    let install = idx(
+        &|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-install"),
+    );
+    assert!(
+        preseed < install,
+        "pre-seed must run before nixos-install: nixos-install activates generation 1, \
+         and lanzaboote signs the UKI from /var/lib/sbctl/keys/db/db.pem during that \
+         activation — the keys must already be on the target or signing fails with \
+         'Failed to read public key from /var/lib/sbctl/keys/db/db.pem'"
+    );
+}
+
+#[test]
+fn plan_pre_seed_step_copies_iso_keys_to_target_var_lib_sbctl() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let preseed = steps
+        .iter()
+        .find(|s| s.title == "Pre-seed Secure Boot keys")
+        .expect("pre-seed step");
+    let Action::Command { program, args, .. } = &preseed.action else {
+        panic!("pre-seed step must be a command");
+    };
+    assert_eq!(program, "sh");
+    let script = args.join(" ");
+    assert!(script.contains("[ -d /etc/dots-sbctl-keys ]"), "{script}");
+    assert!(script.contains("mkdir -p /mnt/var/lib/sbctl"), "{script}");
+    assert!(
+        script.contains("cp -a /etc/dots-sbctl-keys/. /mnt/var/lib/sbctl/"),
+        "{script}"
+    );
+    assert!(
+        script.contains("chmod 700 /mnt/var/lib/sbctl/keys"),
+        "{script}"
+    );
+}
+
+#[test]
 fn plan_shreds_passfile_last() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let last = steps.last().expect("steps nonempty");

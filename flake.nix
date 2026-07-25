@@ -191,6 +191,28 @@
           name = "sb-tools";
           paths = sbToolPackages;
         };
+        # Fresh sbctl key hierarchy (PK/KEK/db private keys + GUID) generated
+        # per ISO build and embedded on the LiveISO at /etc/dots-sbctl-keys.
+        # The installer copies them onto the target's /var/lib/sbctl so the
+        # installed system boots with the same keys the ISO's signed UKIs are
+        # verified against — no first-boot `sbctl create-keys` needed. The
+        # private keys ARE on the ISO (world-readable in the nix store); this
+        # is acceptable for an installer image that is itself single-use and
+        # dd'd to removable media, and it mirrors how the MOK key is handled by
+        # scripts/sign-iso.sh (generated into gitignored secrets/secureboot/).
+        # Non-reproducible by design (each build mints a new keypair).
+        sbctl-keys = pkgs.runCommand "dots-sbctl-keys" { nativeBuildInputs = [ pkgs.sbctl ]; } ''
+          mkdir -p $out
+          conf=$(mktemp)
+          cat > "$conf" <<EOF
+      keydir: $out/keys
+      guid: $out/GUID
+      files_db: $out/files.json
+      bundles_db: $out/bundles.json
+      EOF
+          sbctl --disable-landlock --config "$conf" create-keys
+          chmod -R u+rwX,go+rX $out
+        '';
       };
       formatter.${system} = pkgs.nixfmt-tree;
 

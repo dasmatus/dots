@@ -189,6 +189,32 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                 Capture::Stream,
             ),
         },
+        // Pre-seed the target's /var/lib/sbctl with the ISO-embedded key
+        // hierarchy (PK/KEK/db private keys + GUID, generated fresh per ISO
+        // build by the flake's .#sbctl-keys and carried at /etc/dots-sbctl-
+        // keys). MUST run before nixos-install: nixos-install activates the
+        // new system's generation 1, and with dots.secureboot.enable
+        // (lanzaboote, pkiBundle=/var/lib/sbctl) that activation signs the UKI
+        // using /var/lib/sbctl/keys/db/db.pem — if the keys aren't there yet
+        // lanzaboote fails with "Failed to read public key from
+        // /var/lib/sbctl/keys/db/db.pem: No such file or directory". Also lets
+        // the installed system boot the ISO's signed UKIs without a first-boot
+        // `sbctl create-keys`; the dots-sbctl-keygen oneshot in
+        // nix/modules/secureboot.nix then no-ops when keys exist.
+        Step {
+            title: "Pre-seed Secure Boot keys".into(),
+            action: cmd(
+                "sh",
+                &[
+                    "-c",
+                    &format!(
+                        "if [ -d /etc/dots-sbctl-keys ]; then mkdir -p {mnt}/var/lib/sbctl && cp -a /etc/dots-sbctl-keys/. {mnt}/var/lib/sbctl/ && chmod 700 {mnt}/var/lib/sbctl/keys; fi"
+                    ),
+                ],
+                None,
+                Capture::Stream,
+            ),
+        },
         Step {
             title: "Install NixOS (this takes a while)".into(),
             action: cmd(

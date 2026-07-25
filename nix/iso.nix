@@ -29,6 +29,14 @@ in
   # The flake rides on the ISO.
   environment.etc."dots".source = dotsSelf;
 
+  # Pre-seeded sbctl key hierarchy (PK/KEK/db private keys + GUID) generated
+  # fresh per ISO build by the flake's .#sbctl-keys. The installer copies it
+  # onto the target's /var/lib/sbctl so the installed system boots with the
+  # same keys the ISO's signed UKIs are verified against — no first-boot
+  # `sbctl create-keys` needed. The private keys are world-readable here (in
+  # the nix store / on the ISO); acceptable for a single-use installer image.
+  environment.etc."dots-sbctl-keys".source = dotsSelf.packages.x86_64-linux.sbctl-keys;
+
   environment.systemPackages = [
     installer
     inputs.disko.packages.x86_64-linux.disko
