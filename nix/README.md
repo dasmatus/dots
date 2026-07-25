@@ -10,9 +10,9 @@ installer has been fully retired — `install.sh` now only bootstraps
 ## Quickstart
 
 ```bash
-just iso                                 # build + Secure Boot-sign the LiveISO
+nix run .#iso                         # build + Secure Boot-sign the LiveISO
 dd if=result-iso-signed/*.iso of=/dev/sdX bs=4M oflag=sync
-# unsigned-only build (no signing keys touched): just iso-unsigned
+# unsigned-only build (no signing keys touched): nix run .#iso-unsigned
 # or, on an already-booted NixOS:
 sudo nixos-rebuild switch --flake .#tokyonight
 ```
@@ -118,14 +118,14 @@ sudo nixos-rebuild switch --flake ~/Dokumente/gitlab/personal/dots#tokyonight
 
 ### Signed LiveISO (boot the installer with Secure Boot ON — the default)
 
-`just iso` (and `just iso-full`) builds the ISO and rewrites its EFI chain
+`nix run .#iso` (and `nix run .#iso-full`) builds the ISO and rewrites its EFI chain
 via `scripts/sign-iso.sh`: Fedora's Microsoft-signed shim becomes
 `BOOTX64.EFI`, the ISO's GRUB gets an SBAT section and a signature from a
 local MOK key (auto-generated once into gitignored `secrets/secureboot/`,
 reused so enrolled machines keep booting re-signed ISOs), and every kernel
 is signed too (GRUB verifies it through shim's protocol). Result:
 `result-iso-signed/…-signed.iso` — that's the one to dd. The raw unsigned
-nix output stays at `result-iso/iso/`; `just iso-unsigned` skips signing
+nix output stays at `result-iso/iso/`; `nix run .#iso-unsigned` skips signing
 entirely.
 
 Two ways it boots with Secure Boot enforcing:
@@ -136,14 +136,14 @@ Two ways it boots with Secure Boot enforcing:
 - **Machines with your own keys**: if the db contains this cert alongside
   the Microsoft certs (the `sbctl enroll-keys --microsoft` shape — enroll
   `secrets/secureboot/MOK.cer` as an extra db key), shim validates GRUB
-  straight from db: no prompts. `just nix-smoke` proves this chain in a
+  straight from db: no prompts. `nix run .#nix-smoke` proves this chain in a
   NixOS test VM with enforcing Secure Boot firmware (it's the default).
 
 #### Cosigning for zero prompts on your own machines
 
 Nothing can be signed with Microsoft's private keys (only Microsoft holds
 them; the shim we ship is already Microsoft-signed, which is what lets the
-ISO boot at all). But `just iso-cosign` adds a **second** signature to GRUB
+ISO boot at all). But `nix run .#iso-cosign` adds a **second** signature to GRUB
 and the kernels using your local sbctl db key (`/var/lib/sbctl/keys/db`, the
 same one lanzaboote signs installed systems with) on top of the MOK — the
 PE files then carry both signatures. Any machine whose Secure Boot db

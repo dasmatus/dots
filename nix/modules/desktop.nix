@@ -16,8 +16,8 @@
   # Require a FIDO2 key (PLUS the password) to unlock hyprlock, the ly display
   # manager, and the console login. Both factors are mandatory: a correct key
   # alone or a correct password alone is NOT enough. Recovery if the key is
-  # lost: boot the LiveISO (`just iso`), nixos-enter, set this to false,
-  # nixos-rebuild switch, reboot. Enroll keys with `just enroll-fido`.
+  # lost: boot the LiveISO (`nix run .#iso`), nixos-enter, set this to false,
+  # nixos-rebuild switch, reboot. Enroll keys with `nix run .#enroll-fido`.
   options.dots.fido.requireKey = lib.mkOption {
     type = lib.types.bool;
     default = true;
@@ -52,15 +52,15 @@
           ];
 
           # pamu2fcfg: enrolls a key into ~/.config/Yubico/u2f_keys (one line
-          # per key — `just enroll-fido` runs it once per key). pam_u2f.so
+          # per key — `nix run .#enroll-fido` runs it once per key). pam_u2f.so
           # itself is pulled into the PAM stack automatically by the u2fAuth
           # options below; this package only provides the enrollment CLI.
           environment.systemPackages = [ pkgs.pam_u2f ];
 
           # PAM U2F: wire the FIDO2 key into hyprlock, the ly display manager,
           # console login, and sudo. The authfile defaults to per-user
-          # ~/.config/Yubico/u2f_keys, so enroll once per key with `just
-          # enroll-fido` (two keys = two lines). The 2FA tightening below
+          # ~/.config/Yubico/u2f_keys, so enroll once per key with `nix run
+          # .#enroll-fido` (two keys = two lines). The 2FA tightening below
           # (gated on dots.fido.requireKey, default true) makes the key AND
           # the password BOTH mandatory for hyprlock/ly/login. sudo stays
           # dormant while sudo-rs runs NOPASSWD for wheel (hardening.nix); it

@@ -17,7 +17,7 @@ nix run .#dots-installer
 
 # Or build a bootable LiveISO instead (installer auto-starts on tty1;
 # signed for Secure Boot by default — see nix/README.md):
-just iso
+nix run .#iso
 dd if=result-iso-signed/*.iso of=/dev/sdX bs=4M oflag=sync
 
 # On an already-installed system, apply config changes:
@@ -33,9 +33,9 @@ the flake bundled on the ISO, enrolls TPM2 (PCR 7) + a printed LUKS recovery
 key, and reboots. Dev loop:
 
 ```bash
-just nix-lint    # nix flake check (eval) + cargo fmt/clippy/test
-just iso         # build the LiveISO + sign it for Secure Boot
-just nix-smoke   # NixOS VM test: boot it under Secure Boot-enforcing OVMF+TPM2
+nix run .#nix-lint    # nix flake check (eval) + cargo fmt/clippy/test
+nix run .#iso         # build the LiveISO + sign it for Secure Boot
+nix run .#nix-smoke   # NixOS VM test: boot it under Secure Boot-enforcing OVMF+TPM2
 ```
 
 ## Declarative flatpaks
@@ -79,10 +79,10 @@ Two things worth knowing before the first switch:
 ## Testing
 
 ```bash
-just nix-lint    # nix flake check (eval) + installer-tui cargo fmt/clippy/test
-just iso         # build the LiveISO + sign it for Secure Boot
-just nix-smoke   # NixOS VM test: boot the signed ISO under Secure
-                 # Boot-enforcing OVMF+TPM2, assert TUI + SecureBoot=1
+nix run .#nix-lint    # nix flake check (eval) + installer-tui cargo fmt/clippy/test
+nix run .#iso         # build the LiveISO + sign it for Secure Boot
+nix run .#nix-smoke   # NixOS VM test: boot the signed ISO under Secure
+                     # Boot-enforcing OVMF+TPM2, assert TUI + SecureBoot=1
 ```
 
 See [`tests/README.md`](tests/README.md) for how the NixOS VM tests work.

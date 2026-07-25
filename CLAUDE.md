@@ -6,12 +6,12 @@ tree .
 ## Development
 - Programs: Rust (@installer-tui/)
 - Config: @nix/
-- !`just --list`
+- Tasks: `nix run .` (lists apps) — see @flake/apps.nix
 ## CI 
 GitLab
 ## Testing
 - Rust: @installer-tui/tests/ (integration tests; `cargo test` in installer-tui/)
-- Nix: `just nix-lint` (flake eval + fmt/clippy/test), `just iso` (builds + Secure Boot-signs by default via @scripts/sign-iso.sh; `iso-unsigned` opts out), `just nix-smoke` (NixOS test @tests/default.nix — `checks.x86_64-linux.iso-secureboot`: signed ISO under enforcing Secure Boot OVMF+swtpm, DOTS_TUI_READY + DOTS_SECUREBOOT=1 serial markers; `--no-secure-boot` → `iso-boot` plain run)
+- Nix: `nix run .#nix-lint` (flake eval + fmt/clippy/test), `nix run .#iso` (builds + Secure Boot-signs by default via @scripts/sign-iso.sh; `nix run .#iso-unsigned` opts out), `nix run .#nix-smoke` (NixOS test @tests/default.nix — `checks.x86_64-linux.iso-secureboot`: signed ISO under enforcing Secure Boot OVMF+swtpm, DOTS_TUI_READY + DOTS_SECUREBOOT=1 serial markers; `nix run .#nix-smoke -- --no-secure-boot` → `iso-boot` plain run)
 ---
 # Resources to follow
 - [Rust API guidelines](https://rust-lang.github.io/api-guidelines/)

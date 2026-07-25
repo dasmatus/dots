@@ -42,7 +42,8 @@ let
 
   # Workspace version (manifests share it). Pure-eval readFile of a fetchGit
   # store path is allowed (it's a store path, not a mutable local path input).
-  aipageVersion = (builtins.fromTOML (builtins.readFile "${aipageSrc}/Cargo.toml")).workspace.package.version;
+  aipageVersion =
+    (builtins.fromTOML (builtins.readFile "${aipageSrc}/Cargo.toml")).workspace.package.version;
 
   # wasm-bindgen-cli's version MUST exactly equal the `wasm-bindgen` crate
   # resolved in aipage's Cargo.lock (currently 0.2.125): the CLI refuses to
