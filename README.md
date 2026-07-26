@@ -24,7 +24,7 @@ dd if=result-iso-signed/*.iso of=/dev/sdX bs=4M oflag=sync
 sudo nixos-rebuild switch --flake .#tokyonight
 ```
 
-`installer-tui/` (package name `dots-installer`) is a Rust/ratatui wizard —
+`rust/installer-tui/` (package name `dots-installer`) is a Rust/ratatui wizard —
 disk autodetection → hostname → user → passwords → typed-`ERASE` confirm — that runs
 [disko](https://github.com/nix-community/disko), generates a
 [nixos-facter](https://github.com/nix-community/nixos-facter) hardware report
@@ -79,7 +79,7 @@ Two things worth knowing before the first switch:
 ## Testing
 
 ```bash
-nix run .#nix-lint    # nix flake check (eval) + installer-tui cargo fmt/clippy/test
+nix run .#nix-lint    # nix flake check (eval) + rust/* cargo fmt/clippy/test
 nix run .#iso         # build the LiveISO + sign it for Secure Boot
 nix run .#nix-smoke   # NixOS VM test: boot the signed ISO under Secure
                      # Boot-enforcing OVMF+TPM2, assert TUI + SecureBoot=1
@@ -99,7 +99,7 @@ See [`tests/README.md`](tests/README.md) for how the NixOS VM tests work.
 | `nix/modules/` | System configuration split by concern (boot, core, desktop, flatpak, hardening, maintenance, network, secureboot, users, virtualisation) |
 | `nix/home/` | home-manager profile (nixvim, Hyprland session, LibreWolf, Dokumente skeleton, wallpaper service) |
 | `nix/iso.nix` | The LiveISO: embeds the flake at `/etc/dots`, auto-launches `dots-installer` on tty1 |
-| `installer-tui/` | The Rust/ratatui installer source |
+| `rust/installer-tui/` | The Rust/ratatui installer source |
 | `Wallpapers/` | Five themed sets (light · storm · night · metis · misc) × three styles (abstract · minimal · os) |
 
 See [`nix/README.md`](nix/README.md) for the full module-by-module design

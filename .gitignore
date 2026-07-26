@@ -9,9 +9,9 @@ vm-state-*/
 
 # Nix + Rust build outputs
 */target/
-installer-tui/target/
-wallpaper-tui/target/
-hyprmon/target/
+rust/installer-tui/target/
+rust/wallpaper-tui/target/
+rust/hyprmon/target/
 result
 result-*
 

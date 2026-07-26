@@ -3,7 +3,7 @@
 #
 # Stage 1: capture the installer TUI (welcome + disk picker) in a sized,
 #           Tokyonight-themed alacritty window.
-# Stage 2: capture the wallpaper-tui selector once wallpaper-tui/src/main.rs
+# Stage 2: capture the wallpaper-tui selector once rust/wallpaper-tui/src/main.rs
 #           exists and builds.
 #
 # Safety: this script refuses to run unless DOTS_INSTALLER_DRY_RUN=1 is exported
@@ -200,9 +200,9 @@ kill "$INSTALLER_PID" 2>/dev/null || true
 wait "$INSTALLER_PID" 2>/dev/null || true
 
 # ── Stage 2: wallpaper-tui screenshot (gated) ─────────────────────────────────
-if [[ -f "$REPO_ROOT/wallpaper-tui/src/main.rs" ]]; then
+if [[ -f "$REPO_ROOT/rust/wallpaper-tui/src/main.rs" ]]; then
     info "wallpaper-tui main.rs found; attempting to build and screenshot"
-    if (cd "$REPO_ROOT/wallpaper-tui" && cargo build --release 2>/dev/null); then
+    if (cd "$REPO_ROOT/rust/wallpaper-tui" && cargo build --release 2>/dev/null); then
         WALLPAPER_TUI_CLASS="screenshot-wallpaper-tui"
         WALLPAPER_TUI_TITLE="Wallpaper TUI"
 
@@ -223,7 +223,7 @@ if [[ -f "$REPO_ROOT/wallpaper-tui/src/main.rs" ]]; then
             -o "colors.primary.background=\"#1a1b26\"" \
             -o "colors.primary.foreground=\"#c0caf5\"" \
             -o "font.size=11.0" \
-            -e bash -c "cd '$REPO_ROOT/wallpaper-tui'; ./target/release/wallpaper-tui '$REPO_ROOT/Wallpapers/night'" \
+            -e bash -c "cd '$REPO_ROOT/rust/wallpaper-tui'; ./target/release/wallpaper-tui '$REPO_ROOT/Wallpapers/night'" \
             >/dev/null 2>&1 &
 
         WALLPAPER_PID=$!
@@ -247,7 +247,7 @@ if [[ -f "$REPO_ROOT/wallpaper-tui/src/main.rs" ]]; then
         info "wallpaper-tui build failed; skipping stage 2"
     fi
 else
-    info "wallpaper-tui/src/main.rs not found; skipping stage 2"
+    info "rust/wallpaper-tui/src/main.rs not found; skipping stage 2"
 fi
 
 # ── Stage 3: update README links ──────────────────────────────────────────────

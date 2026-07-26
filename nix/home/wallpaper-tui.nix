@@ -1,8 +1,8 @@
 # awww-based TUI wallpaper changer — terminal replacement for waytrogen.
-# Declarative Nix options own the settings; the Rust crate in ../../wallpaper-tui
-# (built inline via rustPlatform.buildRustPackage, then wrapped so it can inject
-# the read-only Nix-store base paths for the SVG tint targets) reads them and
-# writes only runtime overrides.
+# Declarative Nix options own the settings; the Rust crate in ../../rust/wallpaper-tui
+# (built once at the flake level as packages.${system}.wallpaper-tui, then
+# wrapped here so it can inject the read-only Nix-store base paths for the SVG
+# tint targets) reads them and writes only runtime overrides.
 #
 # Two-file split (avoids waytrogen.nix's read-only-symlink workaround):
 #   ~/.config/wallpaper-tui/config.json  — declarative, read-only, from Nix
@@ -22,6 +22,7 @@
   config,
   lib,
   pkgs,
+  wallpaperTui,
   ...
 }:
 
@@ -35,13 +36,7 @@ let
     "tile"
   ];
 
-  wallpaper-tui-bin = pkgs.rustPlatform.buildRustPackage {
-    pname = "wallpaper-tui";
-    version = "0.1.0";
-    src = ../../wallpaper-tui;
-    cargoLock.lockFile = ../../wallpaper-tui/Cargo.lock;
-    meta.mainProgram = "wallpaper-tui";
-  };
+  wallpaper-tui-bin = wallpaperTui;
 
   # Thin wrapper that injects the read-only Nix-store base paths for the SVG
   # tint targets (Kvantum + MoreWaita) before exec-ing the Rust binary. Each is

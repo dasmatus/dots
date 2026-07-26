@@ -93,7 +93,7 @@ in
     text = ''
       ${cdRepoRoot}
       nix flake check --no-build
-      cd installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
     '';

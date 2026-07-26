@@ -1,7 +1,7 @@
 # Non-install-time parameters with defaults. flake.nix merges this file
 # *under* nix/settings.nix:
 #   settings = (import ./nix/defaults.nix) // (import ./nix/settings.nix);
-# The installer TUI (installer-tui/src/config.rs::settings_nix) rewrites only
+# The installer TUI (rust/installer-tui/src/config.rs::settings_nix) rewrites only
 # the four install answers (username/hostname/disks/swapSize) into settings.nix
 # on the target, so anything it does not write must live here to survive an
 # install — otherwise the installer would wipe it and the modules that read

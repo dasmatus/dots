@@ -45,16 +45,22 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@v22
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
-      # The cheap non-VM checks are worth actually building.
+      # The cheap non-VM checks are worth actually building. Build ALL the
+      # eval checks declared in flake/checks.nix so a silent regression in
+      # fido-2fa / aipage / formfactor doesn't slip past CI (nix flake check
+      # --no-build above only evaluates them, it doesn't build the asserts).
       - run: |
           nix build -L \
             .#checks.x86_64-linux.settings-eval \
             .#checks.x86_64-linux.facter-stub-eval \
-            .#checks.x86_64-linux.facter-nvidia-eval
+            .#checks.x86_64-linux.facter-nvidia-eval \
+            .#checks.x86_64-linux.fido-2fa-eval \
+            .#checks.x86_64-linux.aipage-eval \
+            .#checks.x86_64-linux.formfactor-eval
 
   rust:
     name: "rust: fmt + clippy + test"
-    runs-on: medium
+    runs-on: codeberg-medium
     steps:
       - uses: actions/checkout@v4
       # Pinned toolchain on the runner host (replaces the rust:1.97 container;
@@ -63,11 +69,19 @@ jobs:
         with:
           toolchain: "1.97"
           components: rustfmt, clippy
+      # Cache both crates: Swatinem/rust-cache supports a comma-separated list
+      # of workspace roots (Cargo.toml dirs), so installer-tui AND wallpaper-tui
+      # share the cache. Mirrors `nix run .#nix-lint`, which lints both.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: installer-tui
-      - working-directory: installer-tui
-        run: |
+          workspaces: rust/installer-tui,rust/wallpaper-tui
+      # Lint both Rust crates — matches `nix run .#nix-lint` (flake/apps.nix).
+      - run: |
+          cd rust/installer-tui
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cd ../wallpaper-tui
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
           cargo test
@@ -75,7 +89,7 @@ jobs:
   vm-boot:
     name: "vm: ${{ matrix.check }}"
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: medium
+    runs-on: codeberg-medium
     timeout-minutes: 180
     strategy:
       fail-fast: false

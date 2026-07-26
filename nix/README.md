@@ -1,7 +1,7 @@
 # Nix target
 
 This directory expresses the whole tokyonight-dots system as a Nix flake: NixOS +
-home-manager + disko, plus a LiveISO carrying `installer-tui/` (a ratatui wizard
+home-manager + disko, plus a LiveISO carrying `rust/installer-tui/` (a ratatui wizard
 that replaces the afosi `.steps.yaml` flow). The repo's original Gentoo
 installer has been fully retired — `install.sh` now only bootstraps
 `dots-installer` via `nix run`; the Gentoo-era files, `.steps.yaml` and
@@ -28,7 +28,7 @@ sudo nixos-rebuild switch --flake .#tokyonight
 | `Encrypt=tpm2` at repart time | installer runs `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7` + `--recovery-key` post-format (adds a passphrase fallback the Gentoo design lacks) |
 | ukify UKI + self-generated Secure Boot db keys | systemd-boot; `dots.secureboot.enable` (lanzaboote + sbctl) as post-install opt-in |
 | `homectl` first-boot user | `users.users.<name>` + home-manager; username collected at install time by the TUI |
-| afosi `.steps.yaml` wizard (removed — git history) | `installer-tui/` ratatui crate on the LiveISO |
+| afosi `.steps.yaml` wizard (removed — git history) | `rust/installer-tui/` ratatui crate on the LiveISO |
 | dotfiles → `/etc/skel` copy | home-manager native modules (`programs.*`); `files/` fully ported and deleted — git history |
 | `make.conf.intel` / `make.conf.amd` | single `nixosConfigurations.tokyonight` + a nixos-facter report (`nix/hosts.nix`) |
 | konkrit 104-module firstboot catalog (`.konkrit.yaml`, removed — git history) | `nix/modules/hardening.nix`, declarative at build time |

@@ -1,5 +1,5 @@
 # hyprmon — declarative multi-monitor auto-detection for Hyprland. The Rust
-# crate (../hyprmon/) parses `hyprctl monitors -j`, matches each output
+# crate (../../rust/hyprmon/) parses `hyprctl monitors -j`, matches each output
 # against a JSON ruleset, plans a left-to-right layout, and emits
 # `hyprctl keyword monitor …` per output. `hyprmon watch` is the daemon: it
 # applies once on startup, then re-applies on monitor hotplug (socket2

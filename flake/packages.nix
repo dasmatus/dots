@@ -11,8 +11,8 @@ self: {
   dots-installer = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-installer";
     version = "0.1.0";
-    src = ../installer-tui;
-    cargoLock.lockFile = ../installer-tui/Cargo.lock;
+    src = ../rust/installer-tui;
+    cargoLock.lockFile = ../rust/installer-tui/Cargo.lock;
   };
   # Built once at the flake level (was inline in nix/home/wallpaper-tui.nix)
   # so `nix build .#wallpaper-tui` works, the cache key is shared, and the
@@ -20,8 +20,8 @@ self: {
   wallpaper-tui = pkgs.rustPlatform.buildRustPackage {
     pname = "wallpaper-tui";
     version = "0.1.0";
-    src = ../wallpaper-tui;
-    cargoLock.lockFile = ../wallpaper-tui/Cargo.lock;
+    src = ../rust/wallpaper-tui;
+    cargoLock.lockFile = ../rust/wallpaper-tui/Cargo.lock;
     meta.mainProgram = "wallpaper-tui";
   };
   # hyprmon — the declarative multi-monitor auto-detection daemon. Built at
@@ -31,8 +31,8 @@ self: {
   hyprmon = pkgs.rustPlatform.buildRustPackage {
     pname = "hyprmon";
     version = "0.1.0";
-    src = ../hyprmon;
-    cargoLock.lockFile = ../hyprmon/Cargo.lock;
+    src = ../rust/hyprmon;
+    cargoLock.lockFile = ../rust/hyprmon/Cargo.lock;
     meta.mainProgram = "hyprmon";
   };
   # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned fetchGit

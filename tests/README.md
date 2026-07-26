@@ -71,7 +71,7 @@ assertions are console-only — `wait_for_console_text`, not
 `.forgejo/workflows/ci.yml` (Codeberg Forgejo Actions) runs two lanes:
 
 - **lint** (every push + PR): `nix flake check --no-build` + the cheap eval
-  checks, and `cargo fmt/clippy/test` for `installer-tui/`. Runs on the hosted
+  checks, and `cargo fmt/clippy/test` for `rust/installer-tui/`. Runs on the hosted
   `codeberg-medium` runner inside `nixos/nix` / `rust` containers.
 - **vm** (weekly + manual): builds each boot check with
   `--option system-features "… kvm"`. Codeberg's hosted runners have no
