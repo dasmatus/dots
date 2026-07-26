@@ -380,6 +380,72 @@ fn username_is_required() {
 }
 
 #[test]
+fn username_advances_to_git_name() {
+    let mut app = app();
+    app.screen = Screen::Username;
+    type_str(&mut app, "alice");
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.config.username, "alice");
+    assert_eq!(app.screen, Screen::GitName);
+}
+
+#[test]
+fn git_name_required_and_advances_on_valid() {
+    let mut app = app();
+    app.screen = Screen::GitName;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::GitName);
+    assert!(app.error.is_some());
+
+    type_str(&mut app, "Alice Q");
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.config.git_name, "Alice Q");
+    assert_eq!(app.screen, Screen::GitEmail);
+    assert!(app.error.is_none());
+}
+
+#[test]
+fn git_name_esc_backs_out_to_username() {
+    let mut app = app();
+    app.screen = Screen::GitName;
+    type_str(&mut app, "partial");
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.screen, Screen::Username);
+    assert!(app.input.is_empty());
+}
+
+#[test]
+fn git_email_required_and_advances_on_valid() {
+    let mut app = app();
+    app.screen = Screen::GitEmail;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::GitEmail);
+    assert!(app.error.is_some());
+
+    type_str(&mut app, "not-an-email");
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::GitEmail);
+    assert!(app.error.is_some());
+
+    app.input.clear();
+    type_str(&mut app, "alice@example.org");
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.config.git_email, "alice@example.org");
+    assert_eq!(app.screen, Screen::RootPassword);
+    assert!(app.error.is_none());
+}
+
+#[test]
+fn git_email_esc_backs_out_to_git_name() {
+    let mut app = app();
+    app.screen = Screen::GitEmail;
+    type_str(&mut app, "partial");
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.screen, Screen::GitName);
+    assert!(app.input.is_empty());
+}
+
+#[test]
 fn password_mismatch_restarts_entry_with_error() {
     let mut app = app();
     app.screen = Screen::RootPassword;

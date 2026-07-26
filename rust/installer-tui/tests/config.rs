@@ -1,6 +1,8 @@
-//! `InstallConfig` rendering + hostname/username validation tests.
+//! `InstallConfig` rendering + hostname/username/git validation tests.
 
-use dots_installer::config::{validate_hostname, validate_username, InstallConfig};
+use dots_installer::config::{
+    validate_git_email, validate_git_name, validate_hostname, validate_username, InstallConfig,
+};
 
 #[test]
 fn settings_nix_renders_all_answers() {
@@ -8,6 +10,8 @@ fn settings_nix_renders_all_answers() {
         disks: vec!["/dev/vda".into(), "/dev/vdb".into()],
         hostname: "myhost".into(),
         username: "alice".into(),
+        git_name: "Alice Q".into(),
+        git_email: "alice@example.org".into(),
         swap_size_gib: 16,
         ..Default::default()
     };
@@ -19,6 +23,8 @@ fn settings_nix_renders_all_answers() {
         "{out}"
     );
     assert!(out.contains(r#"swapSize = "16G";"#), "{out}");
+    assert!(out.contains(r#"gitName = "Alice Q";"#), "{out}");
+    assert!(out.contains(r#"gitEmail = "alice@example.org";"#), "{out}");
     assert!(out.trim_start().starts_with('{') && out.trim_end().ends_with('}'));
 }
 
@@ -32,6 +38,23 @@ fn settings_nix_never_contains_passwords() {
     let out = cfg.settings_nix();
     assert!(!out.contains("rootsecret"));
     assert!(!out.contains("usersecret"));
+}
+
+#[test]
+fn settings_nix_escapes_quotes_and_backslashes_in_git_identity() {
+    let cfg = InstallConfig {
+        git_name: r#"Alice "bo" \o/"#.into(),
+        git_email: r#"a\b"e"@example.org"#.into(),
+        ..Default::default()
+    };
+    let out = cfg.settings_nix();
+    // Backslash and double-quote must be backslash-escaped so the rendered
+    // Nix string literal stays valid.
+    assert!(out.contains(r#"gitName = "Alice \"bo\" \\o/";"#), "{out}");
+    assert!(
+        out.contains(r#"gitEmail = "a\\b\"e\"@example.org";"#),
+        "{out}"
+    );
 }
 
 #[test]
@@ -65,4 +88,39 @@ fn username_rejects_bad_names() {
     assert!(validate_username("with space").is_err());
     assert!(validate_username(&"a".repeat(32)).is_err());
     assert!(validate_username("root").is_err(), "reserved name");
+}
+
+#[test]
+fn git_name_accepts_real_names() {
+    assert!(validate_git_name("Matus Mastena").is_ok());
+    assert!(validate_git_name("O'Brien").is_ok());
+    assert!(validate_git_name("田中").is_ok());
+    assert!(validate_git_name(&"a".repeat(128)).is_ok());
+}
+
+#[test]
+fn git_name_rejects_empty_newlines_and_too_long() {
+    assert!(validate_git_name("").is_err());
+    assert!(validate_git_name("   ").is_err());
+    assert!(validate_git_name("with\nnewline").is_err());
+    assert!(validate_git_name("carriage\rreturn").is_err());
+    assert!(validate_git_name(&"a".repeat(129)).is_err());
+}
+
+#[test]
+fn git_email_accepts_well_formed() {
+    assert!(validate_git_email("alice@example.org").is_ok());
+    assert!(validate_git_email("a.b+c@sub.example.org").is_ok());
+    assert!(validate_git_email("user@my.co").is_ok());
+}
+
+#[test]
+fn git_email_rejects_malformed() {
+    assert!(validate_git_email("").is_err());
+    assert!(validate_git_email("no-at-sign.example.org").is_err());
+    assert!(validate_git_email("local-only@").is_err());
+    assert!(validate_git_email("@example.org").is_err());
+    assert!(validate_git_email("two@@at.example.org").is_err());
+    assert!(validate_git_email("no-dot@example").is_err());
+    assert!(validate_git_email("space in @example.org").is_err());
 }

@@ -39,9 +39,14 @@
     # home modules need flake inputs too (nixvim module, haumea lib), plus
     # the in-flake aipage dists consumed by nix/home/{librewolf,brave}.nix
     # and the Hyprspace plugin .so consumed by nix/home/hyprland.nix.
+    # `settings` is passed so nix/home/git.nix can read the installer-collected
+    # git identity (settings.gitName / settings.gitEmail); the desktop choice
+    # in settings.desktop is NOT gated on the HM side — only the system-level
+    # desktop block in nix/modules/desktop.nix reads it.
     extraSpecialArgs = {
       inherit
         inputs
+        settings
         aipageFirefox
         aipageChrome
         wallpaperTui

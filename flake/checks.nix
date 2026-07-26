@@ -20,6 +20,8 @@ in
       settings.hostname
       (builtins.concatStringsSep "," settings.disks)
       settings.swapSize
+      settings.gitName
+      settings.gitEmail
     ]
   );
   # The committed facter.json stub ({}) must leave every detection off,

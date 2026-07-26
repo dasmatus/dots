@@ -6,4 +6,6 @@
   hostname = "tokyonight";
   disks = [ "/dev/nvme0n1" ];
   swapSize = "32G";
+  gitName = "Matus Mastena";
+  gitEmail = "Shadiness9530@proton.me";
 }

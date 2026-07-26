@@ -7,6 +7,10 @@ pub struct InstallConfig {
     pub disks: Vec<String>,
     pub hostname: String,
     pub username: String,
+    /// Git identity consumed by nix/home/git.nix via settings.gitName.
+    pub git_name: String,
+    /// Git identity consumed by nix/home/git.nix via settings.gitEmail.
+    pub git_email: String,
     pub root_password: String,
     pub user_password: String,
     pub swap_size_gib: u64,
@@ -23,10 +27,23 @@ impl InstallConfig {
             .collect::<Vec<_>>()
             .join(" ");
         format!(
-            "{{\n  username = \"{}\";\n  hostname = \"{}\";\n  disks = [ {} ];\n  swapSize = \"{}G\";\n}}\n",
-            self.username, self.hostname, disks, self.swap_size_gib
+            "{{\n  username = \"{}\";\n  hostname = \"{}\";\n  disks = [ {} ];\n  swapSize = \"{}G\";\n  gitName = \"{}\";\n  gitEmail = \"{}\";\n}}\n",
+            self.username,
+            self.hostname,
+            disks,
+            self.swap_size_gib,
+            nix_escape(&self.git_name),
+            nix_escape(&self.git_email),
         )
     }
+}
+
+/// Escape a string for safe interpolation into a Nix double-quoted string.
+/// Backslash and double-quote are the only characters that need escaping in a
+/// Nix `"..."` literal; everything else (including `$`, which has no special
+/// meaning inside Nix double quotes) passes through verbatim.
+fn nix_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// RFC 1123 host label: lowercase alphanumerics and inner hyphens, 1-63 chars.
@@ -70,6 +87,53 @@ pub fn validate_username(s: &str) -> Result<(), String> {
     }
     if RESERVED_USERNAMES.contains(&s) {
         return Err(format!("'{s}' is a reserved name"));
+    }
+    Ok(())
+}
+
+/// Git user.name: non-empty, ≤ 128 chars, no newlines. Git itself is
+/// permissive (it will happily store almost anything), so this only rejects
+/// the obviously useless values that would produce broken commit metadata.
+pub fn validate_git_name(s: &str) -> Result<(), String> {
+    if s.is_empty() {
+        return Err("git name must not be empty".into());
+    }
+    if s.chars().any(|c| c == '\n' || c == '\r') {
+        return Err("git name must not contain newlines".into());
+    }
+    if s.chars().count() > 128 {
+        return Err("git name must be at most 128 characters".into());
+    }
+    if s.trim().is_empty() {
+        return Err("git name must not be only whitespace".into());
+    }
+    Ok(())
+}
+
+/// Git user.email: non-empty, single `@`, non-empty local and domain parts,
+/// domain contains at least one `.`. A pragmatic subset of RFC 5321 — good
+/// enough to catch typos without dragging in a full email parser.
+pub fn validate_git_email(s: &str) -> Result<(), String> {
+    if s.is_empty() {
+        return Err("git email must not be empty".into());
+    }
+    if s.chars().any(char::is_whitespace) {
+        return Err("git email must not contain whitespace".into());
+    }
+    let (local, domain) = s
+        .split_once('@')
+        .ok_or_else(|| "git email must contain exactly one '@'".to_string())?;
+    if local.is_empty() {
+        return Err("git email local part must not be empty".into());
+    }
+    if domain.is_empty() {
+        return Err("git email domain must not be empty".into());
+    }
+    if !domain.contains('.') {
+        return Err("git email domain must contain a '.'".into());
+    }
+    if s.matches('@').count() != 1 {
+        return Err("git email must contain exactly one '@'".into());
     }
     Ok(())
 }

@@ -1,9 +1,12 @@
-# Git identity + SSH commit signing. Signing is SSH-format against the
-# public half of the Bitwarden-vault SSH key: dots-keys (bitwarden.nix)
-# exports ~/.ssh/id_ed25519.pub, and with a .pub-only signingkey git's
-# ssh-keygen -Y sign pulls the private key from the rbw agent — it never
-# exists on disk. Transport auth is SSH-only too: the same vault key
-# pushes to Codeberg over ssh://git@codeberg.org/dasmatus/dots
+# Git identity + SSH commit signing. The identity (user.name / user.email)
+# comes from the installer-collected settings.gitName / settings.gitEmail
+# (written into nix/settings.nix by rust/installer-tui and passed into HM
+# via nix/modules/users.nix extraSpecialArgs). Signing is SSH-format
+# against the public half of the Bitwarden-vault SSH key: dots-keys
+# (bitwarden.nix) exports ~/.ssh/id_ed25519.pub, and with a .pub-only
+# signingkey git's ssh-keygen -Y sign pulls the private key from the rbw
+# agent — it never exists on disk. Transport auth is SSH-only too: the
+# same vault key pushes to Codeberg over ssh://git@codeberg.org/dasmatus/dots
 # (dots-repo.nix flips the dots clone's origin to SSH after the
 # first-login clone; dots-keys keeps it there). No HTTPS credential
 # helper and no forge CLI — the repo is public, so the bootstrap clone is
@@ -11,6 +14,7 @@
 {
   config,
   pkgs,
+  settings,
   ...
 }:
 {
@@ -19,8 +23,8 @@
     package = pkgs.git.override { withLibsecret = true; };
     settings = {
       user = {
-        name = "Matus Mastena";
-        email = "Shadiness9530@proton.me";
+        name = settings.gitName;
+        email = settings.gitEmail;
         # Absolute path — git does not tilde-expand signingkey.
         signingkey = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
       };

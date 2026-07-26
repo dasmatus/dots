@@ -10,6 +10,8 @@ fn cfg() -> InstallConfig {
         disks: vec!["/dev/vda".into()],
         hostname: "myhost".into(),
         username: "alice".into(),
+        git_name: "Alice Q".into(),
+        git_email: "alice@example.org".into(),
         root_password: "rootsecret".into(),
         user_password: "usersecret".into(),
         swap_size_gib: 16,

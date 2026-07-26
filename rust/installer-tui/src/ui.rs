@@ -200,6 +200,20 @@ fn draw_wizard(frame: &mut Frame, app: &App, area: Rect) {
             input_lines("Username for the primary user:", &app.input, false),
             "Enter confirm",
         ),
+        Screen::GitName => (
+            " git identity ",
+            input_lines(
+                "Git user.name (commits will be signed with this):",
+                &app.input,
+                false,
+            ),
+            "Enter confirm · Esc back",
+        ),
+        Screen::GitEmail => (
+            " git identity ",
+            input_lines("Git user.email:", &app.input, false),
+            "Enter confirm · Esc back",
+        ),
         Screen::RootPassword => (
             " root password ",
             input_lines(
@@ -242,6 +256,10 @@ fn draw_wizard(frame: &mut Frame, app: &App, area: Rect) {
                 Line::raw(format!("    disks     {}", app.config.disks.join(", "))),
                 Line::raw(format!("    hostname  {}", app.config.hostname)),
                 Line::raw(format!("    user      {}", app.config.username)),
+                Line::raw(format!(
+                    "    git       {} <{}>",
+                    app.config.git_name, app.config.git_email
+                )),
                 Line::raw(format!("    swap      {}G", app.config.swap_size_gib)),
                 Line::default(),
                 Line::raw("  Type ERASE to proceed:"),

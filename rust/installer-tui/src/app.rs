@@ -3,7 +3,9 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::config::{validate_hostname, validate_username, InstallConfig};
+use crate::config::{
+    validate_git_email, validate_git_name, validate_hostname, validate_username, InstallConfig,
+};
 use crate::disks::{self, Disk};
 use crate::install;
 use crate::net;
@@ -20,6 +22,8 @@ pub enum Screen {
     DiskSelect,
     Hostname,
     Username,
+    GitName,
+    GitEmail,
     RootPassword,
     RootPasswordConfirm,
     UserPassword,
@@ -280,10 +284,54 @@ impl App {
                         self.config.username = self.input.clone();
                         self.input.clear();
                         self.error = None;
+                        self.screen = Screen::GitName;
+                    }
+                    Err(e) => self.error = Some(e),
+                },
+                _ => {}
+            },
+
+            Screen::GitName => match key.code {
+                KeyCode::Char(c) => self.input.push(c),
+                KeyCode::Backspace => {
+                    self.input.pop();
+                }
+                KeyCode::Enter => match validate_git_name(&self.input) {
+                    Ok(()) => {
+                        self.config.git_name = self.input.clone();
+                        self.input.clear();
+                        self.error = None;
+                        self.screen = Screen::GitEmail;
+                    }
+                    Err(e) => self.error = Some(e),
+                },
+                KeyCode::Esc => {
+                    self.input.clear();
+                    self.error = None;
+                    self.screen = Screen::Username;
+                }
+                _ => {}
+            },
+
+            Screen::GitEmail => match key.code {
+                KeyCode::Char(c) => self.input.push(c),
+                KeyCode::Backspace => {
+                    self.input.pop();
+                }
+                KeyCode::Enter => match validate_git_email(&self.input) {
+                    Ok(()) => {
+                        self.config.git_email = self.input.clone();
+                        self.input.clear();
+                        self.error = None;
                         self.screen = Screen::RootPassword;
                     }
                     Err(e) => self.error = Some(e),
                 },
+                KeyCode::Esc => {
+                    self.input.clear();
+                    self.error = None;
+                    self.screen = Screen::GitName;
+                }
                 _ => {}
             },
 
