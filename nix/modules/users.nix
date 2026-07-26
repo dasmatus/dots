@@ -9,6 +9,9 @@
   inputs,
   aipageFirefox,
   aipageChrome,
+  wallpaperTui,
+  hyprmon,
+  hyprspacePkg,
   ...
 }:
 {
@@ -34,9 +37,17 @@
     useGlobalPkgs = true;
     useUserPackages = true;
     # home modules need flake inputs too (nixvim module, haumea lib), plus
-    # the in-flake aipage dists consumed by nix/home/{librewolf,brave}.nix.
+    # the in-flake aipage dists consumed by nix/home/{librewolf,brave}.nix
+    # and the Hyprspace plugin .so consumed by nix/home/hyprland.nix.
     extraSpecialArgs = {
-      inherit inputs aipageFirefox aipageChrome;
+      inherit
+        inputs
+        aipageFirefox
+        aipageChrome
+        wallpaperTui
+        hyprmon
+        hyprspacePkg
+        ;
     };
     sharedModules = [ inputs.nixvim.homeModules.nixvim ];
     users.${settings.username} = import ../home;

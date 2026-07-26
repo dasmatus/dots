@@ -10,18 +10,23 @@
   pkgs,
   settings,
   config,
+  hyprlandPkg,
   ...
 }:
 {
   # Require a FIDO2 key (PLUS the password) to unlock hyprlock, the ly display
-  # manager, and the console login. Both factors are mandatory: a correct key
-  # alone or a correct password alone is NOT enough. Recovery if the key is
-  # lost: boot the LiveISO (`nix run .#iso`), nixos-enter, set this to false,
-  # nixos-rebuild switch, reboot. Enroll keys with `nix run .#enroll-fido`.
+  # manager, and the console login. When true, both factors are mandatory: a
+  # correct key alone or a correct password alone is NOT enough. When false
+  # (the default), `pam_u2f.so` is `sufficient` — a correct key touch alone
+  # short-circuits the PAM stack before `pam_unix.so`/`pam_deny.so`, so the
+  # key unlocks without the password (the password still works as a fallback
+  # via the `sufficient` pam_unix.so). Recovery if the key is lost: boot the
+  # LiveISO (`nix run .#iso`), nixos-enter, flip this back, rebuild, reboot.
+  # Enroll keys with `nix run .#enroll-fido`.
   options.dots.fido.requireKey = lib.mkOption {
     type = lib.types.bool;
-    default = true;
-    description = "Require a FIDO2 key in addition to the password for hyprlock, ly, and console login (2FA). Turn off only for key-loss recovery via the LiveISO.";
+    default = false;
+    description = "When true, require a FIDO2 key AND the password (2FA) for hyprlock, ly, and console login. When false (default), the key alone is sufficient — touching it unlocks without the password, the password remains a fallback. Turn on only when you want mandatory 2FA; flip back via the LiveISO for key-loss recovery.";
   };
 
   config =
@@ -36,6 +41,13 @@
           services.displayManager.ly.enable = true;
           programs.hyprland = {
             enable = true;
+            # Pin the compositor to the same Hyprland flake input the
+            # Hyprspace plugin builds against (threaded in from flake.nix as
+            # hyprlandPkg). programs.hyprland.enable defaults to the nixpkgs
+            # Hyprland, whose ABI can drift from the plugin's — a .so built
+            # against v0.55.0 loaded by a 0.56.0 compositor crashes on
+            # `plugin load`. `package` makes the system Hyprland match.
+            package = hyprlandPkg;
             withUWSM = true;
             xwayland.enable = true;
           };
@@ -175,11 +187,18 @@
           programs.dconf.enable = true;
         }
 
-        # ── 2FA tightening: FIDO2 key AND password both required ───────────
+        # ── U2F sufficiency vs 2FA tightening ──────────────────────────────
         # PAM stacks hyprlock/ly/login (useDefaultRules=true) as:
         #   [ pam_u2f.so (sufficient) → pam_unix.so (sufficient) → pam_deny.so (required) ]
-        # Default = "key OR password" (either sufficient short-circuits before
-        # the always-failing pam_deny). To make BOTH factors mandatory:
+        # Default (requireKey=false): `pam_u2f.so` is `sufficient`, so a
+        # correct key touch short-circuits the stack before pam_unix.so and
+        # the always-failing pam_deny.so — the key ALONE unlocks, no password
+        # needed. A wrong/missing touch falls through to pam_unix.so (also
+        # `sufficient`), so the password still works as a fallback. Either
+        # path reaches the end only on failure, where pam_deny.so (required)
+        # finalizes the rejection.
+        #
+        # requireKey=true flips to mandatory 2FA (key AND password):
         #   1. pam_u2f.so → required: one global knob (security.pam.u2f.control
         #      overrides the option default "sufficient" cleanly — no mkForce).
         #   2. pam_unix.so → required: per service, mkForce (the auto-rule sets
@@ -188,9 +207,10 @@
         #      PAM_AUTH_ERR — if left in, two preceding required successes still
         #      hit deny and the stack fails (total lockout). deny.enable is a
         #      plain override (the auto-rule never sets `enable`).
-        # Verified via `nix eval` on this flake: u2f (order 10900) renders
-        # before unix (order 11700), both `required`, no deny rule. sudo is
-        # intentionally untouched (stays dormant while sudo-rs is NOPASSWD).
+        # Verified via `nix eval` on this flake: under requireKey, u2f (order
+        # 10900) renders before unix (order 11700), both `required`, no deny
+        # rule. sudo is intentionally untouched (stays dormant while sudo-rs
+        # is NOPASSWD).
         (lib.mkIf config.dots.fido.requireKey {
           # u2f side: one global knob covers every service with u2fAuth=true
           # (hyprlock, ly, login, and the dormant sudo).

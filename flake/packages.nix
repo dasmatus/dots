@@ -14,6 +14,27 @@ self: {
     src = ../installer-tui;
     cargoLock.lockFile = ../installer-tui/Cargo.lock;
   };
+  # Built once at the flake level (was inline in nix/home/wallpaper-tui.nix)
+  # so `nix build .#wallpaper-tui` works, the cache key is shared, and the
+  # home module just wraps the store path instead of re-evaluating the crate.
+  wallpaper-tui = pkgs.rustPlatform.buildRustPackage {
+    pname = "wallpaper-tui";
+    version = "0.1.0";
+    src = ../wallpaper-tui;
+    cargoLock.lockFile = ../wallpaper-tui/Cargo.lock;
+    meta.mainProgram = "wallpaper-tui";
+  };
+  # hyprmon — the declarative multi-monitor auto-detection daemon. Built at
+  # the flake level for the same reasons as wallpaper-tui (cache key sharing,
+  # `nix build .#hyprmon`); nix/home/hyprmon.nix wraps the store path and
+  # wires the systemd user service.
+  hyprmon = pkgs.rustPlatform.buildRustPackage {
+    pname = "hyprmon";
+    version = "0.1.0";
+    src = ../hyprmon;
+    cargoLock.lockFile = ../hyprmon/Cargo.lock;
+    meta.mainProgram = "hyprmon";
+  };
   # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned fetchGit
   # source — see nix/aipage.nix. Consumed by the LibreWolf and Brave home
   # modules via specialArgs, and embedded in both ISOs so the installer

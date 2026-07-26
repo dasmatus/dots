@@ -69,18 +69,51 @@ in
     assert builtins.elem "amd_pstate=active" config.boot.kernelParams;
     assert failed == [ ];
     pkgs.writeText "facter-nvidia-ok" "nvidia";
-  # Asserts the FIDO2 2FA tightening lands in the generated PAM rules for
-  # hyprlock/ly/login: u2f required + unix required + deny disabled, u2f
-  # rendered before unix. The dormant sudo service is intentionally untouched
-  # (unix still "sufficient", deny still present); the global
-  # u2f.control=required does flow into sudo's u2f rule, but sudo-rs NOPASSWD
-  # skips PAM auth entirely. Catches a future nixpkgs bump that silently
-  # changes the auto-rule controls/order or the deny terminator. Eval-only
-  # (no build); reads the already-evaluated tokyonight config (the tightening
-  # is in the module, requireKey=true by default).
+  # Asserts the FIDO2 PAM rules under the default (requireKey=false): u2f
+  # is `sufficient` (a correct key touch alone short-circuits the stack —
+  # unlocks without the password), unix stays `sufficient` (password fallback),
+  # and deny stays enabled (terminates failed auth). The dormant sudo service
+  # is intentionally untouched. Catches a future nixpkgs bump that silently
+  # changes the auto-rule controls/order. Eval-only (no build); reads the
+  # already-evaluated tokyonight config (the default lives in the module).
+  # The requireKey=true 2FA path is exercised by fido-2fa-strict-eval below.
   fido-2fa-eval =
     let
       cfg = self.nixosConfigurations.tokyonight.config;
+      svc = cfg.security.pam.services;
+      need = [
+        "hyprlock"
+        "ly"
+        "login"
+      ];
+      sufficient =
+        s:
+        let
+          r = svc.${s}.rules.auth;
+        in
+        r.u2f.control == "sufficient"
+        && r.unix.control == "sufficient"
+        && r.deny.enable
+        && r.u2f.order < r.unix.order;
+    in
+    assert builtins.all sufficient need;
+    assert cfg.security.pam.u2f.control == "sufficient";
+    assert svc.sudo.rules.auth.unix.control == "sufficient";
+    assert svc.sudo.rules.auth.deny.enable;
+    pkgs.writeText "fido-2fa-ok" "u2f-sufficient";
+  # Asserts the requireKey=true 2FA tightening (key AND password both
+  # mandatory) when dots.fido.requireKey is flipped on — the recovery path
+  # for users who want mandatory 2FA. u2f + unix both `required`, deny
+  # disabled, u2f before unix. Uses extendModules so the default config
+  # stays untouched for the check above.
+  fido-2fa-strict-eval =
+    let
+      strict = self.nixosConfigurations.tokyonight.extendModules {
+        modules = [
+          { dots.fido.requireKey = true; }
+        ];
+      };
+      cfg = strict.config;
       svc = cfg.security.pam.services;
       need = [
         "hyprlock"
@@ -99,9 +132,7 @@ in
     in
     assert builtins.all twoFa need;
     assert cfg.security.pam.u2f.control == "required";
-    assert svc.sudo.rules.auth.unix.control == "sufficient";
-    assert svc.sudo.rules.auth.deny.enable;
-    pkgs.writeText "fido-2fa-ok" "required+required";
+    pkgs.writeText "fido-2fa-strict-ok" "required+required";
   # Asserts the in-flake aipage build (nix/aipage.nix) evaluates, the
   # manifest is parseable at eval time (pure-eval readFile of a fetchGit store
   # path), the gecko addon id is stable, and both targets are MV2. Eval-only

@@ -8,8 +8,10 @@ __pycache__/
 vm-state-*/
 
 # Nix + Rust build outputs
+*/target/
 installer-tui/target/
 wallpaper-tui/target/
+hyprmon/target/
 result
 result-*
 

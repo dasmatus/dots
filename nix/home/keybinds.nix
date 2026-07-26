@@ -100,6 +100,11 @@ let
       key = "SUPER + Shift + S";
       desc = "Move window to magic workspace";
     }
+    # overview
+    {
+      key = "SUPER + Tab";
+      desc = "Workspace overview (Hyprspace)";
+    }
     # session
     {
       key = "SUPER + Alt + L";

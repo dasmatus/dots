@@ -1,0 +1,57 @@
+//! End-to-end apply pipeline with a stubbed [`HyprCtl`]: monitors JSON →
+//! match → plan → recorded `keyword` calls.
+
+mod common;
+
+use common::{monitors_json_two, FakeCtl};
+use hyprmon::rules::Rules;
+use hyprmon::runner::apply;
+
+#[test]
+fn apply_emits_one_keyword_per_monitor() {
+    let ctl = FakeCtl::new(&monitors_json_two());
+    let rules = common::rules_two();
+    let specs = apply(&ctl, &rules).unwrap();
+    assert_eq!(specs.len(), 2);
+    let keywords = ctl.keywords.lock().unwrap().clone();
+    assert_eq!(keywords.len(), 2);
+    assert_eq!(keywords[0], "DP-1,1920x1080@240,0x0,1,vrrleft");
+    assert_eq!(keywords[1], "HDMI-A-1,2560x1200,1920x0,1");
+}
+
+#[test]
+fn apply_no_match_is_noop() {
+    let ctl = FakeCtl::new(&monitors_json_two());
+    let specs = apply(&ctl, &Rules::default()).unwrap();
+    assert!(specs.is_empty());
+    assert!(ctl.keywords.lock().unwrap().is_empty());
+}
+
+#[test]
+fn apply_propagates_keyword_failure() {
+    use hyprmon::runner::HyprCtl;
+    use std::sync::Mutex;
+
+    struct FailingCtl {
+        calls: Mutex<usize>,
+    }
+    impl HyprCtl for FailingCtl {
+        fn monitors_json(&self) -> Result<String, String> {
+            Ok(monitors_json_two())
+        }
+        fn keyword(&self, _spec: &str) -> Result<String, String> {
+            let mut c = self.calls.lock().unwrap();
+            *c += 1;
+            if *c == 2 {
+                Err("boom".to_string())
+            } else {
+                Ok("ok".to_string())
+            }
+        }
+    }
+    let ctl = FailingCtl {
+        calls: Mutex::new(0),
+    };
+    let err = apply(&ctl, &common::rules_two()).unwrap_err();
+    assert_eq!(err, "boom");
+}

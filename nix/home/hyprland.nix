@@ -39,6 +39,7 @@
   config,
   pkgs,
   lib,
+  hyprspacePkg,
   ...
 }:
 let
@@ -51,6 +52,14 @@ in
     package = null;
     configType = "lua";
 
+    # Hyprspace workspace-overview plugin. HM's hyprland module renders each
+    # entry as `hl.plugin.load("<store>/lib/lib<pname>.so")` in hyprland.lua,
+    # loaded at compositor boot. The .so is built against the same Hyprland
+    # flake input as the system compositor (see flake.nix), so the C++ ABI
+    # the plugin was compiled against matches the running compositor — a
+    # mismatch would crash Hyprland on `plugin load`.
+    plugins = [ hyprspacePkg ];
+
     settings = {
       # local mod = "SUPER" — renderSettings emits all _var locals before
       # the call entries, so this precedes every hl.bind(mod .. …) below.
@@ -58,12 +67,12 @@ in
         _var = "SUPER";
       };
 
-      monitor = {
-        output = "eDP-1";
-        mode = "1920x1080";
-        position = "0x0";
-        scale = 1;
-      };
+      # No static `monitor` block: hyprmon (nix/home/hyprmon.nix) owns
+      # monitor setup declaratively — it parses `hyprctl monitors -j`, matches
+      # against ~/.config/hyprmon/rules.json, and runs `hyprctl keyword
+      # monitor …` for each output. A static block here would race the daemon
+      # and clobber its layout. Hyprland's auto-detect (`monitor=,preferred,
+      # auto,1`) holds for the brief window before the daemon's initial apply.
 
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
       # has no exec-once; hyprland.start fires once at compositor boot. Called
@@ -640,6 +649,18 @@ in
           _args = [
             (lua ''mod .. " + SHIFT + S"'')
             (lua ''hl.dsp.window.move({ workspace = "special:magic" })'')
+          ];
+        }
+
+        # Hyprspace workspace overview (KZDKM/Hyprspace plugin, loaded above).
+        # `overview:toggle` is a plugin-provided dispatcher, so it goes through
+        # hl.dsp.exec_cmd rather than a typed hl.dsp.* function — Hyprland's
+        # Lua API doesn't know about plugin dispatchers at metadata-gen time.
+        # SUPER+Tab mirrors the GNOME/macos muscle memory for an overview.
+        {
+          _args = [
+            (lua ''mod .. " + Tab"'')
+            (lua ''hl.dsp.exec_cmd("overview:toggle")'')
           ];
         }
 

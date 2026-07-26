@@ -67,7 +67,7 @@ in
       ${cdRepoRoot}
       echo "tokyonight-dots — nix run .#<app>"
       echo
-      echo "  nix-lint               flake eval + cargo fmt/clippy/test (both Rust crates)"
+      echo "  nix-lint               flake eval + cargo fmt/clippy/test (all Rust crates)"
       echo "  iso                    build + Secure Boot-sign the LiveISO (the default)"
       echo "  iso-full               same, with intel+amd system closures embedded"
       echo "  iso-unsigned           plain unsigned LiveISO (no signing keys touched)"
@@ -80,8 +80,9 @@ in
     '';
   };
 
-  # Static gate: flake eval (--no-build) + fmt/clippy/tests for both Rust
-  # crates. Cargo is pinned in runtimeInputs so the dev shell need not be on.
+  # Static gate: flake eval (--no-build) + fmt/clippy/tests for every Rust
+  # crate in the repo. Cargo is pinned in runtimeInputs so the dev shell need
+  # not be on.
   nix-lint = mkShellApp "nix-lint" {
     runtimeInputs = [
       pkgs.cargo
@@ -94,6 +95,7 @@ in
       nix flake check --no-build
       cd installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
     '';
   };
 

@@ -26,6 +26,7 @@
     ./brave.nix
     ./junction.nix
     ./hyprland.nix
+    ./hyprmon.nix
     ./waybar.nix
     ./wallpaper-tui.nix
     ./dunst.nix
