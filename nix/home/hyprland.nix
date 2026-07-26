@@ -77,6 +77,11 @@ in
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
       # has no exec-once; hyprland.start fires once at compositor boot. Called
       # by name (like waybar/nm-applet) since wallpaper-tui is in home.packages.
+      # The rofi-keybinds.sh call is the first-login keybind cheatsheet
+      # (nix/home/keybinds.nix): the script no-ops once its sentinel exists,
+      # so this fires on every compositor boot but only ever pops rofi once
+      # per install. NB comments here are Nix (#), not Lua (--) — anything
+      # inside the `lua ''...''` inline is emitted verbatim into hyprland.lua.
       on = {
         _args = [
           "hyprland.start"
@@ -86,9 +91,6 @@ in
               hl.exec_cmd("waybar")
               hl.exec_cmd("nm-applet --indicator")
               hl.exec_cmd("wallpaper-tui --restore")
-              # First-login keybind cheatsheet (nix/home/keybinds.nix): the
-              # script no-ops once its sentinel exists, so this fires on every
-              # compositor boot but only ever pops rofi once per install.
               hl.exec_cmd("~/.config/rofi/rofi-keybinds.sh")
             end'')
         ];
