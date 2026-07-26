@@ -173,16 +173,18 @@
           ];
           fonts.fontconfig.defaultFonts.monospace = [ "Lilex Nerd Font" ];
 
-          xdg.portal = {
-            enable = true;
-            # Both portal backends must be present in the system portal dir so
-            # hyprland-portals.conf can dispatch Screenshot/ScreenCast to
-            # hyprland and Settings/FileChooser to gtk.
-            extraPortals = [
-              pkgs.xdg-desktop-portal-hyprland
-              pkgs.xdg-desktop-portal-gtk
-            ];
-          };
+          # programs.hyprland.enable above already sets xdg.portal.enable =
+          # true and adds xdg-desktop-portal-hyprland (as cfg.portalPackage,
+          # overridden with the flake Hyprland) to extraPortals. Listing it
+          # again here would put a second, distinct store path shipping
+          # xdg-desktop-portal-hyprland.service into systemd.packages, and
+          # generateUnits (nixos/lib/systemd-lib.nix) symlinks each unit with
+          # plain `ln -s` (no -f) — two derivations, same unit filename →
+          # "failed to create symlink ...: file exists". So only the GTK
+          # backend is added here; both backends end up in the system portal
+          # dir so hyprland-portals.conf can dispatch Screenshot/ScreenCast to
+          # hyprland and Settings/FileChooser to gtk.
+          xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
 
           programs.dconf.enable = true;
         }
