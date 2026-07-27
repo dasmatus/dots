@@ -1,0 +1,150 @@
+$bg: rgba(26, 27, 38, 0.92);
+$bg-alt: rgba(35, 36, 51, 0.95);
+$fg: #a9b1d6;
+$fg-dim: #6a6f87;
+$accent: #7aa2f7;
+$selected: rgba(122, 162, 247, 0.18);
+$radius: 18px;
+$radius-sm: 12px;
+
+* {
+  all: unset;
+}
+
+.launcher {
+  background-color: $bg;
+  border-radius: $radius;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  padding: 16px;
+}
+
+.search-bar {
+  background-color: $bg-alt;
+  border-radius: $radius-sm;
+  padding: 10px 14px;
+}
+
+.search-icon {
+  color: $accent;
+  font-size: 22px;
+  min-width: 28px;
+}
+
+.search-input {
+  color: $fg;
+  font-size: 18px;
+  background: transparent;
+  caret-color: $accent;
+}
+
+.search-input placeholder {
+  color: $fg-dim;
+}
+
+.close-btn {
+  color: $fg-dim;
+  font-size: 20px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
+.close-btn:hover {
+  color: #f7768e;
+  background-color: rgba(247, 118, 142, 0.12);
+}
+
+.results {
+  margin-top: 14px;
+}
+
+.results-list {
+  spacing: 4px;
+}
+
+.result {
+  padding: 10px 14px;
+  border-radius: $radius-sm;
+}
+
+.result:hover,
+.result.selected {
+  background-color: $selected;
+}
+
+.result-box {
+  color: $fg;
+}
+
+.result-icon {
+  color: $fg;
+}
+
+.result-name {
+  font-size: 15px;
+  color: $fg;
+}
+
+.enter-hint {
+  color: $accent;
+  font-size: 14px;
+  opacity: 0;
+}
+
+.enter-hint.visible {
+  opacity: 1;
+}
+
+.keybinds {
+  background-color: $bg;
+  border-radius: $radius;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  padding: 20px;
+}
+
+.keybinds-header {
+  margin-bottom: 16px;
+}
+
+.keybinds-title {
+  color: $fg;
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.keybinds-list {
+  spacing: 20px;
+}
+
+.kb-group {
+  spacing: 10px;
+}
+
+.kb-category {
+  color: $accent;
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.kb-row {
+  padding: 8px 12px;
+  border-radius: $radius-sm;
+}
+
+.kb-row:nth-child(2n) {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.kb-key {
+  color: #e0af68;
+  font-family: "Lilex Nerd Font";
+  font-size: 13px;
+  min-width: 160px;
+}
+
+.kb-desc {
+  color: $fg;
+  font-size: 14px;
+}

@@ -56,3 +56,51 @@ fn render_spec_with_transform() {
     };
     assert_eq!(s.render(), "DP-2,1920x1080,0x0,1.5,1");
 }
+
+#[test]
+fn render_lua_emits_hl_monitor_call() {
+    let s = MonitorSpec {
+        name: "DP-1".to_string(),
+        resolution: "1920x1080@240".to_string(),
+        position: "0x0".to_string(),
+        scale: "1".to_string(),
+        transform: None,
+        vrr: Some("vrrleft".to_string()),
+    };
+    assert_eq!(
+        s.render_lua(),
+        "hl.monitor({output=\"DP-1\", mode=\"1920x1080@240\", position=\"0x0\", scale=1, vrr=1})"
+    );
+}
+
+#[test]
+fn render_lua_omits_optional_fields() {
+    let s = MonitorSpec {
+        name: "HDMI-A-1".to_string(),
+        resolution: "2560x1200".to_string(),
+        position: "1920x0".to_string(),
+        scale: "1.5".to_string(),
+        transform: None,
+        vrr: None,
+    };
+    assert_eq!(
+        s.render_lua(),
+        "hl.monitor({output=\"HDMI-A-1\", mode=\"2560x1200\", position=\"1920x0\", scale=1.5})"
+    );
+}
+
+#[test]
+fn render_lua_escapes_quotes() {
+    let s = MonitorSpec {
+        name: "DP-\"1".to_string(),
+        resolution: "preferred".to_string(),
+        position: "0x0".to_string(),
+        scale: "1".to_string(),
+        transform: None,
+        vrr: None,
+    };
+    assert_eq!(
+        s.render_lua(),
+        "hl.monitor({output=\"DP-\\\"1\", mode=\"preferred\", position=\"0x0\", scale=1})"
+    );
+}

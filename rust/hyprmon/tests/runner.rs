@@ -1,5 +1,5 @@
 //! End-to-end apply pipeline with a stubbed [`HyprCtl`]: monitors JSON →
-//! match → plan → recorded `keyword` calls.
+//! match → plan → recorded `eval` Lua calls.
 
 mod common;
 
@@ -8,15 +8,21 @@ use hyprmon::rules::Rules;
 use hyprmon::runner::apply;
 
 #[test]
-fn apply_emits_one_keyword_per_monitor() {
+fn apply_emits_one_eval_per_monitor() {
     let ctl = FakeCtl::new(&monitors_json_two());
     let rules = common::rules_two();
     let specs = apply(&ctl, &rules).unwrap();
     assert_eq!(specs.len(), 2);
-    let keywords = ctl.keywords.lock().unwrap().clone();
-    assert_eq!(keywords.len(), 2);
-    assert_eq!(keywords[0], "DP-1,1920x1080@240,0x0,1,vrrleft");
-    assert_eq!(keywords[1], "HDMI-A-1,2560x1200,1920x0,1");
+    let evals = ctl.evals.lock().unwrap().clone();
+    assert_eq!(evals.len(), 2);
+    assert_eq!(
+        evals[0],
+        "hl.monitor({output=\"DP-1\", mode=\"1920x1080@240\", position=\"0x0\", scale=1, vrr=1})"
+    );
+    assert_eq!(
+        evals[1],
+        "hl.monitor({output=\"HDMI-A-1\", mode=\"2560x1200\", position=\"1920x0\", scale=1})"
+    );
 }
 
 #[test]
@@ -24,11 +30,11 @@ fn apply_no_match_is_noop() {
     let ctl = FakeCtl::new(&monitors_json_two());
     let specs = apply(&ctl, &Rules::default()).unwrap();
     assert!(specs.is_empty());
-    assert!(ctl.keywords.lock().unwrap().is_empty());
+    assert!(ctl.evals.lock().unwrap().is_empty());
 }
 
 #[test]
-fn apply_propagates_keyword_failure() {
+fn apply_propagates_eval_failure() {
     use hyprmon::runner::HyprCtl;
     use std::sync::Mutex;
 
@@ -39,7 +45,7 @@ fn apply_propagates_keyword_failure() {
         fn monitors_json(&self) -> Result<String, String> {
             Ok(monitors_json_two())
         }
-        fn keyword(&self, _spec: &str) -> Result<String, String> {
+        fn eval(&self, _lua: &str) -> Result<String, String> {
             let mut c = self.calls.lock().unwrap();
             *c += 1;
             if *c == 2 {

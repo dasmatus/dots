@@ -3,14 +3,14 @@
 # which merged the rofi-wayland fork upstream, so no override is needed for
 # Wayland support.
 #
-# ./tokyonight.rasi is installed under xdg.configFile rather than through
-# programs.rofi.theme so that both the default rofi invocation and the
-# hardcoded `-theme tokyonight` flag (hyprland.nix binds, rofi-files.sh,
-# the power-menu bind below) all resolve the same file — one shared
-# Spotlight-style grid for every entry point.
+# The app launcher has moved to eww (nix/home/eww). Rofi is now used only for
+# the file manager (rofi-files.sh) and the power menu. ./tokyonight.rasi is
+# installed under xdg.configFile rather than through programs.rofi.theme so
+# that the hardcoded `-theme tokyonight` flags (rofi-files.sh, the power-menu
+# bind) resolve the same file.
 #
 # pkgs.rofi-power-menu ships the upstream `rofi-power-menu` mode script on
-# PATH; hyprland.nix binds Mod+X to `rofi -show powermenu -modi
+# PATH; hyprland.nix binds Mod+Shift+E to `rofi -show powermenu -modi
 # powermenu:rofi-power-menu ...`. lockscreen is intentionally excluded via
 # --choices because the script locks via `loginctl lock-session`, which
 # does not launch hyprlock on this setup — the dedicated Mod+Alt+L bind in

@@ -17,6 +17,8 @@ pub fn monitor_240hz() -> Monitor {
         width: 1920,
         height: 1080,
         refresh_rate: 239.76,
+        physical_width: 600,
+        physical_height: 340,
         current_format: "1920x1080@239.76".to_string(),
         make: "Ancor Communications".to_string(),
         model: "ASUS VG279QM".to_string(),
@@ -36,6 +38,8 @@ pub fn monitor_60hz() -> Monitor {
         width: 2560,
         height: 1200,
         refresh_rate: 59.95,
+        physical_width: 550,
+        physical_height: 310,
         current_format: "2560x1200@59.95".to_string(),
         make: "Goldstar Company Ltd".to_string(),
         model: "25UM58".to_string(),
@@ -92,21 +96,21 @@ pub fn rules_two() -> Rules {
 }
 
 /// A [`hyprmon::runner::HyprCtl`] backed by a fixed JSON payload and a
-/// shared log of the `keyword` calls. `monitors_json` returns the captured
-/// payload; `keyword` records the spec so the test can assert on it.
+/// shared log of the `eval` calls. `monitors_json` returns the captured
+/// payload; `eval` records the Lua expression so the test can assert on it.
 pub use hyprmon::runner::HyprCtl;
 use std::sync::Mutex;
 
 pub struct FakeCtl {
     pub json: String,
-    pub keywords: Mutex<Vec<String>>,
+    pub evals: Mutex<Vec<String>>,
 }
 
 impl FakeCtl {
     pub fn new(json: &str) -> Self {
         Self {
             json: json.to_string(),
-            keywords: Mutex::new(Vec::new()),
+            evals: Mutex::new(Vec::new()),
         }
     }
 }
@@ -115,8 +119,8 @@ impl HyprCtl for FakeCtl {
     fn monitors_json(&self) -> Result<String, String> {
         Ok(self.json.clone())
     }
-    fn keyword(&self, spec: &str) -> Result<String, String> {
-        self.keywords.lock().unwrap().push(spec.to_string());
+    fn eval(&self, lua: &str) -> Result<String, String> {
+        self.evals.lock().unwrap().push(lua.to_string());
         Ok("ok".to_string())
     }
 }

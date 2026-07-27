@@ -8,7 +8,8 @@
 #   - gentoo-pipewire-launcher dropped (Gentoo-only, already dead on NixOS)
 #   - swayidle/swaylock exec-once dropped in favour of services.hypridle and
 #     programs.hyprlock below
-#   - libinput-gestures-setup dropped (X11-only)
+#   - libinput-gestures-setup dropped in favour of native Hyprland 0.55
+#     hl.gesture() touchpad gestures below
 #   - redshift exec-once dropped in favour of services.gammastep below
 #   - all four `exec = gsettings ...` theme lines dropped: gtk/dconf
 #     (default.nix) own theming now
@@ -67,21 +68,22 @@ in
         _var = "SUPER";
       };
 
-      # No static `monitor` block: hyprmon (nix/home/hyprmon.nix) owns
-      # monitor setup declaratively — it parses `hyprctl monitors -j`, matches
-      # against ~/.config/hyprmon/rules.json, and runs `hyprctl keyword
-      # monitor …` for each output. A static block here would race the daemon
-      # and clobber its layout. Hyprland's auto-detect (`monitor=,preferred,
-      # auto,1`) holds for the brief window before the daemon's initial apply.
+      # No static `monitor` block: Hyprland 0.55+ retired the hyprlang
+      # `keyword` IPC for the Lua ("non-legacy") parser, so the
+      # `hyprctl keyword monitor …` calls hyprmon shells out to are now a
+      # silent no-op (exit 0 with an error string). The scale is therefore
+      # applied at runtime by the hyprmon daemon (nix/home/hyprmon.nix) via
+      # `hyprctl eval 'hl.monitor({...})'`, not from this config file.
 
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
       # has no exec-once; hyprland.start fires once at compositor boot. Called
       # by name (like waybar/nm-applet) since wallpaper-tui is in home.packages.
-      # The rofi-keybinds.sh call is the first-login keybind cheatsheet
+      # The eww keybinds script is the first-login keybind cheatsheet
       # (nix/home/keybinds.nix): the script no-ops once its sentinel exists,
-      # so this fires on every compositor boot but only ever pops rofi once
-      # per install. NB comments here are Nix (#), not Lua (--) — anything
-      # inside the `lua ''...''` inline is emitted verbatim into hyprland.lua.
+      # so this fires on every compositor boot but only ever opens the eww
+      # window once per install. NB comments here are Nix (#), not Lua (--)
+      # — anything inside the `lua ''...''` inline is emitted verbatim into
+      # hyprland.lua.
       on = {
         _args = [
           "hyprland.start"
@@ -91,7 +93,7 @@ in
               hl.exec_cmd("waybar")
               hl.exec_cmd("nm-applet --indicator")
               hl.exec_cmd("wallpaper-tui --restore")
-              hl.exec_cmd("~/.config/rofi/rofi-keybinds.sh")
+              hl.exec_cmd("~/.config/eww/scripts/keybinds.sh")
             end'')
         ];
       };
@@ -318,6 +320,35 @@ in
         }
       ];
 
+      # Touchpad gestures. Hyprland 0.55 replaces the old hyprlang `gestures`
+      # section with the `hl.gesture({...})` API: built-in actions (workspace,
+      # move, special) are strings; plugin/custom dispatchers are Lua functions.
+      # 3-finger horizontal swipe switches workspaces, 4-finger horizontal moves
+      # the active window, 4-finger up toggles Hyprspace overview, 4-finger down
+      # toggles the scratch special workspace.
+      gesture = [
+        {
+          fingers = 3;
+          direction = "horizontal";
+          action = "workspace";
+        }
+        {
+          fingers = 4;
+          direction = "horizontal";
+          action = "move";
+        }
+        {
+          fingers = 4;
+          direction = "up";
+          action = lua ''function() hl.dsp.exec_cmd("overview:toggle") end'';
+        }
+        {
+          fingers = 4;
+          direction = "down";
+          action = lua ''function() hl.dsp.workspace.toggle_special("scratch") end'';
+        }
+      ];
+
       # Binds. hyprlang `bind`/`binde`/`bindm` collapse to one `hl.bind`
       # API: hl.bind(key, dispatcher, opts?). opts carries the flags that
       # were separate keywords — { repeating = true } for binde,
@@ -336,7 +367,7 @@ in
         {
           _args = [
             (lua ''mod .. " + D"'')
-            (lua ''hl.dsp.exec_cmd("rofi -show drun -show-icons -theme \"$(f=~/.local/state/wallpaper-tui/tint/rofi.rasi; [ -f \"$f\" ] && echo \"$f\" || echo tokyonight)\"")'')
+            (lua ''hl.dsp.exec_cmd("~/.config/eww/scripts/launcher.sh toggle")'')
           ];
         }
         {
@@ -356,7 +387,7 @@ in
         {
           _args = [
             (lua ''mod .. " + slash"'')
-            (lua ''hl.dsp.exec_cmd("~/.config/rofi/rofi-keybinds.sh --force")'')
+            (lua ''hl.dsp.exec_cmd("~/.config/eww/scripts/keybinds.sh --force")'')
           ];
         }
         # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved

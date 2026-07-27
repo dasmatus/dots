@@ -1,11 +1,10 @@
 /*
- * ROFI color theme — Tokyonight Spotlight grid launcher.
+ * ROFI color theme — Tokyonight Spotlight grid for the file manager and
+ * power menu.
  *
- * Same 4×6 icon grid as the old right-sidebar layout, but centered and
- * enlarged to read like macOS Spotlight: wide window pinned to the upper
- * third, rounded, with a tall search bar above the grid. Shared by the
- * drun launcher, the file manager (rofi-files.sh) and rofi-power-menu so
- * every entry point looks identical.
+ * The app launcher has moved to eww (nix/home/eww). This theme is now used
+ * only by rofi-files.sh and rofi-power-menu: a 4×2 icon grid below a wide,
+ * rounded search bar pinned to the upper third of the screen.
  */
 
 configuration {

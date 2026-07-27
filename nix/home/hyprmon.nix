@@ -32,8 +32,19 @@ let
   # the first rule is the leftmost monitor, the second continues at
   # x=width-of-the-first, and so on. An explicit `position` pins a monitor
   # absolutely and resets the running x-cursor to that monitor's right edge.
+  #
+  # Scaling rule: smaller screens get smaller scale factors. Hyprland's
+  # auto-detect upscales small panels (this 15" 1080p laptop panel defaults to
+  # 1.5, i.e. "grandma mode"). The rules below force 1.0 on the built-in panel
+  # and keep 1.0 on the desktop displays, so nothing is oversized.
   rules = {
     rules = [
+      {
+        name = "laptop-edp";
+        match_name = "^eDP-1$";
+        scale = 1.0;
+        vrr = "off";
+      }
       {
         name = "primary-240hz";
         match_name = "^DP-1$";
@@ -68,15 +79,21 @@ in
   # then `home-manager switch`).
   xdg.configFile."hyprmon/rules.json".text = builtins.toJSON rules;
 
-  # The daemon. PartOf hyprland-session so it starts with the compositor and
-  # stops on logout; Restart=on-failure covers transient hyprctl errors.
+  # The daemon. Bound to graphical-session so it starts with any Wayland
+  # compositor session and stops on logout. The upstream Hyprland Home
+  # Manager module has `systemd.enable = false`, so `hyprland-session.target`
+  # isn't available; `graphical-session.target` is the portable target.
+  # Restart=on-failure covers transient `hyprctl` errors.
   # ConditionPathExists gates the socket so a non-Hyprland session (e.g. a
   # GNOME login on the same user) doesn't spawn a dying loop.
   systemd.user.services.hyprmon = {
     Unit = {
       Description = "hyprmon declarative monitor auto-detection";
-      PartOf = [ "hyprland-session.target" ];
-      After = [ "hyprland-session.target" ];
+      PartOf = [ "graphical-session.target" ];
+      After = [ "graphical-session-pre.target" ];
+      ConditionPathExists = [
+        "%t/hypr"
+      ];
     };
     Service = {
       ExecStart = "${lib.getExe hyprmon} watch";
@@ -84,7 +101,7 @@ in
       RestartSec = 2;
     };
     Install = {
-      WantedBy = [ "hyprland-session.target" ];
+      WantedBy = [ "graphical-session.target" ];
     };
   };
 

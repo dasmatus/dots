@@ -90,7 +90,9 @@ fn draw_preview(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    if let Some(proto) = app.preview.as_mut() { f.render_stateful_widget(StatefulImage::default(), inner, proto) } else {
+    if let Some(proto) = app.preview.as_mut() {
+        f.render_stateful_widget(StatefulImage::default(), inner, proto)
+    } else {
         let label = match app.preview_pending.as_deref() {
             Some(_) => "rendering…",
             None => "[preview unavailable]",
