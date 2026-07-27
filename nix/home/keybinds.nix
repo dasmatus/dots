@@ -106,12 +106,6 @@ let
         desc = "Move window to magic workspace";
       }
     ];
-    overview = [
-      {
-        key = "SUPER + Tab";
-        desc = "Workspace overview (Hyprspace)";
-      }
-    ];
     session = [
       {
         key = "SUPER + Alt + L";
@@ -142,10 +136,6 @@ let
       {
         key = "4-finger swipe left / right";
         desc = "Move window to adjacent workspace";
-      }
-      {
-        key = "4-finger swipe up";
-        desc = "Workspace overview (Hyprspace)";
       }
       {
         key = "4-finger swipe down";

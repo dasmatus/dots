@@ -41,20 +41,14 @@
       url = "github:nix-community/bun2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Hyprland + Hyprspace are paired inputs: the plugin's .so is dlopen'd by
-    # the running compositor, so the C++ ABI must match exactly. Hyprspace
-    # pins a Hyprland release in its own flake; we override it to follow our
-    # `hyprland` input so both the system Hyprland (nix/modules/desktop.nix
-    # consumes packages.hyprland below) and the plugin build against the same
-    # headers. Without this, a nixpkgs Hyprland bump would load a plugin
-    # built against a different ABI and crash the compositor on `plugin load`.
+    # Hyprland compositor is pinned to a release tag (consumed by
+    # nix/modules/desktop.nix as packages.hyprland) so the system compositor
+    # stays on a known-good version rather than tracking nixpkgs' rolling
+    # bump — a surprise minor bump mid-session is more disruptive than a
+    # deliberate `nix flake update` of this input.
     hyprland = {
       url = "github:hyprwm/Hyprland?ref=v0.55.0";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-    Hyprspace = {
-      url = "github:KZDKM/Hyprspace";
-      inputs.hyprland.follows = "hyprland";
     };
     # AIPage (codeberg.org/dasmatus/aipage) is NOT a flake input: its built
     # dist-* dirs are gitignored in the sibling repo and its flake only

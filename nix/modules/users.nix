@@ -11,7 +11,6 @@
   aipageChrome,
   wallpaperTui,
   hyprmon,
-  hyprspacePkg,
   ...
 }:
 {
@@ -38,7 +37,7 @@
     useUserPackages = true;
     # home modules need flake inputs too (nixvim module, haumea lib), plus
     # the in-flake aipage dists consumed by nix/home/{librewolf,brave}.nix
-    # and the Hyprspace plugin .so consumed by nix/home/hyprland.nix.
+    # and the in-flake packages consumed across nix/home.
     # `settings` is passed so nix/home/git.nix can read the installer-collected
     # git identity (settings.gitName / settings.gitEmail); the desktop choice
     # in settings.desktop is NOT gated on the HM side — only the system-level
@@ -51,7 +50,6 @@
         aipageChrome
         wallpaperTui
         hyprmon
-        hyprspacePkg
         ;
     };
     sharedModules = [ inputs.nixvim.homeModules.nixvim ];

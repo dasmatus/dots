@@ -40,7 +40,6 @@
   config,
   pkgs,
   lib,
-  hyprspacePkg,
   ...
 }:
 let
@@ -52,14 +51,6 @@ in
     enable = true;
     package = null;
     configType = "lua";
-
-    # Hyprspace workspace-overview plugin. HM's hyprland module renders each
-    # entry as `hl.plugin.load("<store>/lib/lib<pname>.so")` in hyprland.lua,
-    # loaded at compositor boot. The .so is built against the same Hyprland
-    # flake input as the system compositor (see flake.nix), so the C++ ABI
-    # the plugin was compiled against matches the running compositor — a
-    # mismatch would crash Hyprland on `plugin load`.
-    plugins = [ hyprspacePkg ];
 
     settings = {
       # local mod = "SUPER" — renderSettings emits all _var locals before
@@ -326,10 +317,9 @@ in
 
       # Touchpad gestures. Hyprland 0.55 replaces the old hyprlang `gestures`
       # section with the `hl.gesture({...})` API: built-in actions (workspace,
-      # move, special) are strings; plugin/custom dispatchers are Lua functions.
+      # move, special) are strings; custom dispatchers are Lua functions.
       # 3-finger horizontal swipe switches workspaces, 4-finger horizontal moves
-      # the active window, 4-finger up toggles Hyprspace overview, 4-finger down
-      # toggles the scratch special workspace.
+      # the active window, 4-finger down toggles the scratch special workspace.
       gesture = [
         {
           fingers = 3;
@@ -340,11 +330,6 @@ in
           fingers = 4;
           direction = "horizontal";
           action = "move";
-        }
-        {
-          fingers = 4;
-          direction = "up";
-          action = lua ''function() hl.dsp.exec_cmd("overview:toggle") end'';
         }
         {
           fingers = 4;
@@ -686,18 +671,6 @@ in
           _args = [
             (lua ''mod .. " + SHIFT + S"'')
             (lua ''hl.dsp.window.move({ workspace = "special:magic" })'')
-          ];
-        }
-
-        # Hyprspace workspace overview (KZDKM/Hyprspace plugin, loaded above).
-        # `overview:toggle` is a plugin-provided dispatcher, so it goes through
-        # hl.dsp.exec_cmd rather than a typed hl.dsp.* function — Hyprland's
-        # Lua API doesn't know about plugin dispatchers at metadata-gen time.
-        # SUPER+Tab mirrors the GNOME/macos muscle memory for an overview.
-        {
-          _args = [
-            (lua ''mod .. " + Tab"'')
-            (lua ''hl.dsp.exec_cmd("overview:toggle")'')
           ];
         }
 

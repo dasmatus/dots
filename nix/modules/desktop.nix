@@ -41,12 +41,11 @@
           services.displayManager.ly.enable = true;
           programs.hyprland = {
             enable = true;
-            # Pin the compositor to the same Hyprland flake input the
-            # Hyprspace plugin builds against (threaded in from flake.nix as
-            # hyprlandPkg). programs.hyprland.enable defaults to the nixpkgs
-            # Hyprland, whose ABI can drift from the plugin's — a .so built
-            # against v0.55.0 loaded by a 0.56.0 compositor crashes on
-            # `plugin load`. `package` makes the system Hyprland match.
+            # Pin the system compositor to the Hyprland flake input
+            # (threaded in from flake.nix as hyprlandPkg) rather than the
+            # rolling nixpkgs Hyprland, so a minor bump doesn't surprise
+            # mid-session — the input is bumped deliberately via
+            # `nix flake update`.
             package = hyprlandPkg;
             withUWSM = true;
             xwayland.enable = true;

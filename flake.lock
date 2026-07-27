@@ -1,26 +1,5 @@
 {
   "nodes": {
-    "Hyprspace": {
-      "inputs": {
-        "hyprland": [
-          "hyprland"
-        ],
-        "systems": "systems"
-      },
-      "locked": {
-        "lastModified": 1779971083,
-        "narHash": "sha256-q+5ETwj+oiZBT9j6/huwB8nwV4nbZdZmCrchL2E7tDQ=",
-        "owner": "KZDKM",
-        "repo": "Hyprspace",
-        "rev": "c109256f5a79a8694acd6176971c4a273d32264c",
-        "type": "github"
-      },
-      "original": {
-        "owner": "KZDKM",
-        "repo": "Hyprspace",
-        "type": "github"
-      }
-    },
     "aquamarine": {
       "inputs": {
         "hyprutils": [
@@ -701,7 +680,6 @@
     },
     "root": {
       "inputs": {
-        "Hyprspace": "Hyprspace",
         "bun2nix": "bun2nix",
         "disko": "disko",
         "firefox-addons": "firefox-addons",
