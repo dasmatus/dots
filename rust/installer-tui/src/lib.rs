@@ -6,6 +6,7 @@
 pub mod app;
 pub mod config;
 pub mod disks;
+pub mod fx;
 pub mod input;
 pub mod install;
 pub mod net;
