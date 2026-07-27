@@ -5,7 +5,7 @@
 
 use abstracttui::prelude::*;
 use abstracttui::render::{RichLine, RichText, Span, Style as Ink};
-use abstracttui::widgets::RichTextView;
+use abstracttui::widgets::{Progress, RichTextView};
 
 use crate::app::{App, Screen};
 use crate::fx::ScreenFx;
@@ -136,22 +136,9 @@ fn wizard_view(a: &App, tokens: &TokenSet) -> View {
         Screen::DiskSelect => disk_select_view(a, tokens),
         Screen::WifiConnecting => wifi_connecting_view(a, tokens),
 
-        // Filled in by a later task (Progress + log tail).
-        Screen::Installing => block_view(
-            " installing ",
-            vec![span_line("installing…".to_string(), Ink::new())],
-            tokens,
-        ),
-        Screen::Failed => block_view(
-            " installation failed ",
-            vec![span_line("failed".to_string(), Ink::new().fg(palette::RED))],
-            tokens,
-        ),
-        Screen::Done => block_view(
-            " installed ",
-            vec![span_line("done".to_string(), Ink::new().fg(palette::GREEN))],
-            tokens,
-        ),
+        Screen::Installing => installing_view(a, tokens),
+        Screen::Failed => failed_view(a, tokens),
+        Screen::Done => done_view(a, tokens),
     }
 }
 
@@ -361,6 +348,129 @@ fn disk_select_view(app: &App, tokens: &TokenSet) -> View {
     ));
     push_error(&mut lines, app);
     block_view(" target disks ", lines, tokens)
+}
+
+/// The Installing screen: a cyan `step i/n — title` label, the engine's
+/// `Progress` bar (sub-cell eighth-block fill) driven by the raw step ratio,
+/// and a dim log tail. The progress easing (retarget via `ScreenFx`) is wired
+/// in a later task; here the bar reads the raw ratio so the screen is correct
+/// without animation.
+#[allow(clippy::cast_precision_loss)]
+fn installing_view(app: &App, tokens: &TokenSet) -> View {
+    let ratio = if app.total_steps == 0 {
+        0.0
+    } else {
+        (app.current_step as f32 / app.total_steps as f32).clamp(0.0, 1.0)
+    };
+    let label = RichTextView::new(RichText::from_lines(vec![span_line(
+        format!(
+            "step {}/{} — {}",
+            app.current_step, app.total_steps, app.step_title
+        ),
+        Ink::new().fg(palette::CYAN),
+    )]))
+    .element(tokens);
+    let bar = Progress::new(ratio).element(tokens);
+    let log_lines: Vec<RichLine> = app
+        .log
+        .iter()
+        .rev()
+        .take(8)
+        .rev()
+        .map(|l| span_line(l.clone(), Ink::new().fg(palette::DIM)))
+        .collect();
+    let log = RichTextView::new(RichText::from_lines(log_lines)).element(tokens);
+
+    // Column that fills the panel: label (1 row, full width), bar (1 row, full
+    // width), log (fills the rest). Each child is wrapped in an Element with an
+    // explicit layout so the auto-measuring rich-text views don't collapse.
+    let body = Element::new()
+        .style(
+            LayoutStyle::column()
+                .width(Dimension::Percent(1.0))
+                .height(Dimension::Percent(1.0))
+                .gap(1),
+        )
+        .child(
+            Element::new()
+                .style(LayoutStyle::line(1))
+                .child(label.into())
+                .build(),
+        )
+        .child(
+            Element::new()
+                .style(LayoutStyle::line(1))
+                .child(bar.into())
+                .build(),
+        )
+        .child(
+            Element::new()
+                .style(
+                    LayoutStyle::default()
+                        .width(Dimension::Percent(1.0))
+                        .grow(1.0),
+                )
+                .child(log.into())
+                .build(),
+        )
+        .build();
+
+    Block::new()
+        .border(BorderKind::Rounded)
+        .title(" installing ")
+        .layout(LayoutStyle::fill())
+        .child(body)
+        .element(tokens)
+        .into()
+}
+
+/// The Failed screen: the error message in red bold, a Ctrl+Alt+F2 hint, and a
+/// plain log tail. `q`/Enter/Esc all quit (handled by the state machine).
+fn failed_view(app: &App, tokens: &TokenSet) -> View {
+    let msg = app.error.as_deref().unwrap_or("unknown error");
+    let mut lines = vec![
+        blank(),
+        span_line(msg.to_string(), Ink::new().fg(palette::RED).bold()),
+        blank(),
+        span_line(
+            "Ctrl+Alt+F2 opens a root shell · q quits this screen",
+            Ink::new().fg(palette::DIM),
+        ),
+        blank(),
+    ];
+    for l in app.log.iter().rev().take(6).rev() {
+        lines.push(span_line(l.clone(), Ink::new()));
+    }
+    block_view(" installation failed ", lines, tokens)
+}
+
+/// The Done screen: a green "Installation finished." header, the LUKS recovery
+/// key in yellow bold (with the "write it down" warning), and the reboot hint.
+fn done_view(app: &App, tokens: &TokenSet) -> View {
+    let key = app.recovery_key.as_deref().unwrap_or("(missing)");
+    let lines = vec![
+        blank(),
+        span_line(
+            "  Installation finished.",
+            Ink::new().fg(palette::GREEN).bold(),
+        ),
+        blank(),
+        span_line(
+            "  LUKS recovery key (also in /root/luks-recovery.txt",
+            Ink::new(),
+        ),
+        span_line("  on the installed system) — WRITE IT DOWN:", Ink::new()),
+        blank(),
+        span_line(format!("    {key}"), Ink::new().fg(palette::YELLOW).bold()),
+        blank(),
+        span_line(
+            "  Remove the installation medium, then press Enter to reboot.",
+            Ink::new(),
+        ),
+        blank(),
+        span_line("Enter reboot", Ink::new().fg(palette::DIM)),
+    ];
+    block_view(" installed ", lines, tokens)
 }
 
 /// A generic prompt + input-line screen (hostname, passwords, git identity, …).

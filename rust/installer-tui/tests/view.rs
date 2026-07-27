@@ -134,3 +134,36 @@ fn wifi_connecting_shows_ssid_and_wait_hint() {
     );
     assert!(out.contains("please wait"), "missing hint: {out}");
 }
+
+#[test]
+fn installing_screen_shows_step_count_and_log_tail() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::Installing;
+    app.current_step = 2;
+    app.total_steps = 5;
+    app.step_title = "formatting".into();
+    app.log.push("==> formatting".into());
+    let out = render_to_string(&app, 80, 24);
+    assert!(out.contains("step 2/5"), "missing step count: {out}");
+    assert!(out.contains("formatting"), "missing step title: {out}");
+    assert!(out.contains("==> formatting"), "missing log tail: {out}");
+}
+
+#[test]
+fn done_screen_shows_recovery_key() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::Done;
+    app.recovery_key = Some("RECOVERY-1234".into());
+    let out = render_to_string(&app, 80, 24);
+    assert!(out.contains("RECOVERY-1234"), "missing recovery key: {out}");
+    assert!(out.contains("Enter reboot"), "missing reboot hint: {out}");
+}
+
+#[test]
+fn failed_screen_shows_error_message() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::Failed;
+    app.error = Some("disk blew up".into());
+    let out = render_to_string(&app, 80, 24);
+    assert!(out.contains("disk blew up"), "missing error: {out}");
+}
