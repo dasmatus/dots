@@ -89,6 +89,10 @@ in
           "hyprland.start"
           (lua ''
             function()
+              -- eww daemon must be up before keybinds.sh opens the cheatsheet
+              -- window (and before any SUPER+D launcher toggle). keybinds.sh
+              -- sleeps 2s on first login to let it initialize its IPC socket.
+              hl.exec_cmd("eww daemon")
               hl.exec_cmd("awww-daemon")
               hl.exec_cmd("waybar")
               hl.exec_cmd("nm-applet --indicator")
@@ -367,7 +371,7 @@ in
         {
           _args = [
             (lua ''mod .. " + D"'')
-            (lua ''hl.dsp.exec_cmd("~/.config/eww/scripts/launcher.sh toggle")'')
+            (lua ''hl.dsp.exec_cmd("rofi -show drun -show-icons -theme \"$(f=~/.local/state/wallpaper-tui/tint/rofi.rasi; [ -f \"$f\" ] && echo \"$f\" || echo tokyonight)\"")'')
           ];
         }
         {

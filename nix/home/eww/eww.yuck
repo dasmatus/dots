@@ -2,44 +2,6 @@
 ; and polled once per hour.
 (defpoll keybinds_data :interval "1h" "cat ~/.config/eww/keybinds.json")
 
-; Launcher state.
-(defvar launcher_query "")
-(defvar launcher_apps "[]")
-(defvar launcher_selected 0)
-
-(defwindow launcher
-  :monitor 0
-  :geometry (geometry :x "0%" :y "12%" :width "680px" :height "560px" :anchor "top center")
-  :stacking "overlay"
-  :focusable true
-  :exclusive false
-  (launcher_widget))
-
-(defwidget launcher_widget []
-  (box :orientation "vertical" :class "launcher"
-    (box :class "search-bar" :spacing 12
-      (label :text "" :class "search-icon")
-      (input :class "search-input"
-             :value launcher_query
-             :onchange "scripts/launcher.sh search {}"
-             :onaccept "scripts/launcher.sh launch"
-             :hexpand true)
-      (button :class "close-btn" :onclick "scripts/launcher.sh close" "×"))
-    (box :class "results"
-      :hexpand true
-      :vexpand true
-      (scroll
-        :hexpand true
-        :vexpand true
-        (box :orientation "vertical" :class "results-list"
-          (for app in launcher_apps
-            (eventbox :class {launcher_selected == app.index ? "result selected" : "result"}
-                      :onclick "scripts/launcher.sh select ${app.index} && scripts/launcher.sh launch"
-              (box :orientation "horizontal" :class "result-box" :spacing 12
-                (image :icon "${app.icon}" :icon-size 40 :class "result-icon")
-                (label :text "${app.name}" :class "result-name" :hexpand true)
-                (label :text "↵" :class {launcher_selected == app.index ? "enter-hint visible" : "enter-hint"}))))))))
-
 (defwindow keybinds
   :monitor 0
   :geometry (geometry :x "0%" :y "0%" :width "900px" :height "80%" :anchor "center")
@@ -56,11 +18,10 @@
     (scroll
       :hexpand true
       :vexpand true
-      (box :orientation "vertical" :class "keybinds-list"
-        (for group in keybinds_data
-          (box :orientation "vertical" :class "kb-group"
-            (label :text "${group.category}" :class "kb-category")
-            (for item in group.items
-              (box :orientation "horizontal" :class "kb-row" :spacing 16
-                (label :text "${item.key}" :class "kb-key")
-                (label :text "${item.desc}" :class "kb-desc" :hexpand true)))))))))
+      (box :orientation "vertical" :class "keybinds-list" :spacing 20
+        (for item in keybinds_data
+          (box :orientation "vertical" :class "kb-entry"
+            (label :text "${item.category}" :class "kb-category" :visible {item.first})
+            (box :orientation "horizontal" :class "kb-row" :spacing 16
+              (label :text "${item.key}" :class "kb-key")
+              (label :text "${item.desc}" :class "kb-desc" :hexpand true))))))))

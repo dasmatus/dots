@@ -174,11 +174,32 @@ let
     ];
   };
 
+  # Flat array, not nested {category, items}: eww 0.6.0's `for` can iterate a
+  # top-level variable but cannot iterate a field of a loop variable
+  # (`for item in group.items` → "No variable named `group.items` in scope"),
+  # which poisons the whole config and takes down the launcher window too.
+  # `first` marks the first row of each category so the yuck can show the
+  # category header only once per group via `:visible {item.first}`.
   json = builtins.toJSON (
-    map (category: {
-      inherit category;
-      items = keybinds.${category};
-    }) (builtins.attrNames keybinds)
+    builtins.concatLists (
+      map (
+        category:
+        let
+          items = keybinds.${category};
+        in
+        builtins.genList (
+          i:
+          let
+            item = builtins.elemAt items i;
+          in
+          {
+            inherit category;
+            first = i == 0;
+            inherit (item) key desc;
+          }
+        ) (builtins.length items)
+      ) (builtins.attrNames keybinds)
+    )
   );
 in
 {
