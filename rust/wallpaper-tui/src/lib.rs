@@ -7,6 +7,7 @@ pub mod app;
 pub mod awww;
 pub mod cli;
 pub mod config;
+pub mod fx;
 pub mod input;
 pub mod preview;
 pub mod tint;
