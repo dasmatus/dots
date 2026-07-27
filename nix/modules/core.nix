@@ -39,7 +39,22 @@
       "nvidia-x11"
       "nvidia-settings"
       "vscode-extension-fill-labs-dependi"
+      # Steam client + its unfree redistributable deps. `programs.steam.enable`
+      # (nix/modules/steam.nix) puts `steam` (an FHS wrapper, pname "steam")
+      # into systemPackages, which pulls `steam-unwrapped` — the actual
+      # unfree client binary (unfreeRedistributable, pname "steam-unwrapped").
+      # `steamcmd` is the other unfree redistributable in the family (the
+      # headless SteamCMD server tool). CI never exercises these: the
+      # committed {} facter stub leaves graphics_card empty, so
+      # hasDesktopGpu=false and the steam module's mkIf stays off — but a
+      # real GPU machine (or dots.steam.enable=true override) turns it on,
+      # and without these entries the rebuild refuses steam-unwrapped.
+      # lib.getName covers both x86_64 and i686 (multiArch) variants: they
+      # share the same pname. Free companions (steam-run/steam-tui MIT,
+      # steamworks BSD2, protontricks GPL) need no entry.
       "steam"
+      "steam-unwrapped"
+      "steamcmd"
     ]
     || pkgs._cuda.lib.allowUnfreeCudaPredicate pkg;
 
