@@ -5,10 +5,12 @@
 
 use abstracttui::prelude::*;
 use abstracttui::render::{RichLine, RichText, Span, Style as Ink};
+use abstracttui::ui::UiEvent;
 use abstracttui::widgets::{Progress, RichTextView};
 
 use crate::app::{App, Screen};
 use crate::fx::ScreenFx;
+use crate::input::{self, KeyCode};
 
 /// Tokyonight (night) palette as engine `Rgba` values — no hex arithmetic in
 /// widget code (the engine's `no_color_arithmetic_in_widgets` rule).
@@ -27,8 +29,9 @@ pub mod palette {
 }
 
 /// Root component: one `dyn_view` that re-reads `app` and `fx` and dispatches
-/// by `Screen`. `fx` supplies the animated panel slide + error shake offsets;
-/// `installing_view` reads its eased progress ratio.
+/// by `Screen`, plus a root `on_event` that bridges engine key events into the
+/// pure `App` state machine. `fx` supplies the animated panel slide + error
+/// shake; `installing_view` reads its eased progress ratio.
 #[must_use]
 pub fn root_view(app: Signal<App>, fx: Signal<ScreenFx>) -> View {
     let tokens = TokenSet::default();
@@ -38,7 +41,42 @@ pub fn root_view(app: Signal<App>, fx: Signal<ScreenFx>) -> View {
             let a = app.get();
             fx.with(|f| wizard_view(&a, f, &tokens))
         }))
+        .on_event(move |_, ev| {
+            let UiEvent::Key(k) = ev else {
+                return;
+            };
+            let Some(code) = map_key(k.key) else {
+                return;
+            };
+            // Detect screen / error transitions across the key press so the
+            // animation overlay can retarget in lockstep with the state change.
+            let prev_screen = app.with_untracked(|a| a.screen);
+            let prev_error = app.with_untracked(|a| a.error.clone());
+            app.update(|a| a.handle_key(input::KeyEvent::from(code)));
+            let (screen, error) = app.with_untracked(|a| (a.screen, a.error.clone()));
+            if screen != prev_screen {
+                fx.update(|f| f.retarget_screen(0.0));
+            }
+            if error.is_some() && error != prev_error {
+                fx.update(ScreenFx::shake);
+            }
+        })
         .build()
+}
+
+/// Map the engine's `Key` to the wizard's `input::KeyCode`. Unknown keys map
+/// to `None` — the wizard ignores them. Only the keys `handle_key` reacts to
+/// are forwarded, so the engine's focus traversal etc. is undisturbed.
+fn map_key(k: Key) -> Option<KeyCode> {
+    Some(match k {
+        Key::Char(c) => KeyCode::Char(c),
+        Key::Enter => KeyCode::Enter,
+        Key::Escape => KeyCode::Esc,
+        Key::Backspace => KeyCode::Backspace,
+        Key::Up => KeyCode::Up,
+        Key::Down => KeyCode::Down,
+        _ => return None,
+    })
 }
 
 /// The wizard shell: every screen renders as a bordered panel, offset by the
