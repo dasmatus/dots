@@ -132,25 +132,11 @@ fn wizard_view(a: &App, tokens: &TokenSet) -> View {
 
         Screen::Confirm => confirm_view(a, tokens),
 
-        // Filled in by later tasks (lists + install/done/failed).
-        Screen::Network => block_view(
-            " network ",
-            vec![span_line("Wi-Fi setup".to_string(), Ink::new())],
-            tokens,
-        ),
-        Screen::DiskSelect => block_view(
-            " target disks ",
-            vec![span_line("Select target disks".to_string(), Ink::new())],
-            tokens,
-        ),
-        Screen::WifiConnecting => block_view(
-            " connecting ",
-            vec![span_line(
-                "connecting…".to_string(),
-                Ink::new().fg(palette::CYAN),
-            )],
-            tokens,
-        ),
+        Screen::Network => network_view(a, tokens),
+        Screen::DiskSelect => disk_select_view(a, tokens),
+        Screen::WifiConnecting => wifi_connecting_view(a, tokens),
+
+        // Filled in by a later task (Progress + log tail).
         Screen::Installing => block_view(
             " installing ",
             vec![span_line("installing…".to_string(), Ink::new())],
@@ -230,6 +216,151 @@ fn confirm_view(app: &App, tokens: &TokenSet) -> View {
     ];
     push_error(&mut lines, app);
     block_view(" point of no return ", lines, tokens)
+}
+
+/// The Network screen: a status line, an optional busy line, then the Wi-Fi
+/// list with a `▶` cursor on the selected row and signal-bar + security
+/// columns. Hand-rolled as rich text because the engine's `List` widget needs
+/// a `Scope` for its element, and the `dyn_view` projection here is pure
+/// `&App` with no `cx` in scope.
+fn network_view(app: &App, tokens: &TokenSet) -> View {
+    let mut lines = vec![
+        blank(),
+        span_line(
+            "  Wi-Fi setup — nixos-install pulls from the binary cache,",
+            Ink::new(),
+        ),
+        span_line(
+            "  so get online unless this is the offline (iso-full) image.",
+            Ink::new(),
+        ),
+        blank(),
+    ];
+    lines.push(match app.online {
+        None => span_line(
+            "  status: checking…".to_string(),
+            Ink::new().fg(palette::DIM),
+        ),
+        Some(true) => span_line(
+            "  status: online ✓".to_string(),
+            Ink::new().fg(palette::GREEN),
+        ),
+        Some(false) => span_line(
+            "  status: offline ✗".to_string(),
+            Ink::new().fg(palette::YELLOW),
+        ),
+    });
+    if let Some(b) = &app.net_busy {
+        lines.push(span_line(format!("  {b}"), Ink::new().fg(palette::CYAN)));
+    }
+    lines.push(blank());
+    if app.wifi_networks.is_empty() && app.net_busy.is_none() {
+        lines.push(span_line(
+            "  no Wi-Fi networks found (wired is fine too — press s)",
+            Ink::new().fg(palette::DIM),
+        ));
+    }
+    for (i, n) in app.wifi_networks.iter().enumerate() {
+        let marker = if i == app.wifi_selected {
+            "  ▶ "
+        } else {
+            "    "
+        };
+        let ink = if i == app.wifi_selected {
+            Ink::new().fg(palette::CYAN).bold()
+        } else {
+            Ink::new()
+        };
+        let security = if n.is_open() {
+            "open"
+        } else {
+            n.security.as_str()
+        };
+        lines.push(span_line(
+            format!("{}{} {}  {security}", marker, n.signal_bars(), n.ssid),
+            ink,
+        ));
+    }
+    lines.push(blank());
+    lines.push(span_line(
+        "↑/↓ select · Enter connect · r rescan · s skip · Esc back",
+        Ink::new().fg(palette::DIM),
+    ));
+    push_error(&mut lines, app);
+    block_view(" network ", lines, tokens)
+}
+
+/// The `WifiConnecting` screen: a cyan "connecting to …" line, a dim helper, and
+/// a "please wait" hint. No cancel control by design (interrupting nmcli
+/// mid-handshake helps nobody).
+fn wifi_connecting_view(app: &App, tokens: &TokenSet) -> View {
+    let lines = vec![
+        blank(),
+        span_line(
+            format!("  connecting to \"{}\"…", app.wifi_ssid),
+            Ink::new().fg(palette::CYAN),
+        ),
+        blank(),
+        span_line(
+            "  asking NetworkManager, this can take a few seconds",
+            Ink::new().fg(palette::DIM),
+        ),
+        blank(),
+        span_line("please wait", Ink::new().fg(palette::DIM)),
+    ];
+    block_view(" connecting ", lines, tokens)
+}
+
+/// The `DiskSelect` screen: a multi-select list of disks with ASCII `[x]`/`[ ]`
+/// membership markers and a `▶`/` ` cursor on the focused row. ASCII markers
+/// (not a unicode checkbox) so they render on any Linux VT console font — this
+/// TUI runs on raw tty1, not a terminal emulator.
+fn disk_select_view(app: &App, tokens: &TokenSet) -> View {
+    let mut lines = vec![
+        blank(),
+        span_line(
+            "  Select target disks to span the LVM volume group",
+            Ink::new(),
+        ),
+        span_line("  (each will be ERASED):", Ink::new()),
+        blank(),
+    ];
+    if app.disks.is_empty() {
+        lines.push(span_line(
+            "  no installable disks found",
+            Ink::new().fg(palette::RED),
+        ));
+    }
+    for (i, d) in app.disks.iter().enumerate() {
+        let cursor = if i == app.selected { "▶" } else { " " };
+        let mark = if *app.picked.get(i).unwrap_or(&false) {
+            "[x]"
+        } else {
+            "[ ]"
+        };
+        let removable = if d.removable { " [removable]" } else { "" };
+        let ink = if i == app.selected {
+            Ink::new().fg(palette::CYAN).bold()
+        } else {
+            Ink::new()
+        };
+        lines.push(span_line(
+            format!(
+                " {cursor} {mark} {}  {}  {}{removable}",
+                d.path,
+                d.human_size(),
+                d.model
+            ),
+            ink,
+        ));
+    }
+    lines.push(blank());
+    lines.push(span_line(
+        "↑/↓ move · Space toggle · Enter confirm · Esc back",
+        Ink::new().fg(palette::DIM),
+    ));
+    push_error(&mut lines, app);
+    block_view(" target disks ", lines, tokens)
 }
 
 /// A generic prompt + input-line screen (hostname, passwords, git identity, …).

@@ -12,6 +12,9 @@ use dots_installer::app::{App, Screen};
 use dots_installer::fx::ScreenFx;
 use dots_installer::ui;
 
+use dots_installer::disks::Disk;
+use dots_installer::net::WifiNetwork;
+
 /// Render `app` at `cols`×`rows` and return the concatenated cell text, one
 /// row per line. Uses the engine's `Driver` + `CaptureTerm` headless path
 /// confirmed in `docs/superpowers/refs/abstracttui-api.md`.
@@ -74,4 +77,60 @@ fn confirm_screen_shows_erase_prompt_and_typed_text() {
     let out = render_to_string(&app, 80, 24);
     assert!(out.contains("ERASE"), "missing ERASE prompt: {out}");
     assert!(out.contains("ERA"), "missing typed text: {out}");
+}
+
+#[test]
+fn network_screen_lists_wifi_networks_with_selection_marker() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::Network;
+    app.wifi_networks = vec![
+        WifiNetwork {
+            ssid: "home".into(),
+            signal: 80,
+            security: "WPA2".into(),
+        },
+        WifiNetwork {
+            ssid: "cafe".into(),
+            signal: 40,
+            security: String::new(),
+        },
+    ];
+    app.wifi_selected = 0;
+    let out = render_to_string(&app, 80, 24);
+    assert!(out.contains("home"), "missing ssid: {out}");
+    assert!(out.contains("cafe"), "missing ssid: {out}");
+    assert!(out.contains("WPA2"), "missing security: {out}");
+    assert!(out.contains("open"), "missing open marker: {out}");
+}
+
+#[test]
+fn disk_select_shows_picked_disks_with_ascii_marker() {
+    let mut app = App::new(
+        vec![Disk {
+            path: "/dev/vda".into(),
+            size_bytes: 64 * 1024 * 1024 * 1024,
+            model: "VMware".into(),
+            removable: false,
+        }],
+        None,
+    );
+    app.screen = Screen::DiskSelect;
+    app.picked = vec![true];
+    app.selected = 0;
+    let out = render_to_string(&app, 80, 24);
+    assert!(out.contains("/dev/vda"), "missing disk path: {out}");
+    assert!(out.contains("[x]"), "missing picked marker: {out}");
+}
+
+#[test]
+fn wifi_connecting_shows_ssid_and_wait_hint() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::WifiConnecting;
+    app.wifi_ssid = "home".into();
+    let out = render_to_string(&app, 80, 24);
+    assert!(
+        out.contains("connecting to \"home\""),
+        "missing connecting line: {out}"
+    );
+    assert!(out.contains("please wait"), "missing hint: {out}");
 }
