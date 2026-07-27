@@ -25,11 +25,24 @@ const SHAKE_AMP: f32 = 8.0;
 
 /// Live, retargetable motion for the wizard panel + progress bar, plus a
 /// one-shot error shake. Held in a `Signal<ScreenFx>` in the root scope.
+///
+/// The transitions are advanced once per frame by `tick` (called from the
+/// app loop) and the eased results cached in `screen_x` / `progress_r` /
+/// `shake_x`. The view reads those caches via the `&self` peek methods — it
+/// never mutates the signal during render, which keeps the reactive damage
+/// contract clean (no write-during-read re-render storms).
+#[derive(Clone)]
 pub struct ScreenFx {
     clock: Clock,
     screen_offset: Transition<f32>,
     progress: Transition<f32>,
     shake_start: Option<Duration>,
+    /// Cached eased panel x-offset, refreshed by `tick`.
+    screen_x: f32,
+    /// Cached eased progress ratio, refreshed by `tick`.
+    progress_r: f32,
+    /// Cached shake x-offset in cells, refreshed by `tick`.
+    shake_x: i32,
 }
 
 impl ScreenFx {
@@ -41,6 +54,9 @@ impl ScreenFx {
             screen_offset: Transition::new(0.0, SCREEN_DUR, Easing::EaseOut),
             progress: Transition::new(0.0, PROGRESS_DUR, Easing::EaseOut),
             shake_start: None,
+            screen_x: 0.0,
+            progress_r: 0.0,
+            shake_x: 0,
         }
     }
 
@@ -49,8 +65,7 @@ impl ScreenFx {
         if !animations_enabled() {
             return;
         }
-        self.screen_offset.set_target(to, self.clock.now());
-        request_frame();
+        self.retarget_screen_force(to);
     }
 
     /// Retarget the eased progress fill (called when the install step changes).
@@ -58,8 +73,7 @@ impl ScreenFx {
         if !animations_enabled() {
             return;
         }
-        self.progress.set_target(ratio, self.clock.now());
-        request_frame();
+        self.retarget_progress_force(ratio);
     }
 
     /// Fire a one-shot error shake (called when `app.error` becomes `Some`).
@@ -67,28 +81,80 @@ impl ScreenFx {
         if !animations_enabled() {
             return;
         }
+        self.shake_force();
+    }
+
+    /// Ungated panel retarget — the primitive `retarget_screen` delegates to.
+    /// Tests use this directly so they don't race with the env-mutating
+    /// `animations_enabled` test (tests run in parallel threads sharing one
+    /// process env).
+    pub fn retarget_screen_force(&mut self, to: f32) {
+        self.screen_offset.set_target(to, self.clock.now());
+        request_frame();
+    }
+
+    /// Ungated progress retarget — see `retarget_screen_force`.
+    pub fn retarget_progress_force(&mut self, ratio: f32) {
+        self.progress.set_target(ratio, self.clock.now());
+        request_frame();
+    }
+
+    /// Ungated shake fire — see `retarget_screen_force`.
+    pub fn shake_force(&mut self) {
         self.shake_start = Some(self.clock.now());
         request_frame();
     }
 
-    /// Current eased panel x-offset. Advances the transition to `now`.
-    pub fn screen_offset(&mut self) -> f32 {
-        self.screen_offset.tick(self.clock.now())
+    /// Advance every transition to the clock's `now` and cache the eased
+    /// values. The app loop calls this once per frame; tests drive it via
+    /// `advance` on a `Clock::fixed`. Re-requests a frame while anything is
+    /// still in flight so the loop keeps pumping until motion settles.
+    #[allow(clippy::float_cmp)]
+    pub fn tick(&mut self) {
+        let now = self.clock.now();
+        self.screen_x = self.screen_offset.tick(now);
+        self.progress_r = self.progress.tick(now);
+        self.shake_x = self.shake_offset_at(now);
+        let flying = self.screen_offset.value() != self.screen_offset.target()
+            || self.progress.value() != self.progress.target();
+        if self.shake_start.is_some() || flying {
+            request_frame();
+        }
     }
 
-    /// Current eased progress ratio (0.0..=1.0). Advances the transition to `now`.
-    pub fn progress_ratio(&mut self) -> f32 {
-        self.progress.tick(self.clock.now())
+    /// Advance the clock by `dur` then `tick`. The deterministic door tests
+    /// use with `Clock::fixed` (the real loop uses `Clock::real` + `tick`).
+    pub fn advance(&mut self, dur: Duration) {
+        self.clock.advance(dur);
+        self.tick();
     }
 
-    /// Current shake x-offset in cells; zero when no shake is in flight or it
-    /// has settled. Clears the one-shot once `SHAKE_DUR` elapses.
+    /// Cached eased panel x-offset (cells). Peek, no mutation.
+    #[must_use]
+    pub fn screen_x(&self) -> f32 {
+        self.screen_x
+    }
+
+    /// Cached eased progress ratio (0.0..=1.0). Peek, no mutation.
+    #[must_use]
+    pub fn progress_r(&self) -> f32 {
+        self.progress_r
+    }
+
+    /// Cached shake x-offset (cells). Peek, no mutation.
+    #[must_use]
+    pub fn shake_x(&self) -> i32 {
+        self.shake_x
+    }
+
+    /// Current shake x-offset at `now`; clears the one-shot once `SHAKE_DUR`
+    /// elapses. Internal helper for `tick`.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn shake_offset(&mut self) -> i32 {
+    fn shake_offset_at(&mut self, now: Duration) -> i32 {
         let Some(start) = self.shake_start else {
             return 0;
         };
-        let elapsed = self.clock.now().saturating_sub(start);
+        let elapsed = now.saturating_sub(start);
         if elapsed >= SHAKE_DUR {
             self.shake_start = None;
             return 0;

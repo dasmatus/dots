@@ -167,3 +167,55 @@ fn failed_screen_shows_error_message() {
     let out = render_to_string(&app, 80, 24);
     assert!(out.contains("disk blew up"), "missing error: {out}");
 }
+
+#[test]
+fn shake_offset_translates_panel_cells() {
+    // A nonzero fx.shake_x() must shift the panel right in the rendered grid:
+    // the left border column moves from x=0 to x=shake. We retarget the fx
+    // signal directly (ungated) and tick it to a mid-shake instant.
+    let mut engine = Engine::new(Size::new(80, 24));
+    let app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    engine
+        .mount(|cx| {
+            let app_sig = cx.signal(app.clone());
+            let fx_sig = cx.signal(ScreenFx::new(Clock::fixed()));
+            // Fire the shake at t=0, then advance to the midpoint before the
+            // first render so shake_x() is nonzero in the rendered frame.
+            fx_sig.update(|f| {
+                f.shake_force();
+                f.advance(std::time::Duration::from_millis(60));
+            });
+            ui::root_view(app_sig, fx_sig)
+        })
+        .expect("mount");
+
+    let mut term = CaptureTerm::new(Size::new(80, 24));
+    let cfg = RunConfig {
+        probe: false,
+        ..RunConfig::default()
+    };
+    let mut driver = Driver::new(&mut engine, &mut term, cfg).expect("driver");
+    let _ = driver.turn(&mut engine, &mut term).expect("turn");
+
+    // Column 0 is empty (the panel shifted right); the rounded border's
+    // top-left `╭` now sits at x == shake_x rather than x == 0.
+    let c0 = term
+        .screen()
+        .cell(0, 0)
+        .map(|c| c.display().to_string())
+        .unwrap_or_default();
+    assert_eq!(c0, " ", "column 0 should be empty under shake, got {c0:?}");
+    // The title still renders somewhere (the panel is intact, just translated).
+    let mut full = String::new();
+    for y in 0..24 {
+        for x in 0..80 {
+            if let Some(cell) = term.screen().cell(x, y) {
+                full.push_str(cell.display());
+            }
+        }
+    }
+    assert!(
+        full.contains("tokyonight-dots installer"),
+        "title missing: {full}"
+    );
+}

@@ -26,25 +26,46 @@ pub mod palette {
     pub const DIM: Rgba = Rgba::rgb(0x56, 0x5f, 0x89);
 }
 
-/// Root component: one `dyn_view` that re-reads `app` and dispatches by
-/// `Screen`. `fx` is wired into the install/done screens by a later task.
+/// Root component: one `dyn_view` that re-reads `app` and `fx` and dispatches
+/// by `Screen`. `fx` supplies the animated panel slide + error shake offsets;
+/// `installing_view` reads its eased progress ratio.
 #[must_use]
-pub fn root_view(app: Signal<App>, _fx: Signal<ScreenFx>) -> View {
+pub fn root_view(app: Signal<App>, fx: Signal<ScreenFx>) -> View {
     let tokens = TokenSet::default();
     Element::new()
         .style(LayoutStyle::fill())
         .child(dyn_view(LayoutStyle::fill(), move || {
             let a = app.get();
-            wizard_view(&a, &tokens)
+            fx.with(|f| wizard_view(&a, f, &tokens))
         }))
         .build()
 }
 
-/// The wizard shell: every screen renders as a centered bordered panel with a
-/// styled prompt body, an input line with a cursor glyph, a dim hint, and an
-/// optional red error line.
+/// The wizard shell: every screen renders as a bordered panel, offset by the
+/// animated `fx` shake (and, later, the screen slide) so errors literally
+/// shake the panel and screen changes slide it.
 #[allow(clippy::too_many_lines)]
-fn wizard_view(a: &App, tokens: &TokenSet) -> View {
+fn wizard_view(a: &App, fx: &ScreenFx, tokens: &TokenSet) -> View {
+    let panel = wizard_panel(a, fx, tokens);
+    let shake = fx.shake_x();
+    if shake == 0 {
+        panel
+    } else {
+        // Translate the whole panel by the shake offset: absolute-position
+        // the fill wrapper with `left = shake`, so the panel shifts right
+        // (and back) as the damped sine runs.
+        Element::new()
+            .style(LayoutStyle::fill().absolute(Inset {
+                left: Some(shake),
+                ..Inset::default()
+            }))
+            .child(panel)
+            .build()
+    }
+}
+
+/// Per-screen panel body (before the shake translate is applied).
+fn wizard_panel(a: &App, fx: &ScreenFx, tokens: &TokenSet) -> View {
     match a.screen {
         Screen::Welcome => welcome_view(a, tokens),
 
@@ -136,7 +157,7 @@ fn wizard_view(a: &App, tokens: &TokenSet) -> View {
         Screen::DiskSelect => disk_select_view(a, tokens),
         Screen::WifiConnecting => wifi_connecting_view(a, tokens),
 
-        Screen::Installing => installing_view(a, tokens),
+        Screen::Installing => installing_view(a, fx, tokens),
         Screen::Failed => failed_view(a, tokens),
         Screen::Done => done_view(a, tokens),
     }
@@ -351,16 +372,21 @@ fn disk_select_view(app: &App, tokens: &TokenSet) -> View {
 }
 
 /// The Installing screen: a cyan `step i/n — title` label, the engine's
-/// `Progress` bar (sub-cell eighth-block fill) driven by the raw step ratio,
-/// and a dim log tail. The progress easing (retarget via `ScreenFx`) is wired
-/// in a later task; here the bar reads the raw ratio so the screen is correct
-/// without animation.
+/// `Progress` bar (sub-cell eighth-block fill), and a dim log tail. The bar
+/// reads the eased ratio from `fx.progress_r()` when animations are on (the
+/// loop retargets `fx` on each step change and ticks it per frame), else the
+/// raw step ratio.
 #[allow(clippy::cast_precision_loss)]
-fn installing_view(app: &App, tokens: &TokenSet) -> View {
-    let ratio = if app.total_steps == 0 {
+fn installing_view(app: &App, fx: &ScreenFx, tokens: &TokenSet) -> View {
+    let raw = if app.total_steps == 0 {
         0.0
     } else {
         (app.current_step as f32 / app.total_steps as f32).clamp(0.0, 1.0)
+    };
+    let ratio = if crate::fx::animations_enabled() {
+        fx.progress_r()
+    } else {
+        raw
     };
     let label = RichTextView::new(RichText::from_lines(vec![span_line(
         format!(
