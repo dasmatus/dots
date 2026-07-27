@@ -34,7 +34,7 @@ pub enum Screen {
     Failed,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct App {
     pub screen: Screen,
     pub config: InstallConfig,

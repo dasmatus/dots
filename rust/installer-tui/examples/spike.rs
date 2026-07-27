@@ -107,10 +107,7 @@ fn main() {
     clock.advance(Duration::from_millis(120));
     let eased = trans.tick(clock.now());
 
-    println!(
-        "spike: tween 0ms={:.3} 100ms={:.3} ; transition eased@170ms={:.3}",
-        t0, t1, eased
-    );
+    println!("spike: tween 0ms={t0:.3} 100ms={t1:.3} ; transition eased@170ms={eased:.3}");
 
     // ---- cross-thread wake bridge ------------------------------------------
     let handle = app.wake_handle();

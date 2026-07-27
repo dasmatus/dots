@@ -13,6 +13,7 @@ use abstracttui::anim::{Clock, Easing, Transition, Tween};
 use abstracttui::reactive::request_frame;
 
 /// True unless `DOTS_NO_ANIM` is set.
+#[must_use]
 pub fn animations_enabled() -> bool {
     std::env::var("DOTS_NO_ANIM").is_err()
 }
@@ -33,6 +34,7 @@ pub struct ScreenFx {
 
 impl ScreenFx {
     /// New overlay on the given (real, in production) clock.
+    #[must_use]
     pub fn new(clock: Clock) -> Self {
         Self {
             clock,
@@ -81,6 +83,7 @@ impl ScreenFx {
 
     /// Current shake x-offset in cells; zero when no shake is in flight or it
     /// has settled. Clears the one-shot once `SHAKE_DUR` elapses.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn shake_offset(&mut self) -> i32 {
         let Some(start) = self.shake_start else {
             return 0;
@@ -103,12 +106,14 @@ pub struct EaseProbe {
 
 impl EaseProbe {
     /// Eased value at `ms` milliseconds into the tween.
+    #[must_use]
     pub fn now(&self, ms: u64) -> f32 {
         self.t.sample(Duration::from_millis(ms))
     }
 }
 
 /// Eased A→B over `dur_ms` with `EaseOut` (front-loads: mid value > 0.5).
+#[must_use]
 pub fn ease_ratio(_clock: Clock, from: f32, to: f32, dur_ms: u64) -> EaseProbe {
     EaseProbe {
         t: Tween::new(from, to, Duration::from_millis(dur_ms)).with_easing(Easing::EaseOut),
@@ -123,6 +128,8 @@ pub struct ShakeProbe {
 
 impl ShakeProbe {
     /// Shake offset at `ms` milliseconds into the shake.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn now(&self, ms: u64) -> f32 {
         let t = (ms as f32 / self.dur_ms as f32).clamp(0.0, 1.0);
         (std::f32::consts::PI * t).sin() * (1.0 - t) * SHAKE_AMP
@@ -130,6 +137,7 @@ impl ShakeProbe {
 }
 
 /// A one-shot shake of `dur_ms` (damped sine, amplitude `SHAKE_AMP`).
+#[must_use]
 pub fn shake_at(_clock: Clock, dur_ms: u64) -> ShakeProbe {
     ShakeProbe { dur_ms }
 }
