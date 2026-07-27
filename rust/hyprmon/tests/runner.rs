@@ -4,6 +4,7 @@
 mod common;
 
 use common::{monitors_json_two, FakeCtl};
+use hyprmon::overrides::Overrides;
 use hyprmon::rules::Rules;
 use hyprmon::runner::apply;
 
@@ -60,4 +61,45 @@ fn apply_propagates_eval_failure() {
     };
     let err = apply(&ctl, &common::rules_two()).unwrap_err();
     assert_eq!(err, "boom");
+}
+
+#[test]
+fn apply_with_overrides_replaces_planned_field() {
+    // The HDMI secondary would normally render `2560x1200@60` from the
+    // rule; an override pins a different resolution and the eval carries it.
+    let ctl = FakeCtl::new(&monitors_json_two());
+    let overrides = hyprmon::Overrides {
+        entries: vec![hyprmon::OverrideEntry {
+            name: Some("HDMI-A-1".to_string()),
+            resolution: Some("1920x1080@60".to_string()),
+            position: Some("3840x0".to_string()),
+            ..Default::default()
+        }],
+    };
+    let specs = hyprmon::apply_with(&ctl, &common::rules_two(), &overrides).unwrap();
+    let hdmi = specs
+        .iter()
+        .find(|s| s.name == "HDMI-A-1")
+        .expect("hdmi spec");
+    assert_eq!(hdmi.resolution, "1920x1080@60");
+    assert_eq!(hdmi.position, "3840x0");
+    let evals = ctl.evals.lock().unwrap().clone();
+    let hdmi_eval = evals
+        .iter()
+        .find(|e| e.contains("HDMI-A-1"))
+        .expect("hdmi eval");
+    assert!(hdmi_eval.contains("mode=\"1920x1080@60\""));
+    assert!(hdmi_eval.contains("position=\"3840x0\""));
+}
+
+#[test]
+fn apply_without_overrides_is_unchanged() {
+    // Empty overrides → the pipeline behaves exactly as before the feature.
+    let ctl = FakeCtl::new(&monitors_json_two());
+    let specs = hyprmon::apply_with(&ctl, &common::rules_two(), &Overrides::default()).unwrap();
+    let hdmi = specs
+        .iter()
+        .find(|s| s.name == "HDMI-A-1")
+        .expect("hdmi spec");
+    assert_eq!(hdmi.resolution, "2560x1200@60");
 }

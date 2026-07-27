@@ -25,6 +25,9 @@ enum Cmd {
     Apply,
     /// Apply once, then re-apply on monitor hotplug (daemon mode).
     Watch,
+    /// Open the override editor — fix a monitor hyprmon got wrong without
+    /// touching the Nix-managed ruleset. Writes `overrides.json`.
+    Override,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -43,6 +46,7 @@ fn main() -> anyhow::Result<()> {
             let applier = LiveApplier;
             watch(stream, &applier, &rules).map_err(anyhow::Error::msg)
         }
+        Cmd::Override => hyprmon::tui::run(&LiveHyprCtl, &rules),
     }
 }
 

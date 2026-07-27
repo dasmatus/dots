@@ -147,7 +147,8 @@ fn effective_vrr(m: &Matched) -> Option<Vrr> {
 
 /// `1.0` → `"1"`, `1.5` → `"1.5"`, `2.0` → `"2"`. Matches the integer-without-
 /// trailing-zero style used in hand-written Hyprland configs.
-fn render_scale(s: f64) -> String {
+#[must_use]
+pub fn render_scale(s: f64) -> String {
     if s.fract() == 0.0 {
         format!("{}", s as i64)
     } else {

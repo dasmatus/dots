@@ -9,14 +9,17 @@
 //! compositor; only [`runner::apply`] shells out.
 
 pub mod matcher;
+pub mod overrides;
 pub mod plan;
 pub mod rules;
 pub mod runner;
 pub mod spec;
+pub mod tui;
 pub mod watch;
 
 pub use matcher::match_monitors;
+pub use overrides::{apply_overrides, match_override, OverrideEntry, Overrides};
 pub use plan::plan;
 pub use rules::{Rules, Vrr};
-pub use runner::apply;
+pub use runner::{apply, apply_with};
 pub use spec::{Monitor, MonitorSpec};

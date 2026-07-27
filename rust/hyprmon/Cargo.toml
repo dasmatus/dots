@@ -11,6 +11,7 @@ serde_json = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 regex = "1"
+abstracttui = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

@@ -12,6 +12,7 @@
 use std::process::{Command, Stdio};
 
 use crate::matcher::match_monitors;
+use crate::overrides::{apply_overrides, Overrides};
 use crate::plan::plan;
 use crate::rules::Rules;
 use crate::spec::{Monitor, MonitorSpec};
@@ -68,15 +69,34 @@ pub fn parse_monitors(json: &str) -> Result<Vec<Monitor>, String> {
     serde_json::from_str(json).map_err(|e| format!("parse monitors -j: {e}"))
 }
 
-/// Full apply pipeline: fetch monitors → match against `rules` → plan → emit
-/// one `hyprctl eval 'hl.monitor({...})'` per spec. Returns the specs it
-/// applied (for logging/tests). Empty match list is a no-op (leaves
-/// Hyprland's auto-detect alone) rather than disabling every monitor.
+/// Full apply pipeline: fetch monitors → match against `rules` → plan →
+/// apply forced `overrides` → emit one `hyprctl eval 'hl.monitor({...})'` per
+/// spec. Returns the specs it applied (for logging/tests). Empty match list
+/// is a no-op (leaves Hyprland's auto-detect alone) rather than disabling
+/// every monitor.
 pub fn apply(ctl: &impl HyprCtl, rules: &Rules) -> Result<Vec<MonitorSpec>, String> {
+    let overrides = Overrides::load();
+    apply_with(ctl, rules, &overrides)
+}
+
+/// Apply pipeline with an explicit overrides set, so tests can drive the
+/// override stage without touching the filesystem. The live [`apply`]
+/// loads `overrides.json` and forwards here.
+///
+/// # Errors
+///
+/// Forwards `hyprctl monitors -j` fetch/parse failures and any `hyprctl
+/// eval` failure (one `eval` per spec, applied in order).
+pub fn apply_with(
+    ctl: &impl HyprCtl,
+    rules: &Rules,
+    overrides: &Overrides,
+) -> Result<Vec<MonitorSpec>, String> {
     let json = ctl.monitors_json()?;
     let monitors = parse_monitors(&json)?;
     let matched = match_monitors(&monitors, rules);
     let specs = plan(&matched);
+    let specs = apply_overrides(specs, &monitors, overrides);
     for s in &specs {
         ctl.eval(&s.render_lua())?;
     }
