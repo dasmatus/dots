@@ -5,13 +5,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use ratatui_image::picker::Picker;
-use ratatui_image::protocol::StatefulProtocol;
+use abstracttui::base::Rgba;
+use abstracttui::gfx::Bitmap;
 
 use crate::accent::TintBackend;
 use crate::awww::Group;
 use crate::config::{effective_output, Config, State, COLOR_PALETTE, DEFAULT_COLOR, MODES};
+use crate::input::{KeyCode, KeyEvent};
 
 /// A request the event loop drains off the TUI thread.
 #[derive(Debug, Clone)]
@@ -48,7 +50,10 @@ pub enum Event {
     },
 }
 
-/// The pure picker state.
+/// The pure picker state. `Clone` so it can live in a `Signal<App>` on the
+/// abstracttui runtime; the `Arc<Bitmap>` preview clones cheaply (no pixel copy
+/// per rebuild) and the `preview_cache` memoizes decoded `DynamicImage`s.
+#[derive(Clone)]
 pub struct App {
     pub config: Config,
     pub state: State,
@@ -61,16 +66,12 @@ pub struct App {
     pub fill_mode: String,
     pub current_color: String,
     pub show_preview: bool,
-    /// `ratatui-image` protocol auto-picker — queries the terminal once at
-    /// startup for its image-protocol + font size, then builds every preview's
-    /// [`StatefulProtocol`]. Created in `run_tui` after the alternate screen is
-    /// entered (the query rides on raw stdio).
-    pub picker: Picker,
-    /// The on-screen preview's protocol state, sized to the pane at render
-    /// time. `None` until the first decode arrives (or after a failed decode).
-    pub preview: Option<StatefulProtocol>,
+    /// The on-screen preview as a mosaic bitmap. `None` until the first decode
+    /// arrives (or after a failed decode). Rendered through abstracttui's
+    /// `Image` widget on the unicode-mosaic backend — no native image protocol.
+    pub preview: Option<Arc<Bitmap>>,
     /// Decoded preview thumbnails, memoized by path. A return to a previously
-    /// seen wallpaper rebuilds the protocol on the UI thread — no worker
+    /// seen wallpaper rebuilds the `Bitmap` on the UI thread — no worker
     /// round-trip.
     pub preview_cache: HashMap<String, image::DynamicImage>,
     /// The path the preview worker is currently decoding (avoids duplicate
@@ -85,13 +86,7 @@ pub struct App {
 
 impl App {
     #[must_use]
-    pub fn new(
-        config: Config,
-        state: State,
-        no_tint: bool,
-        picker: Picker,
-        backend: TintBackend,
-    ) -> Self {
+    pub fn new(config: Config, state: State, no_tint: bool, backend: TintBackend) -> Self {
         let wallpapers =
             crate::wallpapers::list_wallpapers(&config.wallpaper_folder, config.recursive);
         let mut outputs = crate::wallpapers::detect_outputs();
@@ -123,7 +118,6 @@ impl App {
             fill_mode: eff.mode,
             current_color: eff.fill_color,
             show_preview: true,
-            picker,
             preview: None,
             preview_cache: HashMap::new(),
             preview_pending: None,
@@ -165,13 +159,13 @@ impl App {
             name,
         );
         if let Some(st) = &self.status {
-            s.push_str(&format!("| {st} "));
+            let _ = std::fmt::Write::write_fmt(&mut s, format_args!("| {st} "));
         }
         s
     }
 
     /// Request a preview render for the current selection. A cache hit rebuilds
-    /// the protocol on the UI thread immediately (no worker round-trip); a miss
+    /// the `Bitmap` on the UI thread immediately (no worker round-trip); a miss
     /// asks the worker to decode the thumbnail.
     pub fn request_preview(&mut self) {
         if !self.show_preview {
@@ -179,7 +173,7 @@ impl App {
         }
         if let Some(path) = self.selected_path() {
             if let Some(img) = self.preview_cache.get(&path).cloned() {
-                self.preview = Some(self.picker.new_resize_protocol(img));
+                self.preview = Some(dynimg_to_bitmap(&img));
                 return;
             }
             if self.preview_pending.as_deref() == Some(&path) {
@@ -190,8 +184,7 @@ impl App {
         }
     }
 
-    pub fn handle_key(&mut self, key: crossterm::event::KeyEvent) {
-        use crossterm::event::KeyCode;
+    pub fn handle_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
             KeyCode::Char('j') | KeyCode::Down => self.cursor_down(),
@@ -305,7 +298,7 @@ impl App {
                 self.preview_pending = self.preview_pending.take().filter(|p| p != &path);
                 match image {
                     Some(img) => {
-                        self.preview = Some(self.picker.new_resize_protocol(img.clone()));
+                        self.preview = Some(dynimg_to_bitmap(&img));
                         self.preview_cache.insert(path, img);
                     }
                     None => self.preview = None,
@@ -313,6 +306,22 @@ impl App {
             }
         }
     }
+}
+
+/// Convert a decoded `image::DynamicImage` into a shared mosaic `Bitmap`: take
+/// the RGBA buffer, map each `image::Rgba<u8>` to `abstracttui::base::Rgba`,
+/// and wrap in `Arc` so the `Image` widget clones the handle (not the pixels)
+/// per rebuild. The recipe is documented in
+/// `docs/superpowers/refs/abstracttui-api.md` §7/§12.
+fn dynimg_to_bitmap(img: &image::DynamicImage) -> Arc<Bitmap> {
+    let rgba = img.to_rgba8();
+    let px: Vec<Rgba> = rgba
+        .pixels()
+        .map(|p| Rgba::new(p.0[0], p.0[1], p.0[2], p.0[3]))
+        .collect();
+    let bmp = Bitmap::from_pixels(rgba.width(), rgba.height(), px)
+        .expect("to_rgba8 yields exactly width*height pixels");
+    Arc::new(bmp)
 }
 
 /// Default fill color (re-exported for the CLI's `--color` default).
