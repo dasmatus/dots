@@ -19,10 +19,12 @@ fn plans_two_monitors_left_to_right() {
     assert_eq!(specs[0].position, "0x0");
     assert_eq!(specs[0].resolution, "1920x1080@240");
     assert_eq!(specs[0].vrr.as_deref(), Some("vrrleft"));
-    // 60Hz secondary to the right (x=1920), no VRR token.
+    // 60Hz secondary to the right (x=1920), no VRR token. The rule pins
+    // `2560x1200` with no refresh; the planner appends the max advertised
+    // rate (59.95 → rounded up to 60) so Hyprland doesn't default to 59.95.
     assert_eq!(specs[1].name, "HDMI-A-1");
     assert_eq!(specs[1].position, "1920x0");
-    assert_eq!(specs[1].resolution, "2560x1200");
+    assert_eq!(specs[1].resolution, "2560x1200@60");
     assert_eq!(specs[1].vrr, None);
 }
 
@@ -72,14 +74,44 @@ fn integral_scale_drops_trailing_zero() {
 
 #[test]
 fn fallback_rule_emits_preferred_when_no_resolution() {
-    // Unknown monitor matched only by the fallback gets `preferred` (with
-    // the live refresh rate as `@R` when nonzero).
+    // Unknown monitor matched only by the fallback gets `preferred` with the
+    // max advertised refresh (239.76 → rounded up to 240).
     let mut unknown = monitor_240hz();
     unknown.name = "DP-9".to_string();
     unknown.description = "Mystery Panel".to_string();
     let matched = match_monitors(&[unknown], &rules_two());
     let specs = plan(&matched);
-    assert_eq!(specs[0].resolution, "preferred@239.76");
+    assert_eq!(specs[0].resolution, "preferred@240");
+}
+
+#[test]
+fn nvidia_empty_modes_falls_back_to_live_refresh_rounded_up() {
+    // The NVIDIA proprietary driver doesn't populate `availableModes`, so a
+    // rule pinning `WxH` with no refresh must fall back to the live
+    // `refreshRate` (rounded up) rather than emit a bare resolution that
+    // Hyprland would default to 59.95 Hz.
+    let mut hdmi = common::monitor_60hz();
+    hdmi.available_modes = Vec::new();
+    let matched = match_monitors(&[hdmi], &rules_two());
+    let specs = plan(&matched);
+    let hdmi = specs
+        .iter()
+        .find(|s| s.name == "HDMI-A-1")
+        .expect("HDMI secondary matched");
+    assert_eq!(hdmi.resolution, "2560x1200@60");
+}
+
+#[test]
+fn nvidia_empty_modes_preferred_falls_back_to_live_refresh() {
+    // Same NVIDIA workaround on the `preferred` path: no modes, so the live
+    // 59.95 Hz is rounded up to 60.
+    let mut nvidia = common::monitor_60hz();
+    nvidia.available_modes = Vec::new();
+    nvidia.name = "DP-9".to_string();
+    nvidia.description = "NVIDIA HDMI sink".to_string();
+    let matched = match_monitors(&[nvidia], &rules_two());
+    let specs = plan(&matched);
+    assert_eq!(specs[0].resolution, "preferred@60");
 }
 
 #[test]

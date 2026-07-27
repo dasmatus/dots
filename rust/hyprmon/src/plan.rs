@@ -12,7 +12,7 @@
 
 use crate::matcher::Matched;
 use crate::rules::Vrr;
-use crate::spec::MonitorSpec;
+use crate::spec::{Monitor, MonitorSpec};
 
 /// Plan a horizontal layout for the matched monitors. Returns one
 /// [`MonitorSpec`] per match, in the same order as `matched`. Empty input is
@@ -54,23 +54,87 @@ fn effective_resolution(m: &Matched) -> (u32, u32) {
 
 /// Render the `monitor` keyword's resolution field. A rule with no
 /// `resolution` emits `preferred` (Hyprland auto-picks the highest mode); a
-/// rule with `WxH` emits `WxH`; a rule with `WxH@R` is passed through verbatim
-/// (Hyprland accepts the `@R` refresh suffix).
+/// rule with `WxH` emits `WxH@R` where `R` is the highest refresh the monitor
+/// advertises for that resolution (rounded up to an integer Hz); a rule with
+/// `WxH@R` honours the authored resolution but rounds `R` up to an integer.
 fn effective_resolution_string(m: &Matched, w: u32, h: u32) -> String {
-    match &m.rule.resolution {
-        Some(r) if r.contains('@') || parse_wxh(r).is_some() => r.clone(),
-        _ => {
-            // No explicit resolution → `preferred`, optionally with the live
-            // refresh rate as `@R` when the monitor reports a nonzero one.
-            if m.monitor.refresh_rate > 0.0 {
-                format!("preferred@{}", trim_refresh(m.monitor.refresh_rate))
-            } else {
-                "preferred".to_string()
+    let base = match &m.rule.resolution {
+        // Explicit `WxH@R`: honour the authored resolution, round the refresh
+        // up to an integer Hz.
+        Some(r) if r.contains('@') => {
+            let (wh, rate) = r.split_once('@').unwrap_or((r, ""));
+            match rate.parse::<f64>() {
+                Ok(rate) if rate > 0.0 => format!("{}@{}", wh, round_up_refresh(rate)),
+                _ => r.clone(),
             }
         }
+        // Explicit `WxH` with no refresh: append the max supported refresh
+        // (rounded up) so Hyprland doesn't fall back to a fractional default
+        // like 59.95 Hz.
+        Some(r) => match parse_wxh(r) {
+            Some((rw, rh)) => match refresh_for(&m.monitor, rw, rh) {
+                Some(rate) => format!("{r}@{rate}"),
+                None => r.clone(),
+            },
+            // Non-`WxH` token (e.g. `highres`): defer to `preferred`.
+            None => preferred_with_refresh(m),
+        },
+        // No explicit resolution → `preferred`, with the max supported refresh
+        // (rounded up) as `@R`.
+        None => preferred_with_refresh(m),
+    };
+    base.replace("__W__", &w.to_string())
+        .replace("__H__", &h.to_string())
+}
+
+/// `preferred` with the max supported refresh (rounded up) as `@R`, or bare
+/// `preferred` when no rate can be determined (no modes and no live rate).
+fn preferred_with_refresh(m: &Matched) -> String {
+    match refresh_for(&m.monitor, m.monitor.width, m.monitor.height) {
+        Some(rate) => format!("preferred@{rate}"),
+        None => "preferred".to_string(),
     }
-    .replace("__W__", &w.to_string())
-    .replace("__H__", &h.to_string())
+}
+
+/// Refresh rate (integer Hz, rounded up) to append to a `WxH` or `preferred`
+/// resolution: the highest rate the monitor advertises for that resolution in
+/// `availableModes`, falling back to the live `refreshRate` when no modes are
+/// listed. The fallback is the NVIDIA workaround — the proprietary driver does
+/// not populate `availableModes` over wlr-output-management the way KMS
+/// drivers do, so without it a rule like `2560x1200` (no explicit refresh)
+/// would land on Hyprland's fractional default (e.g. 59.95 Hz) instead of the
+/// intended 60.
+fn refresh_for(monitor: &Monitor, w: u32, h: u32) -> Option<i64> {
+    max_refresh_at(&monitor.available_modes, w, h)
+        .or_else(|| (monitor.refresh_rate > 0.0).then_some(monitor.refresh_rate))
+        .map(round_up_refresh)
+}
+
+/// Highest refresh rate the monitor advertises for resolution `w×h`, parsed
+/// from `availableModes` entries of the form `WxH@R`. `None` when no mode
+/// matches (or when the driver reports no modes, as NVIDIA does).
+fn max_refresh_at(modes: &[String], w: u32, h: u32) -> Option<f64> {
+    modes
+        .iter()
+        .filter_map(|m| parse_mode(m))
+        .filter(|&(mw, mh, _)| mw == w && mh == h)
+        .map(|(_, _, rate)| rate)
+        .max_by(f64::total_cmp)
+}
+
+/// `1920x1080@239.76` → `(1920, 1080, 239.76)`. `None` for malformed modes —
+/// `availableModes` occasionally contains entries we don't model.
+fn parse_mode(s: &str) -> Option<(u32, u32, f64)> {
+    let (wh, rate) = s.split_once('@')?;
+    let (w, h) = wh.split_once('x')?;
+    Some((w.parse().ok()?, h.parse().ok()?, rate.parse().ok()?))
+}
+
+/// Round a refresh rate up to the next integer Hz. Monitors advertise
+/// fractional rates (59.95, 119.98, 239.76) that Hyprland honours literally,
+/// producing a sub-integer clock; ceiling snaps to the intended 60/120/240.
+fn round_up_refresh(r: f64) -> i64 {
+    r.ceil() as i64
 }
 
 /// VRR token for the spec. The rule's `vrr` field is authoritative: when
@@ -107,15 +171,4 @@ fn parse_wxh(s: &str) -> Option<(u32, u32)> {
 fn parse_position(s: &str) -> Option<(i64, i64)> {
     let (x, y) = s.split_once('x')?;
     Some((x.parse().ok()?, y.parse().ok()?))
-}
-
-/// Trim a refresh rate to a clean `240` / `119.98` rendering. Hyprland's
-/// `monitor` keyword accepts a float after `@`, but `240.0` reads oddly in a
-/// config, so integral rates drop the `.0`.
-fn trim_refresh(r: f64) -> String {
-    if r.fract() == 0.0 {
-        format!("{}", r as i64)
-    } else {
-        format!("{r}")
-    }
 }

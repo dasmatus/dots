@@ -21,7 +21,7 @@ fn apply_emits_one_eval_per_monitor() {
     );
     assert_eq!(
         evals[1],
-        "hl.monitor({output=\"HDMI-A-1\", mode=\"2560x1200\", position=\"1920x0\", scale=1})"
+        "hl.monitor({output=\"HDMI-A-1\", mode=\"2560x1200@60\", position=\"1920x0\", scale=1})"
     );
 }
 

@@ -39,6 +39,7 @@
       "nvidia-x11"
       "nvidia-settings"
       "vscode-extension-fill-labs-dependi"
+      "steam"
     ]
     || pkgs._cuda.lib.allowUnfreeCudaPredicate pkg;
 
