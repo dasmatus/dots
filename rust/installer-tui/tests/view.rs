@@ -48,15 +48,18 @@ fn render_to_string(app: &App, cols: i32, rows: i32) -> String {
     out
 }
 
+/// Assert each `needle` appears in the rendered output of `app`.
+fn assert_renders(app: &App, needles: &[&str]) {
+    let out = render_to_string(app, 80, 24);
+    for n in needles {
+        assert!(out.contains(n), "missing {n:?}:\n{out}");
+    }
+}
+
 #[test]
 fn welcome_screen_renders_title_and_hint() {
     let app = App::new(vec![], Some("/dev/nvme0n1".into()));
-    let out = render_to_string(&app, 80, 24);
-    assert!(
-        out.contains("tokyonight-dots installer"),
-        "missing title: {out}"
-    );
-    assert!(out.contains("Enter continue"), "missing hint: {out}");
+    assert_renders(&app, &["tokyonight-dots installer", "Enter continue"]);
 }
 
 #[test]
@@ -217,5 +220,91 @@ fn shake_offset_translates_panel_cells() {
     assert!(
         full.contains("tokyonight-dots installer"),
         "title missing: {full}"
+    );
+}
+
+#[test]
+fn username_screen_renders_prompt_and_hint() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::Username;
+    app.input = "matus".into();
+    assert_renders(
+        &app,
+        &["Username for the primary user:", "matus", "Enter confirm"],
+    );
+}
+
+#[test]
+fn git_name_screen_renders_prompt_and_hint() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::GitName;
+    app.input = "Matus".into();
+    assert_renders(
+        &app,
+        &[
+            "Git user.name (commits will be signed with this):",
+            "Matus",
+            "Esc back",
+        ],
+    );
+}
+
+#[test]
+fn git_email_screen_renders_prompt_and_hint() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::GitEmail;
+    app.input = "a@b.c".into();
+    assert_renders(&app, &["Git user.email:", "a@b.c", "Esc back"]);
+}
+
+#[test]
+fn root_password_screen_masks_input() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::RootPassword;
+    app.input = "secret".into();
+    let out = render_to_string(&app, 80, 24);
+    assert!(
+        out.contains("Root password (also the LUKS fallback passphrase):"),
+        "missing prompt: {out}"
+    );
+    assert!(out.contains("Enter confirm"), "missing hint: {out}");
+    // Password screens mask the input with bullets — the plaintext must not leak.
+    assert!(!out.contains("secret"), "password leaked: {out}");
+    assert!(out.contains("••••••"), "missing mask: {out}");
+}
+
+#[test]
+fn root_password_confirm_screen_renders_prompt() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::RootPasswordConfirm;
+    app.input = "again".into();
+    assert_renders(&app, &["Repeat root password:", "Enter confirm"]);
+}
+
+#[test]
+fn user_password_screen_masks_input() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::UserPassword;
+    app.input = "hunter2".into();
+    let out = render_to_string(&app, 80, 24);
+    assert!(out.contains("User password:"), "missing prompt: {out}");
+    assert!(!out.contains("hunter2"), "password leaked: {out}");
+}
+
+#[test]
+fn user_password_confirm_screen_renders_prompt() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::UserPasswordConfirm;
+    assert_renders(&app, &["Repeat user password:", "Enter confirm"]);
+}
+
+#[test]
+fn wifi_password_screen_renders_ssid_prompt() {
+    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
+    app.screen = Screen::WifiPassword;
+    app.wifi_ssid = "home".into();
+    assert_renders(
+        &app,
+        &["Passphrase for \"home\":", "Enter connect", "Esc back"],
     );
 }
