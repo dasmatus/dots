@@ -385,3 +385,55 @@ For view tests: render each `Screen` and assert `term.screen().cell(x,y).map(|c|
 - `TokenSet::default()` (abstract-dark) is the no-theme-context way to build
   widgets inside `dyn_view`. The Tokyonight palette becomes a custom `TokenSet`
   built once at startup (per the engine's `no_color_arithmetic_in_widgets` rule).
+## 12. `Image` widget — mosaic/emulator backend (wallpaper-tui)
+
+The `Image` widget ALWAYS renders unicode mosaic cells (half-block / quadrant /
+sextant / braille). It never negotiates kitty/iTerm2/sixel — those byte streams
+live one level up in `gfx::ImageSession` + `Presenter::external_write`, which a
+draw closure cannot reach. This is exactly the "emulator backend" the wallpaper
+migration wants: no `Picker`, no `StatefulProtocol`, no `from_query_stdio` DCS
+query.
+
+```rust
+// src/widgets/image.rs
+pub use crate::gfx::Bitmap;                 // re-exported beside Image
+pub struct Image { source: Result<Arc<Bitmap>, String>, fit, mode, align_h, align_v, layout }
+
+impl Image {
+    pub fn from_bitmap(bitmap: Arc<Bitmap>) -> Image;   // preferred (shared, no copy)
+    pub fn from_path(path: impl AsRef<Path>) -> Image;  // decodes PNG/JPEG lazily
+    pub fn fit(self, ImageFit) -> Image;
+    pub fn mode(self, MosaicMode) -> Image;             // default HalfBlock
+    pub fn align(self, ImageAlign /*h*/, ImageAlign /*v*/) -> Image; // default Center,Center
+    pub fn layout(self, LayoutStyle) -> Image;
+    pub fn view(self, cx: Scope) -> View;               // theme tokens from cx
+    pub fn element(self, &TokenSet) -> Element;         // explicit-theme door
+    pub fn error(&self) -> Option<&str>;                // broken-source label
+}
+
+pub enum ImageFit { Contain, Cover, Fill, None }     // abstracttui::widgets::ImageFit
+pub enum ImageAlign { Start, Center, End }           // abstracttui::widgets::ImageAlign
+```
+
+`MosaicMode` (`abstracttui::gfx::MosaicMode`):
+```rust
+pub enum MosaicMode { HalfBlock, Quadrant, Sextant, Braille }
+impl MosaicMode {
+    pub fn auto(caps: &Capabilities) -> (MosaicMode, &'static str);  // picks by caps
+    pub fn cell_pixels(self) -> (u32, u32);  // (subw, subh): HalfBlock(1,2), Quadrant(2,2), Sextant(2,3), Braille(2,4)
+}
+```
+- Default mode is `HalfBlock` (exact colors, universal fonts). For raw-VT safety
+  pick via `MosaicMode::auto(use_caps())`; `HalfBlock` is the floor.
+- Broken source → the widget prints a labeled `⌧ image` + error row (never blank,
+  never panics) — so `Image::from_bitmap(Arc::new(empty))` is safe.
+- Intrinsic size: the widget answers its natural cell footprint to `Auto` sizing
+  (`natural_cells`), so it survives unsized rows — but prefer an explicit
+  `LayoutStyle` (`.layout(fill())` or a `width/grow`) in flex contexts.
+- Crossfade: the widget paints OPAQUE mosaic cells — there is no per-pixel alpha
+  knob on `Image`. For a visible preview crossfade, BLEND the source `Bitmap`
+  against the pane background by `opacity` (clone the `Arc`'s pixels, lerp each
+  `Rgba` toward bg, rebuild via `Bitmap::from_pixels`) and feed the blended
+  bitmap to `from_bitmap` while the `Transition<f32>` is in flight. Cheap enough
+  for a thumbnail (≤ a few thousand px) over a ~150 ms fade. Instant cut is the
+  no-animation fallback.
