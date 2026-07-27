@@ -1,4 +1,4 @@
-use dots_installer::{app, disks, install, net, ui};
+use dots_installer::{app, disks, input, install, net, ui};
 
 use std::io;
 use std::sync::mpsc;
@@ -11,6 +11,23 @@ use crossterm::terminal::{
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+
+/// Throwaway bridge: crossterm's `KeyCode` → the engine-agnostic shim. The
+/// whole file is rewritten onto abstracttui in a later task; this just keeps
+/// the binary compiling while `app::handle_key` already speaks `input::KeyEvent`.
+fn map_key(code: crossterm::event::KeyCode) -> Option<input::KeyCode> {
+    use crossterm::event::KeyCode as C;
+    use dots_installer::input::KeyCode as I;
+    match code {
+        C::Char(c) => Some(I::Char(c)),
+        C::Enter => Some(I::Enter),
+        C::Esc => Some(I::Esc),
+        C::Backspace => Some(I::Backspace),
+        C::Up => Some(I::Up),
+        C::Down => Some(I::Down),
+        _ => None,
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     let swap_size_gib = install::swap_size_from_meminfo(
@@ -83,7 +100,9 @@ fn event_loop(app: &mut app::App) -> anyhow::Result<()> {
         if event::poll(Duration::from_millis(100))? {
             if let CEvent::Key(k) = event::read()? {
                 if k.kind == KeyEventKind::Press {
-                    app.handle_key(k);
+                    if let Some(code) = map_key(k.code) {
+                        app.handle_key(input::KeyEvent::from(code));
+                    }
                 }
             }
         }

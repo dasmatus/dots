@@ -1,7 +1,7 @@
 //! Wizard state machine. `handle_key` is a pure transition function over App —
 //! all screen flow logic lives here so it is unit-testable without a terminal.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crate::input::{KeyCode, KeyEvent};
 
 use crate::config::{
     validate_git_email, validate_git_name, validate_hostname, validate_username, InstallConfig,

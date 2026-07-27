@@ -50,7 +50,7 @@ fn main() {
         // Mosaic/emulator image backend: a 4×4 RGBA bitmap → half-block glyphs.
         // No kitty/iTerm2/sixel negotiation — this is the wallpaper-tui path.
         let bmp = Arc::new(
-            Bitmap::from_pixels(4, 4, std::iter::repeat(ACCENT).take(16).collect()).unwrap(),
+            Bitmap::from_pixels(4, 4, vec![ACCENT; 16]).unwrap(),
         );
         let img = Image::from_bitmap(bmp)
             .mode(MosaicMode::HalfBlock)

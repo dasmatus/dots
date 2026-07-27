@@ -1,8 +1,8 @@
 //! Wizard state-machine tests (screen flow, validation, install events).
 
-use crossterm::event::{KeyCode, KeyEvent};
 use dots_installer::app::{App, Screen};
 use dots_installer::disks::Disk;
+use dots_installer::input::{KeyCode, KeyEvent};
 use dots_installer::install;
 use dots_installer::net::{self, WifiNetwork};
 
