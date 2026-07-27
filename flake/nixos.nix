@@ -37,6 +37,7 @@
       ../nix/modules/secureboot.nix
       ../nix/modules/desktop.nix
       ../nix/modules/form-factor.nix
+      ../nix/modules/steam.nix
       ../nix/hosts.nix
     ];
   };
