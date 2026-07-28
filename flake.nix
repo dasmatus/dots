@@ -87,11 +87,11 @@
         settings
         mkIso
         ;
-    in
-    {
       # nixosConfigurations split into flake/nixos.nix (the installed system
-      # + the two LiveISO closures).
-      nixosConfigurations = import ./flake/nixos.nix {
+      # + the two LiveISO closures). nixosConfigs also exports mkTokyonight
+      # (a settings-parameterized builder) for tests/default.nix — it is NOT a
+      # nixosConfiguration, so strip it before exposing nixosConfigurations.
+      nixosConfigs = import ./flake/nixos.nix {
         inherit
           inputs
           nixpkgs
@@ -99,6 +99,9 @@
           mkIso
           ;
       };
+    in
+    {
+      nixosConfigurations = builtins.removeAttrs nixosConfigs [ "mkTokyonight" ];
 
       # packages.${system} split into flake/packages.nix; it receives `self`
       # (this outputs attrset) so iso/iso-full can reach the LiveISO closures
@@ -126,10 +129,14 @@
           inherit pkgs system;
         } self)
         # LiveISO boot oracle (NixOS test framework) — see tests/README.md.
+        # mkTokyonight + dotsFlake + inputs feed the limine-install-boot test
+        # (pre-build a test-settings closure; stage the flake in the installer VM).
         // import ./tests {
-          inherit pkgs;
+          inherit pkgs inputs;
           inherit (pkgs) lib;
           inherit (self.packages.${system}) iso;
+          inherit (nixosConfigs) mkTokyonight;
+          dotsFlake = self;
         };
     };
 }

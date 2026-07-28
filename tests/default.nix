@@ -11,6 +11,9 @@
   pkgs,
   lib,
   iso,
+  mkTokyonight,
+  dotsFlake,
+  inputs,
 }:
 let
   # Precomputed `mkpasswd -m yescrypt --stdin` of the literal "test" — the same
