@@ -10,6 +10,7 @@ swtpm — no libvirt, no host packages, no root. Defined in
 |-------|----------------|
 | `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the `dots-installer` TUI reaches tty1 — `DOTS_TUI_READY` on the serial console |
 | `userborn-reboot-login` | under userborn + immutable `/etc`, the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
+| `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting the TPM2-unlocked LUKS root reaches `multi-user.target` — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
 
 Also in `checks`: `nix-lint`-fast eval checks (`settings-eval`,
 `facter-*-eval`) and the `dots-installer` package build — see `flake.nix`.
@@ -57,6 +58,19 @@ assertions are console-only — `wait_for_console_text`, not
   yescrypt `initialHashedPassword`, asserts `/etc/shadow` is a symlink into
   `/var/lib/nixos`, then shuts down and cold-starts the same persistent qcow2
   to prove the hash survived.
+- **`limine-install-boot`** is a two-node `runNixOSTest`: an `installer` node
+  (test-instrumented `installation-device` VM with OVMFFull + swtpm +
+  `mountHostNixStore`) runs `install.rs::plan()` — disko, `nixos-install`, and
+  `systemd-cryptenroll --tpm2-pcrs=7` + `--recovery-key` — on a blank
+  `/dev/vda`; after `installer.shutdown()`, a `target` node reuses the same
+  qcow2 + swtpm state (`target.state_dir = installer.state_dir`) and boots the
+  installed disk via Limine. The test-settings tokyonight closure is pre-built
+  (`mkTokyonight testSettings`) and placed in `extraDependencies` so
+  `nixos-install` substitutes it from the host store with no network. The
+  `dots` ISO is not used as the installer medium because it has no test
+  instrumentation (no backdoor shell); the install steps are identical to the
+  real installer. Joins the weekly/manual vm CI lane (heavy: full closure
+  build + disko + `nixos-install` + reboot).
 
 ## CI
 

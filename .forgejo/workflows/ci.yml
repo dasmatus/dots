@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [iso-boot]
+        check: [iso-boot, limine-install-boot]
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v22
