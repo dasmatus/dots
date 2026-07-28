@@ -25,7 +25,7 @@ sudo nixos-rebuild switch --flake .#tokyonight
 | `portage-sync.timer` + reseal-on-suspend | `system.autoUpgrade` (`operation = "boot"`) + `nix.gc`/`nix.optimise` |
 | `systemd-repart` GPT (ESP 2G, TPM2-LUKS2 btrfs root, random-key swap) | disko layout (`nix/disko.nix`), same shape |
 | `Encrypt=tpm2` at repart time | installer runs `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7` + `--recovery-key` post-format, with a random keyfile (not a login password) as the format-time passphrase |
-| ukify UKI + self-generated Secure Boot db keys | systemd-boot, no Secure Boot / UKI signing — TPM2 auto-unlock + LUKS recovery key only |
+| ukify UKI + self-generated Secure Boot db keys | Limine, no Secure Boot / UKI signing — TPM2 auto-unlock + LUKS recovery key only (systemd-boot replaced: it aborted nixos-install on the empty `/etc/machine-id` that impermanence produces) |
 | `homectl` first-boot user | `users.users.<name>` + home-manager; username collected at install time by the TUI |
 | afosi `.steps.yaml` wizard (removed — git history) | `rust/installer-tui/` ratatui crate on the LiveISO |
 | dotfiles → `/etc/skel` copy | home-manager native modules (`programs.*`); `files/` fully ported and deleted — git history |
@@ -106,7 +106,22 @@ report.
 
 Secure Boot / UKI signing was removed — neither the installed system nor the
 LiveISO is signed, and `lanzaboote`, `sbctl`, the Microsoft-signed shim and
-`scripts/sign-iso.sh` are all gone. Boot is plain `systemd-boot` off the ESP.
+`scripts/sign-iso.sh` are all gone. Boot is plain **Limine** off the ESP.
+
+Limine replaces systemd-boot because `systemd-boot-builder.py` reads
+`/etc/machine-id` and aborts `nixos-install` when it is empty — exactly the
+state this system's impermanence setup produces at install time (tmpfs `/`
+wiped each boot, `system.etc.overlay.mutable = false`, and `/etc/machine-id`
+intentionally not persisted). `limine-install.py` has no machine-id
+dependency. Limine installs to the firmware's removable `\EFI\BOOT\BOOTX64.EFI`
+path (`boot.loader.efi.canTouchEfiVariables = false`), so it never runs
+`efibootmgr` and is immune to the efibootmgr NVRAM-write failure
+(nixpkgs #493017).
+
+PCR 7 (the TPM2 unlock binding) is firmware-measured Secure Boot policy, not
+bootloader-dependent — neither systemd-boot nor Limine writes PCR 7, and
+Secure Boot is off on both the LiveISO and the installed system, so the
+unseal value is identical between enrollment and first boot via Limine.
 
 The LUKS root (`/dev/tokyonightvg/root`, see `disko.nix`) unlocks two ways:
 
