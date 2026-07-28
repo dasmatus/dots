@@ -59,14 +59,25 @@ assertions are console-only — `wait_for_console_text`, not
   `/var/lib/nixos`, then shuts down and cold-starts the same persistent qcow2
   to prove the hash survived.
 - **`limine-install-boot`** is a two-node `runNixOSTest`: an `installer` node
-  (test-instrumented `installation-device` VM with OVMFFull + swtpm +
-  `mountHostNixStore`) runs `install.rs::plan()` — disko, `nixos-install`, and
-  `systemd-cryptenroll --tpm2-pcrs=7` + `--recovery-key` — on a blank
-  `/dev/vda`; after `installer.shutdown()`, a `target` node reuses the same
-  qcow2 + swtpm state (`target.state_dir = installer.state_dir`) and boots the
-  installed disk via Limine. The test-settings tokyonight closure is pre-built
-  (`mkTokyonight testSettings`) and placed in `extraDependencies` so
-  `nixos-install` substitutes it from the host store with no network. The
+  (test-instrumented VM — NOT the `installation-device` profile, which clashes
+  with `runNixOSTest`'s read-only `nixpkgs.overlays`; it pulls
+  `nixos-install-tools` directly — with swtpm + `mountHostNixStore`) runs
+  `install.rs::plan()` — disko, `nixos-install` (with `/etc/machine-id`
+  truncated to mirror the impermanence LiveISO, so a systemd-boot installer
+  would abort and only Limine completes), and `systemd-cryptenroll
+  --tpm2-device=auto` (no PCR policy — see below) + `--recovery-key` — on a
+  blank `/dev/vda`; the installer roots on a blank `/dev/vdb` auto-formatted
+  in the initrd (`auto-format-root-device.nix`). After `installer.shutdown()`,
+  a `target` node reuses the same qcow2 + swtpm state
+  (`target.state_dir = installer.state_dir`, plus a shared `system.name` so
+  the swtpm state dir matches) and boots the installed disk via Limine. The
+  TPM2 token is enrolled WITHOUT `--tpm2-pcrs`: the installer
+  direct-kernel-boots (PCR 7 = 0) while the target boots via OVMF (PCR 7 ≠ 0),
+  so a PCR-7-bound token could not unseal across the two VMs; PCR-7 binding is
+  a bootloader-independent firmware-measurement property covered upstream by
+  nixpkgs' `systemd-initrd-luks-tpm2.nix`. The test-settings tokyonight closure
+  is pre-built (`mkTokyonight testSettings`) and placed in `extraDependencies`
+  so `nixos-install` substitutes it from the host store with no network. The
   `dots` ISO is not used as the installer medium because it has no test
   instrumentation (no backdoor shell); the install steps are identical to the
   real installer. Joins the weekly/manual vm CI lane (heavy: full closure

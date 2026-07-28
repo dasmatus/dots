@@ -57,10 +57,13 @@
     # AIPage (codeberg.org/dasmatus/aipage) is NOT a flake input: its built
     # dist-* dirs are gitignored in the sibling repo and its flake only
     # exposes an impure `apps.build`, so no flake input can reach a built
-    # artifact. Instead nix/aipage.nix fetchGit-pins `main` at an eval-time
-    # FOD and builds the dists inside this flake; nix/home/{brave,librewolf}
-    # .nix consume the resulting packages.aipage-{chrome,firefox} (threaded
-    # via specialArgs).
+    # artifact. Instead nix/aipage.nix fetchgit-pins `main` at a hash-
+    # determined fixed-output derivation and builds the dists inside this
+    # flake; nix/home/{brave,librewolf}.nix consume the resulting
+    # packages.aipage-{chrome,firefox} (threaded via specialArgs). A
+    # derivation (not the builtins.fetchGit primitive) so its output path is
+    # hash-determined — offline `nixos-install --flake` can substitute it
+    # without the fetcher cache or git.
   };
 
   outputs =

@@ -2,16 +2,24 @@
 # pinned `main` source rev and produces the unpacked `dist-firefox` /
 # `dist-chrome` store dirs that nix/home/{librewolf,brave}.nix consume.
 #
-# Why fetchGit + an in-flake build (not a flake input, not the old local
+# Why fetchgit + an in-flake build (not a flake input, not the old local
 # tarball): aipage's own flake only exposes an *impure* `apps.build` (it shells
 # out to `bun install` + `bunx`), and its built `dist-*` dirs are gitignored —
-# so no flake input can reach a built artifact. `builtins.fetchGit` with a
-# pinned `rev` is a content-addressed eval-time FOD: pure under `nix flake
-# check`, baked into the ISO closure at build time, and cache-hit on the live
-# ISO (the installer substitutes the prebuilt dists from the ISO store — no
-# network, no source build at install time). The old design used a
-# `file://$HOME/.local/share/aipage/dist-firefox.tar` FOD that only existed on
-# the dev machine, so `nixos-install` on the ISO failed to evaluate.
+# so no flake input can reach a built artifact. `pkgs.fetchgit` with a pinned
+# `rev` + `hash` is a content-addressed fixed-output DERIVATION: pure under
+# `nix flake check`, baked into the ISO closure at build time, and substituted
+# from the install medium's store at install time (no network, no source build
+# at install time). Crucially it is a derivation, not the `builtins.fetchGit`
+# primitive: its output store path is determined by `hash` alone, so evaluating
+# it never fetches (a derivation's .outPath is computed from the hash without
+# realizing it). `builtins.fetchGit`, by contrast, is an eval-time primitive
+# that resolves its output through the nix fetcher cache (~/.cache/nix) — empty
+# on a fresh install medium / VM, so an offline `nixos-install --flake` would
+# shell out to `git` to rediscover the path. fetchgit sidesteps that entirely,
+# which is what makes the offline VM install test (tests/default.nix,
+# `limine-install-boot`) and a truly offline real install work. The old design
+# used a `file://$HOME/.local/share/aipage/dist-firefox.tar` FOD that only
+# existed on the dev machine, so `nixos-install` on the ISO failed to evaluate.
 #
 # The build re-implements aipage's `xtask build` pipeline (xtask/src/main.rs)
 # in bash rather than running `cargo run -p xtask`: it gives hard failures on
@@ -33,11 +41,13 @@
 }:
 let
   # Pin: codeberg.org/dasmatus/aipage main. Bump via scripts/update-aipage.sh.
+  # `hash` is the narHash of the fetched tree (refreshed by the update script's
+  # fakeHash→build→mismatch loop, same as the fetchCargoVendor hash below).
   aipageRev = "944064e01a58f9f9e0c0e76c91aea17f6ce269b1";
-  aipageSrc = builtins.fetchGit {
+  aipageSrc = pkgs.fetchgit {
     url = "https://codeberg.org/dasmatus/aipage.git";
-    ref = "main";
     rev = aipageRev;
+    hash = "sha256-Qz05M3hCsLG2eeYS1qoOktS+LSBwG9EilvoitOUyvGk=";
   };
 
   # Workspace version (manifests share it). Pure-eval readFile of a fetchGit

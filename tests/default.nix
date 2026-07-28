@@ -43,31 +43,75 @@ let
   # substitutes this closure verbatim.
   testTokyonight = mkTokyonight testSettings;
   testToplevel = testTokyonight.config.system.build.toplevel;
-  # Flake input source paths the installer VM needs to evaluate the flake:
-  # mountHostNixStore exposes the host store, but only paths listed in
-  # extraDependencies are guaranteed pulled into the test build's closure.
-  flakeInputPaths = [
-    inputs.nixpkgs.outPath
-    inputs.home-manager.outPath
-    inputs.disko.outPath
-    inputs.impermanence.outPath
-    inputs.nixvim.outPath
-    inputs.haumea.outPath
-    inputs.hyprland.outPath
-  ];
+  # The disko `destroy,format,mount` script for the test layout. The disko CLI
+  # run in the VM `nix build`s this script derivation; the VM store has no
+  # network and lacks the script's build-time closure (stdenv hooks such as
+  # update-autotools-gnu-config-scripts-hook, parted, cryptsetup…), so the
+  # in-VM build fails. Pre-staging the script here pulls its WHOLE closure into
+  # the host store (mountHostNixStore) so the CLI's `nix build` realises every
+  # dep by local substitution. Same disko.nix + args + pkgs as the CLI uses, so
+  # the drv hashes match too (substitution, no build) — but even if they did
+  # not, every input is present and the build would succeed.
+  testDiskoScript = testTokyonight.config.system.build.destroyFormatMount;
+  # Flake input source paths the installer VM needs to evaluate the staged
+  # flake offline: `nixos-install --flake /tmp/dots-flake#tokyonight` evals the
+  # flake, and every input's SOURCE must be in the store — not just the direct
+  # ones. nixvim pulls flake-parts, hyprland pulls hyprlang/hyprland-protocols,
+  # firefox-addons/bun2nix are direct inputs the hand-listed set below missed,
+  # etc. A hand-listed set misses transitive inputs and nix then tries to fetch
+  # them from the network (unreachable in the VM — `substituters = []` makes it
+  # fail fast instead of retrying for hours, but it still fails). Walk `inputs`
+  # recursively: each flake input attrset exposes `.inputs` (its own locked
+  # sub-inputs) and `.outPath` (the fetched source store path), so a recursion
+  # over `builtins.attrValues inputs` yields the full transitive closure;
+  # `follows`-aliased sub-inputs (e.g. every input's nixpkgs follows the top
+  # one) resolve to the same outPath and dedupe via lib.unique.
+  flakeInputPaths =
+    let
+      walk = node: [
+        node.outPath
+      ] ++ builtins.concatMap walk (builtins.attrValues (node.inputs or { }));
+    in
+    lib.unique (builtins.concatMap walk (builtins.attrValues inputs));
+
+  # The aipage source FOD — the one eval-time realization the flake forces that
+  # is NOT a flake input and NOT in the toplevel's runtime closure. nix/aipage.nix
+  # pins aipage via `pkgs.fetchgit` (aipageSrc, a hash-determined fixed-output
+  # DERIVATION), and evaluating `packages.aipage-firefox` forces aipageSrc's
+  # OUTPUT to be valid in the store: `aipageVersion = readFile
+  # "${aipageSrc}/Cargo.toml"` reads a file out of it at eval time. fetchgit is
+  # a derivation (not the `builtins.fetchGit` primitive), so forcing .outPath
+  # computes the store path from `hash` WITHOUT fetching or realizing — but the
+  # readFile then needs the path to be VALID (realized). aipageSrc is a
+  # build-time input of aipage's dist derivations, so it is absent from
+  # aipage-firefox's runtime closure and thus from the testToplevel closure
+  # that extraDependencies registers; register it explicitly here so the guest
+  # store has it valid and the eval-time readFile succeeds offline (no network,
+  # no fetcher cache, no git). Because fetchgit's output path is hash-determined,
+  # the host-built aipageSrc and the guest-evaluated aipageSrc are the SAME
+  # store path — so registering it is enough; the rest of the aipage closure
+  # (aipage-firefox etc.) substitutes bit-identically from the host store.
+  # Exposed via the aipage packages' `passthru.aipageSrc` (nix/aipage.nix).
+  aipageSrc = dotsFlake.packages.${pkgs.system}.aipage-firefox.aipageSrc;
 
   # Full install+boot oracle for the Limine switch: runs the installer's plan()
   # (rust/installer-tui/src/install.rs) in a VM, then boots the installed disk
   # via Limine and asserts the TPM2-unlocked LUKS root comes up. Two nodes
   # share the same qcow2 + swtpm state (target.state_dir = installer.state_dir,
   # plus a shared system.name so the swtpm state dir matches) so the TPM2 owner
-  # seed persists and the PCR-7-bound token unseals on the target. The dots ISO
-  # itself has no test instrumentation (no backdoor shell — iso-boot is
-  # console-only by design), so the installer node is a test-instrumented
+  # seed persists and the token unseals on the target. The TPM2 token is
+  # enrolled WITHOUT a PCR policy: the installer direct-kernel-boots (PCR 7 = 0,
+  # no firmware measurement) while the target boots via OVMF (PCR 7 != 0), so a
+  # PCR-7-bound token could not unseal across the two VMs. PCR-7 binding is a
+  # bootloader-independent firmware-measurement property (covered upstream by
+  # nixpkgs tests/systemd-initrd-luks-tpm2.nix); this test exercises the
+  # Limine-specific chain — nixos-install + Limine ESP install + systemd initrd
+  # crypttab tpm2-device=auto unseal — without conflating it with PCR policy.
+  # The dots ISO itself has no test instrumentation (no backdoor shell — iso-boot
+  # is console-only by design), so the installer node is a test-instrumented
   # installation-device VM, not the raw ISO; the install steps are identical to
   # install.rs::plan(). Mirrors nixpkgs tests/installer.nix (two-node
-  # install+boot, shared diskImage + state_dir) and tests/systemd-initrd-luks-tpm2.nix
-  # (OVMFFull + swtpm + PCR-7 enroll → boot → assert mount).
+  # install+boot, shared diskImage + state_dir).
   limineInstallBootTest =
     pkgs.testers.runNixOSTest {
       name = "limine-install-boot";
@@ -78,12 +122,25 @@ let
         let
           # Mirrors nixpkgs installer.nix `commonConfig`: both nodes share the
           # SAME disk file (./target.qcow2) so the installer's /dev/vda becomes
-          # the target's boot disk, the same OVMFFull firmware (so PCR 7 is
-          # measured identically), and — via the shared state_dir below — the
+          # the target's boot disk, the same OVMFFull firmware (used by the
+          # target's firmware boot), and — via the shared state_dir below — the
           # same swtpm. `system.name` is forced equal so the swtpm state dir
           # (`<system.name>-swtpm`, qemu-vm.nix) resolves to the same path under
           # the shared state_dir for both nodes; without this the two nodes get
-          # distinct swtpm dirs and the PCR-7 token cannot unseal.
+          # distinct swtpm dirs and the enrolled TPM2 token cannot unseal.
+          # The installer roots on a blank /dev/vdb (emptyDiskImage) that must be
+          # formatted at boot. The test framework gives the installer a systemd
+          # initrd, so `virtualisation.fileSystems."/".autoFormat = true` (set on
+          # the installer node below) is what formats it — autoFormat adds
+          # `x-systemd.makefs`, so systemd-makefs runs before /sysroot.mount.
+          # auto-format-root-device.nix is imported too as the non-systemd-initrd
+          # fallback (its mke2fs postDeviceCommands is mkIf-gated on
+          # !boot.initrd.systemd.enable, so it is skipped here but would fire if
+          # the framework default ever flips back). Computed from the OUTER pkgs
+          # (a path string in `imports`, no pkgs module-arg forcing) to avoid the
+          # read-only-overlay recursion that importing the `installation-device`
+          # profile triggers.
+          autoFormatModule = pkgs.path + "/nixos/tests/common/auto-format-root-device.nix";
           commonConfig = {
             system.name = "limine-test";
             virtualisation = {
@@ -109,11 +166,10 @@ let
           installer =
             { pkgs, ... }:
             {
-              imports = [ commonConfig ];
-              # Boot the installer under OVMFFull so PCR 7 is measured by the
-              # same firmware the target boots under (required for the PCR-7
-              # token to unseal across the two VMs).
-              virtualisation.useEFIBoot = true;
+              imports = [
+                commonConfig
+                autoFormatModule
+              ];
               # Serve the host nix store read-only so nixos-install substitutes
               # the pre-built testToplevel with no network (no substitutes).
               virtualisation.mountHostNixStore = true;
@@ -122,10 +178,31 @@ let
               # install (installer.nix:722-726).
               virtualisation.emptyDiskImages = [ 1024 ];
               virtualisation.rootDevice = "/dev/vdb";
+              # Format the blank /dev/vdb at boot — the installer has a systemd
+              # initrd (test framework default), so autoFormat adds
+              # x-systemd.makefs and systemd-makefs creates the FS before
+              # /sysroot.mount (without this, sysroot.mount fails with "Can't
+              # find ext4 filesystem" and panic-on-fail crashes the VM).
+              virtualisation.fileSystems."/".autoFormat = true;
               nix.settings.experimental-features = [
                 "nix-command"
                 "flakes"
               ];
+              # The VM is offline. Without this nixos-install's `nix` tries to
+              # substitute every path of the (large) tokyonight closure from
+              # cache.nixos.org — 5 retries w/ backoff per path × thousands of
+              # paths = hours, timing out the test. Force no substituters so nix
+              # uses only the local store (mountHostNixStore has the whole
+              # closure via extraDependencies) and never hits the network.
+              nix.settings.substituters = lib.mkForce [ ];
+              nix.settings.connect-timeout = 1;
+              # The test VM has no channel, so any in-VM Nix eval that defaults
+              # to `import <nixpkgs>` finds the store nixpkgs via NIX_PATH.
+              # (nixos-install --flake uses flake.lock, not NIX_PATH, but keep
+              # <nixpkgs> resolvable as a belt-and-braces fallback.)
+              # inputs.nixpkgs.outPath is in flakeInputPaths → extraDependencies
+              # → host store mount.
+              nix.nixPath = [ "nixpkgs=${inputs.nixpkgs.outPath}" ];
               # The dots flake source the installer reads disko.nix + nix/ from.
               # `dotsFlake` is flake `self` (path-coercible via outPath); if the
               # path type ever rejects the attrset, use `dotsFlake.outPath`.
@@ -138,8 +215,14 @@ let
                 pkgs.nixos-facter
               ];
               # Everything nixos-install needs to evaluate + copy the closure
-              # offline: the test-settings toplevel + flake input sources.
-              system.extraDependencies = [ testToplevel ] ++ flakeInputPaths;
+              # offline: the test-settings toplevel, the pre-built disko script
+              # (so the disko CLI's in-VM `nix build` finds every dep in the
+              # store), and the flake input sources.
+              system.extraDependencies = [
+                testToplevel
+                testDiskoScript
+                aipageSrc
+              ] ++ flakeInputPaths;
             };
 
           target =
@@ -178,10 +261,21 @@ let
               installer.succeed("umask 077; head -c 64 /dev/urandom > /tmp/dots-luks-pass")
 
           with subtest("disko partition + format + mount on /dev/vda"):
+              # Run the PRE-BUILT disko destroy-format-mount script directly
+              # (testDiskoScript = testTokyonight.config.system.build.
+              # destroyFormatMount) instead of the `disko` CLI. The CLI does an
+              # in-VM `nix build` of the script drv, whose hash differs from the
+              # host-built one (import <nixpkgs> {} != nixosSystem's pkgs), so
+              # it rebuilds — and rebuilding pulls the offline-unfetchable stdenv
+              # bootstrap chain. The pre-built script is self-contained: it
+              # exports PATH = makeBinPath of _packages + bash + destroyDeps
+              # (all absolute store paths), so its whole tool closure (staged
+              # via extraDependencies + mountHostNixStore) is all it needs. Same
+              # disko.nix + test args as the real installer's `disko --mode
+              # destroy,format,mount` — only the dep-bundling differs.
               installer.succeed(
-                  """disko --mode destroy,format,mount --yes-wipe-all-disks"""
-                  """ --arg disks '["/dev/vda"]'"""
-                  """ --argstr swapSize 1G /etc/dots/nix/disko.nix >&2"""
+                  "${testDiskoScript}/bin/disko-destroy-format-mount"
+                  " --yes-wipe-all-disks >&2"
               )
 
           with subtest("Stage a writable flake copy + write test settings.nix"):
@@ -206,7 +300,13 @@ let
               installer.succeed(f"printf '%s' {s_b64} | base64 -d > /tmp/dots-flake/nix/settings.nix")
               installer.succeed("cat /tmp/dots-flake/nix/settings.nix >&2")
 
-          with subtest("nixos-install completes — no machine-id abort under impermanence"):
+          with subtest("nixos-install completes — Limine sidesteps the machine-id abort"):
+              # Replicate the impermanence condition that broke systemd-boot: an
+              # empty /etc/machine-id on the installer. systemd-boot's installer
+              # reads it and aborts; Limine's does not. The test VM has a real
+              # machine-id, so truncate it to mirror the LiveISO's tmpfs root —
+              # if Limine's installer secretly depended on it, this would catch it.
+              installer.succeed(": > /etc/machine-id")
               # The load-bearing step: Limine (not systemd-boot) is the installed
               # bootloader precisely so nixos-install does not abort on the empty
               # /etc/machine-id that impermanence produces.
@@ -215,10 +315,13 @@ let
                   " --flake /tmp/dots-flake#tokyonight < /dev/null >&2"
               )
 
-          with subtest("Enroll TPM2 PCR-7 token + LUKS recovery key"):
+          with subtest("Enroll TPM2 token (no PCR policy) + LUKS recovery key"):
+              # No --tpm2-pcrs: the token is PCR-unbound so it unseals on the
+              # target via the shared swtpm regardless of PCR 7 (which differs
+              # between the direct-boot installer and the OVMF-booted target).
               installer.succeed(
                   "systemd-cryptenroll --unlock-key-file=/tmp/dots-luks-pass"
-                  " --tpm2-device=auto --tpm2-pcrs=7 /dev/tokyonightvg/root >&2"
+                  " --tpm2-device=auto /dev/tokyonightvg/root >&2"
               )
               installer.succeed(
                   "systemd-cryptenroll --unlock-key-file=/tmp/dots-luks-pass"
@@ -244,7 +347,7 @@ let
               # via the TPM2 token (no recovery-key prompt in a non-interactive
               # boot). Confirm the mapper is the root backing device.
               assert "/dev/mapper/cryptroot" in target.succeed("mount"), \
-                  "cryptroot not mounted — TPM2 PCR-7 unseal did not fire"
+                  "cryptroot not mounted — TPM2 unseal did not fire"
         '';
     };
 

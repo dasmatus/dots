@@ -55,15 +55,32 @@ nix run "$BUN2NIX" -- -l "$AIPAGE/bun.lock" -o nix/aipage-bun.nix
 # 2. Update the pinned rev in nix/aipage.nix.
 perl -0pi -e 's/aipageRev = "[0-9a-f]{40}";/aipageRev = "'"$rev"'";/' nix/aipage.nix
 
-# 3. Refresh the fetchCargoVendor hash: reset it to lib.fakeHash, build, and
-#    paste the "got: sha256-…" from the mismatch error back in. We only
-#    auto-fix the cargoDeps FOD (fetchBunDeps per-package hashes come from
-#    aipage-bun.nix, and the wasm-bindgen-cli hashes only change when the
-#    crate version bumps, which step 2 guards against). If the verify build in
-#    step 4 still surfaces a *different* FOD mismatch, fix it by hand.
-echo "[aipage] refreshing fetchCargoVendor hash…"
+# 3. Refresh the aipageSrc fetchgit hash: reset it to lib.fakeHash, build, and
+#    paste the "got: sha256-…" from the mismatch error back in. MUST run before
+#    the fetchCargoVendor refresh (step 4): cargoDeps takes `src = aipageSrc`,
+#    so a stale/wrong aipageSrc hash surfaces first and would mask the
+#    cargoDeps mismatch. fetchBunDeps per-package hashes come from
+#    aipage-bun.nix, and the wasm-bindgen-cli hashes only change when the crate
+#    version bumps (step 2 guards that). If the verify build in step 5 still
+#    surfaces a *different* FOD mismatch, fix it by hand.
+echo "[aipage] refreshing aipageSrc fetchgit hash…"
 # Reset to lib.fakeHash (typed SRI) so the build surfaces the real narHash as
 # a "got:" mismatch (works on every bump, not just the first).
+perl -0pi -e 's/(aipageSrc = pkgs\.fetchgit \{\n    url = [^\n]+\n    rev = aipageRev;\n    hash = ).*?(;)/${1}pkgs.lib.fakeHash${2}/' nix/aipage.nix
+err=$(nix build .#aipage-firefox --no-link 2>&1 || true)
+if echo "$err" | grep -q 'got:.*sha256-'; then
+  got=$(echo "$err" | grep -oE 'got:.*sha256-[A-Za-z0-9+/=]+' | grep -oE 'sha256-[A-Za-z0-9+/=]+' | head -1)
+  echo "  aipageSrc fetchgit hash: $got"
+  perl -0pi -e 's/hash = pkgs\.lib\.fakeHash;/hash = "'"$got"'";/' nix/aipage.nix
+else
+  echo "$err" >&2
+  echo "aipage: no aipageSrc fetchgit hash mismatch surfaced (unexpected). Inspect the build log above." >&2
+  exit 1
+fi
+
+# 4. Refresh the fetchCargoVendor hash the same way (aipageSrc is now correct,
+#    so the build proceeds to cargoDeps and surfaces its mismatch).
+echo "[aipage] refreshing fetchCargoVendor hash…"
 perl -0pi -e 's/(fetchCargoVendor \{\n    src = aipageSrc;\n    hash = ).*?(;)/${1}pkgs.lib.fakeHash${2}/' nix/aipage.nix
 err=$(nix build .#aipage-firefox --no-link 2>&1 || true)
 if echo "$err" | grep -q 'got:.*sha256-'; then
@@ -76,7 +93,7 @@ else
   exit 1
 fi
 
-# 4. Verify: both dists build and the flake evals.
+# 5. Verify: both dists build and the flake evals.
 echo "[aipage] building .#aipage-firefox .#aipage-chrome…"
 nix build .#aipage-firefox .#aipage-chrome --no-link --print-out-paths
 echo "[aipage] nix flake check --no-build…"
