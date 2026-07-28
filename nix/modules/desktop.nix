@@ -149,7 +149,6 @@
             etc."brave/policies/managed/extensions.json".text = builtins.toJSON {
               ExtensionInstallForcelist = [
                 "nngceckbapebfimnlniiiahkandclblb;https://clients2.google.com/service/update2/crx"
-                "fcoeoabgfenejglbffodgkkbkcdhcgfn;https://clients2.google.com/service/update2/crx"
                 "nomnklagbgmgghhjidfhnoelnjfndfpd;https://clients2.google.com/service/update2/crx"
                 "cebifddlogbjhoibpjobhlamopmlpckl;https://clients2.google.com/service/update2/crx"
                 "febipmhaonfflclkijaehmhnacjilggf;https://clients2.google.com/service/update2/crx"
