@@ -114,12 +114,37 @@ fn run_tui(
     let fx_sig = fx_slot.take().expect("fx signal mounted");
 
     let mut driver = Driver::new(&mut engine, &mut term, RunConfig::default())?;
-    // Idle wait cap: worker results land within ~50 ms even with no key input.
-    // A frame request from `Fx` (crossfade in flight) wakes this early, so the
-    // fade runs at full speed and idle polls cheaply.
-    let poll = Duration::from_millis(50);
+    // `Driver::new` armed the engine's EMERGENCY restore slot (alt-screen
+    // leave, kitty-keyboard pop, cursor/title/paste/focus resets, termios).
+    // Install a panic hook that fires it so a crash in the loop never leaves
+    // the controlling tty in raw mode / alt screen / hidden cursor — the
+    // engine installs this only inside `App::run`, which the custom loop skips.
+    install_panic_hook();
+    // Idle wait cap: worker results land within the idle interval even with no
+    // key input. A frame request from `Fx` (crossfade in flight) wakes this
+    // early, so the fade runs at full speed and idle polls cheaply. The
+    // interval also bounds how often an idle screen is fully repainted (see
+    // `request_full_redraw` below) — raise it on slow/SSH links to cut idle
+    // byte cost (and preview-image re-upload cost) at the cost of slower
+    // desync healing while idle.
+    let poll = idle_interval();
 
     loop {
+        // 0. Force a full-screen rewrite this draw. `request_full_redraw`
+        //    poisons the engine's previous-frame model and re-anchors the
+        //    presenter, so the diff re-emits EVERY cell this frame (wrapped
+        //    in DEC-2026 sync output — tear-free) instead of suppressing
+        //    byte-identical cells. Any terminal/model desync (an external
+        //    `clear`, emulator glitch, scrollback bleed) therefore self-heals
+        //    on the very next draw — the Claude-Code-style fullscreen render
+        //    contract. Note: this also re-places the preview image, which for
+        //    kitty/sixel means re-uploading it this frame — accepted cost of
+        //    the every-draw full rewrite; tune `DOTS_TUI_IDLE_MS` up if the
+        //    idle re-upload rate is too heavy over SSH. `turn.idle` is
+        //    `events == 0` and independent of whether a frame rendered, so the
+        //    pace branch below still blocks when there is no input — no spin.
+        abstracttui::app::request_full_redraw();
+
         // 1. Drain apply + preview worker results into the app state.
         drain(&apply_rx, &app_sig);
         drain(&preview_rx, &app_sig);
@@ -212,4 +237,34 @@ fn drain(rx: &mpsc::Receiver<Event>, app_sig: &Signal<App>) {
     while let Ok(ev) = rx.try_recv() {
         app_sig.update(|a| a.on_event(ev));
     }
+}
+
+/// Idle poll interval — the cap on how long the loop blocks when nothing is
+/// happening. It doubles as the cadence at which an idle screen is fully
+/// repainted (see `request_full_redraw` in the loop): every idle wake rewrites
+/// the whole console (and re-uploads the preview image), so any desync heals
+/// within this interval. Override with `DOTS_TUI_IDLE_MS` (e.g. `1000` on a
+/// slow/SSH link to cut idle byte + image re-upload cost).
+fn idle_interval() -> Duration {
+    const DEFAULT_MS: u64 = 50;
+    let ms = std::env::var("DOTS_TUI_IDLE_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_MS);
+    Duration::from_millis(ms.max(1))
+}
+
+/// Chain a terminal emergency-restore before the previous panic hook so panic
+/// messages print AFTER the controlling tty is back in cooked mode (readable,
+/// not scattered over the alt screen). Idempotent across the process.
+fn install_panic_hook() {
+    use std::sync::Once;
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            abstracttui::term::emergency_restore();
+            prev(info);
+        }));
+    });
 }

@@ -9,10 +9,12 @@
 //! before the reactive tree is mounted, so the loop itself stays pure: the
 //! only I/O inside the loop is writing the override file on `Save`/`Clear`.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use abstracttui::app::{Driver, RunConfig};
 use abstracttui::prelude::*;
 use abstracttui::reactive::after;
+use abstracttui::term::UnixTerminal;
 use abstracttui::widgets::SpinnerKind;
 
 use crate::matcher::match_monitors;
@@ -123,7 +125,7 @@ struct FormCtx {
 ///
 /// # Errors
 ///
-/// Bails if stdin isn't a tty; otherwise forwards `hyprctl`/parse/`App::run`
+/// Bails if stdin isn't a tty; otherwise forwards `hyprctl`/parse/Driver-loop
 /// failures as `anyhow::Error`.
 pub fn run(ctl: &impl HyprCtl, rules: &Rules) -> anyhow::Result<()> {
     if !abstracttui::term::have_tty() {
@@ -231,7 +233,48 @@ pub fn run(ctl: &impl HyprCtl, rules: &Rules) -> anyhow::Result<()> {
 
         root.build()
     })?;
-    app.run().map_err(anyhow::Error::msg)
+
+    // Drive the engine with a custom `Driver` loop (the same shape the other
+    // TUI apps use) instead of `App::run`, so we can force a full-screen
+    // rewrite every draw. `App::run` would install the panic hook and own the
+    // terminal for us; the custom loop does both explicitly.
+    let mut term = UnixTerminal::new().map_err(anyhow::Error::msg)?;
+    let mut driver =
+        Driver::new(&mut app, &mut term, RunConfig::default()).map_err(anyhow::Error::msg)?;
+    // `Driver::new` armed the engine's EMERGENCY restore slot; install the
+    // panic hook that fires it so a crash never leaves the tty raw / in the
+    // alt screen with the cursor hidden.
+    install_panic_hook();
+    let poll = idle_interval();
+
+    let result = loop {
+        // Force a full-screen rewrite this draw. `request_full_redraw`
+        // poisons the engine's previous-frame model and re-anchors the
+        // presenter, so the diff re-emits EVERY cell this frame (wrapped in
+        // DEC-2026 sync output — tear-free) instead of suppressing
+        // byte-identical cells. Any terminal/model desync (an external
+        // `clear`, emulator glitch, scrollback bleed) self-heals on the very
+        // next draw — the Claude-Code-style fullscreen render contract.
+        // `turn.idle` is `events == 0` and independent of whether a frame
+        // rendered, so the pace branch below still blocks when there is no
+        // input — the loop does not spin.
+        abstracttui::app::request_full_redraw();
+
+        let turn = driver
+            .turn(&mut app, &mut term)
+            .map_err(anyhow::Error::msg)?;
+        if turn.quit {
+            break Ok(());
+        }
+        if turn.idle {
+            if let Err(e) = driver.wait_until(&mut term, Instant::now() + poll) {
+                break Err(anyhow::Error::msg(e));
+            }
+        }
+    };
+    // Always restore the terminal, even on the error path.
+    let _ = driver.finish(&mut term);
+    result
 }
 
 /// Right pane: the edit form for the selected monitor — seven labeled
@@ -400,4 +443,33 @@ fn parse_vrr(s: &str) -> Option<Vrr> {
         "auto" => Some(Vrr::Auto),
         _ => None,
     }
+}
+
+/// Idle poll interval — the cap on how long the loop blocks when nothing is
+/// happening. It doubles as the cadence at which an idle screen is fully
+/// repainted (see `request_full_redraw` in the loop): every idle wake rewrites
+/// the whole console, so any desync heals within this interval. Override with
+/// `DOTS_TUI_IDLE_MS` (e.g. `1000` on a slow/SSH link to cut idle byte cost).
+fn idle_interval() -> Duration {
+    const DEFAULT_MS: u64 = 50;
+    let ms = std::env::var("DOTS_TUI_IDLE_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_MS);
+    Duration::from_millis(ms.max(1))
+}
+
+/// Chain a terminal emergency-restore before the previous panic hook so panic
+/// messages print AFTER the controlling tty is back in cooked mode (readable,
+/// not scattered over the alt screen). Idempotent across the process.
+fn install_panic_hook() {
+    use std::sync::Once;
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            abstracttui::term::emergency_restore();
+            prev(info);
+        }));
+    });
 }
