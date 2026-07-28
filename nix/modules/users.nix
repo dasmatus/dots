@@ -63,6 +63,9 @@ in
   services.userborn.enable = true;
   users.users.${settings.username} = {
     isNormalUser = true;
+    # Pretty name (GECOS full-name field) — reuse the git identity so the
+    # login screen and `getent passwd` show the same name as `git user.name`.
+    description = settings.gitName;
     shell = pkgs.fish;
     initialHashedPassword = secrets.userHash or null;
     extraGroups = [
