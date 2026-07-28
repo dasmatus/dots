@@ -31,5 +31,13 @@ secrets/*
 nix/facter.json
 nix/settings.nix
 
+# Install-time password hashes written by the installer TUI into the
+# STAGED_FLAKE only (rust/installer-tui/src/install.rs). Never committed — a
+# hash is offline-crackable. The file is NOT stashed to /var/lib/dots, so the
+# dots-clone service (nix/home/dots-repo.nix) never restores it into the user's
+# git clone; it exists only for the install-time `nixos-install` eval so userborn
+# can create the accounts with these hashes on first boot.
+nix/secrets.nix
+
 # crash core dumps (core.<pid> — Brave GTK4/Wayland segfault artifacts)
 /core.[0-9]*

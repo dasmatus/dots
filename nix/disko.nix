@@ -119,8 +119,20 @@ in
               type = "btrfs";
               extraArgs = [ "-f" ];
               subvolumes = {
-                "@root" = {
-                  mountpoint = "/";
+                # No "@root"→`/`: the root is a tmpfs (declared in
+                # nix/modules/impermanence.nix) so system state is wiped each boot
+                # and only the dirs bind-mounted from /persist survive. The store
+                # lives on its own persistent subvol so /nix/store survives the
+                # wipe; /persist is the impermanence source.
+                "@nix" = {
+                  mountpoint = "/nix";
+                  mountOptions = [
+                    "compress=zstd:1"
+                    "noatime"
+                  ];
+                };
+                "@persist" = {
+                  mountpoint = "/persist";
                   mountOptions = [
                     "compress=zstd:1"
                     "noatime"

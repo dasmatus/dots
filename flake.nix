@@ -13,6 +13,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # Ephemeral-root persistence (tmpfs `/` + bind-mounts from a persistent
+    # /persist subvol). Wired in nix/modules/impermanence.nix so /var/lib/nixos
+    # (userborn creds), /var/lib/sbctl (Secure Boot keys) and Wi-Fi profiles
+    # survive the root being wiped each boot.
+    impermanence = {
+      url = "github:nix-community/impermanence";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";

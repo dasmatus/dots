@@ -155,10 +155,16 @@ fn plan_stashes_exactly_settings_and_facter_to_var_lib_dots() {
     };
     assert_eq!(program, "sh");
     let script = args.join(" ");
-    assert!(script.contains("mkdir -p /mnt/var/lib/dots"), "{script}");
+    // Must land on the persistent /persist subvol: the root is a tmpfs wiped
+    // each boot, so nixos-impermanence bind-mounts /persist/var/lib/dots →
+    // /var/lib/dots for the first-login dots-clone service to read.
+    assert!(
+        script.contains("mkdir -p /mnt/persist/var/lib/dots"),
+        "{script}"
+    );
     assert!(
         script.contains(&format!(
-            "cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json /mnt/var/lib/dots/"
+            "cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json /mnt/persist/var/lib/dots/"
         )),
         "{script}"
     );
@@ -210,6 +216,13 @@ fn plan_never_references_mnt_etc_dots() {
                     step.title
                 );
             }
+            Action::WriteSecrets { path, .. } => {
+                assert!(
+                    !path.contains("/mnt/etc/dots"),
+                    "{}: path leaked /mnt/etc/dots",
+                    step.title
+                );
+            }
         }
     }
 }
@@ -245,25 +258,44 @@ fn plan_enrolls_tpm2_then_recovery_key() {
 }
 
 #[test]
-fn plan_sets_passwords_via_stdin_never_argv() {
+fn plan_seeds_passwords_via_secrets_nix_not_chpasswd() {
+    // Under userborn + immutable /etc the user account does not exist at
+    // install time (userborn creates it at first boot from the closure baked
+    // by nixos-install), so the old `nixos-enter -- chpasswd` step had no
+    // target. The declarative yescrypt hashes in nix/secrets.nix replace it:
+    // the WriteSecrets step computes them from the plaintext passwords and
+    // writes the file into the staged flake.
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
-    let chpasswd = steps
+    let has_chpasswd = steps.iter().any(|s| {
+        matches!(
+            &s.action,
+            Action::Command { program, args, .. }
+            if program == "nixos-enter" && args.iter().any(|a| a == "chpasswd")
+        )
+    });
+    assert!(
+        !has_chpasswd,
+        "chpasswd step should be replaced by WriteSecrets"
+    );
+
+    let secrets = steps
         .iter()
         .find_map(|s| match &s.action {
-            Action::Command {
-                program,
-                args,
-                stdin,
-                ..
-            } if program == "nixos-enter" => {
-                args.iter().any(|a| a == "chpasswd").then(|| stdin.clone())
+            Action::WriteSecrets {
+                path,
+                user_password,
+                root_password,
+            } if path == &format!("{STAGED_FLAKE}/nix/secrets.nix") => {
+                Some((user_password.clone(), root_password.clone()))
             }
             _ => None,
         })
-        .flatten()
-        .expect("chpasswd step with stdin");
-    assert_eq!(chpasswd, "root:rootsecret\nalice:usersecret\n");
+        .expect("WriteSecrets step writing nix/secrets.nix");
+    assert_eq!(secrets.0, "usersecret");
+    assert_eq!(secrets.1, "rootsecret");
 
+    // Passwords must never appear in any command's argv: the WriteSecrets
+    // runner pipes them to mkpasswd via stdin, so they never hit /proc argv.
     for s in &steps {
         if let Action::Command { program, args, .. } = &s.action {
             let joined = format!("{program} {}", args.join(" "));
@@ -276,18 +308,33 @@ fn plan_sets_passwords_via_stdin_never_argv() {
 }
 
 #[test]
-fn plan_sets_passwords_before_tpm2_enrollment() {
+fn plan_writes_secrets_before_install_and_never_stashes_them() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
-    let chpasswd =
-        idx(&|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-enter"));
-    let enroll = idx(
-        &|s| matches!(&s.action, Action::Command { program, .. } if program == "systemd-cryptenroll"),
+    let secrets = idx(&|s| matches!(&s.action, Action::WriteSecrets { .. }));
+    let install = idx(
+        &|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-install"),
     );
     assert!(
-        chpasswd < enroll,
-        "a failed TPM2 enrollment must not leave every account locked"
+        secrets < install,
+        "secrets.nix must be written before nixos-install evaluates the flake"
     );
+
+    // The load-bearing git-leak guard: secrets.nix must never reach
+    // /var/lib/dots, or dots-clone (nix/home/dots-repo.nix) would restore it
+    // into the user's git clone and a yescrypt hash would be committable.
+    // No command in the plan may reference secrets.nix at all — the stash cp
+    // lists only settings.nix + facter.json, and WriteSecrets writes into the
+    // tmpfs STAGED_FLAKE, not the target.
+    for s in &steps {
+        if let Action::Command { program, args, .. } = &s.action {
+            let joined = format!("{program} {}", args.join(" "));
+            assert!(
+                !joined.contains("secrets.nix"),
+                "secrets.nix must not appear in any command (would risk stashing it): {joined}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -306,12 +353,18 @@ fn plan_copies_network_profiles_to_target() {
         script.contains("if [ -d /etc/NetworkManager/system-connections ]"),
         "{script}"
     );
+    // Must land on the persistent /persist subvol, not the ephemeral /mnt/etc:
+    // the root is a tmpfs wiped each boot, so nixos-impermanence bind-mounts
+    // /persist/etc/NetworkManager/system-connections over /etc/...; writing to
+    // the persistent source is what survives the first reboot.
     assert!(
-        script.contains("mkdir -p /mnt/etc/NetworkManager"),
+        script.contains("mkdir -p /mnt/persist/etc/NetworkManager"),
         "{script}"
     );
     assert!(
-        script.contains("cp -a /etc/NetworkManager/system-connections /mnt/etc/NetworkManager/"),
+        script.contains(
+            "cp -a /etc/NetworkManager/system-connections /mnt/persist/etc/NetworkManager/"
+        ),
         "{script}"
     );
 }
@@ -362,13 +415,21 @@ fn plan_pre_seed_step_copies_iso_keys_to_target_var_lib_sbctl() {
     assert_eq!(program, "sh");
     let script = args.join(" ");
     assert!(script.contains("[ -d /etc/dots-sbctl-keys ]"), "{script}");
-    assert!(script.contains("mkdir -p /mnt/var/lib/sbctl"), "{script}");
+    // Must land on the persistent /persist subvol (the root is a tmpfs wiped
+    // each boot; nixos-impermanence bind-mounts /persist/var/lib/sbctl over
+    // /var/lib/sbctl), so the keys survive the first reboot and lanzaboote can
+    // sign UKIs from /var/lib/sbctl/keys/db/db.pem during generation-1
+    // activation.
     assert!(
-        script.contains("cp -a /etc/dots-sbctl-keys/. /mnt/var/lib/sbctl/"),
+        script.contains("mkdir -p /mnt/persist/var/lib/sbctl"),
         "{script}"
     );
     assert!(
-        script.contains("chmod 700 /mnt/var/lib/sbctl/keys"),
+        script.contains("cp -a /etc/dots-sbctl-keys/. /mnt/persist/var/lib/sbctl/"),
+        "{script}"
+    );
+    assert!(
+        script.contains("chmod 700 /mnt/persist/var/lib/sbctl/keys"),
         "{script}"
     );
 }

@@ -6,12 +6,42 @@
   pkgs,
   lib,
   settings,
+  system,
   ...
 }:
 {
   security.pam.services.login.enableGnomeKeyring = true;
   networking.hostName = settings.hostname;
-
+  system.nixos = {
+    distroName = "dasmatus/dots";
+    variantName = settings.hostname;
+  };
+  system.nixos-init.enable = true;
+  # nixos-init is bashless: it ships no activation scripts and mounts /etc
+  # itself, so it asserts `system.etc.overlay.enable` (and userborn — see
+  # nix/modules/users.nix) as prerequisites. The overlay replaces the Perl
+  # `setup-etc.pl` /etc generation with an erofs metadata image + overlayfs
+  # mount staged in the initrd (etc-activation.nix wires the systemd mount
+  # units; `!mutable` itself asserts userborn/sysusers is on).
+  #
+  # `mutable = false` → /etc is the read-only overlay only (no /.rw-etc
+  # upperdir), so nothing on disk can drift from the declared config. userborn
+  # then can't write passwd/shadow/group to /etc, so its `passwordFilesLocation`
+  # defaults to `/var/lib/nixos` (nixos/modules/services/system/userborn.nix)
+  # and /etc/{passwd,shadow,group} become direct-symlinks there.
+  #
+  # The root is a tmpfs wiped each boot (nix/modules/impermanence.nix), so
+  # /var/lib/nixos is bind-mounted from the persistent /persist subvol by
+  # nixos-impermanence — that is what keeps the userborn credentials (and
+  # /var/lib/sbctl, Wi-Fi profiles) alive across the ephemeral root. Without
+  # that bind-mount an ephemeral root would wipe /var/lib/nixos every boot
+  # and lock every account.
+  # Marked experimental upstream — recoverable by reverting this and the
+  # nixos-init line.
+  system.etc.overlay = {
+    enable = true;
+    mutable = false;
+  };
   # Unfree is opt-in per package; claude-code comes in via home-manager
   # (useGlobalPkgs, so the system nixpkgs config applies).
   nixpkgs.config.allowUnfreePredicate =
@@ -39,6 +69,11 @@
       "nvidia-x11"
       "nvidia-settings"
       "vscode-extension-fill-labs-dependi"
+      # Stremio's official Linux client (Rust+GTK4 rewrite of the retired
+      # Qt5 `stremio`). Shell is GPL-3.0 but the bundled server.js has no
+      # upstream license, so nixpkgs marks the derivation
+      # AND [ gpl3Only unfree ]. Ex-flatpak-style media app (nix/home/pkgs.nix).
+      "stremio-linux-shell"
       # Steam client + its unfree redistributable deps. `programs.steam.enable`
       # (nix/modules/steam.nix) puts `steam` (an FHS wrapper, pname "steam")
       # into systemPackages, which pulls `steam-unwrapped` — the actual

@@ -25,8 +25,10 @@
       inputs.disko.nixosModules.disko
       inputs.home-manager.nixosModules.home-manager
       inputs.lanzaboote.nixosModules.lanzaboote
+      inputs.impermanence.nixosModules.impermanence
       (import ../nix/disko.nix { inherit (settings) disks swapSize; })
       ../nix/modules/core.nix
+      ../nix/modules/impermanence.nix
       ../nix/modules/boot.nix
       ../nix/modules/network.nix
       ../nix/modules/searxng.nix

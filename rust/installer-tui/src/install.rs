@@ -39,6 +39,23 @@ pub enum Action {
         stdin: Option<String>,
         capture: Capture,
     },
+    /// Hash the two install passwords with `mkpasswd -m yescrypt --stdin`
+    /// (plaintext piped via stdin, never argv — no /proc leak) and write
+    /// `nix/secrets.nix` into the staged flake. `nixos-install` then evaluates
+    /// the flake with the hashes present so userborn creates the accounts
+    /// with them on first boot (nix/modules/users.nix reads this file via
+    /// `builtins.pathExists` and sets `initialHashedPassword`). The file is
+    /// install-time-only: it is NOT stashed to /var/lib/dots, so the
+    /// dots-clone Home Manager service never restores it into the user's git
+    /// clone — a yescrypt hash is offline-crackable. On rebuild from the clean
+    /// user clone the file is absent, both hashes are null, and userborn's
+    /// `shadow::Entry::update(None)` leaves the existing /var/lib/nixos shadow
+    /// entry alone (`mutableUsers = true`).
+    WriteSecrets {
+        path: String,
+        user_password: String,
+        root_password: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,8 +99,11 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
 /// The full install sequence. `flake_src` is where the ISO carries the flake
 /// (/etc/dots); the plan stages a writable copy at [`STAGED_FLAKE`] and
 /// installs from there, then stashes the two machine-specific answer files
-/// (`settings.nix`, `facter.json`) at `{mnt}/var/lib/dots` for the
-/// first-login `dots-clone` user service to pick up. The repo itself is
+/// (`settings.nix`, `facter.json`) at `{mnt}/persist/var/lib/dots` — on the
+/// persistent /persist subvol, since the root is a tmpfs wiped each boot
+/// (nix/modules/impermanence.nix) and nixos-impermanence bind-mounts
+/// /persist/var/lib/dots → /var/lib/dots so the first-login `dots-clone` user
+/// service can pick them up. The repo itself is
 /// never copied onto the target — `mnt` is only the installation mount root
 /// (/mnt). `NetworkManager` profiles created by the Wi-Fi screen (credentials
 /// included, root-only 0600 keyfiles) are copied so the installed system
@@ -165,13 +185,21 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             },
         },
         Step {
+            title: "Write password hashes (secrets.nix)".into(),
+            action: Action::WriteSecrets {
+                path: format!("{STAGED_FLAKE}/nix/secrets.nix"),
+                user_password: cfg.user_password.clone(),
+                root_password: cfg.root_password.clone(),
+            },
+        },
+        Step {
             title: "Stash install answers on target".into(),
             action: cmd(
                 "sh",
                 &[
                     "-c",
                     &format!(
-                        "mkdir -p {mnt}/var/lib/dots && cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json {mnt}/var/lib/dots/"
+                        "mkdir -p {mnt}/persist/var/lib/dots && cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json {mnt}/persist/var/lib/dots/"
                     ),
                 ],
                 None,
@@ -183,24 +211,28 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             action: cmd(
                 "sh",
                 &["-c", &format!(
-                    "if [ -d /etc/NetworkManager/system-connections ]; then mkdir -p {mnt}/etc/NetworkManager && cp -a /etc/NetworkManager/system-connections {mnt}/etc/NetworkManager/; fi"
+                    "if [ -d /etc/NetworkManager/system-connections ]; then mkdir -p {mnt}/persist/etc/NetworkManager && cp -a /etc/NetworkManager/system-connections {mnt}/persist/etc/NetworkManager/; fi"
                 )],
                 None,
                 Capture::Stream,
             ),
         },
-        // Pre-seed the target's /var/lib/sbctl with the ISO-embedded key
-        // hierarchy (PK/KEK/db private keys + GUID, generated fresh per ISO
+        // Pre-seed the persistent /persist/var/lib/sbctl with the ISO-embedded
+        // key hierarchy (PK/KEK/db private keys + GUID, generated fresh per ISO
         // build by the flake's .#sbctl-keys and carried at /etc/dots-sbctl-
-        // keys). MUST run before nixos-install: nixos-install activates the
-        // new system's generation 1, and with dots.secureboot.enable
-        // (lanzaboote, pkiBundle=/var/lib/sbctl) that activation signs the UKI
-        // using /var/lib/sbctl/keys/db/db.pem — if the keys aren't there yet
+        // keys). MUST run before nixos-install and MUST land on the /persist
+        // subvol (not /var/lib/sbctl directly): the root is a tmpfs wiped each
+        // boot (nix/modules/impermanence.nix), and nixos-impermanence
+        // bind-mounts /persist/var/lib/sbctl → /var/lib/sbctl, so writing the
+        // keys to the persistent source is what survives. nixos-install
+        // activates generation 1, and with dots.secureboot.enable (lanzaboote,
+        // pkiBundle=/var/lib/sbctl) that activation signs the UKI using
+        // /var/lib/sbctl/keys/db/db.pem — if the keys aren't there yet
         // lanzaboote fails with "Failed to read public key from
-        // /var/lib/sbctl/keys/db/db.pem: No such file or directory". Also lets
-        // the installed system boot the ISO's signed UKIs without a first-boot
-        // `sbctl create-keys`; the dots-sbctl-keygen oneshot in
-        // nix/modules/secureboot.nix then no-ops when keys exist.
+        // /var/lib/sbctl/keys/db/db.pem: No such file or directory". Writing to
+        // /persist also lets the installed system boot the ISO's signed UKIs
+        // without a first-boot `sbctl create-keys`; the dots-sbctl-keygen
+        // oneshot in nix/modules/secureboot.nix then no-ops when keys exist.
         Step {
             title: "Pre-seed Secure Boot keys".into(),
             action: cmd(
@@ -208,7 +240,7 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                 &[
                     "-c",
                     &format!(
-                        "if [ -d /etc/dots-sbctl-keys ]; then mkdir -p {mnt}/var/lib/sbctl && cp -a /etc/dots-sbctl-keys/. {mnt}/var/lib/sbctl/ && chmod 700 {mnt}/var/lib/sbctl/keys; fi"
+                        "if [ -d /etc/dots-sbctl-keys ]; then mkdir -p {mnt}/persist/var/lib/sbctl && cp -a /etc/dots-sbctl-keys/. {mnt}/persist/var/lib/sbctl/ && chmod 700 {mnt}/persist/var/lib/sbctl/keys; fi"
                     ),
                 ],
                 None,
@@ -230,20 +262,15 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                 Capture::Stream,
             ),
         },
-        // Passwords first: a failed TPM2 enrollment (e.g. no TPM) must not
-        // leave an otherwise-installed system with every account locked.
-        Step {
-            title: "Set passwords".into(),
-            action: cmd(
-                "nixos-enter",
-                &["--root", mnt, "--", "chpasswd"],
-                Some(format!(
-                    "root:{}\n{}:{}\n",
-                    cfg.root_password, cfg.username, cfg.user_password
-                )),
-                Capture::Stream,
-            ),
-        },
+        // Note on the old `nixos-enter -- chpasswd` step, removed: under
+        // userborn + immutable /etc the user account does not exist at install
+        // time (userborn creates it at first boot from the closure baked by
+        // nixos-install), so chpasswd had no target. The declarative hashes in
+        // nix/secrets.nix (written above) are what actually seed the passwords
+        // — and because account creation is decoupled from TPM2 enrollment, a
+        // failed enrollment can no longer leave the installed system locked:
+        // the closure already carries the hashes and userborn runs at first
+        // boot regardless of the LUKS unlock method.
         Step {
             title: "Enroll TPM2 unlock (PCR 7)".into(),
             action: cmd(
@@ -317,6 +344,72 @@ fn scrub_passfile() {
 
 const RECOVERY_KEY_FILE: &str = "/mnt/root/luks-recovery.txt";
 
+/// Unlink + `O_EXCL` write: never follow a pre-planted file/symlink at a
+/// predictable path, and `mode` applies from the first byte (`fs::write` would
+/// create 0644 and only chmod afterwards). Parent dirs are created if missing.
+fn write_file_secure(path: &str, contents: &str, mode: u32) -> anyhow::Result<()> {
+    use anyhow::Context;
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let _ = std::fs::remove_file(path);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(path)
+        .and_then(|mut f| f.write_all(contents.as_bytes()))
+        .with_context(|| format!("writing {path}"))?;
+    Ok(())
+}
+
+/// Hash a plaintext password with yescrypt via `mkpasswd -m yescrypt --stdin`
+/// (from the whois package; in `corePackageNames`, so it ships in
+/// /run/current-system/sw on every NixOS incl. the ISO — no Cargo dep, no extra
+/// Nix package). The password is piped through stdin, never argv, so it can't
+/// leak via /proc/<pid>/cmdline; mkpasswd generates a fresh urandom salt
+/// itself (no installer-side RNG). yescrypt (`$y$`) is in both the
+/// NixOS-accepted MCF scheme set and userborn's "secure" set, so crypt(3)
+/// verifies it at login and userborn logs no weak-scheme warning.
+fn hash_password(plaintext: &str) -> anyhow::Result<String> {
+    use anyhow::Context;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("mkpasswd")
+        .args(["-m", "yescrypt", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("spawning mkpasswd")?;
+    {
+        let mut stdin = child.stdin.take().expect("stdin piped");
+        stdin
+            .write_all(plaintext.as_bytes())
+            .context("writing password to mkpasswd stdin")?;
+        // stdin dropped here → EOF so mkpasswd emits the hash and exits
+    }
+    let output = child.wait_with_output().context("waiting on mkpasswd")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "mkpasswd exited with {}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let hash = String::from_utf8(output.stdout)?.trim().to_string();
+    // Guards against mkpasswd surfacing an error string on stdout instead of
+    // a real hash, and confirms the scheme is yescrypt before we embed it in a
+    // Nix `"..."` literal — yescrypt's alphabet (`./0-9A-Za-z`, no `{`) can't
+    // form a `${…}` interpolation, so the hash is safe in a Nix string.
+    anyhow::ensure!(
+        hash.starts_with("$y$"),
+        "mkpasswd did not produce a yescrypt hash: {hash}"
+    );
+    Ok(hash)
+}
+
 fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
     use anyhow::Context;
     use std::io::{BufRead, BufReader, Write};
@@ -329,21 +422,23 @@ fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
             contents,
             mode,
         } => {
-            if let Some(parent) = std::path::Path::new(path).parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            // Unlink + O_EXCL: never follow a pre-planted file/symlink at a
-            // predictable path, and the mode applies from the first byte
-            // (fs::write would create 0644 and only chmod afterwards).
-            let _ = std::fs::remove_file(path);
-            use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(*mode)
-                .open(path)
-                .and_then(|mut f| f.write_all(contents.as_bytes()))
-                .with_context(|| format!("writing {path}"))?;
+            write_file_secure(path, contents, *mode)?;
+            Ok(())
+        }
+
+        Action::WriteSecrets {
+            path,
+            user_password,
+            root_password,
+        } => {
+            let user_hash = hash_password(user_password)?;
+            let root_hash = hash_password(root_password)?;
+            let contents =
+                format!("{{\n  userHash = \"{user_hash}\";\n  rootHash = \"{root_hash}\";\n}}\n");
+            // 0600: the file carries offline-crackable hashes; it lives on the
+            // ISO tmpfs (STAGED_FLAKE) and is gone after reboot, but tight
+            // perms while it exists don't cost anything.
+            write_file_secure(path, &contents, 0o600)?;
             Ok(())
         }
 
