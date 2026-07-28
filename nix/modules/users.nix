@@ -14,15 +14,18 @@
   ...
 }:
 let
-  # Optional install-time password hashes, written by the installer TUI into
-  # nix/secrets.nix (gitignored) in the STAGED_FLAKE only — NOT stashed to
-  # /var/lib/dots, so dots-clone never restores it into the user's git clone
-  # (nix/home/dots-repo.nix only copies settings.nix + facter.json). At install
-  # time the file exists and userborn creates the accounts with these hashes
-  # on first boot; on rebuild from the clean user clone the file is absent,
-  # both hashes are null, and userborn leaves the existing /var/lib/nixos
-  # shadow entries alone (mutableUsers=true → update(None) is a no-op in
-  # userborn's shadow::Entry::update).
+  # Optional install-time user password hash, written by the installer TUI
+  # into nix/secrets.nix (gitignored) in the STAGED_FLAKE only — NOT stashed
+  # to /var/lib/dots, so dots-clone never restores it into the user's git
+  # clone (nix/home/dots-repo.nix only copies settings.nix + facter.json). At
+  # install time the file exists and userborn creates the account with this
+  # hash on first boot; on rebuild from the clean user clone the file is
+  # absent, the hash is null, and userborn leaves the existing /var/lib/nixos
+  # shadow entry alone (mutableUsers=true → update(None) is a no-op in
+  # userborn's shadow::Entry::update). Only the user account is seeded —
+  # root is intentionally left locked (no initialHashedPassword), so the
+  # only login is the wheel user via sudo; `nixos-install --no-root-passwd`
+  # keeps the root password unset during install.
   # `initialHashedPassword` (not `hashedPassword`): userborn applies it ONLY at
   # account creation (HashedPassword::Initial), then never overwrites it — so
   # a later `passwd` change survives reboot/rebuild, matching mutableUsers.
@@ -58,7 +61,6 @@ in
   # intact (shadow::Entry::update(None) is a no-op), so the installer-seeded
   # passwords survive rebuilds as before.
   services.userborn.enable = true;
-  users.users.root.initialHashedPassword = secrets.rootHash or null;
   users.users.${settings.username} = {
     isNormalUser = true;
     shell = pkgs.fish;

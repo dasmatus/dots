@@ -2,8 +2,8 @@
 # shell script (pkgs.writeShellApplication); run with `nix run .#<name>` (or
 # `nix run .` for the default = recipe list). `cdRepoRoot` makes them work
 # from any subdir — `nix run` doesn't auto-cd to the flake root the way `just`
-# did, and cargo + the signing script need the user's writable checkout, not
-# the read-only flake store path.
+# did, and cargo needs the user's writable checkout, not the read-only flake
+# store path.
 { pkgs, lib, ... }:
 self:
 let
@@ -18,20 +18,12 @@ let
     done
     cd "$__dots_root"
   '';
-  signScript = "${self}/scripts/sign-iso.sh";
 
-  # Build the LiveISO and (unless `sign = false`) rewrite its EFI chain via
-  # scripts/sign-iso.sh. The script is taken from the flake's own store path
-  # so the app runs from any cwd; the MOK keydir and the signed-output path
-  # are pinned to the repo root so the persistent `secrets/secureboot/` key
-  # keeps being reused across builds.
+  # Build a LiveISO closure into result-iso. Plain (unsigned) — Secure Boot
+  # was removed; the ISO boots through plain OVMF / firmware defaults. The
+  # installed system uses systemd-boot + TPM2 auto-unlock (no UKI signing).
   mkIsoApp =
-    {
-      name,
-      target ? "iso",
-      sign ? true,
-      sbctl ? false,
-    }:
+    { name, target ? "iso" }:
     {
       type = "app";
       program =
@@ -40,16 +32,6 @@ let
           text = ''
             ${cdRepoRoot}
             nix build .#${target} -o result-iso
-          ''
-          + lib.optionalString sign ''
-            isos=( result-iso/iso/*.iso )
-            iso="''${isos[0]}"
-            base="$(basename "$iso" .iso)"
-            ${signScript} \
-              -k secrets/secureboot \
-              -o "result-iso-signed/''${base}-signed.iso" \
-              ${lib.optionalString sbctl "--sbctl "}\
-              "$iso"
           '';
         })
         + "/bin/${name}";
@@ -68,13 +50,10 @@ in
       echo "tokyonight-dots — nix run .#<app>"
       echo
       echo "  nix-lint               flake eval + cargo fmt/clippy/test (all Rust crates)"
-      echo "  iso                    build + Secure Boot-sign the LiveISO (the default)"
+      echo "  iso                    build the LiveISO (plain, unsigned)"
       echo "  iso-full               same, with intel+amd system closures embedded"
-      echo "  iso-unsigned           plain unsigned LiveISO (no signing keys touched)"
-      echo "  iso-cosign             sign + cosign GRUB/kernels with the local sbctl db key"
-      echo "  iso-signed             deprecated alias for iso"
-      echo "  nix-smoke              NixOS VM test: boot the signed ISO under Secure-Boot-enforcing OVMF+TPM2"
-      echo "  nix-smoke-interactive  test driver Python REPL (Secure Boot variant)"
+      echo "  nix-smoke              NixOS VM test: boot the LiveISO under OVMF+TPM2"
+      echo "  nix-smoke-interactive  test driver Python REPL"
       echo "  enroll-fido            enroll a FIDO2/U2F key as a mandatory 2FA factor"
       echo "  clean                  remove local build/test leftovers"
     '';
@@ -104,39 +83,22 @@ in
     name = "iso-full";
     target = "iso-full";
   };
-  iso-unsigned = mkIsoApp {
-    name = "iso-unsigned";
-    sign = false;
-  };
-  iso-cosign = mkIsoApp {
-    name = "iso-cosign";
-    sbctl = true;
-  };
-  # Deprecated alias — signing is the default now.
-  iso-signed = mkIsoApp { name = "iso-signed"; };
 
-  # Boot the signed ISO under Secure Boot-ENFORCING OVMF + TPM2 (NixOS VM
-  # test). `--no-secure-boot` runs the plain unsigned check (DOTS_TUI_READY
-  # only). Pass args via `nix run .#nix-smoke -- …`.
+  # Boot the ISO under OVMF + TPM2 (NixOS VM test). Pass args via
+  # `nix run .#nix-smoke -- …`.
   nix-smoke = mkShellApp "nix-smoke" {
     text = ''
       ${cdRepoRoot}
-      check=iso-secureboot
-      for a in "$@"; do
-        if [[ "$a" == "--no-secure-boot" ]]; then
-          check=iso-boot
-        fi
-      done
-      nix build -L ".#checks.x86_64-linux.$check"
+      nix build -L ".#checks.x86_64-linux.iso-boot" "$@"
     '';
   };
 
-  # Debug the Secure Boot VM test in the driver's interactive Python REPL
-  # (plain variant: .#checks.x86_64-linux.iso-boot.driverInteractive).
+  # Debug the ISO boot test in the driver's interactive Python REPL
+  # (.#checks.x86_64-linux.iso-boot.driverInteractive).
   nix-smoke-interactive = mkShellApp "nix-smoke-interactive" {
     text = ''
       ${cdRepoRoot}
-      nix run .#checks.x86_64-linux.iso-secureboot.driverInteractive
+      nix run .#checks.x86_64-linux.iso-boot.driverInteractive
     '';
   };
 

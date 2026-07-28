@@ -10,9 +10,8 @@ installer has been fully retired — `install.sh` now only bootstraps
 ## Quickstart
 
 ```bash
-nix run .#iso                         # build + Secure Boot-sign the LiveISO
-dd if=result-iso-signed/*.iso of=/dev/sdX bs=4M oflag=sync
-# unsigned-only build (no signing keys touched): nix run .#iso-unsigned
+nix run .#iso                         # build the LiveISO (plain, unsigned)
+dd if=result-iso/iso/*.iso of=/dev/sdX bs=4M oflag=sync
 # or, on an already-booted NixOS:
 sudo nixos-rebuild switch --flake .#tokyonight
 ```
@@ -25,8 +24,8 @@ sudo nixos-rebuild switch --flake .#tokyonight
 | Portage-toolchain sysext (`emerge.raw`) | nothing needed — builds live in `/nix/store` |
 | `portage-sync.timer` + reseal-on-suspend | `system.autoUpgrade` (`operation = "boot"`) + `nix.gc`/`nix.optimise` |
 | `systemd-repart` GPT (ESP 2G, TPM2-LUKS2 btrfs root, random-key swap) | disko layout (`nix/disko.nix`), same shape |
-| `Encrypt=tpm2` at repart time | installer runs `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7` + `--recovery-key` post-format (adds a passphrase fallback the Gentoo design lacks) |
-| ukify UKI + self-generated Secure Boot db keys | systemd-boot; `dots.secureboot.enable` (lanzaboote + sbctl) as post-install opt-in |
+| `Encrypt=tpm2` at repart time | installer runs `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7` + `--recovery-key` post-format, with a random keyfile (not a login password) as the format-time passphrase |
+| ukify UKI + self-generated Secure Boot db keys | systemd-boot, no Secure Boot / UKI signing — TPM2 auto-unlock + LUKS recovery key only |
 | `homectl` first-boot user | `users.users.<name>` + home-manager; username collected at install time by the TUI |
 | afosi `.steps.yaml` wizard (removed — git history) | `rust/installer-tui/` ratatui crate on the LiveISO |
 | dotfiles → `/etc/skel` copy | home-manager native modules (`programs.*`); `files/` fully ported and deleted — git history |
@@ -52,9 +51,11 @@ sudo nixos-rebuild switch --flake .#tokyonight
 - `modules/` — system configuration split by concern: `boot.nix`, `core.nix`,
   `desktop.nix` (GNOME/GDM + Hyprland + pipewire; GNOME core apps via
   `services.gnome.core-apps`), `hardening.nix`, `maintenance.nix`,
-  `network.nix`, `secureboot.nix`, `users.nix`, `virtualisation.nix`.
+  `network.nix`, `users.nix`, `virtualisation.nix`.
   The former `flatpak.nix` (declarative Flathub packages) is gone — every
-  GUI app is native now (see `home/pkgs.nix`).
+  GUI app is native now (see `home/pkgs.nix`). The former `secureboot.nix`
+  (lanzaboote + sbctl UKI signing) is gone — Secure Boot was removed in
+  favor of plain systemd-boot + TPM2 auto-unlock.
 - `home/` — home-manager profile, fully native modules (the raw `files/`
   dotfile tree is deleted — git history): `alacritty.nix`, `zellij.nix`,
   `fastfetch.nix` (ported from the old neofetch config), `fish.nix`,
@@ -101,54 +102,24 @@ report.
 `nix/home/hyprland.nix` (monitor `eDP-1`, `services.gammastep` coordinates
 `48.15`/`17.11`) — per-machine facts reused verbatim, not installer concerns.
 
-## Secure Boot
+## Disk encryption (no Secure Boot)
 
-### Installed system (post-install, optional)
+Secure Boot / UKI signing was removed — neither the installed system nor the
+LiveISO is signed, and `lanzaboote`, `sbctl`, the Microsoft-signed shim and
+`scripts/sign-iso.sh` are all gone. Boot is plain `systemd-boot` off the ESP.
 
-The Gentoo flow generated db keys at install time; on NixOS this is an explicit
-opt-in after the first boot:
+The LUKS root (`/dev/tokyonightvg/root`, see `disko.nix`) unlocks two ways:
 
-```bash
-sudo sbctl create-keys
-# reboot into firmware, put Secure Boot into Setup Mode
-sudo sbctl enroll-keys --microsoft
-# set dots.secureboot.enable = true; in your host config, then:
-sudo nixos-rebuild switch --flake ~/Dokumente/gitlab/personal/dots#tokyonight
-```
+- **TPM2 auto-unlock** — the installer enrolls a TPM2 token on PCR 7
+  (`systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7`), so a normal boot
+  unlocks the root with no prompt.
+- **Recovery key** — the installer also enrolls a recovery key, printed on the
+  installer's Done screen and saved to `/root/luks-recovery.txt` on the target.
+  That is the only offline fallback — write it down.
 
-### Signed LiveISO (boot the installer with Secure Boot ON — the default)
-
-`nix run .#iso` (and `nix run .#iso-full`) builds the ISO and rewrites its EFI chain
-via `scripts/sign-iso.sh`: Fedora's Microsoft-signed shim becomes
-`BOOTX64.EFI`, the ISO's GRUB gets an SBAT section and a signature from a
-local MOK key (auto-generated once into gitignored `secrets/secureboot/`,
-reused so enrolled machines keep booting re-signed ISOs), and every kernel
-is signed too (GRUB verifies it through shim's protocol). Result:
-`result-iso-signed/…-signed.iso` — that's the one to dd. The raw unsigned
-nix output stays at `result-iso/iso/`; `nix run .#iso-unsigned` skips signing
-entirely.
-
-Two ways it boots with Secure Boot enforcing:
-
-- **Factory machines** (Microsoft keys only): the first boot drops into
-  MokManager (blue screen) → *Enroll key from disk* →
-  `EFI/BOOT/tokyonight-dots-mok.cer` → reboot. One-time per machine.
-- **Machines with your own keys**: if the db contains this cert alongside
-  the Microsoft certs (the `sbctl enroll-keys --microsoft` shape — enroll
-  `secrets/secureboot/MOK.cer` as an extra db key), shim validates GRUB
-  straight from db: no prompts. `nix run .#nix-smoke` proves this chain in a
-  NixOS test VM with enforcing Secure Boot firmware (it's the default).
-
-#### Cosigning for zero prompts on your own machines
-
-Nothing can be signed with Microsoft's private keys (only Microsoft holds
-them; the shim we ship is already Microsoft-signed, which is what lets the
-ISO boot at all). But `nix run .#iso-cosign` adds a **second** signature to GRUB
-and the kernels using your local sbctl db key (`/var/lib/sbctl/keys/db`, the
-same one lanzaboote signs installed systems with) on top of the MOK — the
-PE files then carry both signatures. Any machine whose Secure Boot db
-already trusts that key (i.e. where you ran `sbctl enroll-keys`) boots the
-installer with **no MokManager prompt at all**; every other machine still
-does the one-time MOK enrollment above. The private key is read via sudo in
-place and never copied. `scripts/sign-iso.sh --extra-sign KEY CERT` cosigns
-with an arbitrary key instead.
+The format-time LUKS passphrase is a one-shot random keyfile (64 bytes from
+`/dev/urandom`), not a login password: it authorizes the TPM2/recovery
+enrollment and is then shredded, so the disk is decoupled from the user/root
+passwords. The root account is left locked (no password) — `nixos-install
+--no-root-passwd` keeps it that way, and the only login is the wheel user via
+sudo.

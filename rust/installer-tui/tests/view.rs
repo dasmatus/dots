@@ -258,30 +258,6 @@ fn git_email_screen_renders_prompt_and_hint() {
 }
 
 #[test]
-fn root_password_screen_masks_input() {
-    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
-    app.screen = Screen::RootPassword;
-    app.input = "secret".into();
-    let out = render_to_string(&app, 80, 24);
-    assert!(
-        out.contains("Root password (also the LUKS fallback passphrase):"),
-        "missing prompt: {out}"
-    );
-    assert!(out.contains("Enter confirm"), "missing hint: {out}");
-    // Password screens mask the input with bullets — the plaintext must not leak.
-    assert!(!out.contains("secret"), "password leaked: {out}");
-    assert!(out.contains("••••••"), "missing mask: {out}");
-}
-
-#[test]
-fn root_password_confirm_screen_renders_prompt() {
-    let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
-    app.screen = Screen::RootPasswordConfirm;
-    app.input = "again".into();
-    assert_renders(&app, &["Repeat root password:", "Enter confirm"]);
-}
-
-#[test]
 fn user_password_screen_masks_input() {
     let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
     app.screen = Screen::UserPassword;

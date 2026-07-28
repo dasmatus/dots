@@ -24,8 +24,6 @@ pub enum Screen {
     Username,
     GitName,
     GitEmail,
-    RootPassword,
-    RootPasswordConfirm,
     UserPassword,
     UserPasswordConfirm,
     Confirm,
@@ -323,7 +321,7 @@ impl App {
                         self.config.git_email = self.input.clone();
                         self.input.clear();
                         self.error = None;
-                        self.screen = Screen::RootPassword;
+                        self.screen = Screen::UserPassword;
                     }
                     Err(e) => self.error = Some(e),
                 },
@@ -335,7 +333,7 @@ impl App {
                 _ => {}
             },
 
-            Screen::RootPassword | Screen::UserPassword => match key.code {
+            Screen::UserPassword => match key.code {
                 KeyCode::Char(c) => self.input.push(c),
                 KeyCode::Backspace => {
                     self.input.pop();
@@ -346,41 +344,27 @@ impl App {
                     } else {
                         self.pending_password = std::mem::take(&mut self.input);
                         self.error = None;
-                        self.screen = if self.screen == Screen::RootPassword {
-                            Screen::RootPasswordConfirm
-                        } else {
-                            Screen::UserPasswordConfirm
-                        };
+                        self.screen = Screen::UserPasswordConfirm;
                     }
                 }
                 _ => {}
             },
 
-            Screen::RootPasswordConfirm | Screen::UserPasswordConfirm => match key.code {
+            Screen::UserPasswordConfirm => match key.code {
                 KeyCode::Char(c) => self.input.push(c),
                 KeyCode::Backspace => {
                     self.input.pop();
                 }
                 KeyCode::Enter => {
                     let confirmed = std::mem::take(&mut self.input);
-                    let is_root = self.screen == Screen::RootPasswordConfirm;
                     if confirmed == self.pending_password {
-                        if is_root {
-                            self.config.root_password = std::mem::take(&mut self.pending_password);
-                            self.screen = Screen::UserPassword;
-                        } else {
-                            self.config.user_password = std::mem::take(&mut self.pending_password);
-                            self.screen = Screen::Confirm;
-                        }
+                        self.config.user_password = std::mem::take(&mut self.pending_password);
+                        self.screen = Screen::Confirm;
                         self.error = None;
                     } else {
                         self.pending_password.clear();
                         self.error = Some("passwords do not match, try again".into());
-                        self.screen = if is_root {
-                            Screen::RootPassword
-                        } else {
-                            Screen::UserPassword
-                        };
+                        self.screen = Screen::UserPassword;
                     }
                 }
                 _ => {}

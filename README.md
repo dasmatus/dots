@@ -16,16 +16,16 @@ curl -fsSL https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main/install.s
 nix run .#dots-installer
 
 # Or build a bootable LiveISO instead (installer auto-starts on tty1;
-# signed for Secure Boot by default — see nix/README.md):
+# plain, unsigned — boots via firmware defaults, no Secure Boot):
 nix run .#iso
-dd if=result-iso-signed/*.iso of=/dev/sdX bs=4M oflag=sync
+dd if=result-iso/iso/*.iso of=/dev/sdX bs=4M oflag=sync
 
 # On an already-installed system, apply config changes:
 sudo nixos-rebuild switch --flake .#tokyonight
 ```
 
 `rust/installer-tui/` (package name `dots-installer`) is a Rust/ratatui wizard —
-disk autodetection → hostname → user → passwords → typed-`ERASE` confirm — that runs
+disk autodetection → hostname → user → password → typed-`ERASE` confirm — that runs
 [disko](https://github.com/nix-community/disko), generates a
 [nixos-facter](https://github.com/nix-community/nixos-facter) hardware report
 on the target (no more manual intel/amd picking), runs `nixos-install` from
@@ -34,8 +34,8 @@ key, and reboots. Dev loop:
 
 ```bash
 nix run .#nix-lint    # nix flake check (eval) + cargo fmt/clippy/test
-nix run .#iso         # build the LiveISO + sign it for Secure Boot
-nix run .#nix-smoke   # NixOS VM test: boot it under Secure Boot-enforcing OVMF+TPM2
+nix run .#iso         # build the LiveISO (plain, unsigned)
+nix run .#nix-smoke   # NixOS VM test: boot it under OVMF+TPM2
 ```
 
 ## Declarative flatpaks
@@ -80,9 +80,8 @@ Two things worth knowing before the first switch:
 
 ```bash
 nix run .#nix-lint    # nix flake check (eval) + rust/* cargo fmt/clippy/test
-nix run .#iso         # build the LiveISO + sign it for Secure Boot
-nix run .#nix-smoke   # NixOS VM test: boot the signed ISO under Secure
-                     # Boot-enforcing OVMF+TPM2, assert TUI + SecureBoot=1
+nix run .#iso         # build the LiveISO (plain, unsigned)
+nix run .#nix-smoke   # NixOS VM test: boot the ISO under OVMF+TPM2, assert TUI ready
 ```
 
 See [`tests/README.md`](tests/README.md) for how the NixOS VM tests work.
@@ -96,7 +95,7 @@ See [`tests/README.md`](tests/README.md) for how the NixOS VM tests work.
 | `nix/disko.nix` | Single source of truth for the disk layout |
 | `nix/hosts.nix` | facter-driven hardware config (NVIDIA via if-then-else on the report) |
 | `nix/facter.json` | Committed stub (`{}`); the installer writes the real report on the target |
-| `nix/modules/` | System configuration split by concern (boot, core, desktop, flatpak, hardening, maintenance, network, secureboot, users, virtualisation) |
+| `nix/modules/` | System configuration split by concern (boot, core, desktop, flatpak, hardening, maintenance, network, users, virtualisation) |
 | `nix/home/` | home-manager profile (nixvim, Hyprland session, LibreWolf, Dokumente skeleton, wallpaper service) |
 | `nix/iso.nix` | The LiveISO: embeds the flake at `/etc/dots`, auto-launches `dots-installer` on tty1 |
 | `rust/installer-tui/` | The Rust/ratatui installer source |

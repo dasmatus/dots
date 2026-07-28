@@ -11,7 +11,7 @@ tree .
 GitLab
 ## Testing
 - Rust: @rust/installer-tui/tests/ (integration tests; `cargo test` in rust/installer-tui/), @rust/wallpaper-tui/tests/, @rust/hyprmon/tests/
-- Nix: `nix run .#nix-lint` (flake eval + fmt/clippy/test), `nix run .#iso` (builds + Secure Boot-signs by default via @scripts/sign-iso.sh; `nix run .#iso-unsigned` opts out), `nix run .#nix-smoke` (NixOS test @tests/default.nix — `checks.x86_64-linux.iso-secureboot`: signed ISO under enforcing Secure Boot OVMF+swtpm, DOTS_TUI_READY + DOTS_SECUREBOOT=1 serial markers; `nix run .#nix-smoke -- --no-secure-boot` → `iso-boot` plain run)
+- Nix: `nix run .#nix-lint` (flake eval + fmt/clippy/test), `nix run .#iso` (builds the LiveISO, plain/unsigned), `nix run .#nix-smoke` (NixOS test @tests/default.nix — `checks.x86_64-linux.iso-boot`: ISO boots under OVMF+swtpm, asserts DOTS_TUI_READY serial marker)
 ---
 # Resources to follow
 - [Rust API guidelines](https://rust-lang.github.io/api-guidelines/)

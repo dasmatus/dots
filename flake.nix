@@ -15,15 +15,10 @@
 
     # Ephemeral-root persistence (tmpfs `/` + bind-mounts from a persistent
     # /persist subvol). Wired in nix/modules/impermanence.nix so /var/lib/nixos
-    # (userborn creds), /var/lib/sbctl (Secure Boot keys) and Wi-Fi profiles
-    # survive the root being wiped each boot.
+    # (userborn creds) and Wi-Fi profiles survive the root being wiped each
+    # boot.
     impermanence = {
       url = "github:nix-community/impermanence";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    lanzaboote = {
-      url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -74,7 +69,6 @@
       nixpkgs,
       home-manager,
       disko,
-      lanzaboote,
       nixvim,
       haumea,
       # firefox-addons rides along inside `inputs` (specialArgs)
@@ -82,8 +76,8 @@
     }:
     let
       # Shared let-bindings (pkgs, settings, the bun2nix-overlaid pkgsBun for
-      # aipage, the sb-tools package list, the mkIso helper) live in
-      # flake/lib.nix so every output file shares one source of truth.
+      # aipage, and the mkIso helper) live in flake/lib.nix so every output
+      # file shares one source of truth.
       lib = import ./flake/lib.nix { inherit inputs nixpkgs; };
       inherit (lib)
         system
@@ -91,7 +85,6 @@
         pkgsBun
         aipagePackages
         settings
-        sbToolPackages
         mkIso
         ;
     in
@@ -111,7 +104,7 @@
       # (this outputs attrset) so iso/iso-full can reach the LiveISO closures
       # built above.
       packages.${system} = import ./flake/packages.nix {
-        inherit pkgs aipagePackages sbToolPackages;
+        inherit pkgs aipagePackages;
       } self;
 
       # Task-runner apps — the retired Justfile, now nix-native. See
@@ -132,12 +125,11 @@
         (import ./flake/checks.nix {
           inherit pkgs system;
         } self)
-        # LiveISO boot oracles (NixOS test framework) — see tests/README.md.
+        # LiveISO boot oracle (NixOS test framework) — see tests/README.md.
         // import ./tests {
-          inherit pkgs sbToolPackages;
+          inherit pkgs;
           inherit (pkgs) lib;
-          inherit (self.packages.${system}) iso shim-signed;
-          signScript = ./scripts/sign-iso.sh;
+          inherit (self.packages.${system}) iso;
         };
     };
 }

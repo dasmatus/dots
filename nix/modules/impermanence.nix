@@ -12,9 +12,7 @@
 # generation, so it bind-mounts over the immutable /etc paths fine. The
 # load-bearing entry is /var/lib/nixos — userborn writes passwd/shadow/group
 # there (users.nix); persisting it is what keeps login working across the
-# ephemeral root. /var/lib/sbctl must persist too or the Secure Boot keys
-# regenerate each boot and the previously-signed UKIs in /boot fail db
-# verification (lanzaboote signs from /var/lib/sbctl/keys/db/db.pem).
+# ephemeral root.
 { lib, ... }:
 {
   fileSystems."/" = {
@@ -42,7 +40,6 @@
     hideMounts = true;
     directories = [
       "/var/lib/nixos" # userborn passwd/shadow/group — login survives reboot
-      "/var/lib/sbctl" # Secure Boot keys — else signed UKIs fail db verification
       "/etc/NetworkManager/system-connections" # Wi-Fi profiles (installer-seeded)
       "/var/lib/NetworkManager" # NM state
       "/var/lib/dots" # install answers (settings.nix/facter.json) for dots-clone

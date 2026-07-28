@@ -431,7 +431,7 @@ fn git_email_required_and_advances_on_valid() {
     type_str(&mut app, "alice@example.org");
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.config.git_email, "alice@example.org");
-    assert_eq!(app.screen, Screen::RootPassword);
+    assert_eq!(app.screen, Screen::UserPassword);
     assert!(app.error.is_none());
 }
 
@@ -448,35 +448,35 @@ fn git_email_esc_backs_out_to_git_name() {
 #[test]
 fn password_mismatch_restarts_entry_with_error() {
     let mut app = app();
-    app.screen = Screen::RootPassword;
+    app.screen = Screen::UserPassword;
     type_str(&mut app, "hunter2");
     app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.screen, Screen::RootPasswordConfirm);
+    assert_eq!(app.screen, Screen::UserPasswordConfirm);
     type_str(&mut app, "different");
     app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.screen, Screen::RootPassword);
+    assert_eq!(app.screen, Screen::UserPassword);
     assert!(app.error.is_some());
-    assert!(app.config.root_password.is_empty());
+    assert!(app.config.user_password.is_empty());
 }
 
 #[test]
 fn matching_passwords_advance() {
     let mut app = app();
-    app.screen = Screen::RootPassword;
+    app.screen = Screen::UserPassword;
     type_str(&mut app, "hunter2");
     app.handle_key(key(KeyCode::Enter));
     type_str(&mut app, "hunter2");
     app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.config.root_password, "hunter2");
-    assert_eq!(app.screen, Screen::UserPassword);
+    assert_eq!(app.config.user_password, "hunter2");
+    assert_eq!(app.screen, Screen::Confirm);
 }
 
 #[test]
 fn empty_password_rejected() {
     let mut app = app();
-    app.screen = Screen::RootPassword;
+    app.screen = Screen::UserPassword;
     app.handle_key(key(KeyCode::Enter));
-    assert_eq!(app.screen, Screen::RootPassword);
+    assert_eq!(app.screen, Screen::UserPassword);
     assert!(app.error.is_some());
 }
 

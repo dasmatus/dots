@@ -33,7 +33,7 @@
   # The root is a tmpfs wiped each boot (nix/modules/impermanence.nix), so
   # /var/lib/nixos is bind-mounted from the persistent /persist subvol by
   # nixos-impermanence — that is what keeps the userborn credentials (and
-  # /var/lib/sbctl, Wi-Fi profiles) alive across the ephemeral root. Without
+  # the Wi-Fi profiles) alive across the ephemeral root. Without
   # that bind-mount an ephemeral root would wipe /var/lib/nixos every boot
   # and lock every account.
   # Marked experimental upstream — recoverable by reverting this and the

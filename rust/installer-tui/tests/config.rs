@@ -31,12 +31,10 @@ fn settings_nix_renders_all_answers() {
 #[test]
 fn settings_nix_never_contains_passwords() {
     let cfg = InstallConfig {
-        root_password: "rootsecret".into(),
         user_password: "usersecret".into(),
         ..Default::default()
     };
     let out = cfg.settings_nix();
-    assert!(!out.contains("rootsecret"));
     assert!(!out.contains("usersecret"));
 }
 

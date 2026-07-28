@@ -1,6 +1,6 @@
 # Shared let-bindings for the flake outputs — the bits every output file
-# needs (pkgs, settings, the bun2nix-overlaid pkgsBun for aipage, the sb-tools
-# package list, and the mkIso helper that builds the LiveISO closures).
+# needs (pkgs, settings, the bun2nix-overlaid pkgsBun for aipage, and the
+# mkIso helper that builds the LiveISO closures).
 #
 # `inputs` here is the flake's full inputs attrset (with `self` injected by the
 # outputs function); we hand the subset each consumer needs down the line.
@@ -24,18 +24,6 @@ let
   # target, so it is merged *under* settings.nix to survive an install.
   # See nix/defaults.nix.
   settings = (import ../nix/defaults.nix) // (import ../nix/settings.nix);
-
-  # Everything scripts/sign-iso.sh needs: shared by the sb-tools buildEnv
-  # (host-side signing) and the in-sandbox signing fixture in tests/.
-  sbToolPackages = with pkgs; [
-    sbsigntool
-    openssl
-    binutils
-    mtools
-    dosfstools
-    xorriso
-    python3Packages.virt-firmware
-  ];
 
   mkIso =
     embedSystem:
@@ -69,7 +57,6 @@ let
             nixpkgs.outPath
             inputs.home-manager.outPath
             inputs.disko.outPath
-            inputs.lanzaboote.outPath
           ];
         }
       ];
@@ -82,7 +69,6 @@ in
     pkgsBun
     aipagePackages
     settings
-    sbToolPackages
     mkIso
     ;
 }

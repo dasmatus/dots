@@ -1,7 +1,7 @@
 # checks.${system} — the cheap eval-only checks (settings, facter stub/nvidia,
 # FIDO 2FA PAM rules, aipage manifest) plus the dots-installer build gate.
-# The LiveISO boot oracles live in tests/default.nix and are merged in from
-# flake.nix (they need the ISO + shim-signed + signScript wiring).
+# The LiveISO boot oracle lives in tests/default.nix and is merged in from
+# flake.nix (it needs the ISO wiring).
 {
   pkgs,
   system,

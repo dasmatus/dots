@@ -12,7 +12,6 @@ fn cfg() -> InstallConfig {
         username: "alice".into(),
         git_name: "Alice Q".into(),
         git_email: "alice@example.org".into(),
-        root_password: "rootsecret".into(),
         user_password: "usersecret".into(),
         swap_size_gib: 16,
     }
@@ -29,21 +28,40 @@ fn swap_size_rounds_meminfo_up_to_gib() {
 }
 
 #[test]
-fn plan_writes_luks_passfile_with_root_password_mode_600() {
+fn plan_writes_random_luks_keyfile_from_urandom() {
+    // The LUKS keyfile is 64 random bytes from /dev/urandom — disk encryption
+    // is decoupled from any login password. Slot 0 becomes an unknown random
+    // passphrase; the real unlock paths are TPM2 (auto) + the recovery key.
+    // The keyfile is shredded after enrollment (plan_shreds_passfile_last),
+    // so the random passphrase is never recoverable — it just authorized the
+    // TPM2/recovery enrollment.
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
-    let wf = steps
+    let keyfile = steps
         .iter()
-        .find_map(|s| match &s.action {
+        .find(|s| s.title == "Write LUKS keyfile")
+        .expect("luks keyfile step");
+    let Action::Command { program, args, .. } = &keyfile.action else {
+        panic!("luks keyfile step must be a command");
+    };
+    assert_eq!(program, "sh");
+    let script = args.join(" ");
+    assert!(script.contains("/dev/urandom"), "{script}");
+    assert!(script.contains(LUKS_PASSFILE), "{script}");
+    // The keyfile must never be a static WriteFile (e.g. a login password):
+    // it has to come from the CSPRNG at install time.
+    let passfile_write = steps.iter().any(|s| {
+        matches!(
+            &s.action,
             Action::WriteFile {
                 path,
-                contents,
-                mode,
-            } if path == LUKS_PASSFILE => Some((contents.clone(), *mode)),
-            _ => None,
-        })
-        .expect("luks passfile step");
-    assert_eq!(wf.0, "rootsecret");
-    assert_eq!(wf.1, 0o600);
+                ..
+            } if path == LUKS_PASSFILE
+        )
+    });
+    assert!(
+        !passfile_write,
+        "LUKS keyfile must be a random command, not a static WriteFile"
+    );
 }
 
 #[test]
@@ -278,29 +296,26 @@ fn plan_seeds_passwords_via_secrets_nix_not_chpasswd() {
         "chpasswd step should be replaced by WriteSecrets"
     );
 
-    let secrets = steps
+    let user_password = steps
         .iter()
         .find_map(|s| match &s.action {
             Action::WriteSecrets {
                 path,
                 user_password,
-                root_password,
-            } if path == &format!("{STAGED_FLAKE}/nix/secrets.nix") => {
-                Some((user_password.clone(), root_password.clone()))
-            }
+            } if path == &format!("{STAGED_FLAKE}/nix/secrets.nix") => Some(user_password.clone()),
             _ => None,
         })
         .expect("WriteSecrets step writing nix/secrets.nix");
-    assert_eq!(secrets.0, "usersecret");
-    assert_eq!(secrets.1, "rootsecret");
+    assert_eq!(user_password, "usersecret");
 
-    // Passwords must never appear in any command's argv: the WriteSecrets
-    // runner pipes them to mkpasswd via stdin, so they never hit /proc argv.
+    // The user password must never appear in any command's argv: the
+    // WriteSecrets runner pipes it to mkpasswd via stdin, so it never hits
+    // /proc argv.
     for s in &steps {
         if let Action::Command { program, args, .. } = &s.action {
             let joined = format!("{program} {}", args.join(" "));
             assert!(
-                !joined.contains("rootsecret") && !joined.contains("usersecret"),
+                !joined.contains("usersecret"),
                 "password leaked into argv: {joined}"
             );
         }
@@ -382,55 +397,6 @@ fn plan_copies_network_profiles_after_mount_before_install() {
     assert!(
         disko < copy && copy < install,
         "a copy before disko mounts the target would vanish with the tmpfs"
-    );
-}
-
-#[test]
-fn plan_pre_seeds_sbctl_keys_before_install() {
-    let steps = plan(&cfg(), "/etc/dots", "/mnt");
-    let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
-    let preseed = idx(&|s| s.title == "Pre-seed Secure Boot keys");
-    let install = idx(
-        &|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-install"),
-    );
-    assert!(
-        preseed < install,
-        "pre-seed must run before nixos-install: nixos-install activates generation 1, \
-         and lanzaboote signs the UKI from /var/lib/sbctl/keys/db/db.pem during that \
-         activation — the keys must already be on the target or signing fails with \
-         'Failed to read public key from /var/lib/sbctl/keys/db/db.pem'"
-    );
-}
-
-#[test]
-fn plan_pre_seed_step_copies_iso_keys_to_target_var_lib_sbctl() {
-    let steps = plan(&cfg(), "/etc/dots", "/mnt");
-    let preseed = steps
-        .iter()
-        .find(|s| s.title == "Pre-seed Secure Boot keys")
-        .expect("pre-seed step");
-    let Action::Command { program, args, .. } = &preseed.action else {
-        panic!("pre-seed step must be a command");
-    };
-    assert_eq!(program, "sh");
-    let script = args.join(" ");
-    assert!(script.contains("[ -d /etc/dots-sbctl-keys ]"), "{script}");
-    // Must land on the persistent /persist subvol (the root is a tmpfs wiped
-    // each boot; nixos-impermanence bind-mounts /persist/var/lib/sbctl over
-    // /var/lib/sbctl), so the keys survive the first reboot and lanzaboote can
-    // sign UKIs from /var/lib/sbctl/keys/db/db.pem during generation-1
-    // activation.
-    assert!(
-        script.contains("mkdir -p /mnt/persist/var/lib/sbctl"),
-        "{script}"
-    );
-    assert!(
-        script.contains("cp -a /etc/dots-sbctl-keys/. /mnt/persist/var/lib/sbctl/"),
-        "{script}"
-    );
-    assert!(
-        script.contains("chmod 700 /mnt/persist/var/lib/sbctl/keys"),
-        "{script}"
     );
 }
 

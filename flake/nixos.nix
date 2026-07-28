@@ -24,7 +24,6 @@
     modules = [
       inputs.disko.nixosModules.disko
       inputs.home-manager.nixosModules.home-manager
-      inputs.lanzaboote.nixosModules.lanzaboote
       inputs.impermanence.nixosModules.impermanence
       (import ../nix/disko.nix { inherit (settings) disks swapSize; })
       ../nix/modules/core.nix
@@ -36,7 +35,6 @@
       ../nix/modules/users.nix
       ../nix/modules/hardening.nix
       ../nix/modules/maintenance.nix
-      ../nix/modules/secureboot.nix
       ../nix/modules/desktop.nix
       ../nix/modules/form-factor.nix
       ../nix/modules/steam.nix

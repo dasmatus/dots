@@ -29,14 +29,6 @@ in
   # The flake rides on the ISO.
   environment.etc."dots".source = dotsSelf;
 
-  # Pre-seeded sbctl key hierarchy (PK/KEK/db private keys + GUID) generated
-  # fresh per ISO build by the flake's .#sbctl-keys. The installer copies it
-  # onto the target's /var/lib/sbctl so the installed system boots with the
-  # same keys the ISO's signed UKIs are verified against — no first-boot
-  # `sbctl create-keys` needed. The private keys are world-readable here (in
-  # the nix store / on the ISO); acceptable for a single-use installer image.
-  environment.etc."dots-sbctl-keys".source = dotsSelf.packages.x86_64-linux.sbctl-keys;
-
   environment.systemPackages = [
     installer
     inputs.disko.packages.x86_64-linux.disko
@@ -89,21 +81,10 @@ in
     ];
     unitConfig.ConditionPathExists = "/dev/tty1";
     serviceConfig = {
-      # Markers for tests/nix-smoke.sh — land on the serial console. The
-      # second one reads the SecureBoot efivar (skip 4 attribute bytes,
-      # data byte is 0/1) so the smoke run (Secure Boot-enforcing by
-      # default) can assert the firmware really enforced Secure Boot,
-      # not just that we booted.
-      ExecStartPre = [
-        "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'"
-        (pkgs.writeShellScript "dots-sb-marker" ''
-          sb=$(${pkgs.coreutils}/bin/od -An -tu1 -j4 -N1 \
-            /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c \
-            2>/dev/null | ${pkgs.coreutils}/bin/tr -d ' ')
-          echo "DOTS_SECUREBOOT=''${sb:-absent}" \
-            | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true
-        '')
-      ];
+      # Marker for the VM smoke test — land on the serial console so the
+      # NixOS test (tests/default.nix) can assert the TUI reached tty1.
+      ExecStartPre =
+        "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'";
       ExecStart = "${installer}/bin/dots-installer";
       StandardInput = "tty";
       StandardOutput = "tty";

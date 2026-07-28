@@ -39,23 +39,21 @@ pub enum Action {
         stdin: Option<String>,
         capture: Capture,
     },
-    /// Hash the two install passwords with `mkpasswd -m yescrypt --stdin`
+    /// Hash the user install password with `mkpasswd -m yescrypt --stdin`
     /// (plaintext piped via stdin, never argv — no /proc leak) and write
     /// `nix/secrets.nix` into the staged flake. `nixos-install` then evaluates
-    /// the flake with the hashes present so userborn creates the accounts
-    /// with them on first boot (nix/modules/users.nix reads this file via
+    /// the flake with the hash present so userborn creates the account with
+    /// it on first boot (nix/modules/users.nix reads this file via
     /// `builtins.pathExists` and sets `initialHashedPassword`). The file is
     /// install-time-only: it is NOT stashed to /var/lib/dots, so the
     /// dots-clone Home Manager service never restores it into the user's git
     /// clone — a yescrypt hash is offline-crackable. On rebuild from the clean
-    /// user clone the file is absent, both hashes are null, and userborn's
+    /// user clone the file is absent, the hash is null, and userborn's
     /// `shadow::Entry::update(None)` leaves the existing /var/lib/nixos shadow
-    /// entry alone (`mutableUsers = true`).
-    WriteSecrets {
-        path: String,
-        user_password: String,
-        root_password: String,
-    },
+    /// entry alone (`mutableUsers = true`). The root account is intentionally
+    /// NOT given a password: `nixos-install --no-root-passwd` leaves it
+    /// locked, so the only login is the wheel user (with sudo).
+    WriteSecrets { path: String, user_password: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,11 +125,15 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
     vec![
         Step {
             title: "Write LUKS keyfile".into(),
-            action: Action::WriteFile {
-                path: LUKS_PASSFILE.into(),
-                contents: cfg.root_password.clone(),
-                mode: 0o600,
-            },
+            action: cmd(
+                "sh",
+                &[
+                    "-c",
+                    &format!("umask 077; head -c 64 /dev/urandom > {LUKS_PASSFILE}"),
+                ],
+                None,
+                Capture::Stream,
+            ),
         },
         Step {
             title: "Partition, encrypt and mount (disko)".into(),
@@ -189,7 +191,6 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             action: Action::WriteSecrets {
                 path: format!("{STAGED_FLAKE}/nix/secrets.nix"),
                 user_password: cfg.user_password.clone(),
-                root_password: cfg.root_password.clone(),
             },
         },
         Step {
@@ -213,36 +214,6 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                 &["-c", &format!(
                     "if [ -d /etc/NetworkManager/system-connections ]; then mkdir -p {mnt}/persist/etc/NetworkManager && cp -a /etc/NetworkManager/system-connections {mnt}/persist/etc/NetworkManager/; fi"
                 )],
-                None,
-                Capture::Stream,
-            ),
-        },
-        // Pre-seed the persistent /persist/var/lib/sbctl with the ISO-embedded
-        // key hierarchy (PK/KEK/db private keys + GUID, generated fresh per ISO
-        // build by the flake's .#sbctl-keys and carried at /etc/dots-sbctl-
-        // keys). MUST run before nixos-install and MUST land on the /persist
-        // subvol (not /var/lib/sbctl directly): the root is a tmpfs wiped each
-        // boot (nix/modules/impermanence.nix), and nixos-impermanence
-        // bind-mounts /persist/var/lib/sbctl → /var/lib/sbctl, so writing the
-        // keys to the persistent source is what survives. nixos-install
-        // activates generation 1, and with dots.secureboot.enable (lanzaboote,
-        // pkiBundle=/var/lib/sbctl) that activation signs the UKI using
-        // /var/lib/sbctl/keys/db/db.pem — if the keys aren't there yet
-        // lanzaboote fails with "Failed to read public key from
-        // /var/lib/sbctl/keys/db/db.pem: No such file or directory". Writing to
-        // /persist also lets the installed system boot the ISO's signed UKIs
-        // without a first-boot `sbctl create-keys`; the dots-sbctl-keygen
-        // oneshot in nix/modules/secureboot.nix then no-ops when keys exist.
-        Step {
-            title: "Pre-seed Secure Boot keys".into(),
-            action: cmd(
-                "sh",
-                &[
-                    "-c",
-                    &format!(
-                        "if [ -d /etc/dots-sbctl-keys ]; then mkdir -p {mnt}/persist/var/lib/sbctl && cp -a /etc/dots-sbctl-keys/. {mnt}/persist/var/lib/sbctl/ && chmod 700 {mnt}/persist/var/lib/sbctl/keys; fi"
-                    ),
-                ],
                 None,
                 Capture::Stream,
             ),
@@ -429,12 +400,9 @@ fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
         Action::WriteSecrets {
             path,
             user_password,
-            root_password,
         } => {
             let user_hash = hash_password(user_password)?;
-            let root_hash = hash_password(root_password)?;
-            let contents =
-                format!("{{\n  userHash = \"{user_hash}\";\n  rootHash = \"{root_hash}\";\n}}\n");
+            let contents = format!("{{\n  userHash = \"{user_hash}\";\n}}\n");
             // 0600: the file carries offline-crackable hashes; it lives on the
             // ISO tmpfs (STAGED_FLAKE) and is gone after reboot, but tight
             // perms while it exists don't cost anything.

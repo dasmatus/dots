@@ -11,7 +11,6 @@ pub struct InstallConfig {
     pub git_name: String,
     /// Git identity consumed by nix/home/git.nix via settings.gitEmail.
     pub git_email: String,
-    pub root_password: String,
     pub user_password: String,
     pub swap_size_gib: u64,
 }

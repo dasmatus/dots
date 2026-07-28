@@ -1,9 +1,7 @@
 # Boot chain: systemd-boot + systemd initrd (TPM2 auto-unlock of the disko LUKS
 # volume) + the kernel cmdline carried over from the retired Gentoo installer
-# (git history). UKIs are built by default via lanzaboote — secureboot.nix is
-# ON by default, which disables this systemd-boot block (mkForce) and ships
-# signed UKIs instead; set dots.secureboot.enable = false to fall back to plain
-# systemd-boot. See nix/README.md.
+# (git history). No Secure Boot / UKI signing — plain systemd-boot boots the
+# kernel + initrd straight off the ESP. See nix/README.md.
 {
   pkgs,
   settings,
