@@ -83,8 +83,7 @@ in
     serviceConfig = {
       # Marker for the VM smoke test — land on the serial console so the
       # NixOS test (tests/default.nix) can assert the TUI reached tty1.
-      ExecStartPre =
-        "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'";
+      ExecStartPre = "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'";
       ExecStart = "${installer}/bin/dots-installer";
       StandardInput = "tty";
       StandardOutput = "tty";
@@ -97,6 +96,4 @@ in
       RestartSec = 2;
     };
   };
-
-  system.stateVersion = "26.05";
 }
