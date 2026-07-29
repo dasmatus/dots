@@ -116,7 +116,10 @@ intentionally not persisted). `limine-install.py` has no machine-id
 dependency. Limine installs to the firmware's removable `\EFI\BOOT\BOOTX64.EFI`
 path (`boot.loader.efi.canTouchEfiVariables = false`), so it never runs
 `efibootmgr` and is immune to the efibootmgr NVRAM-write failure
-(nixpkgs #493017).
+(nixpkgs #493017). `limine-install.py` also calls `nix-env --list-generations`
+unconditionally, which can abort `nixos-install` when the target profile
+is not ready in the chroot; `nix/modules/limine-install.nix` wraps the upstream
+installer and bootstraps a single-generation profile before delegating to it.
 
 PCR 7 (the TPM2 unlock binding) is firmware-measured Secure Boot policy, not
 bootloader-dependent — neither systemd-boot nor Limine writes PCR 7, and

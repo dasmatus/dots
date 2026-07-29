@@ -36,6 +36,7 @@ let
         ../nix/modules/core.nix
         ../nix/modules/impermanence.nix
         ../nix/modules/boot.nix
+        ../nix/modules/limine-install.nix
         ../nix/modules/network.nix
         ../nix/modules/searxng.nix
         ../nix/modules/virtualisation.nix
