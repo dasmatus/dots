@@ -24,7 +24,7 @@ in
   ];
   networking.networkmanager.wifi.backend = lib.mkForce "wpa_supplicant";
   image.baseName = lib.mkForce "tokyonight-dots-installer";
-  isoImage.squashfsCompression = "xz -Xcompression-level 9";
+  isoImage.squashfsCompression = "xz";
   networking.hostName = "installer";
   # The flake rides on the ISO.
   environment.etc."dots".source = dotsSelf;
