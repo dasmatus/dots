@@ -1,10 +1,18 @@
-# Wrapper around nixpkgs' Limine installer that bootstraps the system profile
-# before the upstream script runs. During nixos-install the upstream script
-# calls `nix-env --list-generations` unconditionally; if the profile directory
-# is missing or the lock cannot be acquired, the install aborts with
-# "Failed to install bootloader". This wrapper detects that failure and creates
-# a single-generation profile pointing to the toplevel before delegating to the
-# upstream installer.
+# Wrapper around nixpkgs' Limine installer that fixes two chroot hazards that
+# abort a fresh nixos-install with "Failed to install bootloader":
+#
+#   1. nix-env loads nix.conf through the $HOME XDG fallback; when $HOME is
+#      unset and the running uid has no /etc/passwd entry in the target chroot
+#      (impermanence can leave /etc unpopulated before userborn runs), Nix
+#      throws "cannot determine user's home directory" before touching the
+#      profile. The wrapper points nix at a home it owns.
+#   2. The upstream installer reads `system-{N}-link/boot.json` and enumerates
+#      generations via `nix-env --list-generations`; if the system profile does
+#      not exist yet, the wrapper provisions a single-generation profile with
+#      plain symlinks (no nix-env, so it can't trip hazard 1).
+#
+# Both fixes are no-ops in the normal case (nixos-install set the profile up
+# and $HOME is usable). See the memory note [[limine-nix-env-install-fragility]].
 {
   config,
   lib,
@@ -67,22 +75,38 @@ let
     set -euo pipefail
 
     toplevel=''${1:-}
+    profilesDir=/nix/var/nix/profiles
+    profile=$profilesDir/system
 
-    # The upstream installer calls nix-env --list-generations unconditionally.
-    # On a fresh nixos-install the profile directory may not exist in the
-    # chroot, or the lock file may not be writable, which aborts the install.
-    # Bootstrap a single-generation profile when listing would otherwise fail.
-    if ! ${config.nix.package}/bin/nix-env \
-         --list-generations \
-         -p /nix/var/nix/profiles/system \
-         --option build-users-group "" \
-         >/dev/null 2>&1
-    then
+    # Hazard 1 — home directory lookup. nix-env loads nix.conf via the $HOME
+    # XDG fallback (getHome() in Nix's libutil/unix/users.cc), and the upstream
+    # installer shells out to `nix-env --list-generations` unconditionally.
+    # During nixos-install the bootloader step can run with $HOME unset, and
+    # the running uid may have no entry in the target chroot's /etc/passwd:
+    # impermanence's createPersistentStorageDirs activation can fail to
+    # populate /etc before userborn creates users, so getpwuid_r(geteuid())
+    # returns nothing and Nix throws "cannot determine user's home directory"
+    # before ever touching the profile. getHome() accepts $HOME when the path
+    # does not exist OR is owned by the effective uid; mktemp -d is owned by
+    # us, so pointing nix there skips the passwd lookup entirely. Only
+    # override when the inherited $HOME is unusable (unset, or an existing
+    # dir not owned by us).
+    if [ -z "''${HOME:-}" ] || { [ -e "''$HOME" ] && [ ! -O "''$HOME" ]; }; then
+      export HOME="$(mktemp -d)"
+    fi
+
+    # Hazard 2 — missing system profile. The upstream installer reads
+    # `system-{N}-link/boot.json` and enumerates generations via
+    # `nix-env --list-generations -p <profile>`. On a fresh install the
+    # profile may not exist yet (no `system` link, no generation symlinks).
+    # Provision a minimal single-generation profile with plain symlinks —
+    # no nix-env, so this can't trip hazard 1. Normal case (nixos-install
+    # already set the profile up) is a no-op.
+    if [ ! -e "''$profile" ] || [ ! -e "''$profile/boot.json" ]; then
       echo "limine-install: profile not ready, bootstrapping single generation..." >&2
-      mkdir -p /nix/var/nix/profiles
-      ${config.nix.package}/bin/nix-env \
-        -p /nix/var/nix/profiles/system \
-        --set "''$toplevel"
+      mkdir -p "''$profilesDir"
+      ln -sfn "''$toplevel" "''$profilesDir/system-1-link"
+      ln -sfn system-1-link "''$profile"
     fi
 
     ${upstreamInstall} "$@"
