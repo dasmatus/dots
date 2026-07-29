@@ -24,7 +24,7 @@ in
   ];
   networking.networkmanager.wifi.backend = lib.mkForce "wpa_supplicant";
   image.baseName = lib.mkForce "tokyonight-dots-installer";
-  isoImage.squashfsCompression = "xz -9 -crc32";
+  isoImage.squashfsCompression = "zstd -Xcompression-level 6";
   networking.hostName = "installer";
   # The flake rides on the ISO.
   environment.etc."dots".source = dotsSelf;
@@ -83,7 +83,8 @@ in
     serviceConfig = {
       # Marker for the VM smoke test — land on the serial console so the
       # NixOS test (tests/default.nix) can assert the TUI reached tty1.
-      ExecStartPre = "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'";
+      ExecStartPre =
+        "${pkgs.runtimeShell} -c 'echo DOTS_TUI_READY | ${pkgs.coreutils}/bin/tee /dev/console /dev/ttyS0 2>/dev/null || true'";
       ExecStart = "${installer}/bin/dots-installer";
       StandardInput = "tty";
       StandardOutput = "tty";
