@@ -2,8 +2,8 @@
 # volume) + the kernel cmdline carried over from the retired Gentoo installer
 # (git history). No Secure Boot / UKI signing — Limine boots the kernel + initrd
 # straight off the ESP and sidesteps the /etc/machine-id dependency that
-# impermanence (tmpfs `/` + immutable `/etc` + non-persisted machine-id) creates
-# for systemd-boot at install time. See nix/README.md.
+# impermanence (tmpfs `/` + tmpfs-wiped `/etc` + non-persisted machine-id)
+# creates for systemd-boot at install time. See nix/README.md.
 {
   pkgs,
   settings,

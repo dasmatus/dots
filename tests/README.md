@@ -9,7 +9,7 @@ swtpm — no libvirt, no host packages, no root. Defined in
 | Check | What it proves |
 |-------|----------------|
 | `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the `dots-installer` TUI reaches tty1 — `DOTS_TUI_READY` on the serial console |
-| `userborn-reboot-login` | under userborn + immutable `/etc`, the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
+| `userborn-reboot-login` | under userborn + mutable `/etc` (with `passwordFilesLocation` pinned to `/var/lib/nixos`), the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
 | `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting the TPM2-unlocked LUKS root reaches `multi-user.target` — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
 
 Also in `checks`: `nix-lint`-fast eval checks (`settings-eval`,
@@ -54,10 +54,11 @@ assertions are console-only — `wait_for_console_text`, not
   — the installed system unlocks the LUKS root via a TPM2 token on PCR 7, so
   the chip the boot chain needs is emulated.
 - **`userborn-reboot-login`** is a separate `runNixOSTest` (not ISO-based):
-  it boots a minimal userborn + immutable-`/etc` system with a declarative
-  yescrypt `initialHashedPassword`, asserts `/etc/shadow` is a symlink into
-  `/var/lib/nixos`, then shuts down and cold-starts the same persistent qcow2
-  to prove the hash survived.
+  it boots a minimal userborn + mutable-`/etc` system (with
+  `passwordFilesLocation` pinned to `/var/lib/nixos`, mirroring production)
+  using a declarative yescrypt `initialHashedPassword`, asserts `/etc/shadow`
+  is a symlink into `/var/lib/nixos`, then shuts down and cold-starts the same
+  persistent qcow2 to prove the hash survived.
 - **`limine-install-boot`** is a two-node `runNixOSTest`: an `installer` node
   (test-instrumented VM — NOT the `installation-device` profile, which clashes
   with `runNixOSTest`'s read-only `nixpkgs.overlays`; it pulls

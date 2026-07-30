@@ -7,12 +7,13 @@
 # (user data / snapshots / large build dirs) and are NOT routed through
 # impermanence — no home-data migration.
 #
-# Coexists with system.etc.overlay.mutable = false (core.nix): impermanence
+# Coexists with system.etc.overlay.mutable = true (core.nix): impermanence
 # persists at the filesystem (bind-mount) layer, independent of /etc
-# generation, so it bind-mounts over the immutable /etc paths fine. The
-# load-bearing entry is /var/lib/nixos — userborn writes passwd/shadow/group
-# there (users.nix); persisting it is what keeps login working across the
-# ephemeral root.
+# generation. The load-bearing entry is /var/lib/nixos — userborn writes
+# passwd/shadow/group there (users.nix pins passwordFilesLocation to it
+# explicitly, since under mutable /etc its default would be /etc — which
+# the tmpfs root wipes each boot); persisting /var/lib/nixos is what keeps
+# login working across the ephemeral root.
 { lib, ... }:
 {
   fileSystems."/" = {

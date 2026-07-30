@@ -111,8 +111,9 @@ LiveISO is signed, and `lanzaboote`, `sbctl`, the Microsoft-signed shim and
 Limine replaces systemd-boot because `systemd-boot-builder.py` reads
 `/etc/machine-id` and aborts `nixos-install` when it is empty — exactly the
 state this system's impermanence setup produces at install time (tmpfs `/`
-wiped each boot, `system.etc.overlay.mutable = false`, and `/etc/machine-id`
-intentionally not persisted). `limine-install.py` has no machine-id
+wiped each boot, and `/etc/machine-id` intentionally not persisted — it
+regenerates each boot regardless of `system.etc.overlay.mutable`).
+`limine-install.py` has no machine-id
 dependency. Limine installs to the firmware's removable `\EFI\BOOT\BOOTX64.EFI`
 path (`boot.loader.efi.canTouchEfiVariables = false`), so it never runs
 `efibootmgr` and is immune to the efibootmgr NVRAM-write failure

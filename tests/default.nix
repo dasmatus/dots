@@ -390,10 +390,17 @@ let
 
   # The load-bearing "can I log in after reboot?" guarantee for the
   # nixos-init migration: userborn creates the account at FIRST boot (not at
-  # nixos-install time) and, under immutable /etc, writes passwd/shadow/group
-  # to /var/lib/nixos — so login working after a reboot is the proof those
-  # credentials survived. No upstream test combines userborn + immutable-etc +
-  # reboot + credential survival, hence this one. Verifies the contract the
+  # nixos-install time) and writes passwd/shadow/group to /var/lib/nixos —
+  # pinned there explicitly via `passwordFilesLocation` so it holds under the
+  # MUTABLE /etc core.nix ships (mutable=true lets NetworkManager write
+  # /etc/NetworkManager/system-connections; see memory:
+  # etc-overlay-mutable-required-for-bindmounts). Without that pin, userborn's
+  # default (`/var/lib/nixos` only when /etc is immutable, else `/etc`) would
+  # move credentials onto the tmpfs-wiped, unpersisted /etc overlay upperdir
+  # → login works on first boot but the hash vanishes on reboot → locked out.
+  # This test mirrors production (mutable=true + the pin) so a regression that
+  # drops the pin, flips /etc mutability, or rewires impermanence away from
+  # /var/lib/nixos fails here instead of shipping. Verifies the contract the
   # installer's WriteSecrets step (declarative yescrypt → nix/secrets.nix →
   # initialHashedPassword) relies on. The real PAM-keystroke login on a tty is
   # deliberately NOT exercised here: the backdoor runs as root, so reading
@@ -413,8 +420,14 @@ let
       services.userborn.enable = true;
       system.etc.overlay = {
         enable = true;
-        mutable = false;
+        # Mirrors core.nix: mutable so /etc writers (NetworkManager) work.
+        mutable = true;
       };
+      # The pin from users.nix — load-bearing under mutable /etc (see above).
+      # Without it this test would pass against a /etc shadow that the tmpfs
+      # root wipes, masking the reboot lockout the way the prior mutable=false
+      # version of this test masked the cddf5de regression.
+      services.userborn.passwordFilesLocation = "/var/lib/nixos";
       # initialHashedPassword is only applied at account creation, then a
       # no-op update preserves it — matching users.nix on the real system, so
       # the hash is not re-forced every boot (which would mask a drift bug).
@@ -429,9 +442,9 @@ let
       machine.wait_for_unit("userborn.service")
 
       # /etc/shadow must be a direct symlink into /var/lib/nixos — the
-      # signature that userborn's passwordFilesLocation kicked in under
-      # immutable /etc, rather than the legacy Perl setup-etc.pl writing a
-      # real file to /etc.
+      # signature that the passwordFilesLocation pin held (userborn would
+      # otherwise default to /etc under mutable /etc and write a real file
+      # there, which the tmpfs root would wipe on reboot).
       shadow_target = machine.succeed("readlink -f /etc/shadow").strip()
       # userborn writes /var/lib/nixos/{passwd,shadow,group} directly (no
       # `etc/` subdir), so the contract is "symlinks somewhere under

@@ -47,10 +47,7 @@ in
   # nixos/modules/config/users-groups.nix), so userborn's own
   # `activationScripts.users == ""` assertion holds for free.
   #
-  # /etc is mounted immutable (system.etc.overlay.mutable = false, core.nix),
-  # so userborn can't write passwd/shadow/group there: `passwordFilesLocation`
-  # defaults to `/var/lib/nixos` and /etc just holds direct-symlinks into it.
-  # Users are therefore created at FIRST BOOT by the userborn unit, not during
+  # Users are created at FIRST BOOT by the userborn unit, not during
   # nixos-install's activation — so the old `nixos-enter -- chpasswd` install
   # step (which targeted a user that didn't exist yet) is replaced by the
   # declarative `initialHashedPassword` below, seeded via nix/secrets.nix.
@@ -61,6 +58,25 @@ in
   # intact (shadow::Entry::update(None) is a no-op), so the installer-seeded
   # passwords survive rebuilds as before.
   services.userborn.enable = true;
+  # Pin the credential file location to /var/lib/nixos REGARDLESS of /etc
+  # mutability. userborn's default is
+  # `if immutableEtc && !static then "/var/lib/nixos" else "/etc"` (nixpkgs:
+  # nixos/modules/services/system/userborn.nix), so it only lands on the
+  # persisted /var/lib/nixos (impermanence.nix bind-mounts it from /persist)
+  # when /etc is immutable. core.nix sets `system.etc.overlay.mutable = true`
+  # so NetworkManager can write /etc/NetworkManager/system-connections (see
+  # memory: etc-overlay-mutable-required-for-bindmounts) — but that flips the
+  # userborn default to /etc, whose overlay upperdir (/.rw-etc/upper) lives on
+  # the tmpfs root that impermanence wipes each boot and that is NOT in the
+  # persistence set. Credential files there vanish on reboot → locked out
+  # ("can't log in after reboot"). The option's own description covers this
+  # case ("this can also serve other use cases, e.g. when `/etc` is on a
+  # `tmpfs`"), so pin it explicitly: /etc stays writable for NM, while
+  # passwd/shadow/group stay on the persisted /var/lib/nixos and /etc just
+  # holds userborn's symlinks into it. No assertion fires — userborn only
+  # forbids passwordFilesLocation == "/etc" when /etc is immutable, which it
+  # no longer is. Guarded by the userborn-reboot-login VM test.
+  services.userborn.passwordFilesLocation = "/var/lib/nixos";
   users.users.${settings.username} = {
     isNormalUser = true;
     # Pretty name (GECOS full-name field) — reuse the git identity so the
