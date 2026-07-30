@@ -2,12 +2,18 @@
 # (git history): clones the dots repo from Codeberg into
 # ~/Dokumente/gitlab/personal/dots, flips its `origin` to SSH so later
 # push/pull ride the vault SSH key (nix/home/bitwarden.nix dots-keys), then
-# restores the machine-specific install answers (settings.nix, facter.json)
-# stashed by installer-tui at /var/lib/dots, so rebuilds/autoUpgrade keep
-# the real hostname/user/hardware report instead of the committed
-# placeholders. The local path keeps its legacy "gitlab" segment — it's just
-# a folder name now; the repo itself lives on codeberg.org/dasmatus/dots.
-{ pkgs, ... }:
+# symlinks the machine-specific install answers (settings.nix, facter.json)
+# stashed by installer-tui at the configured state dir (options.dots.paths,
+# default /var/lib/dots) into the clone, so rebuilds/autoUpgrade read the
+# real hostname/user/hardware report instead of the committed placeholders.
+# The local path keeps its legacy "gitlab" segment — it's just a folder name
+# now; the repo itself lives on codeberg.org/dasmatus/dots.
+{
+  pkgs,
+  lib,
+  dots,
+  ...
+}:
 
 let
   # Anonymous-HTTPS for the first-login clone: the repo is public, so no
@@ -16,6 +22,15 @@ let
   repoUrl = "https://codeberg.org/dasmatus/dots";
   sshUrl = "ssh://git@codeberg.org/dasmatus/dots";
   repoRel = "Dokumente/gitlab/personal/dots";
+  # Configured relatives of the install-answer stash (options.dots.paths):
+  # nix/<file> in the clone becomes a symlink to <stateDir>/<file>, so an
+  # edit in the stash (e.g. a re-run of nixos-facter) is reflected in
+  # rebuilds without re-cloning, and autoUpgrade always reads the live value.
+  stateDir = dots.paths.stateDir;
+  answerFiles = [
+    dots.paths.settingsFile
+    dots.paths.facterFile
+  ];
 
   script = pkgs.writeShellScript "dots-clone" ''
     set -euo pipefail
@@ -42,9 +57,18 @@ let
     # attempted here, so this is safe before the SSH key exists.
     ${pkgs.git}/bin/git -C "$dest" remote set-url origin "${sshUrl}"
 
-    for f in settings.nix facter.json; do
-      if [ -f "/var/lib/dots/$f" ]; then
-        cp "/var/lib/dots/$f" "$dest/nix/$f"
+    # Restore the machine-specific install answers as symlinks into the
+    # persisted stash (impermanence.nix bind-mounts /persist over
+    # ${stateDir}). Symlinks — not copies — so rebuilds read the live stashed
+    # values. The committed stubs these replace are tracked regular files;
+    # `git update-index --skip-worktree` hides the typechange (regular →
+    # symlink) so the clone's tree stays clean for autoUpgrade's git
+    # operations. `2>/dev/null || true` guards a not-yet-indexed path.
+    for f in ${lib.concatStringsSep " " answerFiles}; do
+      if [ -e "${stateDir}/$f" ]; then
+        rm -f "$dest/nix/$f"
+        ln -s "${stateDir}/$f" "$dest/nix/$f"
+        ${pkgs.git}/bin/git -C "$dest" update-index --skip-worktree "nix/$f" 2> /dev/null || true
       fi
     done
   '';

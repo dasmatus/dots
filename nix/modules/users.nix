@@ -4,6 +4,7 @@
 # mutableUsers stays true so passwords seeded once by the installer survive
 # rebuilds (userborn preserves existing hashes; see below).
 {
+  config,
   pkgs,
   settings,
   inputs,
@@ -77,11 +78,11 @@ in
   # forbids passwordFilesLocation == "/etc" when /etc is immutable, which it
   # no longer is. Guarded by the userborn-reboot-login VM test.
   services.userborn.passwordFilesLocation = "/var/lib/nixos";
-  users.users.${settings.username} = {
+  users.users.${config.dots.username} = {
     isNormalUser = true;
     # Pretty name (GECOS full-name field) — reuse the git identity so the
     # login screen and `getent passwd` show the same name as `git user.name`.
-    description = settings.gitName;
+    description = config.dots.gitName;
     shell = pkgs.fish;
     initialHashedPassword = secrets.userHash or null;
     extraGroups = [
@@ -103,7 +104,10 @@ in
     # `settings` is passed so nix/home/git.nix can read the installer-collected
     # git identity (settings.gitName / settings.gitEmail); the desktop choice
     # in settings.desktop is NOT gated on the HM side — only the system-level
-    # desktop block in nix/modules/desktop.nix reads it.
+    # desktop block in nix/modules/desktop.nix reads it. `dots` is the typed
+    # projection of the installer answers (nix/modules/dots.nix) so the HM-side
+    # AI gating (nix/home/{claude,codex}.nix) and the dots-clone symlinks
+    # (nix/home/dots-repo.nix) read the same values as the system modules.
     extraSpecialArgs = {
       inherit
         inputs
@@ -113,8 +117,9 @@ in
         wallpaperTui
         hyprmon
         ;
+      dots = config.dots;
     };
     sharedModules = [ inputs.nixvim.homeModules.nixvim ];
-    users.${settings.username} = import ../home;
+    users.${config.dots.username} = import ../home;
   };
 }

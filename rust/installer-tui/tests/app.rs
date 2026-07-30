@@ -431,8 +431,68 @@ fn git_email_required_and_advances_on_valid() {
     type_str(&mut app, "alice@example.org");
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.config.git_email, "alice@example.org");
-    assert_eq!(app.screen, Screen::UserPassword);
+    assert_eq!(app.screen, Screen::Ai);
     assert!(app.error.is_none());
+}
+
+#[test]
+fn ai_defaults_to_all_enabled() {
+    let app = app();
+    assert!(app.config.ai_claude);
+    assert!(app.config.ai_codex);
+    assert!(app.config.ai_ollama);
+    assert_eq!(app.ai_selected, 0);
+}
+
+#[test]
+fn ai_space_toggles_each_option() {
+    let mut app = app();
+    app.screen = Screen::Ai;
+    app.handle_key(key(KeyCode::Char(' '))); // toggle claude off
+    assert!(!app.config.ai_claude);
+    app.handle_key(key(KeyCode::Down));
+    app.handle_key(key(KeyCode::Char(' '))); // toggle codex off
+    assert!(!app.config.ai_codex);
+    app.handle_key(key(KeyCode::Down));
+    app.handle_key(key(KeyCode::Char(' '))); // toggle ollama off
+    assert!(!app.config.ai_ollama);
+    // Space again on ollama turns it back on (cursor stayed at the bottom).
+    app.handle_key(key(KeyCode::Char(' ')));
+    assert!(app.config.ai_ollama);
+}
+
+#[test]
+fn ai_cursor_clamps_at_bottom() {
+    let mut app = app();
+    app.screen = Screen::Ai;
+    for _ in 0..5 {
+        app.handle_key(key(KeyCode::Down));
+    }
+    assert_eq!(app.ai_selected, dots_installer::app::AI_OPTIONS - 1);
+}
+
+#[test]
+fn ai_cursor_up_clamps_at_top() {
+    let mut app = app();
+    app.screen = Screen::Ai;
+    app.handle_key(key(KeyCode::Up));
+    assert_eq!(app.ai_selected, 0);
+}
+
+#[test]
+fn ai_enter_advances_to_user_password() {
+    let mut app = app();
+    app.screen = Screen::Ai;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.screen, Screen::UserPassword);
+}
+
+#[test]
+fn ai_esc_backs_out_to_git_email() {
+    let mut app = app();
+    app.screen = Screen::Ai;
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.screen, Screen::GitEmail);
 }
 
 #[test]

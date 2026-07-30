@@ -6,7 +6,12 @@
 # permissions.allow glob-list has no direct key equivalent here).
 # Codex is Apache-2.0, so unlike claude-code it needs no unfree predicate
 # in nix/modules/core.nix.
-{ pkgs, lib, ... }:
+{
+  pkgs,
+  lib,
+  dots,
+  ...
+}:
 let
   # Stdio MCP bridge to the local SearXNG instance (nix/modules/searxng.nix).
   # Identical to the one in claude.nix — a generic stdio MCP server, so Codex
@@ -74,11 +79,13 @@ let
 in
 {
   # Shared with claude.nix: local model server for the fish `claude`/`ollama`
-  # launch aliases and as an optional Codex model_provider.
-  services.ollama.enable = true;
+  # launch aliases and as an optional Codex model_provider. Gated on the
+  # installer "AI" screen toggle (options.dots.ai.ollama).
+  services.ollama.enable = dots.ai.ollama;
 
+  # Gated on the installer "AI" screen toggle (options.dots.ai.codex).
   programs.codex = {
-    enable = true;
+    enable = dots.ai.codex;
 
     # ~/.codex/AGENTS.md — global memory, loaded in every project: this is
     # what makes the MCP tool the *default* rather than merely available.

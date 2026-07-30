@@ -42,4 +42,27 @@
   # (or false) — see networking.firewall.checkReversePath in nixpkgs.
   wifiBackend = "wpa_supplicant";
   reversePathFilter = "loose";
+
+  # AI tooling — bridged to options.dots.ai.* by nix/modules/dots.nix. The
+  # installer TUI "AI" screen rewrites the three enable toggles (aiClaude,
+  # aiCodex, aiOllama) into settings.nix on the target; the models list +
+  # models dir stay here as user-editable defaults (manageable via the
+  # dots.ai.* NixOS options). nix/hosts.nix gates services.ollama on
+  # dots.ai.ollama and reads dots.ai.ollamaModels / ollamaModelsDir.
+  aiClaude = true;
+  aiCodex = true;
+  aiOllama = true;
+  aiOllamaModels = [
+    "ornith:9b"
+    "gemma4:e4b"
+  ];
+  # /var/lib/ollama is persisted by nix/modules/impermanence.nix, so models
+  # survive the tmpfs root wipe instead of re-downloading every boot.
+  aiOllamaModelsDir = "/var/lib/ollama/models";
+
+  # Install-answer stash root — bridged to options.dots.paths.stateDir by
+  # nix/modules/dots.nix. nix/facter.json + nix/settings.nix are symlinked
+  # here by the first-login dots-clone service (nix/home/dots-repo.nix), and
+  # impermanence.nix bind-mounts /persist over it.
+  dotsStateDir = "/var/lib/dots";
 }

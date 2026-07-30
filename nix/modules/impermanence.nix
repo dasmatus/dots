@@ -14,7 +14,11 @@
 # explicitly, since under mutable /etc its default would be /etc — which
 # the tmpfs root wipes each boot); persisting /var/lib/nixos is what keeps
 # login working across the ephemeral root.
-{ lib, ... }:
+{
+  lib,
+  config,
+  ...
+}:
 {
   fileSystems."/" = {
     device = "tmpfs";
@@ -43,7 +47,8 @@
       "/var/lib/nixos" # userborn passwd/shadow/group — login survives reboot
       "/etc/NetworkManager/system-connections" # Wi-Fi profiles (installer-seeded)
       "/var/lib/NetworkManager" # NM state
-      "/var/lib/dots" # install answers (settings.nix/facter.json) for dots-clone
+      config.dots.paths.stateDir # install answers (settings.nix/facter.json) for dots-clone
+      "/var/lib/ollama" # ollama models — survive the tmpfs wipe (no re-download each boot)
       "/var/log" # journal across reboots
     ];
     # /etc/machine-id intentionally NOT persisted: it regenerates each boot,

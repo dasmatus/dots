@@ -10,6 +10,10 @@ use crate::disks::{self, Disk};
 use crate::install;
 use crate::net;
 
+/// Number of toggles on the `Ai` screen (Claude, Codex, Ollama). Keeps the
+/// `Down` cursor clamp and the `Space` toggle dispatch in sync with the view.
+pub const AI_OPTIONS: usize = 3;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Welcome,
@@ -24,6 +28,10 @@ pub enum Screen {
     Username,
     GitName,
     GitEmail,
+    /// AI tooling toggles (Claude Code / Codex CLI / Ollama) → settings.ai*,
+    /// bridged to options.dots.ai.* by nix/modules/dots.nix. Defaults to all
+    /// on; Space flips a toggle, Enter advances to UserPassword.
+    Ai,
     UserPassword,
     UserPasswordConfirm,
     Confirm,
@@ -41,6 +49,8 @@ pub struct App {
     pub selected: usize,
     /// Per-`disks` selection mask for the multi-select picker.
     pub picked: Vec<bool>,
+    /// Cursor on the `Ai` toggle list (0 = Claude, 1 = Codex, 2 = Ollama).
+    pub ai_selected: usize,
     /// True when `autodetect_disk` pre-picked the disk → skip `DiskSelect`.
     pub disk_auto: bool,
     pub input: String,
@@ -82,11 +92,17 @@ impl App {
             screen: Screen::Welcome,
             config: InstallConfig {
                 disks: config_disks,
+                // AI tooling defaults to on; the AI screen lets the user turn
+                // any off. `Default` would leave these `false`, so set them here.
+                ai_claude: true,
+                ai_codex: true,
+                ai_ollama: true,
                 ..InstallConfig::default()
             },
             picked: vec![false; disks.len()],
             disks,
             selected: 0,
+            ai_selected: 0,
             disk_auto,
             input: String::new(),
             pending_password: String::new(),
@@ -321,7 +337,7 @@ impl App {
                         self.config.git_email = self.input.clone();
                         self.input.clear();
                         self.error = None;
-                        self.screen = Screen::UserPassword;
+                        self.screen = Screen::Ai;
                     }
                     Err(e) => self.error = Some(e),
                 },
@@ -330,6 +346,28 @@ impl App {
                     self.error = None;
                     self.screen = Screen::GitName;
                 }
+                _ => {}
+            },
+
+            Screen::Ai => match key.code {
+                KeyCode::Up => self.ai_selected = self.ai_selected.saturating_sub(1),
+                KeyCode::Down => {
+                    if self.ai_selected + 1 < AI_OPTIONS {
+                        self.ai_selected += 1;
+                    }
+                }
+                // Space flips the focused toggle; the three toggles map 1:1 to
+                // settings.aiClaude / aiCodex / aiOllama (nix/modules/dots.nix).
+                KeyCode::Char(' ') => {
+                    match self.ai_selected {
+                        0 => self.config.ai_claude = !self.config.ai_claude,
+                        1 => self.config.ai_codex = !self.config.ai_codex,
+                        _ => self.config.ai_ollama = !self.config.ai_ollama,
+                    }
+                    self.error = None;
+                }
+                KeyCode::Enter => self.screen = Screen::UserPassword,
+                KeyCode::Esc => self.screen = Screen::GitEmail,
                 _ => {}
             },
 

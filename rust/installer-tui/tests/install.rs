@@ -14,6 +14,7 @@ fn cfg() -> InstallConfig {
         git_email: "alice@example.org".into(),
         user_password: "usersecret".into(),
         swap_size_gib: 16,
+        ..Default::default()
     }
 }
 
@@ -159,6 +160,29 @@ fn plan_writes_settings_nix_into_staged_flake() {
         _ => false,
     });
     assert!(found, "settings.nix rewrite step missing");
+}
+
+#[test]
+fn plan_writes_ai_toggles_into_settings_nix() {
+    // The AI screen's toggles render as aiClaude/aiCodex/aiOllama booleans in
+    // settings.nix, bridged to options.dots.ai.* by nix/modules/dots.nix. A
+    // toggled-off value must render as `false` (not omitted) so the override
+    // propagates: defaults.nix would otherwise leave it `true`.
+    let mut cfg = cfg();
+    cfg.ai_claude = true;
+    cfg.ai_codex = false;
+    cfg.ai_ollama = true;
+    let steps = plan(&cfg, "/etc/dots", "/mnt");
+    let found = steps.iter().any(|s| match &s.action {
+        Action::WriteFile { path, contents, .. } => {
+            path == &format!("{STAGED_FLAKE}/nix/settings.nix")
+                && contents.contains("aiClaude = true;")
+                && contents.contains("aiCodex = false;")
+                && contents.contains("aiOllama = true;")
+        }
+        _ => false,
+    });
+    assert!(found, "settings.nix must render the AI toggles");
 }
 
 #[test]

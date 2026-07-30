@@ -143,6 +143,7 @@ fn wizard_panel(a: &App, fx: &ScreenFx, tokens: &TokenSet) -> View {
             a,
             tokens,
         ),
+        Screen::Ai => ai_view(a, tokens),
         Screen::UserPassword => prompt_screen(
             " user password ",
             "User password:",
@@ -234,6 +235,15 @@ fn confirm_view(app: &App, tokens: &TokenSet) -> View {
         ),
         span_line(
             format!("    swap      {}G", app.config.swap_size_gib),
+            Ink::new(),
+        ),
+        span_line(
+            format!(
+                "    ai        claude {} · codex {} · ollama {}",
+                on_off(app.config.ai_claude),
+                on_off(app.config.ai_codex),
+                on_off(app.config.ai_ollama),
+            ),
             Ink::new(),
         ),
         blank(),
@@ -389,6 +399,46 @@ fn disk_select_view(app: &App, tokens: &TokenSet) -> View {
     ));
     push_error(&mut lines, app);
     block_view(" target disks ", lines, tokens)
+}
+
+/// The `Ai` screen: a three-row toggle list (Claude Code, Codex CLI, Ollama)
+/// with ASCII `[x]`/`[ ]` markers and a `▶`/` ` cursor — same tty1-safe style
+/// as `disk_select_view`. The toggles map 1:1 to `config.ai_claude` /
+/// `ai_codex` / `ai_ollama`, rendered into settings.nix as aiClaude/aiCodex/
+/// aiOllama and bridged to options.dots.ai.* (nix/modules/dots.nix) which gate
+/// nix/home/{claude,codex}.nix + the ollama service.
+fn ai_view(app: &App, tokens: &TokenSet) -> View {
+    let opts: [(&str, bool); crate::app::AI_OPTIONS] = [
+        ("Claude Code", app.config.ai_claude),
+        ("Codex CLI", app.config.ai_codex),
+        ("Ollama", app.config.ai_ollama),
+    ];
+    let mut lines = vec![
+        blank(),
+        span_line("  Select AI tooling to enable:", Ink::new()),
+        span_line(
+            "  (written to settings.nix as aiClaude/aiCodex/aiOllama)",
+            Ink::new().fg(palette::DIM),
+        ),
+        blank(),
+    ];
+    for (i, (label, on)) in opts.iter().enumerate() {
+        let cursor = if i == app.ai_selected { "▶" } else { " " };
+        let mark = if *on { "[x]" } else { "[ ]" };
+        let ink = if i == app.ai_selected {
+            Ink::new().fg(palette::CYAN).bold()
+        } else {
+            Ink::new()
+        };
+        lines.push(span_line(format!(" {cursor} {mark} {label}"), ink));
+    }
+    lines.push(blank());
+    lines.push(span_line(
+        "↑/↓ move · Space toggle · Enter confirm · Esc back",
+        Ink::new().fg(palette::DIM),
+    ));
+    push_error(&mut lines, app);
+    block_view(" ai ", lines, tokens)
 }
 
 /// The Installing screen: a cyan `step i/n — title` label, the engine's
@@ -576,6 +626,15 @@ fn block_view(title: &str, lines: Vec<RichLine>, tokens: &TokenSet) -> View {
 /// A single-styled line.
 fn span_line(text: impl Into<String>, ink: Ink) -> RichLine {
     RichLine::from_spans(vec![Span::new(text, ink)])
+}
+
+/// `true` → "on", `false` → "off" for the confirm-screen AI summary.
+fn on_off(b: bool) -> &'static str {
+    if b {
+        "on"
+    } else {
+        "off"
+    }
 }
 
 /// An empty line (vertical spacer).

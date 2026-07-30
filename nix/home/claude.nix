@@ -2,7 +2,12 @@
 # ccbar used to be an imperative `cargo install ccbar` (~/.cargo/bin); it is
 # now built from its crates.io release below and wired into the statusline,
 # and goes on PATH so the 5-hour/weekly limits can be polled directly.
-{ pkgs, lib, ... }:
+{
+  pkgs,
+  lib,
+  dots,
+  ...
+}:
 let
   # Claude Code statusline with 5-hour and 7-day (weekly) rate-limit bars.
   # Hashes verified by building against the pinned nixpkgs; pure-Rust deps
@@ -87,8 +92,10 @@ let
 in
 {
   home.packages = [ ccbar ];
+  # Gated on the installer "AI" screen toggle (options.dots.ai.claude, written
+  # into settings.nix as aiClaude and bridged by nix/modules/dots.nix).
   programs.claude-code = {
-    enable = true;
+    enable = dots.ai.claude;
 
     mcpServers.searxng = {
       type = "stdio";

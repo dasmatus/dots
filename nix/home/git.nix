@@ -1,7 +1,8 @@
 # Git identity + SSH commit signing. The identity (user.name / user.email)
-# comes from the installer-collected settings.gitName / settings.gitEmail
-# (written into nix/settings.nix by rust/installer-tui and passed into HM
-# via nix/modules/users.nix extraSpecialArgs). Signing is SSH-format
+# comes from the installer-collected dots.gitName / dots.gitEmail (written
+# into nix/settings.nix by rust/installer-tui, bridged to options.dots.* by
+# nix/modules/dots.nix, and passed into HM via nix/modules/users.nix
+# extraSpecialArgs). Signing is SSH-format
 # against the public half of the Bitwarden-vault SSH key: dots-keys
 # (bitwarden.nix) exports ~/.ssh/id_ed25519.pub, and with a .pub-only
 # signingkey git's ssh-keygen -Y sign pulls the private key from the rbw
@@ -14,7 +15,7 @@
 {
   config,
   pkgs,
-  settings,
+  dots,
   ...
 }:
 {
@@ -23,8 +24,8 @@
     package = pkgs.git.override { withLibsecret = true; };
     settings = {
       user = {
-        name = settings.gitName;
-        email = settings.gitEmail;
+        name = dots.gitName;
+        email = dots.gitEmail;
         # Absolute path — git does not tilde-expand signingkey.
         signingkey = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
       };

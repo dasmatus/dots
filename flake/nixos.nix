@@ -33,6 +33,7 @@ let
         inputs.home-manager.nixosModules.home-manager
         inputs.impermanence.nixosModules.impermanence
         (import ../nix/disko.nix { inherit (s) disks swapSize; })
+        ../nix/modules/dots.nix
         ../nix/modules/core.nix
         ../nix/modules/impermanence.nix
         ../nix/modules/boot.nix

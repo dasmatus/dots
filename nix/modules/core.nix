@@ -3,6 +3,7 @@
 # the package set matches the retired Gentoo installer's SYSTEM_PACKAGES
 # (git history).
 {
+  config,
   pkgs,
   lib,
   settings,
@@ -11,7 +12,7 @@
 }:
 {
   security.pam.services.login.enableGnomeKeyring = true;
-  networking.hostName = settings.hostname;
+  networking.hostName = config.dots.hostname;
   system.nixos = {
     distroName = "dasmatus/dots";
     variantName = settings.hostname;
