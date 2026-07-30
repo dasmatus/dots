@@ -103,7 +103,15 @@ in
   # per-message suggestion invocations (they'd burn plan usage).
   # NB: home-manager rewrites llm-settings wholesale on switch — handler
   # tweaks made in the app UI don't survive a rebuild.
-  dconf.settings."io/github/qwersyk/Newelle" = {
+  #
+  # Gated on programs.claude-code.enable (== dots.ai.claude): the HM
+  # claude-code module only assigns `finalPackage` under `mkIf cfg.enable`,
+  # so reading it here unconditionally trips "programs.claude-code.finalPackage
+  # was accessed but has no value defined" the moment the installer AI toggle
+  # is flipped off. When claude is disabled there is no `claude -p` to pipe
+  # to, so Newelle keeps its upstream LLM defaults rather than pointing at a
+  # missing binary.
+  dconf.settings."io/github/qwersyk/Newelle" = lib.mkIf config.programs.claude-code.enable {
     language-model = "custom_command";
     welcome-screen-shown = true;
     llm-settings = builtins.toJSON {

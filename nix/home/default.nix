@@ -10,7 +10,7 @@
 # The X11-era stack (i3, polybar, picom, libinput-gestures, swaybg wallpaper
 # exec, swayidle/swaylock, redshift) has been fully replaced by the Wayland
 # modules imported below.
-{ config, pkgs, ... }:
+{ config, pkgs, dots, ... }:
 {
   imports = [
     ./kitty.nix
@@ -46,7 +46,13 @@
 
   # computer-use-linux MCP server + CLI, registered into every harness
   # present here (Claude Code + Codex). See nix/home/computer-use-linux.nix.
-  programs.computer-use-linux.enable = true;
+  # Gated on at least one harness being enabled: the module's whole purpose is
+  # to register an MCP server into a harness, so with both dots.ai.claude and
+  # dots.ai.codex off it has nothing to serve and would only install a dead
+  # CLI on PATH. (The per-harness mcpServers/mcp_servers assignments inside
+  # the module are harmless when the parent harness is disabled — they're
+  # silently dropped — but there's no point enabling the server at all then.)
+  programs.computer-use-linux.enable = dots.ai.claude || dots.ai.codex;
   dconf.enable = true;
   dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
   dconf.settings = {
