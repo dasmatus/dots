@@ -1,41 +1,3 @@
-# Por of files/hypr/hyprland.conf (deleted — see git history) plus its
-# Wayland session daemons. Deliberate deviations from the X11-era conf:
-#   - wallpaper exec-once dropped: wallpaper-tui (nix/home/wallpaper-tui.nix)
-#     owns it now — `wallpaper-tui --restore` re-applies the effective wallpaper
-#     (declarative defaults merged with TUI runtime state) on login; the old
-#     static `swaybg -i …stripes…` line was removed because it clobbered the
-#     restore
-#   - gentoo-pipewire-launcher dropped (Gentoo-only, already dead on NixOS)
-#   - swayidle/swaylock exec-once dropped in favour of services.hypridle and
-#     programs.hyprlock below
-#   - libinput-gestures-setup dropped in favour of native Hyprland 0.55
-#     hl.gesture() touchpad gestures below
-#   - redshift exec-once dropped in favour of services.gammastep below
-#   - all four `exec = gsettings ...` theme lines dropped: gtk/dconf
-#     (default.nix) own theming now
-#   - light -A/-U → brightnessctl (light was removed from nixpkgs)
-#   - KeePassXC/Obsidian launched as native binaries (nix/home/pkgs.nix)
-#     since the flatpak migration; the screenshot stack went Flameshot →
-#     HyprCapture (Qt plugin, captured blank screenshots) → dots-snip (a
-#     grim-backed Tauri overlay, since removed) → bare `grim` + notify-send
-#     bound on Print below. Selection overlays kept blanking out, so Print
-#     now grabs the whole desktop and notifies the saved path instead.
-#     OBSIDIAN_USE_WAYLAND (flatpak-only) became
-#     NIXOS_OZONE_WL, which the nixpkgs Electron wrappers (obsidian, vesktop
-#     — signal-desktop's ignores it) key off for native Wayland
-#   - lock bind switched from swaylock to hyprlock; the resize bind still
-#     shares the same $mainMod ALT, L chord as the original conf did
-#
-# wayland.windowManager.hyprland.package is set to null because
-# programs.hyprland.enable (nix/modules/desktop.nix) already installs
-# Hyprland system-wide. configType is "lua": Home Manager 26.05 defaults
-# new configs to the Lua DSL and this module uses it. `settings` is a Nix
-# attrset that HM walks into hl.<key>(...) calls (lib.nix renderSettings):
-# `_args` makes a multi-arg call, `_var` declares a `local`, and the `lua`
-# alias (lib.generators.mkLuaInline) injects raw lua for key expressions
-# (mod .. " + Q") and hl.dsp.* dispatchers. hyprlang-only keys are gone —
-# exec-once → on("hyprland.start",…), binde → {repeating=true},
-# bindm → {mouse=true}, bezier/animation → curve/animation.
 {
   config,
   pkgs,
@@ -79,17 +41,18 @@ in
         _args = [
           "hyprland.start"
           (lua ''
-            function()
-              -- eww daemon must be up before keybinds.sh opens the cheatsheet
-              -- window (and before any SUPER+D launcher toggle). keybinds.sh
-              -- sleeps 2s on first login to let it initialize its IPC socket.
-              hl.exec_cmd("eww daemon")
-              hl.exec_cmd("awww-daemon")
-              hl.exec_cmd("waybar")
-              hl.exec_cmd("nm-applet --indicator")
-              hl.exec_cmd("wallpaper-tui --restore")
-              hl.exec_cmd("~/.config/eww/scripts/keybinds.sh")
-            end'')
+                        function()
+                          -- eww daemon must be up before keybinds.sh opens the cheatsheet
+                          -- window (and before any SUPER+D launcher toggle). keybinds.sh
+                          -- sleeps 2s on first login to let it initialize its IPC socket.
+                          hl.exec_cmd("eww daemon")
+                          hl.exec_cmd("awww-daemon")
+                          hl.exec_cmd("waybar")
+            	      hl.exec_cmd("hyprmon apply")
+                          hl.exec_cmd("nm-applet --indicator")
+                          hl.exec_cmd("wallpaper-tui --restore")
+                          hl.exec_cmd("~/.config/eww/scripts/keybinds.sh")
+                        end'')
         ];
       };
 
