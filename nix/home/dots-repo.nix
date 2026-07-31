@@ -21,7 +21,7 @@ let
   # sshUrl below once the vault SSH key is available.
   repoUrl = "https://codeberg.org/dasmatus/dots";
   sshUrl = "ssh://git@codeberg.org/dasmatus/dots";
-  repoRel = "Dokumente/gitlab/personal/dots";
+  repoRel = "Dokumente/codeberg/personal/dots";
   # Configured relatives of the install-answer stash (options.dots.paths):
   # nix/<file> in the clone becomes a symlink to <stateDir>/<file>, so an
   # edit in the stash (e.g. a re-run of nixos-facter) is reflected in

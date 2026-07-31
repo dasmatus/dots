@@ -92,7 +92,7 @@ let
     # override when the inherited $HOME is unusable (unset, or an existing
     # dir not owned by us).
     if [ -z "''${HOME:-}" ] || { [ -e "''$HOME" ] && [ ! -O "''$HOME" ]; }; then
-      export HOME="$(mktemp -d)"
+      export HOME="$(${pkgs.mktemp} -d)"
     fi
 
     # Hazard 2 — missing system profile. The upstream installer reads
