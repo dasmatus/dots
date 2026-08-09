@@ -12,7 +12,7 @@
 #     stays the main browser); home.sessionVariables.BROWSER is the native
 #     replacement if one is ever wanted
 #   - functions/claude-dev.fish is ported verbatim below
-{ ... }:
+{ settings, ... }:
 {
   programs.zoxide = {
     enable = true;
@@ -30,8 +30,16 @@
       cat = "bat --paging=never";
       ls = "eza -lhi --git --icons always";
       cd = "z";
-      claude = "ollama launch claude";
-      codex = "ollama launch codex -- --dangerously-bypass-approvals-and-sandbox";
+      claude =
+        if settings.aiClaude && settings.aiOllama then
+          "ollama launch claude"
+        else
+          "echo 'claude and ollama not enabled'";
+      codex =
+        if settings.aiCodex && settings.aiOllama then
+          "ollama launch codex -- --dangerously-bypass-approvals-and-sandbox"
+        else
+          "echo 'codex and ollama not enabled'";
     };
 
     functions.claude-dev = ''
