@@ -70,6 +70,7 @@ in
       mpv
       newelle
       obsidian
+      omnix
       # Stremio — the official `stremio-linux-shell` Rust+GTK4 client (the
       # old Qt5 `stremio` was dropped from nixpkgs 2026-02-11 over its
       # EOL Qt5 WebEngine). Unfree only via the bundled server.js — see the

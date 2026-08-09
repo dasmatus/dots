@@ -32,7 +32,7 @@ let
     text = ''
       set -euo pipefail
       if systemctl --user is-active --quiet protonmail-bridge.service; then
-        printf '{"text":"󰇨 bridge","class":"connected","tooltip":"Proton Mail Bridge — running (IMAP :1143 / SMTP :1025)"}\n'
+        printf '{"text":"󰘘 bridge","class":"connected","tooltip":"Proton Mail Bridge — running (IMAP :1143 / SMTP :1025)"}\n'
       else
         printf '{"text":"󰇨 down","class":"disconnected","tooltip":"Proton Mail Bridge — stopped"}\n'
       fi
@@ -101,11 +101,11 @@ in
       "hyprland/workspaces" = {
         format = "{icon}";
         format-icons = {
-          default = "●";
-          active = "●";
-          urgent = "●";
-          empty = "●";
-          persistent = "●";
+          default = "";
+          active = "";
+          urgent = "󰵙";
+          empty = "";
+          persistent = "";
           visible = "●";
           special = "●";
         };
