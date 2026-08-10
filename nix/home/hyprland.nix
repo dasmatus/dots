@@ -41,18 +41,18 @@ in
         _args = [
           "hyprland.start"
           (lua ''
-                        function()
-                          -- eww daemon must be up before keybinds.sh opens the cheatsheet
-                          -- window (and before any SUPER+D launcher toggle). keybinds.sh
-                          -- sleeps 2s on first login to let it initialize its IPC socket.
-                          hl.exec_cmd("eww daemon")
-                          hl.exec_cmd("awww-daemon")
-                          hl.exec_cmd("waybar")
-            	      hl.exec_cmd("hyprmon apply")
-                          hl.exec_cmd("nm-applet --indicator")
-                          hl.exec_cmd("wallpaper-tui --restore")
-                          hl.exec_cmd("~/.config/eww/scripts/keybinds.sh")
-                        end'')
+                                    function()
+                                      -- eww daemon must be up before keybinds.sh opens the cheatsheet
+                                      -- window (and before any SUPER+D launcher toggle). keybinds.sh
+                                      -- sleeps 2s on first login to let it initialize its IPC socket.
+                                      hl.exec_cmd("eww daemon")
+                                      hl.exec_cmd("awww-daemon")
+                                      hl.exec_cmd("waybar")
+            			      hl.exec_cmd("hyprmon apply")
+                                      hl.exec_cmd("nm-applet --indicator")
+                                      hl.exec_cmd("wallpaper-tui --restore")
+                                      hl.exec_cmd("~/.config/eww/scripts/keybinds.sh")
+                                    end'')
         ];
       };
 

@@ -7,10 +7,10 @@
   pkgs,
   lib,
   settings,
-  system,
   ...
 }:
 {
+  services.fwupd.enable = true;
   security.pam.services.login.enableGnomeKeyring = true;
   networking.hostName = config.dots.hostname;
   system.nixos = {
@@ -26,18 +26,6 @@
   # (useGlobalPkgs, so the system nixpkgs config applies).
   nixpkgs.config.allowUnfreePredicate =
     pkg:
-    # CUDA runtime: ollama-cuda (nix/hosts.nix, gated on hasNvidia) pulls
-    # cuda_cudart / libcublas / cudnn / libnvjitlink / ... — a dozen-plus
-    # unfree redistributables whose exact set shifts every nixpkgs bump, so
-    # hand-maintaining them here is fragile. nixpkgs ships a curated
-    # pkg→bool predicate that covers exactly the unfree CUDA packages (and
-    # free ones — it's only consulted for unfree pkgs), so OR-ing it in adds
-    # CUDA surgically instead of a blanket allowUnfree. NOT solved via
-    # NIXPKGS_ALLOW_UNFREE on the installer's `nixos-install`: flake eval is
-    # pure, so builtins.getEnv is invisible there, and that env var sets
-    # blanket allowUnfree (every unfree package) + is non-durable across
-    # rebuilds. Eval-safe: pkgs._cuda.lib.allowUnfreeCudaPredicate exists on
-    # the pinned nixpkgs (verified).
     builtins.elem (lib.getName pkg) [
       "claude-code"
       # proprietary Electron app, ex-flatpak (nix/home/pkgs.nix)
@@ -49,11 +37,6 @@
       "nvidia-x11"
       "nvidia-settings"
       "vscode-extension-fill-labs-dependi"
-      # Stremio's official Linux client (Rust+GTK4 rewrite of the retired
-      # Qt5 `stremio`). Shell is GPL-3.0 but the bundled server.js has no
-      # upstream license, so nixpkgs marks the derivation
-      # AND [ gpl3Only unfree ]. Ex-flatpak-style media app (nix/home/pkgs.nix).
-      "stremio-linux-shell"
       # Steam client + its unfree redistributable deps. `programs.steam.enable`
       # (nix/modules/steam.nix) puts `steam` (an FHS wrapper, pname "steam")
       # into systemPackages, which pulls `steam-unwrapped` — the actual
@@ -110,5 +93,4 @@
     enable = true;
     pinentryPackage = pkgs.pinentry-gnome3;
   };
-
 }

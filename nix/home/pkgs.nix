@@ -55,6 +55,7 @@ let
         libxtst
         libxi
       ];
+
   };
 in
 {
@@ -68,18 +69,10 @@ in
       vesktop
       carburetor
       mpv
-      newelle
       obsidian
       omnix
-      # Stremio — the official `stremio-linux-shell` Rust+GTK4 client (the
-      # old Qt5 `stremio` was dropped from nixpkgs 2026-02-11 over its
-      # EOL Qt5 WebEngine). Unfree only via the bundled server.js — see the
-      # allowUnfreePredicate entry in nix/modules/core.nix. Addons (e.g.
-      # Eclipsia, manifest https://eclipsia.sudolocal.qzz.io/manifest.json)
-      # are subscribed via Stremio's UI and persist in ~/.local/share, not here.
-      stremio-linux-shell
       # flathub tracked the fresh branch; plain `libreoffice` = still/LTS
-      libreoffice-fresh
+      libreoffice-still
       # plain `onionshare` is the CLI-only build
       onionshare-gui
       # torbrowser-launcher was never packaged; nixpkgs builds the browser
@@ -94,6 +87,7 @@ in
       refine
       scrot
       imagemagick
+      newelle
     ])
     ++ [ haveno ];
 
