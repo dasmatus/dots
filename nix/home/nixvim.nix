@@ -281,6 +281,7 @@
           formatters_by_ft = {
             lua = [ "stylua" ];
             rust = [ "rustfmt" ];
+            haskell = [ "fourmolu" ];
             c = [ "clang_format" ];
             cpp = [ "clang_format" ];
             nix = [ "nixfmt" ];
@@ -414,6 +415,10 @@
       ruff.enable = true;
       ts_ls.enable = true;
       gopls.enable = true;
+      # Haskell: hls ships GHC in its closure, so opening a .hs just works
+      # (no Mason, no project-local install) — matches the declarative model
+      # used by every other server here.
+      hls.enable = true;
       bashls.enable = true;
       yamlls.enable = true;
       jsonls.enable = true;
@@ -453,6 +458,7 @@
       nixfmt
       prettier
       rustfmt
+      fourmolu
       # Mason runtime deps: its install scripts fetch/unpack prebuilt server
       # binaries. unzip + wget cover the common path; some servers also need
       # nodejs/python3 — add those here if a `:LspInstall` ever fails on NixOS.
