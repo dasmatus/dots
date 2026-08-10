@@ -3,6 +3,7 @@
 {
   pkgs,
   aipagePackages,
+  haskellPackages,
   ...
 }:
 self: {
@@ -39,6 +40,10 @@ self: {
   # substitutes them from the ISO store (offline-capable).
   aipage-firefox = aipagePackages.firefox;
   aipage-chrome = aipagePackages.chrome;
+  # abstracttui compat layer (haskell/abstracttui) — built against the
+  # reflex-vty 1.2.0.0 override pinned in flake/lib.nix. Consumed by the
+  # Haskell devShell (flake/devshell.nix) via inputsFrom.
+  abstracttui = haskellPackages.callCabal2nix "abstracttui" ../haskell/abstracttui { };
   iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
   iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
 }

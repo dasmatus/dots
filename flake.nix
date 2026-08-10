@@ -87,6 +87,7 @@
         pkgs
         pkgsBun
         aipagePackages
+        haskellPackages
         settings
         mkIso
         ;
@@ -110,7 +111,7 @@
       # (this outputs attrset) so iso/iso-full can reach the LiveISO closures
       # built above.
       packages.${system} = import ./flake/packages.nix {
-        inherit pkgs aipagePackages;
+        inherit pkgs aipagePackages haskellPackages;
       } self;
 
       # Task-runner apps — the retired Justfile, now nix-native. See
@@ -122,8 +123,12 @@
 
       formatter.${system} = pkgs.nixfmt-tree;
 
-      # Dev shell for the two Rust crates — see flake/devshell.nix.
-      devShells.${system} = import ./flake/devshell.nix { inherit pkgs; };
+      # Dev shells — the Rust crate shell (flake/devshell.nix) and the Haskell
+      # shell for hacking on haskell/abstracttui against the pinned reflex-vty.
+      devShells.${system} = import ./flake/devshell.nix {
+        inherit pkgs haskellPackages;
+        abstracttui = self.packages.${system}.abstracttui;
+      };
 
       # The cheap eval-only checks (settings, facter, fido-2fa, aipage) +
       # the dots-installer build gate — see flake/checks.nix.
