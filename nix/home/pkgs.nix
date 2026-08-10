@@ -14,8 +14,8 @@
 #     need out-of-tree packaging to keep
 {
   pkgs,
-  config,
   lib,
+  dots,
   ...
 }:
 let
@@ -87,32 +87,37 @@ in
       refine
       scrot
       imagemagick
-      newelle
     ])
-    ++ [ haveno ];
+    ++ [ haveno ]
+    # Newelle's only purpose here is the ollama cloud chat front-end (the
+    # dconf custom_command below), so gate the package on the same
+    # dots.ai.ollama toggle — with ollama off there's no backend to talk to
+    # and Newelle would dead-launch with broken LLM settings.
+    ++ lib.optional dots.ai.ollama pkgs.newelle;
 
-  # Newelle → Claude Code: the custom_command LLM handler pipes the chat
-  # history ({0}, shell-quoted JSON) to `claude -p`, so answers come from the
-  # Max subscription instead of a separate API key. welcome-screen-shown
-  # skips the first-run provider wizard; suggestion = "" disables the extra
-  # per-message suggestion invocations (they'd burn plan usage).
+  # Newelle → ollama cloud model: the custom_command LLM handler feeds the
+  # chat history ({0}, shell-quoted JSON) to `ollama run kimi-k3:cloud`, so
+  # answers come from the ollama.com cloud model (requires `ollama signin` +
+  # `ollama pull kimi-k3:cloud`) — no per-key API billing. The instruction
+  # and JSON are merged into one stdin prompt via `printf '%s\n%s\n'`
+  # (unlike `echo`, printf won't mangle JSON `\n` escapes under /bin/sh);
+  # `ollama run` reads piped stdin as the prompt, generates once, and
+  # streams stdout, matching streaming = true. welcome-screen-shown skips
+  # the first-run provider wizard; suggestion = "" disables the extra
+  # per-message suggestion invocations (they'd burn ollama credits).
   # NB: home-manager rewrites llm-settings wholesale on switch — handler
   # tweaks made in the app UI don't survive a rebuild.
   #
-  # Gated on programs.claude-code.enable (== dots.ai.claude): the HM
-  # claude-code module only assigns `finalPackage` under `mkIf cfg.enable`,
-  # so reading it here unconditionally trips "programs.claude-code.finalPackage
-  # was accessed but has no value defined" the moment the installer AI toggle
-  # is flipped off. When claude is disabled there is no `claude -p` to pipe
-  # to, so Newelle keeps its upstream LLM defaults rather than pointing at a
-  # missing binary.
-  dconf.settings."io/github/qwersyk/Newelle" = lib.mkIf config.programs.claude-code.enable {
+  # Gated on dots.ai.ollama: the command needs the ollama client + cloud
+  # account, so with ollama off Newelle keeps its upstream LLM defaults. No
+  # longer touches claude-code, so the old finalPackage-eval guard is gone.
+  dconf.settings."io/github/qwersyk/Newelle" = lib.mkIf dots.ai.ollama {
     language-model = "custom_command";
     welcome-screen-shown = true;
     llm-settings = builtins.toJSON {
       custom_command = {
         streaming = true;
-        command = "echo {0} | ${lib.getExe config.programs.claude-code.finalPackage} -p 'stdin is the chat history as a JSON list of objects with User and Message fields. Answer the last User message. Output only the reply text, no preamble.'";
+        command = "printf '%s\\n%s\\n' 'stdin is the chat history as a JSON list of objects with User and Message fields. Answer the last User message. Output only the reply text, no preamble.' {0} | ${lib.getExe pkgs.ollama} run kimi-k3:cloud";
         suggestion = "";
       };
     };

@@ -6,6 +6,11 @@
 #   - simplified_ui false dropped (zellij default)
 #   - bind "Escape" → "Esc": zellij rejects "Escape" as a key name; the
 #     original config was never validated (the binary was never installed)
+#   - tmux-mode "s"/"v" (NewPane Down/Right, i.e. hsplit/vsplit) dropped:
+#     editor splits now live in Neovim, and zellij-nav.nvim navigates Neovim
+#     splits and zellij panes seamlessly with Ctrl-h/j/k/l (zellij's own
+#     pane-nav keys stay on Alt, so Ctrl passes straight through). Creating
+#     zellij panes just to hold editor splits is therefore redundant.
 # Kept verbatim: the duplicate tmux-mode "l" bind (Scroll, then MoveFocus
 # "Right"); zellij resolves duplicates last-wins, so behaviour is unchanged.
 # Note: zellij itself was never installed before — this module adds the binary.
@@ -49,14 +54,6 @@ in
             toNormal
           ])
           (bind "," [ { SwitchToMode = "RenameTab"; } ])
-          (bind "s" [
-            { NewPane = "Down"; }
-            toNormal
-          ])
-          (bind "v" [
-            { NewPane = "Right"; }
-            toNormal
-          ])
           (bind "f" [
             { NewPane = { }; }
             toNormal

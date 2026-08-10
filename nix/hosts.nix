@@ -51,10 +51,38 @@ in
   # re-download every boot).
   services.ollama = lib.mkIf config.dots.ai.ollama {
     enable = true;
+    # Static `ollama` user — paired with the DynamicUser override below. The
+    # nixpkgs ollama module forces DynamicUser=true, which relocates the
+    # StateDirectory to /var/lib/private/ollama and tries to migrate the
+    # pre-existing public /var/lib/ollama (our impermanence bind-mount) into
+    # it; rename() on a mountpoint is EBUSY, ollama fails 238/STATE_DIRECTORY
+    # at every (re)start, and switch-to-configuration then exits status 4 —
+    # aborting `nixos-rebuild switch`. A static user + DynamicUser=false keeps
+    # the StateDirectory as the public /var/lib/ollama bind-mount (no
+    # migration, no EBUSY) so models actually persist as intended.
+    user = "ollama";
     loadModels = config.dots.ai.ollamaModels;
     modelsDir = config.dots.ai.ollamaModelsDir;
     package = if hasNvidia then pkgs.ollama-cuda else pkgs.ollama-rocm;
   };
+  # See the services.ollama.user comment above for why DynamicUser must be off
+  # under impermanence — without this override the module's DynamicUser=true
+  # wins (priority 100) and the StateDirectory migration hits EBUSY.
+  systemd.services.ollama.serviceConfig.DynamicUser =
+    lib.mkIf config.dots.ai.ollama (lib.mkForce false);
+  # The nixpkgs module lists modelsDir in ReadWritePaths but only the parent
+  # in StateDirectory. ReadWritePaths is a mount-namespace directive: systemd
+  # neither creates nor chowns it and *requires* it to pre-exist. Under
+  # impermanence the tmpfs root means /var/lib/ollama/models is absent on a
+  # fresh boot → namespace setup fails 226/NAMESPACE before ollama can mkdir
+  # it; and when it does exist root-owned (hand-created) ollama can't write
+  # blobs → permission denied. Putting it in StateDirectory makes systemd
+  # create+chown it to the ollama user at the STATE_DIRECTORY step, which runs
+  # *before* namespace setup and is proven to work here — it already
+  # creates+chowns /var/lib/ollama (and .ollama) through the impermanence
+  # bind-mount. Self-heals every boot, no manual mkdir/chown.
+  systemd.services.ollama.serviceConfig.StateDirectory =
+    lib.mkIf config.dots.ai.ollama (lib.mkForce [ "ollama" "ollama/models" ]);
   # Facter only enables this when the report lists a monitor; keep the old
   # hosts/{intel,amd}.nix guarantee unconditionally.
   hardware.graphics.enable = true;

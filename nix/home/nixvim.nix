@@ -1,7 +1,13 @@
-# nixvim port of files/nvim (lazy.nvim). Mason is gone: LSP servers and
-# formatters come from nixpkgs. LSP uses the current `lsp` + `plugins.lspconfig`
+# nixvim port of files/nvim (lazy.nvim). LSP servers and formatters come
+# from nixpkgs (declarative, offline-ready) via the `lsp` + `plugins.lspconfig`
 # modules (migrated off the deprecated `plugins.lsp`) with a broad curated
 # server set so common filetypes have their server in the closure already.
+# mason.nvim + mason-lspconfig are wired (via extraPlugins — nixvim ships no
+# module for them) as a *supplement*: any server not in the nixpkgs set can be
+# downloaded on demand (`:Mason` / `:LspInstall`) and auto-enabled —
+# mason-lspconfig v2 calls vim.lsp.enable() for installed servers, the same
+# API the declarative block uses. Mason only manages what it installs, so it
+# never double-enables a server already provided declaratively from nixpkgs.
 # Deliberate deviations from the lua config:
 # TroubleToggle → Trouble v3 command; nvim-tabline (unpackaged) → bufferline
 # in tabs mode; the rainbow treesitter module (dead upstream) →
@@ -95,6 +101,40 @@
           end
         '';
         options.desc = "Format buffer";
+      }
+      # zellij-nav.nvim: seamless split/pane navigation. Ctrl-h/j/k/l move
+      # between Neovim splits, and at a pane edge hand off to the adjacent
+      # zellij pane (Left/Right also cross tabs). Works because zellij's
+      # default pane-nav keys are Alt-h/j/k/l, so Ctrl-h/j/k/l pass through
+      # to the editor. The ZellijNavigate* commands are created by setup()
+      # below; outside zellij they fall back to plain `wincmd` split nav.
+      {
+        mode = "n";
+        key = "<C-h>";
+        action = "<cmd>ZellijNavigateLeftTab<CR>";
+        options.silent = true;
+        options.desc = "zellij-nav: left / prev tab";
+      }
+      {
+        mode = "n";
+        key = "<C-j>";
+        action = "<cmd>ZellijNavigateDown<CR>";
+        options.silent = true;
+        options.desc = "zellij-nav: down";
+      }
+      {
+        mode = "n";
+        key = "<C-k>";
+        action = "<cmd>ZellijNavigateUp<CR>";
+        options.silent = true;
+        options.desc = "zellij-nav: up";
+      }
+      {
+        mode = "n";
+        key = "<C-l>";
+        action = "<cmd>ZellijNavigateRightTab<CR>";
+        options.silent = true;
+        options.desc = "zellij-nav: right / next tab";
       }
     ];
 
@@ -388,6 +428,11 @@
 
     extraPlugins = with pkgs.vimPlugins; [
       ansible-vim
+      zellij-nav-nvim
+      # Mason runtime auto-download/auto-setup of LSP servers not in the
+      # declarative `lsp.servers.*` block. Configured in extraConfigLua.
+      mason-nvim
+      mason-lspconfig-nvim
       (pkgs.vimUtils.buildVimPlugin {
         pname = "v-vim";
         version = "2024-unstable";
@@ -408,6 +453,11 @@
       nixfmt
       prettier
       rustfmt
+      # Mason runtime deps: its install scripts fetch/unpack prebuilt server
+      # binaries. unzip + wget cover the common path; some servers also need
+      # nodejs/python3 — add those here if a `:LspInstall` ever fails on NixOS.
+      unzip
+      wget
     ];
 
     extraConfigLua = ''
@@ -418,6 +468,27 @@
       function _lazygit_toggle()
         lazygit:toggle()
       end
+
+      -- zellij-nav.nvim: register the ZellijNavigate* user commands the
+      -- <C-h/j/k/l> keymaps above depend on.
+      require("zellij-nav").setup()
+      -- Drop zellij back to normal mode on exit so the tmux-mode prefix
+      -- isn't left dangling after Neovim closes.
+      vim.api.nvim_create_autocmd("VimLeave", {
+        pattern = "*",
+        command = "silent !zellij action switch-mode normal",
+      })
+
+      -- Mason: runtime auto-download + auto-setup of LSP servers not covered
+      -- by the declarative `lsp.servers.*` block. `:Mason` opens the browser,
+      -- `:LspInstall <name>` downloads + enables a server (mason-lspconfig v2
+      -- auto-calls vim.lsp.enable() for installed servers). ensure_installed
+      -- is left empty — add server names there to auto-install on startup.
+      require("mason").setup()
+      require("mason-lspconfig").setup({
+        ensure_installed = {},
+        automatic_enable = true,
+      })
     '';
   };
 }

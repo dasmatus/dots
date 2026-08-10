@@ -78,10 +78,14 @@ let
       '';
 in
 {
-  # Shared with claude.nix: local model server for the fish `claude`/`ollama`
-  # launch aliases and as an optional Codex model_provider. Gated on the
-  # installer "AI" screen toggle (options.dots.ai.ollama).
-  services.ollama.enable = dots.ai.ollama;
+  # The local model server for the fish `claude`/`ollama` launch aliases and
+  # the optional Codex model_provider is the SYSTEM ollama service
+  # (nix/hosts.nix services.ollama, gated on dots.ai.ollama) — not a
+  # home-manager one. A per-user ollama here used to race the system service
+  # for 127.0.0.1:11434 and was the redundant half of a dual-instance setup;
+  # the system one runs as the static `ollama` user with StateDirectory pinned
+  # to the persisted /var/lib/ollama (impermanence), so it owns the port and
+  # the models. See the DynamicUser note in nix/hosts.nix.
 
   # Gated on the installer "AI" screen toggle (options.dots.ai.codex).
   programs.codex = {
