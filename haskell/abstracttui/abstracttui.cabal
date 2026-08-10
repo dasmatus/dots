@@ -14,8 +14,21 @@ common shared
 library
   import:           shared
   exposed-modules:  AbstractTUI.Prelude
+                    AbstractTUI.Base.Color
+                    AbstractTUI.Base.Geom
+                    AbstractTUI.Gfx.Bitmap
+                    AbstractTUI.Gfx.Mosaic
   hs-source-dirs:   src
   build-depends:    base >= 4.18 && < 5
+                  , vector
+                  , text
                   , reflex
                   , reflex-vty
                   , vty
+
+test-suite color-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       ColorSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit

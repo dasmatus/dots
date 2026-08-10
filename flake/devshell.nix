@@ -76,6 +76,8 @@ in
       pkgs.cabal-install
       haskellPackages.haskell-language-server
       haskellPackages.fourmolu
+      haskellPackages.tasty
+      haskellPackages.tasty-hunit
     ];
     inputsFrom = [ abstracttui ];
   };
