@@ -334,6 +334,16 @@ in
             (lua ''hl.dsp.exec_cmd("obsidian")'')
           ];
         }
+        # Zed editor — the GUI code editor that replaces VSCodium. The nixpkgs
+        # `zed-editor` package installs its binary as `zeditor` (its
+        # meta.mainProgram), not `zed`, so the bare command name here is that
+        # binary. programs.zed-editor (nix/home/zed.nix) puts it on PATH.
+        {
+          _args = [
+            (lua ''mod .. " + Z"'')
+            (lua ''hl.dsp.exec_cmd("zeditor")'')
+          ];
+        }
         # Re-open the first-login keybind cheatsheet (nix/home/keybinds.nix)
         # on demand. --force skips the once-per-install sentinel.
         {
