@@ -13,11 +13,15 @@
 -- * 'drainOutput' — snapshot and clear the accumulated emitted bytes
 --   (alias for 'captureEmit').
 -- * 'parseScreen' / 'vtChar' / 'VtScreen' / 'VtCell' — a pure VT100/ANSI
---   byte parser (salvaged verbatim from the stash's @Testing.Capture@)
---   that turns the emitted bytes back into a cell grid, so a test can
---   assert the glyph at @(x,y)@. It only understands the escapes the ANSI
---   'DisplayContext' in "AbstractTUI.Term" produces (cursor positioning,
---   SGR, printable bytes), so the two are a closed pair.
+--   byte parser (salvaged from the stash's @Testing.Capture@ with one
+--   beneficial fix: @utf8Step@ now keeps the multi-byte cell the stash
+--   silently dropped, plus a few @-Wcompat@ cleanups — see the note at
+--   @utf8Step@) that turns the emitted bytes back into a cell grid, so a
+--   test can assert the glyph at @(x,y)@. It only understands the escapes
+--   the ANSI 'DisplayContext' in "AbstractTUI.Term" produces (cursor
+--   positioning and printable bytes; SGR is suppressed by the
+--   DisplayContext, so the parser's SGR branches are forward-looking), so
+--   the two are a closed pair.
 module AbstractTUI.Testing.Capture
   ( CaptureTerm
   , newCaptureTerm
@@ -196,6 +200,12 @@ go st (b : bs) s
   | otherwise = go st bs s
 
 -- | Consume one UTF-8 codepoint starting at the head, write it, continue.
+--
+-- Divergence from the stash: the multi-byte ('otherwise') branch passes
+-- the post-'putCh' screen @s'@ to 'go', whereas the stash passed the
+-- pre-'putCh' screen @s@ and silently dropped every multi-byte glyph.
+-- This fix is what lets box-drawing borders (U+2500–U+257F, 3-byte UTF-8)
+-- round-trip through 'parseScreen'.
 utf8Step :: PSt -> [Word8] -> VtScreen -> (PSt, VtScreen)
 utf8Step st (b : bs) s
   | b < 0x80 =

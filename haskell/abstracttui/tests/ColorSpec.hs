@@ -1,9 +1,8 @@
 module Main (main) where
 
 import AbstractTUI.Base.Color (Rgba (..), rgb, withAlpha)
-import AbstractTUI.Base.Geom (size)
 import AbstractTUI.Gfx.Mosaic (MosaicMode (..), cellPixels)
-import Test.Tasty (defaultMain, testGroup, TestTree)
+import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit ((@=?), testCase)
 
 main :: IO ()

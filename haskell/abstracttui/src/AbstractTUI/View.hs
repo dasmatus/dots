@@ -29,6 +29,7 @@ module AbstractTUI.View
   , noMods
   , ctrl
   , shift
+  , alt
   , KeyChord (..)
   , chord
   , plainChord
@@ -198,6 +199,9 @@ ctrl = Mods True False False False
 
 shift :: Mods
 shift = Mods False True False False
+
+alt :: Mods
+alt = Mods False False True False
 
 -- | A key + modifier combination.
 data KeyChord = KeyChord
