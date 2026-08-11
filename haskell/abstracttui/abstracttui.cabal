@@ -19,6 +19,7 @@ library
                     AbstractTUI.Gfx.Bitmap
                     AbstractTUI.Gfx.Mosaic
                     AbstractTUI.Render.Style
+                    AbstractTUI.Layout.Style
                     AbstractTUI.Theme
                     AbstractTUI.Anim
   hs-source-dirs:   src
@@ -55,5 +56,12 @@ test-suite anim-spec
   import:        shared
   type:          exitcode-stdio-1.0
   main-is:       AnimSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit
+
+test-suite layout-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       LayoutSpec.hs
   hs-source-dirs: tests
   build-depends: base, abstracttui, tasty, tasty-hunit
