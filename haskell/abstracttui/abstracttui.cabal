@@ -20,6 +20,7 @@ library
                     AbstractTUI.Gfx.Mosaic
                     AbstractTUI.Render.Style
                     AbstractTUI.Theme
+                    AbstractTUI.Anim
   hs-source-dirs:   src
   build-depends:    base >= 4.18 && < 5
                   , vector
@@ -27,6 +28,7 @@ library
                   , reflex
                   , reflex-vty
                   , vty
+                  , time
 
 test-suite color-spec
   import:        shared
@@ -46,5 +48,12 @@ test-suite theme-spec
   import:        shared
   type:          exitcode-stdio-1.0
   main-is:       ThemeSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit
+
+test-suite anim-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       AnimSpec.hs
   hs-source-dirs: tests
   build-depends: base, abstracttui, tasty, tasty-hunit
