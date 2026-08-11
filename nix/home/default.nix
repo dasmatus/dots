@@ -39,7 +39,7 @@
     ./bitwarden.nix
     ./proton.nix
     ./pkgs.nix
-    ./vscode.nix
+    ./zed.nix
   ];
   home.stateVersion = "26.05";
   programs.home-manager.enable = true;
@@ -90,6 +90,29 @@
     # hyprland.start (hyprland.nix).
     awww
     brightnessctl
+    # Haskell toolchain — shared by Neovim (nixvim lsp.servers.hls) and Zed
+    # (the `haskell` extension finds these on PATH) plus the shell. Installed
+    # here rather than per-editor so all three see the identical binaries —
+    # the editor-parity guarantee. haskell-language-server is the multi-GHC
+    # WRAPPER; the default build ships the variant for the default ghc
+    # (9.10.3 == Stackage LTS 24), so a stack project on LTS 24 works out of
+    # the box. `stack` must be on PATH for the wrapper to probe the project's
+    # GHC from stack.yaml. ghcup is NOT installable on NixOS (nixpkgs throws:
+    # no compatible bindist), so this pure-nixpkgs route is the only
+    # reproducible one. NB the multi-GHC override (supportedGhcVersions=[96 98
+    # 910]) would cover older LTS too, but those per-GHC HLS builds are not in
+    # the binary cache and build from source — too heavy for a frequently-
+    # rebuilt dots repo + CI. For a stack project on an older LTS, add a
+    # per-project flake devshell with the matching haskell.compiler.ghcXX +
+    # haskell.packages.ghcXX.haskell-language-server; both editors pick it up
+    # via `nix develop`/direnv. Versioned ghc attrs (ghc98/ghc910) are not
+    # top-level — the default `ghc` (9.10.3) is what we install.
+    haskell-language-server
+    ghc
+    stack
+    cabal-install
+    hlint
+    fourmolu
   ];
 
   # Declarative wallpaper config consumed by wallpaper-tui.nix. Runtime picks

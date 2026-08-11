@@ -30,6 +30,10 @@ let
         desc = "Obsidian";
       }
       {
+        key = "SUPER + Z";
+        desc = "Zed editor";
+      }
+      {
         key = "SUPER + /";
         desc = "Show this keybind cheatsheet";
       }

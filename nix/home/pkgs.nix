@@ -87,6 +87,8 @@ in
       refine
       scrot
       imagemagick
+      ghc
+      stack
     ])
     ++ [ haveno ]
     # Newelle's only purpose here is the ollama cloud chat front-end (the
