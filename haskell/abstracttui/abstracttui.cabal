@@ -23,10 +23,16 @@ library
                     AbstractTUI.Theme
                     AbstractTUI.Anim
                     AbstractTUI.Reactive
+                    AbstractTUI.View
+                    AbstractTUI.Term
+                    AbstractTUI.Driver
   hs-source-dirs:   src
   build-depends:    base >= 4.18 && < 5
                   , vector
                   , text
+                  , bytestring
+                  , stm
+                  , dependent-sum
                   , reflex
                   , reflex-vty
                   , vty
@@ -74,3 +80,10 @@ test-suite reactive-spec
   main-is:       ReactiveSpec.hs
   hs-source-dirs: tests
   build-depends: base, abstracttui, reflex, ref-tf, tasty, tasty-hunit
+
+test-suite driver-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       DriverSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit
