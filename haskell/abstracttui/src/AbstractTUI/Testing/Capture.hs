@@ -104,7 +104,8 @@ toVtyMods mods =
 drainOutput :: CaptureTerm -> IO ByteString
 drainOutput = captureEmit
 
--- * The VT parser (salvaged verbatim from the stash's @Testing.Capture@)
+-- * The VT parser (salvaged from the stash's @Testing.Capture@, with the
+-- @utf8Step@ multi-byte fix noted in the module header)
 
 -- | One parsed cell: a glyph plus the resolved ink. Attributes are folded
 -- back into fg/bg via the SGR semantics the emitter uses (invert swaps
