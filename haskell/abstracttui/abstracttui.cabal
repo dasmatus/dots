@@ -25,12 +25,15 @@ library
                     AbstractTUI.Reactive
                     AbstractTUI.View
                     AbstractTUI.Term
+                    AbstractTUI.Term.Input
                     AbstractTUI.Driver
+                    AbstractTUI.Testing.Capture
   hs-source-dirs:   src
   build-depends:    base >= 4.18 && < 5
                   , vector
                   , text
                   , bytestring
+                  , blaze-builder
                   , stm
                   , dependent-sum
                   , reflex
@@ -87,3 +90,10 @@ test-suite driver-spec
   main-is:       DriverSpec.hs
   hs-source-dirs: tests
   build-depends: base, abstracttui, tasty, tasty-hunit
+
+test-suite smoke
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       Smoke.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, bytestring, tasty, tasty-hunit

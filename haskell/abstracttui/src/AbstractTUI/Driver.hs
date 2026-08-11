@@ -41,7 +41,7 @@ module AbstractTUI.Driver
 import Control.Concurrent.Chan (newChan)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
 import Control.Monad (forM_, when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Ref (readRef)
 import Data.Functor.Identity (Identity (..))
 import Data.Dependent.Sum (DSum ((:=>)))
@@ -51,6 +51,8 @@ import qualified Data.ByteString as BS
 import Reflex
   ( Event
   , FireCommand (..)
+  , PerformEvent (..)
+  , Performable
   , Reflex (..)
   , ffilter
   , ffor
@@ -89,7 +91,7 @@ import Control.Monad.NodeId (runNodeIdT)
 
 import AbstractTUI.Base.Geom (Size (..))
 import AbstractTUI.Reactive (Scope (..))
-import AbstractTUI.Term (CaptureTerm (..))
+import AbstractTUI.Term (CaptureTerm (..), captureDrainInput)
 import AbstractTUI.View (View (..))
 
 -- * App
@@ -107,6 +109,8 @@ newtype AppView = AppView
       , HasDisplayRegion t m
       , HasTheme t m
       , HasInput t m
+      , PerformEvent t m
+      , MonadIO (Performable m)
       ) =>
       Scope t m -> m (View t)
   }
@@ -138,6 +142,8 @@ appMount
           , HasDisplayRegion t m
           , HasTheme t m
           , HasInput t m
+          , PerformEvent t m
+          , MonadIO (Performable m)
           )
        => Scope t m -> m (View t)
      )
@@ -165,13 +171,17 @@ quitterCheck (Quitter t) = readTVarIO t
 appQuitter :: App -> Quitter
 appQuitter = appQuit
 
--- | Force the next 'turn' to re-emit every cell. With the mock-vty host the
--- picture is re-rendered every turn anyway, so this is currently a no-op
--- placeholder; the real invalidation hook (a global trigger that fires a
--- frame tick, draining into the next 'turn') lands in Task 9 when
--- 'feedInput' wires the input path.
-requestFullRedraw :: IO ()
-requestFullRedraw = pure ()
+-- | Force the next 'turn' to re-emit every cell. vty's 'outputPicture'
+-- diffs each frame against the previous one via 'assumedStateRef' /
+-- 'prevOutputOps' (per-row), so an identical frame normally emits nothing;
+-- resetting 'assumedStateRef' to 'initialAssumedState' clears the diff base
+-- so the next 'V.update' treats every row as changed and re-emits it. This
+-- is the desync-healing property every app's main loop relies on.
+requestFullRedraw :: Driver -> IO ()
+requestFullRedraw dr =
+  writeIORef
+    (V.assumedStateRef (V.outputIface (ctVty (drTerm dr))))
+    V.initialAssumedState
 
 -- * RunConfig
 
@@ -297,6 +307,8 @@ vtyGuest
           , HasDisplayRegion t m'
           , HasTheme t m'
           , HasInput t m'
+          , PerformEvent t m'
+          , MonadIO (Performable m')
           )
        => Scope t m' -> m' (View t)
      )
@@ -332,14 +344,20 @@ vtyGuest dr0 vtyEvent signalEvent viewBuilder = do
 --
 -- 1. On the first turn, fire the post-build trigger (line 208-213 pattern)
 --    so the guest's 'current'/'getPostBuild' widgets initialize.
--- 2. Render: sample the 'Picture' behavior and call 'V.update' (line
---    200-201), which records the picture and the emitted bytes on the
---    capture terminal.
--- 3. Drain the capture terminal's emitted bytes to set 'turnEmitted'.
--- 4. Read the quit flag for 'turnQuit'.
---
--- Task 8 has no input, so the bounded event queue is not drained here
--- (Task 9's 'feedInput' will post events and wire the batch firing).
+-- 2. Fire any input events queued by 'feedInput' (Task 9): drain 'ctInput'
+--    and fire each 'V.Event' via the input 'EventTrigger'
+--    ('drVtyEventTrigger') in its own frame, so subscribed widgets (e.g.
+--    'shortcut') receive them. 'performEvent_' actions triggered here
+--    (e.g. 'quitterQuit') run synchronously within each 'fire' (via
+--    'hostPerformEventT'), so 'quitterCheck' below observes their effect.
+-- 3. Render: sample the 'Picture' behavior and call 'V.update' (line
+--    200-201), which records the picture and appends this frame's emitted
+--    bytes to 'ctEmitted' on the capture terminal.
+-- 4. Compute 'turnEmitted' by comparing 'ctEmitted' length before/after
+--    rendering (the buffer accumulates across frames; 'captureEmit' /
+--    'drainOutput' drains it). This does NOT clear the buffer, so a test
+--    can 'drainOutput' after 'turn' to inspect the frame's bytes.
+-- 5. Read the quit flag for 'turnQuit'.
 turn :: Driver -> IO Turn
 turn dr =
   (runSpiderHost :: SpiderHost Global Turn -> IO Turn) $ do
@@ -353,20 +371,30 @@ turn dr =
       mPB <- readRef (drPostBuildTrigger dr)
       forM_ mPB $ \pb -> fire [pb :=> Identity ()] (return ())
       liftIO (writeIORef (drFirstTurn dr) False)
+    -- Fire any queued input events. Each event gets its own frame so
+    -- multiple occurrences of the same trigger are not collapsed by Reflex.
+    evts <- liftIO (captureDrainInput term)
+    mInp <- readRef (drVtyEventTrigger dr)
+    forM_ mInp $ \trig ->
+      forM_ evts $ \evt -> fire [trig :=> Identity evt] (return ())
+    -- Snapshot the emit-buffer length BEFORE rendering so 'turnEmitted' can
+    -- be computed from the delta (the buffer accumulates; 'captureEmit'
+    -- drains it). 'captureEmit'/'drainOutput' is NOT called here — a test
+    -- inspects the frame's bytes by calling 'drainOutput' after 'turn'.
+    lenBefore <- liftIO (BS.length <$> readIORef (ctEmitted term))
     -- Render: sample the picture and update the (mock) vty. The mock's
     -- 'update' records the picture for 'captureCell' and forwards to the
     -- real renderer, whose bytes land in 'ctEmitted' for 'captureEmit'.
     pic <- sample (_vtyResult_picture vtyResult)
     liftIO $ V.update (ctVty term) pic
-    -- Drain this frame's emitted bytes to compute turnEmitted.
-    emitted <- liftIO (readIORef (ctEmitted term))
-    liftIO (writeIORef (ctEmitted term) BS.empty)
+    lenAfter <- liftIO (BS.length <$> readIORef (ctEmitted term))
+    let emitted = lenAfter > lenBefore
     quit <- liftIO (quitterCheck (appQuit (drApp dr)))
     pure
       Turn
-        { turnEvents = if isFirst then 1 else 0
+        { turnEvents = if isFirst then 1 else length evts
         , turnRendered = True
-        , turnEmitted = not (BS.null emitted)
+        , turnEmitted = emitted
         , turnQuit = quit
-        , turnIdle = not isFirst && BS.null emitted && not quit
+        , turnIdle = not isFirst && null evts && not emitted && not quit
         }
