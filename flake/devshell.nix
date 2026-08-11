@@ -18,7 +18,7 @@
 # so only the rebuilt config below is loaded; `--init-command` sources it
 # before going interactive. The `case $- in *i*)` guard keeps
 # `nix develop -c <cmd>` working under bash instead of being hijacked.
-{ pkgs }:
+{ pkgs, haskellPackages, abstracttui }:
 let
   fishInit = pkgs.writeText "devshell-fish-init.fish" ''
     set -g fish_greeting
@@ -64,5 +64,21 @@ in
         *i*) exec ${pkgs.lib.getExe pkgs.fish} -i -N -C "source ${fishInit}" ;;
       esac
     '';
+  };
+
+  # Dev shell for hacking on haskell/abstracttui against the pinned
+  # reflex-vty 1.2.0.0. GHC + cabal/hls/fourmolu from the overridden
+  # haskellPackages, and inputsFrom the built abstracttui so the library's
+  # Haskell deps are in scope for `cabal repl`/GHCi.
+  haskell = pkgs.mkShell {
+    packages = [
+      haskellPackages.ghc
+      pkgs.cabal-install
+      haskellPackages.haskell-language-server
+      haskellPackages.fourmolu
+      haskellPackages.tasty
+      haskellPackages.tasty-hunit
+    ];
+    inputsFrom = [ abstracttui ];
   };
 }

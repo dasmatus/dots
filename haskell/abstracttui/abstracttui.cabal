@@ -1,0 +1,59 @@
+cabal-version:      2.4
+name:               abstracttui
+version:            0.1.0
+synopsis:           abstracttui-shaped compat layer on reflex-vty
+license:            MIT
+build-type:         Simple
+
+common shared
+  default-language: Haskell2010
+  default-extensions: OverloadedStrings
+  ghc-options:      -Wall -Wcompat -Widentities -Wincomplete-record-updates
+                    -Wredundant-constraints -Wunused-packages
+
+library
+  import:           shared
+  exposed-modules:  AbstractTUI.Prelude
+                    AbstractTUI.Base.Color
+                    AbstractTUI.Base.Geom
+                    AbstractTUI.Gfx.Bitmap
+                    AbstractTUI.Gfx.Mosaic
+                    AbstractTUI.Render.Style
+                    AbstractTUI.Theme
+                    AbstractTUI.Anim
+  hs-source-dirs:   src
+  build-depends:    base >= 4.18 && < 5
+                  , vector
+                  , text
+                  , reflex
+                  , reflex-vty
+                  , vty
+                  , time
+
+test-suite color-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       ColorSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit
+
+test-suite style-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       StyleSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit
+
+test-suite theme-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       ThemeSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit
+
+test-suite anim-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       AnimSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit
