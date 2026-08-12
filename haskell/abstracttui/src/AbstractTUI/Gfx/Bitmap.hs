@@ -9,11 +9,14 @@ module AbstractTUI.Gfx.Bitmap
   , bmpWidth
   , bmpHeight
   , pixelAt
+  , pixels
+  , mapPixels
+  , blendBitmap
   , resizeNearest
   ) where
 
 import qualified Data.Vector as V
-import AbstractTUI.Base.Color (Rgba, black)
+import AbstractTUI.Base.Color (Rgba, black, lerp)
 
 -- | A width × height RGBA buffer. Pixels are row-major, left-to-right,
 -- top-to-bottom.
@@ -55,6 +58,24 @@ pixelAt :: Bitmap -> Int -> Int -> Rgba
 pixelAt (Bitmap w _ px) x y
   | x < 0 || y < 0 || x >= w = black
   | otherwise = case px V.!? (y * w + x) of Just c -> c; Nothing -> black
+
+-- | The underlying pixel vector (row-major). Exposed so the mosaic 'Image'
+-- widget and tests can read raw pixels without per-cell bounds checks.
+pixels :: Bitmap -> V.Vector Rgba
+pixels = bmpPx
+
+-- | Apply a function to every pixel, preserving the bitmap's dimensions.
+-- Used by the wallpaper crossfade ('blendBitmap') and any pixel-level effect.
+mapPixels :: (Rgba -> Rgba) -> Bitmap -> Bitmap
+mapPixels f (Bitmap w h px) = Bitmap w h (V.map f px)
+
+-- | Crossfade a bitmap toward a solid background by @opacity ∈ [0,1]@: each
+-- pixel is 'lerp'ed from its current colour toward @bg@ by @opacity@, so
+-- @0@ leaves the image intact and @1@ collapses it to @bg@. The wallpaper
+-- port builds the crossfade 'Behavior' from the Fx transition's opacity and
+-- the selected bitmap via this. The 'DOTS_NO_ANIM' gate skips it (raw bitmap).
+blendBitmap :: Bitmap -> Rgba -> Double -> Bitmap
+blendBitmap bmp bg opacity = mapPixels (\p -> lerp opacity p bg) bmp
 
 -- | Nearest-neighbour resize to a target cell footprint. Used by the
 -- 'Image' widget's contain-fit (cheap; the apps' thumbnails are small).

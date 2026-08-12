@@ -23,6 +23,8 @@ module AbstractTUI.Layout.Style
   , gap
   , padding
   , margin
+  , w
+  , h
   , width
   , height
   , minWidth
@@ -172,11 +174,24 @@ padding e s = s { lsPadding = e }
 margin :: Edges -> LayoutStyle -> LayoutStyle
 margin e s = s { lsMargin = e }
 
-width :: Int -> LayoutStyle -> LayoutStyle
-width n s = s { lsW = Just (Cells n) }
+-- | Fixed width in cells — the @.w(i32)@ builder. The Rust API has both
+-- @w(i32)@ and @width(Dimension)@; this is the cells-only shortcut.
+w :: Int -> LayoutStyle -> LayoutStyle
+w n s = s { lsW = Just (Cells n) }
 
-height :: Int -> LayoutStyle -> LayoutStyle
-height n s = s { lsH = Just (Cells n) }
+-- | Fixed height in cells — the @.h(i32)@ builder.
+h :: Int -> LayoutStyle -> LayoutStyle
+h n s = s { lsH = Just (Cells n) }
+
+-- | Width as a 'Dimension' — the @.width(Dimension)@ builder. @Percent 1.0@
+-- is load-bearing for the installer/wallpaper ports (full-width fills);
+-- @Cells n@ matches 'w'; 'Auto' defers to the child's natural size.
+width :: Dimension -> LayoutStyle -> LayoutStyle
+width d s = s { lsW = Just d }
+
+-- | Height as a 'Dimension' — the @.height(Dimension)@ builder.
+height :: Dimension -> LayoutStyle -> LayoutStyle
+height d s = s { lsH = Just d }
 
 minWidth :: Int -> LayoutStyle -> LayoutStyle
 minWidth n s = s { lsMinW = Just n }

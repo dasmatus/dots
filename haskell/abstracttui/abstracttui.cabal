@@ -19,11 +19,13 @@ library
                     AbstractTUI.Gfx.Bitmap
                     AbstractTUI.Gfx.Mosaic
                     AbstractTUI.Render.Style
+                    AbstractTUI.Render.Paint
                     AbstractTUI.Layout.Style
                     AbstractTUI.Theme
                     AbstractTUI.Anim
                     AbstractTUI.Reactive
                     AbstractTUI.View
+                    AbstractTUI.Widget.RichText
                     AbstractTUI.Term
                     AbstractTUI.Term.Input
                     AbstractTUI.Driver
@@ -48,6 +50,27 @@ test-suite color-spec
   main-is:       ColorSpec.hs
   hs-source-dirs: tests
   build-depends: base, abstracttui, tasty, tasty-hunit
+
+test-suite paint-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       PaintSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, vty, tasty, tasty-hunit
+
+test-suite richtext-widget-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       RichTextWidgetSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, tasty, tasty-hunit
+
+test-suite element-spec
+  import:        shared
+  type:          exitcode-stdio-1.0
+  main-is:       ElementSpec.hs
+  hs-source-dirs: tests
+  build-depends: base, abstracttui, reflex, reflex-vty, text, tasty, tasty-hunit
 
 test-suite style-spec
   import:        shared
