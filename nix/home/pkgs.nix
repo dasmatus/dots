@@ -88,6 +88,7 @@ in
       scrot
       imagemagick
       ghc
+      rustup
       stack
     ])
     ++ [ haveno ]
