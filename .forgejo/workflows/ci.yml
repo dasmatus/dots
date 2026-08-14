@@ -1,10 +1,10 @@
 # Codeberg CI — Forgejo Actions (GitHub-Actions-compatible syntax).
 #
-# Runner: a self-hosted Forgejo runner registered with the `medium` label
-# (medium@actions-tiny.aburayama.m.codeberg.org — 4 vCPU / 8 GB, with
-# /dev/kvm). Unlike the hosted codeberg-{tiny,small,medium} runners this one
-# has no job time cap and exposes KVM, so both the lint lane and the LiveISO
-# boot oracles run here.
+# Runner: the hosted codeberg-medium runner (4 vCPU / 8 GB). An earlier
+# self-hosted runner (medium@actions-tiny.aburayama.m.codeberg.org, chosen
+# for its /dev/kvm and no time cap) was retired in 4b7528c — the lanes all
+# target the hosted label now. Consequence: no persistent Nix store between
+# runs; every job installs Nix fresh.
 #
 # Nix is installed by DeterminateSystems/nix-installer-action@v22 — the
 # idiomatic GitHub-Actions setup, which Forgejo Actions runs unchanged (it
@@ -13,18 +13,19 @@
 # auto-enables KVM when /dev/kvm is present (exports DETERMINATE_NIX_KVM=1).
 # The action's `determinate: false` upstream-Nix option was retired
 # 2026-01-01, so Determinate Nix is what we get — same `nix` CLI, flakes on.
-# Jobs are container-less: the installer puts Nix on the runner host, and
-# the rust job mirrors that with dtolnay/rust-toolchain on the host (no
-# Docker dependency on the self-hosted runner).
+# Caveat: pinning @v22 does NOT pin the Nix version underneath (the action
+# always pulls the newest Determinate Nix Installer), so DetNix behavior
+# changes can reach CI silently; see the GC-disable steps below for what
+# bitten us once.
 #
 # Lanes (mirror the retired .gitlab-ci.yml):
 #   lint (every push + PR)  flake eval + cheap checks; cargo fmt/clippy/test.
 #   vm   (weekly + manual)  the two LiveISO boot oracles (tests/default.nix).
 #
 # Cold-cache escape hatch: the 1.5 GB ISO closure in vm-boot builds in-job.
-# On a persistent self-hosted runner the Nix store survives between runs, so
-# only the first run pays the full build — but to make it substitute instead
-# of build, wire up a binary cache (Cachix/attic) or
+# The hosted runner's store does NOT survive between runs, so every weekly
+# boot oracle pays the full build — to make it substitute instead of build,
+# wire up a binary cache (Cachix/attic) or
 # DeterminateSystems/flakehub-cache-action and point the jobs at it.
 
 on:
@@ -43,6 +44,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      # Determinate Nix's determinate-nixd runs automatic background GC by
+      # default (targets 30 GB / 5-20% free disk, "urgent" mode below 5%), and
+      # its deletion loop never re-checks GC temp roots added while a
+      # collection is in flight (DeterminateSystems/nix-src#395; the upstream
+      # fix NixOS/nix#15992 merged 2026-06-07 but is not ported to any
+      # Determinate Nix release). `flake check` still *builds* this flake's
+      # IFD drvs mid-eval (fetchgit aipage source; callCabal2nix abstracttui)
+      # — a racing GC pass deletes those freshly instantiated .drv files and
+      # the check dies with "error: path '…-aipage-944064e.drv' is not valid",
+      # cascading to every dependent check. On the hosted runner's small disk
+      # that race fires on ~every run. Disable the collector for the job; the
+      # df/pgrep lines keep the step useful as a diagnostic if it ever stops
+      # being effective. try-restart is a no-op where determinate-nixd isn't
+      # systemd-managed.
+      - name: Disable determinate-nixd background GC (nix-src#395 race)
+        run: |
+          df -h /nix
+          pgrep -a -f determinate-nixd || true
+          sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
+          echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
+          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
+            || cp /tmp/determinate-config.json /etc/determinate/config.json
+          sudo systemctl try-restart determinate-nixd 2>/dev/null || true
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
       # The cheap non-VM checks are worth actually building. Build ALL the
@@ -98,6 +122,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      # Same determinate-nixd background-GC race as in the nix-eval lane
+      # (DeterminateSystems/nix-src#395) — this job realises the same IFD
+      # drvs plus a far larger closure, so its exposure window is worse.
+      # See the nix-eval step for the full rationale.
+      - name: Disable determinate-nixd background GC (nix-src#395 race)
+        run: |
+          df -h /nix
+          pgrep -a -f determinate-nixd || true
+          sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
+          echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
+          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
+            || cp /tmp/determinate-config.json /etc/determinate/config.json
+          sudo systemctl try-restart determinate-nixd 2>/dev/null || true
       # --option system-features is still needed: even with /dev/kvm present,
       # Nix won't schedule nixos-test derivations unless kvm/nixos-test are
       # declared on the (per-invocation) system-features.
