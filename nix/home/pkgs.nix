@@ -88,7 +88,12 @@ in
       scrot
       imagemagick
       ghc
-      rustup
+      rustc
+      clippy
+      cargo-expand
+      rust-analyzer
+      cargo
+      clang
       stack
     ])
     ++ [ haveno ]
