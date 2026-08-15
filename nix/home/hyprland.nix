@@ -8,6 +8,33 @@ let
   lua = lib.generators.mkLuaInline;
 in
 {
+  services.systemd-lock-handler.enable = true;
+  systemd.user.services.hyprlock = {
+    description = "Screen locker for Wayland";
+    documentation = [ "man:hyprlock(1)" ];
+
+    # If hyprlock exits cleanly, unlock the session:
+    onSuccess = [ "unlock.target" ];
+
+    # When lock.target is stopped, stops this too:
+    partOf = [ "lock.target" ];
+
+    # Delay lock.target until this service is ready:
+    before = [ "lock.target" ];
+    wantedBy = [ "lock.target" ];
+
+    serviceConfig = {
+      # systemd will consider this service started when hyprlock forks...
+      Type = "forking";
+
+      # ... and hyprlock will fork only after it has locked the screen.
+      ExecStart = "${lib.getExe pkgs.hyprlock} -f";
+
+      # If hyprlock crashes, always restart it immediately:
+      Restart = "on-failure";
+      RestartSec = 0;
+    };
+  };
   wayland.windowManager.hyprland = {
     systemd.enable = false;
     enable = true;
@@ -835,7 +862,7 @@ in
     };
   };
 
-  # swaylock -f -c 000000 → hyprlock. Was a solid black background; now a
+  # hyprlock -f -c 000000 → hyprlock. Was a solid black background; now a
   # blurred, dimmed screenshot of the live desktop with a Tokyonight-themed
   # digital clock (matching waybar.nix's palette + Lilex Nerd Font) and a
   # password input field. PAM U2F unlock is wired up on the NixOS side in
