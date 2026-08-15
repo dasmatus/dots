@@ -10,6 +10,10 @@
   ...
 }:
 {
+  programs.gamemode = {
+    enable = true;
+    enableRenice = true;
+  };
   services.fwupd.enable = true;
   security.pam.services.login.enableGnomeKeyring = true;
   networking.hostName = config.dots.hostname;
