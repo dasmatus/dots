@@ -89,6 +89,25 @@ let
 
         mcp.run()
       '';
+
+  # The pstack plugin (github.com/cursor/plugins) — poteto's rigorous
+  # agent-workflow skills + subagents. The upstream repo is a Cursor
+  # `.cursor-plugin/` marketplace, which Claude Code does not read; but a
+  # plugin manifest is optional in Claude Code — it auto-discovers a
+  # `skills/` and `agents/` subdir at the plugin root and derives the name
+  # from the directory — so pointing `programs.claude-code.plugins.pstack`
+  # straight at the fetched `pstack/` dir works with no third-party
+  # `.claude-plugin/` shim fork. fetchFromGitHub (not builtins.fetchGit) so
+  # the output path is hash-determined and the offline installer can
+  # substitute it without the fetcher cache — the same reason nix/aipage.nix
+  # uses a derivation. rev pinned to the cursor/plugins main HEAD at adoption
+  # time; bump deliberately with `nix flake update`-style intent.
+  cursorPlugins = pkgs.fetchFromGitHub {
+    owner = "cursor";
+    repo = "plugins";
+    rev = "60c641e4fad674784b30abcf9f8915dea39df38d";
+    sha256 = "1983c5ivszcbrxyg35hv6zsrv99s42144vrpfk8qrsaaalpzy0n6";
+  };
 in
 {
   home.packages = [ ccbar ];
@@ -101,6 +120,14 @@ in
       type = "stdio";
       command = "${searxng-mcp}/bin/searxng-mcp";
     };
+
+    # pstack — see `cursorPlugins` above. A personal plugin: the HM module
+    # symlinks it into ~/.claude/skills/pstack and synthesizes a
+    # .claude-plugin/plugin.json (pstack ships only a .cursor-plugin/ one,
+    # which Claude Code ignores), exposing its skills + subagents. Distinct
+    # from the marketplace plugins in settings.enabledPlugins below; the two
+    # mechanisms coexist.
+    plugins.pstack = "${cursorPlugins}/pstack";
 
     # ~/.claude/CLAUDE.md — global memory, loaded in every project: this is
     # what makes the MCP tool the *default* rather than merely available.

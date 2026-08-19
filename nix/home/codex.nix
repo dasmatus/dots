@@ -76,6 +76,25 @@ let
 
         mcp.run()
       '';
+
+  # The pstack plugin (github.com/cursor/plugins) — poteto's rigorous
+  # agent-workflow skills. Same fetch as claude.nix's `cursorPlugins`
+  # (duplicated, not shared via specialArgs, the way searxng-mcp above is —
+  # identical args dedupe to one store path). The upstream repo is a Cursor
+  # `.cursor-plugin/` marketplace; Codex auto-discovers skills from
+  # ~/.codex/skills/, so the HM module symlinks each pstack skill folder
+  # (poteto-mode, how, why, …) in there. Only the `skills/` subtree is
+  # wired: Codex plugins bundle skills/MCP/hooks, not subagents, so pstack's
+  # agents/ (Claude-Code-style subagent definitions) have no Codex equivalent.
+  # fetchFromGitHub (not builtins.fetchGit) so the output path is
+  # hash-determined and the offline installer substitutes it without the
+  # fetcher cache. rev pinned to cursor/plugins main HEAD at adoption time.
+  cursorPlugins = pkgs.fetchFromGitHub {
+    owner = "cursor";
+    repo = "plugins";
+    rev = "60c641e4fad674784b30abcf9f8915dea39df38d";
+    sha256 = "1983c5ivszcbrxyg35hv6zsrv99s42144vrpfk8qrsaaalpzy0n6";
+  };
 in
 {
   # The local model server for the fish `claude`/`ollama` launch aliases and
@@ -138,6 +157,13 @@ in
       tui.notifications = true;
       tui.notification_condition = "unfocused";
     };
+
+    # pstack — see `cursorPlugins` above. A path to the fetched pstack
+    # `skills/` dir: the HM module reads it and symlinks each skill folder
+    # into ~/.codex/skills/<name>, where Codex auto-discovers them (the
+    # same progressive-disclosure model as Claude Code skills, minus the
+    # subagents pstack carries for Claude Code).
+    skills = "${cursorPlugins}/pstack/skills";
 
     # Port of claude.nix's `permissions.allow` glob-list. Codex rules are
     # Starlark (see https://learn.chatgpt.com/docs/agent-configuration/rules);

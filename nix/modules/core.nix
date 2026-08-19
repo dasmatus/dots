@@ -75,6 +75,19 @@
       "root"
       "@wheel"
     ];
+    # The Hyprland flake input (github:hyprwm/Hyprland?ref=v0.55.0 in
+    # flake.nix) isn't built by Hydra, so the compositor and its deps
+    # (udis86, aquamarine, hyprlang, …) are absent from cache.nixos.org and
+    # nixos-rebuild falls back to compiling them from source. The Hyprland
+    # Cachix binary cache holds the matching prebuilt store paths; pinning
+    # its public key here (verified against https://wiki.hypr.land/Nix/Cachix/)
+    # lets nix substitute them instead. `extra-*` appends to the default
+    # cache.nixos.org substituter rather than replacing it, so the rest of
+    # the closure still comes from the canonical cache.
+    extra-substituters = [ "https://hyprland.cachix.org" ];
+    extra-trusted-public-keys = [
+      "hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc="
+    ];
   };
 
   time.timeZone = settings.timezone;
