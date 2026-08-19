@@ -8,6 +8,30 @@ let
   lua = lib.generators.mkLuaInline;
 in
 {
+  systemd.user.services.hyprlock = {
+    Unit = {
+      Description = "Screen locker for Wayland";
+      Documentation = [ "man:hyprlock(1)" ];
+      # If hyprlock exits cleanly, unlock the session:
+      OnSuccess = [ "unlock.target" ];
+      # When lock.target is stopped, stops this too:
+      PartOf = [ "lock.target" ];
+      # Delay lock.target until this service is ready:
+      Before = [ "lock.target" ];
+    };
+    Service = {
+      # systemd will consider this service started when hyprlock forks...
+      Type = "forking";
+      # ... and hyprlock will fork only after it has locked the screen.
+      ExecStart = "${lib.getExe pkgs.hyprlock}";
+      # If hyprlock crashes, always restart it immediately:
+      Restart = "on-failure";
+      RestartSec = 0;
+    };
+    Install = {
+      WantedBy = [ "lock.target" ];
+    };
+  };
   wayland.windowManager.hyprland = {
     systemd.enable = false;
     enable = true;
@@ -812,30 +836,7 @@ in
     "org.freedesktop.portal.Settings" = "gtk";
   };
 
-  # swayidle → hypridle: same three timers as the original exec-once block
-  # (300s lock, 600s dpms off, dpms on on resume), before-sleep locks too.
-  services.hypridle = {
-    enable = true;
-    settings = {
-      general = {
-        lock_cmd = "hyprlock";
-        before_sleep_cmd = "hyprlock";
-      };
-      listener = [
-        {
-          timeout = 1;
-          on-timeout = "hyprlock";
-        }
-        {
-          timeout = 1;
-          on-timeout = "hyprctl dispatch dpms off";
-          on-resume = "hyprctl dispatch dpms on";
-        }
-      ];
-    };
-  };
-
-  # swaylock -f -c 000000 → hyprlock. Was a solid black background; now a
+  # hyprlock -f -c 000000 → hyprlock. Was a solid black background; now a
   # blurred, dimmed screenshot of the live desktop with a Tokyonight-themed
   # digital clock (matching waybar.nix's palette + Lilex Nerd Font) and a
   # password input field. PAM U2F unlock is wired up on the NixOS side in

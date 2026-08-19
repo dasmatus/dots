@@ -1,0 +1,86 @@
+cabal-version:      2.4
+name:               dots-installer
+version:            0.1.0
+synopsis:           tokyonight-dots NixOS installer TUI (Haskell port)
+description:        Haskell port of rust/installer-tui on the abstracttui compat
+                    layer. The pure modules (config/disks/install/net/app/fx/input)
+                    are faithful ports of the Rust crate; the interactive wizard
+                    is a custom Driver loop mirroring rust/installer-tui/src/main.rs.
+license:            MIT
+build-type:         Simple
+
+common shared
+  default-language: Haskell2010
+  default-extensions: OverloadedStrings
+  ghc-options:      -Wall -Wcompat -Widentities -Wincomplete-record-updates
+                    -Wredundant-constraints -Wunused-packages
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  Dots.Installer.Input
+                    Dots.Installer.Config
+                    Dots.Installer.Disks
+                    Dots.Installer.Net
+                    Dots.Installer.Install
+                    Dots.Installer.Fx
+                    Dots.Installer.App
+                    Dots.Installer.Ui
+                    Dots.Installer.Run
+  build-depends:    base >= 4.18 && < 5
+                  , text
+                  , bytestring
+                  , aeson
+                  , scientific
+                  , directory
+                  , filepath
+                  , process
+                  , stm
+                  , transformers
+                  , containers
+                  , unix
+                  , time
+                  , abstracttui
+                  , reflex
+                  , vty
+
+executable dots-installer
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   app
+  build-depends:    base >= 4.18 && < 5
+                  , text
+                  , directory
+                  , filepath
+                  , process
+                  , dots-installer
+
+test-suite dots-installer-test
+  import:           shared
+  type:             exitcode-stdio-1.0
+  main-is:          Main.hs
+  hs-source-dirs:   tests
+  other-modules:    Common
+                    AppSpec
+                    ConfigSpec
+                    DisksSpec
+                    InstallSpec
+                    NetSpec
+                    FxSpec
+                    FullRedrawSpec
+                    -- ViewSpec is deferred to a hardening pass (the per-screen
+                    -- headless-render coverage already comes via FullRedrawSpec
+                    -- + the AppSpec state-machine assertions).
+  build-depends:    base >= 4.18 && < 5
+                  , text
+                  , bytestring
+                  , aeson
+                  , scientific
+                  , containers
+                  , transformers
+                  , dots-installer
+                  , tasty
+                  , tasty-hunit
+                  , abstracttui
+                  , reflex
+                  , vty

@@ -10,6 +10,7 @@
   ...
 }:
 {
+  services.systemd-lock-handler.enable = true;
   programs.gamemode = {
     enable = true;
     enableRenice = true;

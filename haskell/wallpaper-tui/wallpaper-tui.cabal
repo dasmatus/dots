@@ -1,0 +1,94 @@
+cabal-version:      2.4
+name:               wallpaper-tui
+version:            0.1.0
+synopsis:           awww-based TUI wallpaper changer (Haskell port)
+description:        Haskell port of rust/wallpaper-tui on the abstracttui
+                    compat layer. The pure modules (accent/config/awww/
+                    wallpapers/preview/tint/fx/app) are faithful ports of the
+                    Rust crate; the interactive TUI is a custom abstracttui
+                    loop with per-region dynView reactivity (the no-widgetHold
+                    mapping). Subcommands: --restore, --cache-previews,
+                    --output NAME PATH (non-interactive apply), and the bare
+                    interactive picker.
+license:            MIT
+build-type:         Simple
+
+common shared
+  default-language: Haskell2010
+  default-extensions: OverloadedStrings
+  ghc-options:      -Wall -Wcompat -Widentities -Wincomplete-record-updates
+                    -Wredundant-constraints -Wunused-packages
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  WallpaperTui.Input
+                    WallpaperTui.Accent
+                    WallpaperTui.Config
+                    WallpaperTui.Awww
+                    WallpaperTui.Wallpapers
+                    WallpaperTui.Preview
+                    WallpaperTui.Tint
+                    WallpaperTui.Fx
+                    WallpaperTui.App
+                    WallpaperTui.Ui
+                    WallpaperTui.Run
+  build-depends:    base >= 4.18 && < 5
+                  , text
+                  , bytestring
+                  , aeson
+                  , directory
+                  , filepath
+                  , process
+                  , stm
+                  , transformers
+                  , containers
+                  , time
+                  , JuicyPixels
+                  , cryptohash-sha1
+                  , vector
+                  , abstracttui
+                  , reflex
+                  , reflex-vty
+                  , vty
+
+executable wallpaper-tui
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   app
+  build-depends:    base >= 4.18 && < 5
+                  , containers
+                  , wallpaper-tui
+
+test-suite wallpaper-tui-test
+  import:           shared
+  type:             exitcode-stdio-1.0
+  main-is:          Main.hs
+  hs-source-dirs:   tests
+  other-modules:    Common
+                    AccentSpec
+                    ConfigSpec
+                    AwwwSpec
+                    PreviewSpec
+                    TintSpec
+                    FxSpec
+                    AppSpec
+                    ViewSpec
+  build-depends:    base >= 4.18 && < 5
+                  , text
+                  , bytestring
+                  , aeson
+                  , directory
+                  , filepath
+                  , containers
+                  , transformers
+                  , JuicyPixels
+                  , cryptohash-sha1
+                  , vector
+                  , temporary
+                  , wallpaper-tui
+                  , tasty
+                  , tasty-hunit
+                  , abstracttui
+                  , reflex
+                  , vty
