@@ -125,16 +125,18 @@
   };
   gtk = {
     enable = true;
-    # Tokyonight with macOS traffic-light window buttons; the tweak is baked
-    # into the generated CSS by the theme's sassc build.
+    # adw-gtk3 (the libadwaita look for GTK3 apps), dark variant. The previous
+    # tokyonight-gtk-theme was dropped from nixpkgs — it depended on
+    # gtk-engine-murrine, which was removed upstream as unmaintained GTK 2.
+    # The Tokyonight accent tints still apply on top via the extraCss
+    # @imports below (wallpaper-tui's @define-color overrides are theme-agnostic
+    # wiring), and the macOS traffic-light window buttons (close/min/max on
+    # the left) come from the dconf `button-layout` key above, not from a
+    # theme-side tweak — so nothing is lost dropping the tokyonight macos
+    # tweak variant.
     theme = {
-      name = "Tokyonight-Dark";
-      package = pkgs.tokyonight-gtk-theme.override {
-        colorVariants = [ "dark" ];
-        themeVariants = [ "default" ];
-        sizeVariants = [ "standard" ];
-        tweakVariants = [ "macos" ];
-      };
+      name = "adw-gtk3-dark";
+      package = pkgs.adw-gtk3;
     };
     # Since stateVersion 26.05 gtk4 no longer inherits the shared gtk.theme
     # default; without this no gtk-4.0/gtk.css @import is emitted and
