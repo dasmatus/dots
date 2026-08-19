@@ -89,6 +89,7 @@
         system
         pkgs
         pkgsBun
+        self
         aipagePackages
         haskellPackages
         settings
@@ -100,6 +101,7 @@
       # nixosConfiguration, so strip it before exposing nixosConfigurations.
       nixosConfigs = import ./flake/nixos.nix {
         inherit
+          self
           inputs
           nixpkgs
           settings
