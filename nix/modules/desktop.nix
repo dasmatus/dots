@@ -10,7 +10,6 @@
   pkgs,
   settings,
   config,
-  hyprlandPkg,
   ...
 }:
 {
@@ -41,12 +40,17 @@
           services.displayManager.ly.enable = true;
           programs.hyprland = {
             enable = true;
-            # Pin the system compositor to the Hyprland flake input
-            # (threaded in from flake.nix as hyprlandPkg) rather than the
-            # rolling nixpkgs Hyprland, so a minor bump doesn't surprise
-            # mid-session — the input is bumped deliberately via
-            # `nix flake update`.
-            package = hyprlandPkg;
+            # Use nixpkgs' Hyprland (the module's default `package`) rather
+            # than a pinned Hyprland flake input. The flake-input route needs
+            # hyprland.cachix.org, whose CI rebuilds main with bumped inputs
+            # on every push — so a pinned release tag's prebuilt ages out of
+            # the cache and nixos-rebuild silently falls back to a from-source
+            # C++ build (verified: v0.55.0's prebuilt was evicted ~3 months
+            # after release). nixpkgs' Hyprland is built by Hydra and lives on
+            # cache.nixos.org, which retains builds indefinitely, so the
+            # compositor is always substituted. Trade-off: the Hyprland
+            # version now advances with `nix flake update` of nixpkgs instead
+            # of being pinned independently.
             withUWSM = true;
             xwayland.enable = true;
           };

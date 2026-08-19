@@ -26,7 +26,6 @@ let
         aipageChrome = inputs.self.packages.x86_64-linux.aipage-chrome;
         wallpaperTui = inputs.self.packages.x86_64-linux.wallpaper-tui;
         hyprmon = inputs.self.packages.x86_64-linux.hyprmon;
-        hyprlandPkg = inputs.hyprland.packages.x86_64-linux.hyprland;
       };
       modules = [
         inputs.disko.nixosModules.disko

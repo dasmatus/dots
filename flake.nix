@@ -45,15 +45,18 @@
       url = "github:nix-community/bun2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Hyprland compositor is pinned to a release tag (consumed by
-    # nix/modules/desktop.nix as packages.hyprland) so the system compositor
-    # stays on a known-good version rather than tracking nixpkgs' rolling
-    # bump — a surprise minor bump mid-session is more disruptive than a
-    # deliberate `nix flake update` of this input.
-    hyprland = {
-      url = "github:hyprwm/Hyprland?ref=v0.55.0";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # Hyprland is NOT a flake input: the system compositor comes from nixpkgs
+    # (programs.hyprland in nix/modules/desktop.nix uses the module's default
+    # `package = pkgs.hyprland`). nixpkgs' Hyprland is built by Hydra and lives
+    # on cache.nixos.org (indefinite retention), so the prebuilt is always
+    # substituted. A pinned Hyprland flake input was tried instead (for
+    # independent version pinning) but its only prebuilt source —
+    # hyprland.cachix.org — evicts old tagged builds (Hyprland's CI rebuilds
+    # main with bumped inputs on every push, so a release tag ages out ~months
+    # after release; v0.55.0's prebuilt was gone), and `inputs.nixpkgs.follows`
+    # on that input additionally defeated the cache by changing input hashes.
+    # Net: the flake-input route built the compositor from source on every
+    # rebuild. See nix/modules/desktop.nix for the full rationale.
     # AIPage (codeberg.org/dasmatus/aipage) is NOT a flake input: its built
     # dist-* dirs are gitignored in the sibling repo and its flake only
     # exposes an impure `apps.build`, so no flake input can reach a built
