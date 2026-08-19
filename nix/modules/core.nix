@@ -83,7 +83,18 @@
     # source anyway once Cachix evicted the old tagged prebuilt.
   };
 
-  time.timeZone = settings.timezone;
+  # Automatic timezone from geolocation (no manual zone changes when
+  # traveling). localtimed (the localtime→localtimed rename, the RTC-lineage
+  # daemon) uses geoclue2 — WiFi SSID-based location — plus systemd-timedated
+  # to set the zone at runtime. geoclue2's geoProviderUrl already defaults to
+  # the working beacondb endpoint, so no provider override is needed.
+  # localtimed forces `time.timeZone = null` while enabled (it errors if a
+  # plain timezone is set, to avoid silently overriding it), so the fallback
+  # below is mkDefault — localtimed's null wins while it's enabled, and the
+  # settings.timezone fallback only applies if localtimed is ever disabled.
+  services.localtimed.enable = true;
+  services.geoclue2.enable = true;
+  time.timeZone = lib.mkDefault settings.timezone;
   i18n.defaultLocale = settings.locale;
 
   environment.systemPackages = with pkgs; [
