@@ -11,6 +11,7 @@
 }:
 {
   services.systemd-lock-handler.enable = true;
+  services.displayManager.defaultSession = "hyprland-uwsm";
   programs.gamemode = {
     enable = true;
     enableRenice = true;
