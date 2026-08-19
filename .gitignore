@@ -30,7 +30,7 @@ secrets/*
 # `git update-index --skip-worktree`; these entries document the intent.
 nix/facter.json
 nix/settings.nix
-
+.claude/
 # Install-time password hashes written by the installer TUI into the
 # STAGED_FLAKE only (rust/installer-tui/src/install.rs). Never committed — a
 # hash is offline-crackable. The file is NOT stashed to /var/lib/dots, so the

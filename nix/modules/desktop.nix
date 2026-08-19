@@ -37,7 +37,7 @@
           # NixOS option, not a home-manager one — it previously sat in
           # nix/home/hyprland.nix, where HM eval rejected it.
           programs.seahorse.enable = true;
-          services.displayManager.ly.enable = true;
+          programs.regreet.enable = true;
           programs.hyprland = {
             enable = true;
             # Use nixpkgs' Hyprland (the module's default `package`) rather
