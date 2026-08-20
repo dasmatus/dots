@@ -22,6 +22,12 @@ self: {
     cargoLock.lockFile = ../rust/wallpaper-tui/Cargo.lock;
     meta.mainProgram = "wallpaper-tui";
   };
+  settings = pkgs.rustPlatform.buildRustPackage {
+    pname = "settings";
+    version = "0.1.0";
+    src = ../rust/settings-global;
+    cargoLock.lockFile = ../rust/settings-global/Cargo.lock;
+  };
   # hyprmon — the declarative multi-monitor auto-detection daemon. Built at
   # the flake level for the same reasons as wallpaper-tui (cache key sharing,
   # `nix build .#hyprmon`); nix/home/hyprmon.nix wraps the store path and
