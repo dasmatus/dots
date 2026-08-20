@@ -26,6 +26,9 @@
 
   xdg.configFile = {
     "rofi/themes/tokyonight.rasi".source = ./tokyonight.rasi;
+    # Settings-menu list theme — resolved by name via the
+    # GLOBAL_SETTINGS_ROFI_THEME=settings wrapper env in settings-menu.nix.
+    "rofi/themes/settings.rasi".source = ./settings.rasi;
 
     "rofi/rofi-files.sh" = {
       source = ./rofi-files.sh;

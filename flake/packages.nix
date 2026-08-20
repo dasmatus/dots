@@ -27,6 +27,9 @@ self: {
     version = "0.1.0";
     src = ../rust/settings-global;
     cargoLock.lockFile = ../rust/settings-global/Cargo.lock;
+    # The crate is named global-settings, so `nix run .#settings` needs the
+    # binary spelled out.
+    meta.mainProgram = "global-settings";
   };
   # hyprmon — the declarative multi-monitor auto-detection daemon. Built at
   # the flake level for the same reasons as wallpaper-tui (cache key sharing,

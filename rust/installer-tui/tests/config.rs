@@ -56,6 +56,21 @@ fn settings_nix_escapes_quotes_and_backslashes_in_git_identity() {
 }
 
 #[test]
+fn settings_nix_escapes_dollar_interpolation_in_git_identity() {
+    let cfg = InstallConfig {
+        git_name: "${builtins.readFile /etc/shadow}".into(),
+        ..Default::default()
+    };
+    let out = cfg.settings_nix();
+    // `${...}` is Nix interpolation; an unescaped value would be evaluated at
+    // rebuild time, so the `$` must be backslash-escaped to a literal.
+    assert!(
+        out.contains(r#"gitName = "\${builtins.readFile /etc/shadow}";"#),
+        "{out}"
+    );
+}
+
+#[test]
 fn hostname_accepts_rfc1123_labels() {
     assert!(validate_hostname("tokyonight").is_ok());
     assert!(validate_hostname("my-host2").is_ok());

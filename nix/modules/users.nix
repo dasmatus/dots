@@ -12,6 +12,7 @@
   aipageChrome,
   wallpaperTui,
   hyprmon,
+  settingsMenu,
   ...
 }:
 let
@@ -116,6 +117,7 @@ in
         aipageChrome
         wallpaperTui
         hyprmon
+        settingsMenu
         ;
       dots = config.dots;
     };

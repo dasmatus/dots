@@ -11,8 +11,15 @@
 #     a stale pre-migration value (Brave is back via brave.nix, but LibreWolf
 #     stays the main browser); home.sessionVariables.BROWSER is the native
 #     replacement if one is ever wanted
-#   - functions/claude-dev.fish is ported verbatim below
-{ settings, ... }:
+#   - functions/claude-dev.fish is ported verbatim below, but only when the
+#     Claude toggle is on; the codex alias likewise only exists when its
+#     dots.ai.* toggles are on (no `echo 'not enabled'` stub aliases — a
+#     disabled tool is simply absent, same as the rest of nix/home)
+{
+  lib,
+  dots,
+  ...
+}:
 {
   programs.zoxide = {
     enable = true;
@@ -30,21 +37,16 @@
       cat = "bat --paging=never";
       ls = "eza -lhi --git --icons always";
       cd = "z";
-      claude =
-        if settings.aiClaude && settings.aiOllama then
-          "ollama launch claude"
-        else
-          "echo 'claude and ollama not enabled'";
-      codex =
-        if settings.aiCodex && settings.aiOllama then
-          "ollama launch codex -- --dangerously-bypass-approvals-and-sandbox"
-        else
-          "echo 'codex and ollama not enabled'";
+    }
+    // lib.optionalAttrs (dots.ai.codex && dots.ai.ollama) {
+      codex = "ollama launch codex -- --dangerously-bypass-approvals-and-sandbox";
     };
 
-    functions.claude-dev = ''
-      set -l system_prompt "Always write tests, benchmarks, and documentation for any code you produce. When scripting is needed, prefer Python, TypeScript, or another scripting language over Bash — only use Bash as a last resort. When your task involves inspecting, testing, or automating a web application, use Playwright rather than curl or manual HTTP calls. Always use Bun instead of Node.js for running scripts, installing packages, and executing JavaScript or TypeScript. When writing TypeScript, use @types/bun for type definitions instead of @types/node. sudo is passwordless on this machine. When you need to ask the user a question or present options to choose from, always use the AskUserQuestion tool to display a dialog — never write out options as text and ask the user to type their choice."
-      claude --dangerously-skip-permissions --append-system-prompt $system_prompt $argv
-    '';
+    functions = lib.optionalAttrs dots.ai.claude {
+      claude-dev = ''
+        set -l system_prompt "Always write tests, benchmarks, and documentation for any code you produce. When scripting is needed, prefer Python, TypeScript, or another scripting language over Bash — only use Bash as a last resort. When your task involves inspecting, testing, or automating a web application, use Playwright rather than curl or manual HTTP calls. Always use Bun instead of Node.js for running scripts, installing packages, and executing JavaScript or TypeScript. When writing TypeScript, use @types/bun for type definitions instead of @types/node. sudo is passwordless on this machine. When you need to ask the user a question or present options to choose from, always use the AskUserQuestion tool to display a dialog — never write out options as text and ask the user to type their choice."
+        claude --dangerously-skip-permissions --append-system-prompt $system_prompt $argv
+      '';
+    };
   };
 }

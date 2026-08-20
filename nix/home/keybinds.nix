@@ -37,6 +37,10 @@ let
         key = "SUPER + /";
         desc = "Show this keybind cheatsheet";
       }
+      {
+        key = "SUPER + ,";
+        desc = "Settings menu (rofi)";
+      }
     ];
     window = [
       {

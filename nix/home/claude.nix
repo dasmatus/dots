@@ -3,6 +3,7 @@
 # now built from its crates.io release below and wired into the statusline,
 # and goes on PATH so the 5-hour/weekly limits can be polled directly.
 {
+  config,
   pkgs,
   lib,
   dots,
@@ -167,6 +168,13 @@ in
           "Bash(chmod +x *)"
           "Bash(bash -n /var/home/matus/Dokumente/schule/demo-maturitna-praca/mkosi.extra/usr/local/sbin/oci-sysupdate)"
           "Bash(cargo vendor *)"
+          # The auto-mode-setup skill drafts auto-mode config and needs to
+          # create files under the project's .claude/ and ~/.claude/ without
+          # prompting. NB: ~/.claude/settings.json itself is HM-managed, so
+          # a switch reverts any edits the skill makes there.
+          "Skill(auto-mode-setup)"
+          "Edit(.claude/**)"
+          "Edit(/${config.home.homeDirectory}/.claude/**)"
         ];
         defaultMode = "auto";
       };

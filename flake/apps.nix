@@ -23,7 +23,10 @@ let
   # was removed; the ISO boots through plain OVMF / firmware defaults. The
   # installed system uses systemd-boot + TPM2 auto-unlock (no UKI signing).
   mkIsoApp =
-    { name, target ? "iso" }:
+    {
+      name,
+      target ? "iso",
+    }:
     {
       type = "app";
       program =
@@ -79,6 +82,7 @@ in
       cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd ../settings-global && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
     '';
   };
 

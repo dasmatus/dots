@@ -3,14 +3,11 @@ authors = ["Matus Mastena <Shadiness9530@proton.me>"]
 edition = "2021"
 # If you change the name here, you must also do it in flake.nix (and run `cargo generate-lockfile` afterwards)
 name = "global-settings"
-description = "A simple Rust project using Nix"
+description = "Interactive editor for the installer-written dots settings.nix"
 version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# Std-only on purpose: the UI is rofi and the privilege step is pkexec, both
+# spawned as subprocesses.
 [dependencies]
-clap = { version = "4.3.14", features = ["derive"] }
-dialoguer = "0.12.0"
-indicatif = "0.18.6"
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"

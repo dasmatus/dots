@@ -10,7 +10,12 @@
 # The X11-era stack (i3, polybar, picom, libinput-gestures, swaybg wallpaper
 # exec, swayidle/swaylock, redshift) has been fully replaced by the Wayland
 # modules imported below.
-{ config, pkgs, dots, ... }:
+{
+  config,
+  pkgs,
+  dots,
+  ...
+}:
 {
   imports = [
     ./kitty.nix
@@ -35,6 +40,7 @@
     ./librewolf.nix
     ./eww
     ./rofi
+    ./settings-menu.nix
     ./git.nix
     ./bitwarden.nix
     ./proton.nix

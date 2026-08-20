@@ -47,11 +47,13 @@ impl InstallConfig {
 }
 
 /// Escape a string for safe interpolation into a Nix double-quoted string.
-/// Backslash and double-quote are the only characters that need escaping in a
-/// Nix `"..."` literal; everything else (including `$`, which has no special
-/// meaning inside Nix double quotes) passes through verbatim.
+/// Backslash first so the escapes added for `"` and `$` are not doubled. `$`
+/// needs escaping because `${...}` is Nix string interpolation — an unescaped
+/// value would be evaluated at rebuild time instead of staying a literal.
 fn nix_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
 }
 
 /// RFC 1123 host label: lowercase alphanumerics and inner hyphens, 1-63 chars.

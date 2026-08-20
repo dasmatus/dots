@@ -376,6 +376,15 @@ in
             (lua ''hl.dsp.exec_cmd("~/.config/eww/scripts/keybinds.sh --force")'')
           ];
         }
+        # rofi settings menu (nix/home/settings-menu.nix): edit the installer
+        # answers in /var/lib/dots/settings.nix; the file write goes through
+        # pkexec. By name, since the package is in home.packages.
+        {
+          _args = [
+            (lua ''mod .. " + comma"'')
+            (lua ''hl.dsp.exec_cmd("global-settings")'')
+          ];
+        }
         # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved
         # for the magic special workspace (was double-bound in hyprlang).
 
