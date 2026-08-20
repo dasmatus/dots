@@ -37,7 +37,7 @@
           # NixOS option, not a home-manager one — it previously sat in
           # nix/home/hyprland.nix, where HM eval rejected it.
           programs.seahorse.enable = true;
-          programs.regreet = {
+          services.displayManager.regreet = {
             enable = true;
             font = {
               name = "Lilex Nerd Font";
