@@ -3,7 +3,7 @@ use serde_json::to_string;
 use std::fs::write;
 use std::{collections::HashMap, env::temp_dir, fs::read_to_string, sync::LazyLock};
 
-pub static mut CONFIG_FIELDS: LazyLock<ConfigFields> = LazyLock::new(|| ConfigFields::load());
+pub static mut CONFIG_FIELDS: LazyLock<ConfigFields> = LazyLock::new(ConfigFields::load);
 
 #[derive(Serialize, Deserialize)]
 pub struct ConfigFields {
@@ -100,7 +100,6 @@ impl Drop for ConfigFields {
         let nix = json
             .lines()
             .map(|line| line.replace(':', "=").replace(",", ";"));
-        // SAFETY: `self` is pinned till after dropped.
         write(temp_dir().join("settings.nix"), nix.collect::<String>()).unwrap();
     }
 }
