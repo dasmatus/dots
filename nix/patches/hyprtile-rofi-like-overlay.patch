@@ -1,0 +1,26 @@
+--- a/hyprtile.c
++++ b/hyprtile.c
+@@ -2848,6 +2848,11 @@
+                         hover_idx = to_idx;
+                     }
+                 }
++            } else if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
++                /* Launcher-as-overlay (rofi-like): dismiss whenever focus
++                 * moves elsewhere — clicking another window/monitor or a
++                 * freshly launched app taking focus closes the grid. */
++                running = 0;
+             } else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
+                 win_w = event.window.data1;
+                 win_h = event.window.data2;
+@@ -3430,6 +3435,11 @@
+         }
+     }
+ 
++    /* Stable Wayland app_id so compositor window rules can target the
++     * launcher (SDL3 derives wl_surface app_id from the app identifier;
++     * without this it falls back to a generic SDL default). */
++    SDL_SetAppMetadata("HyprTile", "0.16", "hyprtile");
++
+     startup_t = startup_profile_now_ms();
+     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to init SDL: %s", SDL_GetError());

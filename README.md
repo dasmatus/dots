@@ -64,8 +64,11 @@ Two things worth knowing before the first switch:
   `waybar.nix` + `dunst.nix` + `hyprtile.nix` provide the compositor, bar,
   notifications and the [HyprTile](https://hyprtile.org/) fullscreen tile
   launcher (SUPER+D; its page 2 is the power menu, `hyprtile-shotter` takes
-  the Print-key screenshots and `hyprtile-wallpaperd` draws the wallpaper —
-  the suite is built from source as the flake package `hyprtile`);
+  the Print-key screenshots, `hyprtile-wallpaperd` draws the wallpaper, and
+  `hyprtile-sync-apps` regenerates pages 3+ from every installed `.desktop`
+  entry — the suite is built from source as the flake package `hyprtile`,
+  patched to behave like rofi: floating pinned overlay, dismissed on focus
+  loss);
   `services.hypridle` / `programs.hyprlock` /
   `services.gammastep` replace the old swayidle/swaylock/redshift
   exec-once lines. No X11 session remains.

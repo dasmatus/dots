@@ -39,14 +39,23 @@ let
     bg = "#16161d";
     hov = "#292e42";
   };
+  # Guarded lookup: wallpaper-tui's own defaults are currentOutput = "" and
+  # outputs = { }, and a currentOutput naming an undeclared output must not
+  # blow up home-manager eval with "attribute missing" — no wallpaper beats
+  # no build. wallpaper flips to 0 when there is nothing to point at.
+  wt = config.programs.wallpaper-tui;
+  wallpaperPath =
+    if wt.outputs ? ${wt.currentOutput} && wt.outputs.${wt.currentOutput}.path != null then
+      wt.outputs.${wt.currentOutput}.path
+    else
+      "";
   settings = {
     lang = "en";
     cols = 6;
     rows = 4;
     background = "none";
-    wallpaper = 1;
-    wallpaper_file =
-      config.programs.wallpaper-tui.outputs.${config.programs.wallpaper-tui.currentOutput}.path;
+    wallpaper = if wallpaperPath == "" then 0 else 1;
+    wallpaper_file = wallpaperPath;
     wallpaper_mode = "cover";
     wallpaper_backend = "auto";
     child_lock = 0;
@@ -103,6 +112,10 @@ let
           (tile "Keybinds" "~/.config/eww/scripts/keybinds.sh --force" "icons/Design/edit-box-fill.svg"
             "187,154,247"
           )
+          (tile "Sync apps" "hyprtile-sync-apps && notify-send HyprTile 'App pages refreshed'"
+            "icons/System/apps-2-fill.svg"
+            "158,206,106"
+          )
         ];
       }
       # Page 2 — session/power. Replaces the rofi-power-menu grid
@@ -122,9 +135,107 @@ let
     ];
   };
   seedConfig = pkgs.writeText "hyprtile-config.json" (builtins.toJSON settings);
+
+  # Auto-populate the launcher from everything installed: scans XDG .desktop
+  # entries (system dirs first, $XDG_DATA_HOME last so user entries override
+  # same-named ids; an override with NoDisplay=true removes the app),
+  # resolves theme SVG icons out of MoreWaita/hicolor (find -L — NixOS icon
+  # dirs are symlink forests), and regenerates pages 3+ of
+  # ~/.hyprtile/config.json. Pages 1 (curated tiles) and 2 (power) are
+  # never touched, which is what makes reruns idempotent. On PATH and on
+  # the page-1 "Sync apps" tile.
+  syncApps = pkgs.writeShellScriptBin "hyprtile-sync-apps" ''
+    set -euo pipefail
+    config="$HOME/.hyprtile/config.json"
+    if [ ! -f "$config" ]; then
+      echo "hyprtile-sync-apps: $config missing (home-manager seeds it on activation)" >&2
+      exit 1
+    fi
+    jq=${pkgs.jq}/bin/jq
+
+    IFS=: read -ra sys_dirs <<<"''${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    data_dirs=("''${sys_dirs[@]}" "''${XDG_DATA_HOME:-$HOME/.local/share}")
+
+    declare -A name_of exec_of icon_of term_of
+    for d in "''${data_dirs[@]}"; do
+      appdir="$d/applications"
+      [ -d "$appdir" ] || continue
+      while IFS= read -r f; do
+        id="''${f#"$appdir/"}"
+        line="$(awk -F= '
+          { sub(/\r$/, "") }
+          /^\[/ { in_e = ($0 == "[Desktop Entry]"); next }
+          !in_e { next }
+          $1 == "Type"      { type = $2 }
+          $1 == "NoDisplay" { nod = $2 }
+          $1 == "Hidden"    { hid = $2 }
+          $1 == "Terminal"  { term = $2 }
+          $1 == "Name" && name == "" { name = $0; sub(/^Name=/, "", name) }
+          $1 == "Exec" && cmd == ""  { cmd = $0;  sub(/^Exec=/, "", cmd) }
+          $1 == "Icon" && icon == "" { icon = $0; sub(/^Icon=/, "", icon) }
+          END {
+            if (type == "Application" && nod != "true" && hid != "true" && name != "" && cmd != "")
+              printf "%s\037%s\037%s\037%s\n", name, cmd, icon, term
+          }' "$f")"
+        if [ -z "$line" ]; then
+          unset "name_of[$id]" "exec_of[$id]" "icon_of[$id]" "term_of[$id]" 2>/dev/null || true
+          continue
+        fi
+        IFS=$'\037' read -r n c i t <<<"$line"
+        name_of[$id]=$n exec_of[$id]=$c icon_of[$id]=$i term_of[$id]=$t
+      done < <(find -L "$appdir" -name '*.desktop' 2>/dev/null | sort)
+    done
+
+    resolve_icon() {
+      local ic="$1" d theme found
+      [ -n "$ic" ] || return 1
+      case "$ic" in
+        /*) [ -f "$ic" ] && printf '%s\n' "$ic" || return 1; return 0 ;;
+      esac
+      ic="''${ic%.svg}"; ic="''${ic%.png}"; ic="''${ic%.xpm}"
+      for d in "''${data_dirs[@]}"; do
+        for theme in MoreWaita hicolor; do
+          found="$(find -L "$d/icons/$theme" -name "$ic.svg" -print -quit 2>/dev/null || true)"
+          [ -n "$found" ] && { printf '%s\n' "$found"; return 0; }
+        done
+      done
+      return 1
+    }
+
+    accents=("122,162,247" "158,206,106" "224,175,104" "187,154,247" \
+             "125,207,255" "247,118,142" "255,158,100" "115,218,202")
+    tiles_tmp="$(mktemp)"; trap 'rm -f "$tiles_tmp"' EXIT
+    esc="$(printf '\001')"
+    i=0
+    while IFS= read -r id; do
+      cmd="$(sed -e "s/%%/$esc/g" -e 's/ *%[fFuUdDnNickvm]//g' -e "s/$esc/%/g" \
+        <<<"''${exec_of[$id]}")"
+      [ "''${term_of[$id]:-false}" = "true" ] && cmd="kitty -e $cmd"
+      icon="$(resolve_icon "''${icon_of[$id]:-}")" || icon="icons/System/apps-2-fill.svg"
+      "$jq" -n --arg name "''${name_of[$id]}" --arg cmd "$cmd" --arg icon "$icon" \
+        --arg col "''${accents[i % 8]}" \
+        '{name:$name, command:$cmd, icon:$icon, icon_color:$col, bg:"#16161d", hov:"#292e42"}' \
+        >>"$tiles_tmp"
+      i=$((i + 1))
+    done < <(printf '%s\n' "''${!name_of[@]}" | sort)
+
+    per="$("$jq" -r '(.cols // 6) * (.rows // 4)' "$config")"
+    tmp="$(mktemp)"
+    "$jq" -s --argjson per "$per" '
+      def chunk($n):
+        if length == 0 then [] elif length <= $n then [.]
+        else [.[0:$n]] + (.[$n:] | chunk($n)) end;
+      .[0] as $cfg | (.[1] | sort_by(.name | ascii_downcase)) as $tiles |
+      $cfg | .pages = (.pages[0:2] + ($tiles | chunk($per) | map({ tiles: . })))
+    ' "$config" <("$jq" -s . "$tiles_tmp") >"$tmp" && mv "$tmp" "$config"
+    echo "hyprtile-sync-apps: $i apps -> pages 3+ of $config"
+  '';
 in
 {
-  home.packages = [ hyprtilePkg ];
+  home.packages = [
+    hyprtilePkg
+    syncApps
+  ];
 
   # Translations ship in the store; HyprTile only looks in
   # ~/.hyprtile/languages, so link that dir to the package share.

@@ -29,10 +29,13 @@ use crate::config::Effective;
 extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
     fn setsid() -> i32;
+    fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
 }
 
 /// `SIGTERM` — no `libc` dependency for one constant.
 const SIGTERM: i32 = 15;
+/// `WNOHANG` for [`waitpid`] — same no-`libc` rationale as [`SIGTERM`].
+const WNOHANG: i32 = 1;
 
 /// Poll interval while waiting for the previous `hyprtile-wallpaperd` to
 /// exit after `SIGTERM`.
@@ -111,6 +114,18 @@ pub struct LiveWallpaperd;
 
 impl WallpaperdBackend for LiveWallpaperd {
     fn is_alive(&self, pid: i32) -> bool {
+        // Daemons spawned by THIS process stay zombies after SIGTERM until
+        // reaped (nobody wait()s on the dropped Child), which would keep
+        // /proc/<pid> alive for the whole stop timeout on every same-session
+        // re-apply. Reap opportunistically first: for our own dead children
+        // waitpid(WNOHANG) clears the zombie; for foreign pids it fails with
+        // ECHILD, which is exactly the "not ours, judge by /proc" case.
+        // SAFETY: waitpid with WNOHANG and a null status pointer never
+        // blocks and has no memory requirements; failures are ignored by
+        // contract (best-effort reap).
+        unsafe {
+            waitpid(pid, std::ptr::null_mut(), WNOHANG);
+        }
         is_pid_alive(pid)
     }
 
@@ -144,10 +159,32 @@ impl WallpaperdBackend for LiveWallpaperd {
     }
 }
 
-/// `true` iff a process with this pid currently exists (`/proc/<pid>`).
+/// `true` iff a process with this pid currently exists (`/proc/<pid>`) and
+/// is not a zombie — an unreaped exited child still has a `/proc` entry but
+/// is dead for every purpose that matters here (its pidfile flock is
+/// released at exit, before reaping).
 #[must_use]
 pub fn is_pid_alive(pid: i32) -> bool {
-    Path::new(&format!("/proc/{pid}")).exists()
+    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(stat) => proc_stat_alive(&stat),
+        Err(_) => false,
+    }
+}
+
+/// Parse a `/proc/<pid>/stat` line's process-state field (the first
+/// non-space character after the *last* `)` — the comm field may itself
+/// contain parentheses) and report liveness: `Z` (zombie) and `X`/`x`
+/// (dead) are not alive; every other state (or an unparseable line,
+/// conservatively) is.
+#[must_use]
+pub fn proc_stat_alive(stat: &str) -> bool {
+    let Some(after_comm) = stat.rfind(')').map(|i| &stat[i + 1..]) else {
+        return true;
+    };
+    !matches!(
+        after_comm.trim_start().chars().next(),
+        Some('Z' | 'X' | 'x')
+    )
 }
 
 /// Read and parse a pidfile's contents as a PID. Missing file, empty, or
@@ -205,8 +242,11 @@ pub fn stop_old_daemon<B: WallpaperdBackend>(
 /// `pidfile`) and spawn a replacement rendering `groups.first()`'s
 /// path/mode on every output. Only the first group is meaningful —
 /// wallpaperd has no per-output targeting, see the module docs. Returns
-/// whether a replacement was spawned (`false` for empty `groups` or a failed
-/// spawn syscall).
+/// whether a replacement was spawned: `false` for empty `groups`, a failed
+/// spawn syscall, or a previous daemon that outlived the stop timeout — in
+/// that last case the replacement would lose the pidfile `flock()` race and
+/// silently exit, so refusing (and letting the caller skip the config sync)
+/// beats reporting a wallpaper that never rendered.
 pub fn apply_wallpaper<B: WallpaperdBackend>(
     backend: &B,
     groups: &[Group],
@@ -216,6 +256,11 @@ pub fn apply_wallpaper<B: WallpaperdBackend>(
         return false;
     };
     stop_old_daemon(backend, pidfile, STOP_POLL_INTERVAL, STOP_WAIT_TIMEOUT);
+    if let Some(pid) = read_pid(pidfile) {
+        if backend.is_alive(pid) {
+            return false;
+        }
+    }
     let argv = wallpaperd_args(&g.path, &g.mode, pidfile);
     backend.spawn(&argv)
 }

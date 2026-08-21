@@ -234,6 +234,29 @@ in
             class = ".*";
           };
         }
+        # HyprTile as a rofi-like overlay, not a tiled window: the package
+        # patch (nix/patches/hyprtile-rofi-like-overlay.patch) pins the
+        # app_id to "hyprtile" and quits the launcher on focus loss; this
+        # rule keeps the compositor from tiling it — floating, pinned to
+        # the top layer, monitor-sized at the origin, no open/close
+        # animation, no border/rounding. Field names verified against
+        # Hyprland 0.56's Lua rule engine (hyprctl eval probe).
+        # stay_focused is deliberately absent: it would stop launched apps
+        # from taking focus, which is exactly what triggers the rofi-like
+        # dismiss.
+        {
+          name = "hyprtile-overlay";
+          match = {
+            class = "hyprtile";
+          };
+          float = true;
+          pin = true;
+          no_anim = true;
+          size = "monitor_w monitor_h";
+          move = "0 0";
+          border_size = 0;
+          rounding = 0;
+        }
       ];
 
       # No layer_rule entries: the old `hyprcapture-ui` layer-shell rule went

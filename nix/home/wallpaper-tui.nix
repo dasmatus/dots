@@ -1,4 +1,7 @@
-# awww-based TUI wallpaper changer — terminal replacement for waytrogen.
+# hyprtile-wallpaperd-based TUI wallpaper changer — terminal replacement for
+# waytrogen (the awww daemon it previously drove retired with the HyprTile
+# conversion; wallpaper applies restart the shared daemon via
+# ~/.hyprtile/wallpaperd.pid and sync ~/.hyprtile/config.json).
 # Declarative Nix options own the settings; the Rust crate in ../../rust/wallpaper-tui
 # (built once at the flake level as packages.${system}.wallpaper-tui, then
 # wrapped here so it can inject the read-only Nix-store base paths for the SVG
@@ -53,8 +56,6 @@ let
     wallpaper_folder = cfg.wallpaperFolder;
     recursive = cfg.recursive;
     current_output = cfg.currentOutput;
-    transition_type = cfg.transitionType;
-    transition_duration = cfg.transitionDuration;
     tint_backend = cfg.tintBackend;
     outputs = lib.mapAttrs (_: o: {
       path = o.path;
@@ -65,7 +66,7 @@ let
 in
 {
   options.programs.wallpaper-tui = {
-    enable = lib.mkEnableOption "awww-based TUI wallpaper changer";
+    enable = lib.mkEnableOption "hyprtile-wallpaperd-based TUI wallpaper changer";
 
     wallpaperFolder = lib.mkOption {
       type = lib.types.str;
@@ -85,32 +86,9 @@ in
       description = "Output focused by default in the TUI.";
     };
 
-    transitionType = lib.mkOption {
-      type = lib.types.enum [
-        "none"
-        "simple"
-        "fade"
-        "left"
-        "right"
-        "top"
-        "bottom"
-        "wipe"
-        "wave"
-        "grow"
-        "center"
-        "any"
-        "outer"
-        "random"
-      ];
-      default = "grow";
-      description = "awww transition effect between wallpapers.";
-    };
-
-    transitionDuration = lib.mkOption {
-      type = lib.types.float;
-      default = 1.0;
-      description = "awww transition duration in seconds.";
-    };
+    # No transition options: hyprtile-wallpaperd swaps the wallpaper on
+    # daemon restart with no transition effects (the awww transition
+    # enum/duration retired with it).
 
     tintBackend = lib.mkOption {
       type = lib.types.enum [
@@ -139,7 +117,7 @@ in
             mode = lib.mkOption {
               type = lib.types.enum modes;
               default = "fill";
-              description = "awww --resize mode (was swaybg scaling mode).";
+              description = "Scaling mode (swaybg vocabulary, mapped to hyprtile-wallpaperd --mode).";
             };
             fillColor = lib.mkOption {
               type = lib.types.str;

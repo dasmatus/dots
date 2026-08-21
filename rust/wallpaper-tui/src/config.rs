@@ -102,10 +102,6 @@ pub struct Config {
     pub recursive: bool,
     #[serde(default)]
     pub current_output: String,
-    #[serde(default = "default_transition_type")]
-    pub transition_type: String,
-    #[serde(default = "default_transition_duration")]
-    pub transition_duration: f64,
     #[serde(default)]
     pub outputs: std::collections::BTreeMap<String, OutputConfig>,
     #[serde(default = "default_tint_backend")]
@@ -118,12 +114,6 @@ fn default_tint_backend() -> String {
 
 fn default_true() -> bool {
     true
-}
-fn default_transition_type() -> String {
-    "grow".to_string()
-}
-fn default_transition_duration() -> f64 {
-    1.0
 }
 
 impl Config {

@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use tempfile::tempdir;
 use wallpaper_tui::wallpaperd::{
-    apply_wallpaper, is_pid_alive, map_mode, merge_hyprtile_config, read_pid, stop_old_daemon,
-    sync_hyprtile_config, wallpaperd_args, Group, WallpaperdBackend,
+    apply_wallpaper, is_pid_alive, map_mode, merge_hyprtile_config, proc_stat_alive, read_pid,
+    stop_old_daemon, sync_hyprtile_config, wallpaperd_args, Group, WallpaperdBackend,
 };
 
 /// A fake process table: `alive` holds the pids currently considered live;
@@ -52,15 +52,21 @@ impl WallpaperdBackend for FakeBackend {
 }
 
 /// A backend whose pids never die — exercises `stop_old_daemon`'s timeout
-/// path. Uses tiny durations so the test still runs in well under a second.
-struct NeverDies;
+/// path and `apply_wallpaper`'s refuse-to-spawn path. Records spawns so the
+/// refusal is observable. Uses tiny durations so tests run in well under a
+/// second (the apply path uses the production 500ms stop timeout once).
+#[derive(Default)]
+struct NeverDies {
+    spawns: Mutex<Vec<Vec<String>>>,
+}
 
 impl WallpaperdBackend for NeverDies {
     fn is_alive(&self, _pid: i32) -> bool {
         true
     }
     fn terminate(&self, _pid: i32) {}
-    fn spawn(&self, _argv: &[String]) -> bool {
+    fn spawn(&self, argv: &[String]) -> bool {
+        self.spawns.lock().unwrap().push(argv.to_vec());
         true
     }
 }
@@ -176,11 +182,26 @@ fn stop_old_daemon_dead_pid_skips_terminate() {
 }
 
 #[test]
+fn proc_stat_zombie_and_dead_states_are_not_alive() {
+    assert!(proc_stat_alive("42 (wallpaperd) S 1 42 42 0 -1"));
+    assert!(!proc_stat_alive("42 (wallpaperd) Z 1 42 42 0 -1"));
+    assert!(!proc_stat_alive("42 (wallpaperd) X 1 42 42 0 -1"));
+    assert!(
+        proc_stat_alive("42 (we(ird) name) R 1 42"),
+        "state is parsed after the LAST ')' — comm may contain parens"
+    );
+    assert!(
+        proc_stat_alive("garbage"),
+        "unparseable -> conservatively alive"
+    );
+}
+
+#[test]
 fn stop_old_daemon_gives_up_after_timeout() {
     let dir = tempdir().unwrap();
     let pidfile = dir.path().join("wallpaperd.pid");
     std::fs::write(&pidfile, "1").unwrap();
-    let backend = NeverDies;
+    let backend = NeverDies::default();
 
     let start = std::time::Instant::now();
     stop_old_daemon(
@@ -228,6 +249,26 @@ fn apply_wallpaper_only_first_group_is_rendered() {
     assert_eq!(spawns.len(), 1, "wallpaperd has no per-output targeting");
     assert!(spawns[0].contains(&"/w/a.jpg".to_string()));
     assert!(!spawns[0].contains(&"/w/b.jpg".to_string()));
+}
+
+#[test]
+fn apply_wallpaper_refuses_when_old_daemon_survives_timeout() {
+    let dir = tempdir().unwrap();
+    let pidfile = dir.path().join("wallpaperd.pid");
+    std::fs::write(&pidfile, "888").unwrap();
+    let backend = NeverDies::default();
+
+    let groups = [group("eDP-1", "/w/a.jpg", "fill", "#000000")];
+    let applied = apply_wallpaper(&backend, &groups, &pidfile);
+
+    assert!(
+        !applied,
+        "a survivor holds the pidfile flock — the replacement would no-op"
+    );
+    assert!(
+        backend.spawns.lock().unwrap().is_empty(),
+        "must not spawn a doomed replacement (callers skip the config sync)"
+    );
 }
 
 #[test]

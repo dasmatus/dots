@@ -45,6 +45,11 @@ self: {
     # Upstream printf()s translated strings (tr("key")) as format strings,
     # which nix cc-wrapper's -Werror=format-security rejects.
     hardeningDisable = [ "format" ];
+    # Launcher-as-overlay (rofi-like) behavior: a stable "hyprtile" Wayland
+    # app_id (so the hyprland.nix window rule can float/pin it instead of
+    # letting it tile like a normal window) + dismiss-on-focus-loss, so
+    # launching a tile or clicking elsewhere closes the grid like rofi.
+    patches = [ ../nix/patches/hyprtile-rofi-like-overlay.patch ];
     # The icon lookup falls back to the install.sh location; point it at the
     # store instead. User icons under ~/.hyprtile/icons still take priority.
     postPatch = ''

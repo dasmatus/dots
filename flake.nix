@@ -85,10 +85,12 @@
       # aipage, and the mkIso helper) live in flake/lib.nix so every output
       # file shares one source of truth.
       lib = import ./flake/lib.nix { inherit inputs nixpkgs; };
+      # NB no `self` here: lib.nix does not export it, and inheriting it
+      # would shadow the real outputs-arg `self` above with a missing attr —
+      # a lazy landmine that only detonated when packages.iso forced it.
       inherit (lib)
         system
         pkgs
-        self
         aipagePackages
         settings
         mkIso

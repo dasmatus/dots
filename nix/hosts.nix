@@ -68,8 +68,9 @@ in
   # See the services.ollama.user comment above for why DynamicUser must be off
   # under impermanence — without this override the module's DynamicUser=true
   # wins (priority 100) and the StateDirectory migration hits EBUSY.
-  systemd.services.ollama.serviceConfig.DynamicUser =
-    lib.mkIf config.dots.ai.ollama (lib.mkForce false);
+  systemd.services.ollama.serviceConfig.DynamicUser = lib.mkIf config.dots.ai.ollama (
+    lib.mkForce false
+  );
   # The nixpkgs module lists modelsDir in ReadWritePaths but only the parent
   # in StateDirectory. ReadWritePaths is a mount-namespace directive: systemd
   # neither creates nor chowns it and *requires* it to pre-exist. Under
@@ -81,8 +82,12 @@ in
   # *before* namespace setup and is proven to work here — it already
   # creates+chowns /var/lib/ollama (and .ollama) through the impermanence
   # bind-mount. Self-heals every boot, no manual mkdir/chown.
-  systemd.services.ollama.serviceConfig.StateDirectory =
-    lib.mkIf config.dots.ai.ollama (lib.mkForce [ "ollama" "ollama/models" ]);
+  systemd.services.ollama.serviceConfig.StateDirectory = lib.mkIf config.dots.ai.ollama (
+    lib.mkForce [
+      "ollama"
+      "ollama/models"
+    ]
+  );
   # Facter only enables this when the report lists a monitor; keep the old
   # hosts/{intel,amd}.nix guarantee unconditionally.
   hardware.graphics.enable = true;

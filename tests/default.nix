@@ -68,9 +68,12 @@ let
   # one) resolve to the same outPath and dedupe via lib.unique.
   flakeInputPaths =
     let
-      walk = node: [
-        node.outPath
-      ] ++ builtins.concatMap walk (builtins.attrValues (node.inputs or { }));
+      walk =
+        node:
+        [
+          node.outPath
+        ]
+        ++ builtins.concatMap walk (builtins.attrValues (node.inputs or { }));
     in
     lib.unique (builtins.concatMap walk (builtins.attrValues inputs));
 
@@ -112,281 +115,279 @@ let
   # installation-device VM, not the raw ISO; the install steps are identical to
   # install.rs::plan(). Mirrors nixpkgs tests/installer.nix (two-node
   # install+boot, shared diskImage + state_dir).
-  limineInstallBootTest =
-    pkgs.testers.runNixOSTest {
-      name = "limine-install-boot";
-      # Full closure build + disko + nixos-install + 2x boot under TCG is slow.
-      globalTimeout = 4 * 60 * 60;
+  limineInstallBootTest = pkgs.testers.runNixOSTest {
+    name = "limine-install-boot";
+    # Full closure build + disko + nixos-install + 2x boot under TCG is slow.
+    globalTimeout = 4 * 60 * 60;
 
-      nodes =
-        let
-          # Mirrors nixpkgs installer.nix `commonConfig`: both nodes share the
-          # SAME disk file (./target.qcow2) so the installer's /dev/vda becomes
-          # the target's boot disk, the same OVMFFull firmware (used by the
-          # target's firmware boot), and — via the shared state_dir below — the
-          # same swtpm. `system.name` is forced equal so the swtpm state dir
-          # (`<system.name>-swtpm`, qemu-vm.nix) resolves to the same path under
-          # the shared state_dir for both nodes; without this the two nodes get
-          # distinct swtpm dirs and the enrolled TPM2 token cannot unseal.
-          # The installer roots on a blank /dev/vdb (emptyDiskImage) that must be
-          # formatted at boot. The test framework gives the installer a systemd
-          # initrd, so `virtualisation.fileSystems."/".autoFormat = true` (set on
-          # the installer node below) is what formats it — autoFormat adds
-          # `x-systemd.makefs`, so systemd-makefs runs before /sysroot.mount.
-          # auto-format-root-device.nix is imported too as the non-systemd-initrd
-          # fallback (its mke2fs postDeviceCommands is mkIf-gated on
-          # !boot.initrd.systemd.enable, so it is skipped here but would fire if
-          # the framework default ever flips back). Computed from the OUTER pkgs
-          # (a path string in `imports`, no pkgs module-arg forcing) to avoid the
-          # read-only-overlay recursion that importing the `installation-device`
-          # profile triggers.
-          autoFormatModule = pkgs.path + "/nixos/tests/common/auto-format-root-device.nix";
-          commonConfig = {
-            system.name = "limine-test";
-            virtualisation = {
-              cores = 8;
-              memorySize = 2048;
-              # Both installer and target use the same drive (installer.nix:693).
-              diskImage = "./target.qcow2";
-              # 20G install target — the shared primary disk (installer.nix
-              # sizes the install target via diskSize, not emptyDiskImages).
-              diskSize = 20 * 1024;
-              # Only OVMFFull contains the TCG/TIS module swtpm needs.
-              efi.OVMF = pkgs.OVMFFull;
-              tpm.enable = true;
-            };
+    nodes =
+      let
+        # Mirrors nixpkgs installer.nix `commonConfig`: both nodes share the
+        # SAME disk file (./target.qcow2) so the installer's /dev/vda becomes
+        # the target's boot disk, the same OVMFFull firmware (used by the
+        # target's firmware boot), and — via the shared state_dir below — the
+        # same swtpm. `system.name` is forced equal so the swtpm state dir
+        # (`<system.name>-swtpm`, qemu-vm.nix) resolves to the same path under
+        # the shared state_dir for both nodes; without this the two nodes get
+        # distinct swtpm dirs and the enrolled TPM2 token cannot unseal.
+        # The installer roots on a blank /dev/vdb (emptyDiskImage) that must be
+        # formatted at boot. The test framework gives the installer a systemd
+        # initrd, so `virtualisation.fileSystems."/".autoFormat = true` (set on
+        # the installer node below) is what formats it — autoFormat adds
+        # `x-systemd.makefs`, so systemd-makefs runs before /sysroot.mount.
+        # auto-format-root-device.nix is imported too as the non-systemd-initrd
+        # fallback (its mke2fs postDeviceCommands is mkIf-gated on
+        # !boot.initrd.systemd.enable, so it is skipped here but would fire if
+        # the framework default ever flips back). Computed from the OUTER pkgs
+        # (a path string in `imports`, no pkgs module-arg forcing) to avoid the
+        # read-only-overlay recursion that importing the `installation-device`
+        # profile triggers.
+        autoFormatModule = pkgs.path + "/nixos/tests/common/auto-format-root-device.nix";
+        commonConfig = {
+          system.name = "limine-test";
+          virtualisation = {
+            cores = 8;
+            memorySize = 2048;
+            # Both installer and target use the same drive (installer.nix:693).
+            diskImage = "./target.qcow2";
+            # 20G install target — the shared primary disk (installer.nix
+            # sizes the install target via diskSize, not emptyDiskImages).
+            diskSize = 20 * 1024;
+            # Only OVMFFull contains the TCG/TIS module swtpm needs.
+            efi.OVMF = pkgs.OVMFFull;
+            tpm.enable = true;
           };
-        in
-        {
-          # NOTE: the nixpkgs `installation-device` profile is deliberately NOT
-          # imported — it sets nixpkgs.overlays, which runNixOSTest pins
-          # read-only (types.unique + readOnly), so the import infinite-recurses
-          # / errors. The profile's only install-relevant provision is the
-          # nixos-install binary, provided here via nixos-install-tools instead.
-          installer =
-            { pkgs, ... }:
-            {
-              imports = [
-                commonConfig
-                autoFormatModule
-              ];
-              # Serve the host nix store read-only so nixos-install substitutes
-              # the pre-built testToplevel with no network (no substitutes).
-              virtualisation.mountHostNixStore = true;
-              # Boot the installer from a small /dev/vdb so /dev/vda (the shared
-              # target.qcow2) stays blank as the install target during AND after
-              # install (installer.nix:722-726).
-              virtualisation.emptyDiskImages = [ 1024 ];
-              virtualisation.rootDevice = "/dev/vdb";
-              # Format the blank /dev/vdb at boot — the installer has a systemd
-              # initrd (test framework default), so autoFormat adds
-              # x-systemd.makefs and systemd-makefs creates the FS before
-              # /sysroot.mount (without this, sysroot.mount fails with "Can't
-              # find ext4 filesystem" and panic-on-fail crashes the VM).
-              virtualisation.fileSystems."/".autoFormat = true;
-              nix.settings.experimental-features = [
-                "nix-command"
-                "flakes"
-              ];
-              # The VM is offline. Without this nixos-install's `nix` tries to
-              # substitute every path of the (large) tokyonight closure from
-              # cache.nixos.org — 5 retries w/ backoff per path × thousands of
-              # paths = hours, timing out the test. Force no substituters so nix
-              # uses only the local store (mountHostNixStore has the whole
-              # closure via extraDependencies) and never hits the network.
-              nix.settings.substituters = lib.mkForce [ ];
-              nix.settings.connect-timeout = 1;
-              # The test VM has no channel, so any in-VM Nix eval that defaults
-              # to `import <nixpkgs>` finds the store nixpkgs via NIX_PATH.
-              # (nixos-install --flake uses flake.lock, not NIX_PATH, but keep
-              # <nixpkgs> resolvable as a belt-and-braces fallback.)
-              # inputs.nixpkgs.outPath is in flakeInputPaths → extraDependencies
-              # → host store mount.
-              nix.nixPath = [ "nixpkgs=${inputs.nixpkgs.outPath}" ];
-              # The dots flake source the installer reads disko.nix + nix/ from.
-              # `dotsFlake` is flake `self` (path-coercible via outPath); if the
-              # path type ever rejects the attrset, use `dotsFlake.outPath`.
-              environment.etc."dots".source = dotsFlake;
-              environment.systemPackages = [
-                pkgs.nixos-install-tools
-                pkgs.disko
-                pkgs.cryptsetup
-                pkgs.tpm2-tools
-                pkgs.nixos-facter
-              ];
-              # Everything nixos-install needs to evaluate + copy the closure
-              # offline: the test-settings toplevel, the pre-built disko script
-              # (so the disko CLI's in-VM `nix build` finds every dep in the
-              # store), and the flake input sources.
-              system.extraDependencies = [
-                testToplevel
-                testDiskoScript
-                aipageSrc
-              ] ++ flakeInputPaths;
-            };
+        };
+      in
+      {
+        # NOTE: the nixpkgs `installation-device` profile is deliberately NOT
+        # imported — it sets nixpkgs.overlays, which runNixOSTest pins
+        # read-only (types.unique + readOnly), so the import infinite-recurses
+        # / errors. The profile's only install-relevant provision is the
+        # nixos-install binary, provided here via nixos-install-tools instead.
+        installer =
+          { pkgs, ... }:
+          {
+            imports = [
+              commonConfig
+              autoFormatModule
+            ];
+            # Serve the host nix store read-only so nixos-install substitutes
+            # the pre-built testToplevel with no network (no substitutes).
+            virtualisation.mountHostNixStore = true;
+            # Boot the installer from a small /dev/vdb so /dev/vda (the shared
+            # target.qcow2) stays blank as the install target during AND after
+            # install (installer.nix:722-726).
+            virtualisation.emptyDiskImages = [ 1024 ];
+            virtualisation.rootDevice = "/dev/vdb";
+            # Format the blank /dev/vdb at boot — the installer has a systemd
+            # initrd (test framework default), so autoFormat adds
+            # x-systemd.makefs and systemd-makefs creates the FS before
+            # /sysroot.mount (without this, sysroot.mount fails with "Can't
+            # find ext4 filesystem" and panic-on-fail crashes the VM).
+            virtualisation.fileSystems."/".autoFormat = true;
+            nix.settings.experimental-features = [
+              "nix-command"
+              "flakes"
+            ];
+            # The VM is offline. Without this nixos-install's `nix` tries to
+            # substitute every path of the (large) tokyonight closure from
+            # cache.nixos.org — 5 retries w/ backoff per path × thousands of
+            # paths = hours, timing out the test. Force no substituters so nix
+            # uses only the local store (mountHostNixStore has the whole
+            # closure via extraDependencies) and never hits the network.
+            nix.settings.substituters = lib.mkForce [ ];
+            nix.settings.connect-timeout = 1;
+            # The test VM has no channel, so any in-VM Nix eval that defaults
+            # to `import <nixpkgs>` finds the store nixpkgs via NIX_PATH.
+            # (nixos-install --flake uses flake.lock, not NIX_PATH, but keep
+            # <nixpkgs> resolvable as a belt-and-braces fallback.)
+            # inputs.nixpkgs.outPath is in flakeInputPaths → extraDependencies
+            # → host store mount.
+            nix.nixPath = [ "nixpkgs=${inputs.nixpkgs.outPath}" ];
+            # The dots flake source the installer reads disko.nix + nix/ from.
+            # `dotsFlake` is flake `self` (path-coercible via outPath); if the
+            # path type ever rejects the attrset, use `dotsFlake.outPath`.
+            environment.etc."dots".source = dotsFlake;
+            environment.systemPackages = [
+              pkgs.nixos-install-tools
+              pkgs.disko
+              pkgs.cryptsetup
+              pkgs.tpm2-tools
+              pkgs.nixos-facter
+            ];
+            # Everything nixos-install needs to evaluate + copy the closure
+            # offline: the test-settings toplevel, the pre-built disko script
+            # (so the disko CLI's in-VM `nix build` finds every dep in the
+            # store), and the flake input sources.
+            system.extraDependencies = [
+              testToplevel
+              testDiskoScript
+              aipageSrc
+            ]
+            ++ flakeInputPaths;
+          };
 
-          target =
-            { ... }:
-            {
-              imports = [ commonConfig ];
-              virtualisation = {
-                # Boot the installed disk via Limine (installer.nix:809-812).
-                useBootLoader = true;
-                useEFIBoot = true;
-                useDefaultFilesystems = false;
-                # Limine installs to \EFI\BOOT\BOOTX64.EFI (canTouchEfiVariables
-                # = false, removable path) — firmware boots it from the default
-                # removable path, so no persistent EFI NVRAM vars are needed
-                # (installer.nix:812 sets efi.keepVariables = false).
-                efi.keepVariables = false;
-                # Dummy root; the real root comes from the installed system's
-                # bootloader/kernel (installer.nix:814-817).
-                fileSystems."/" = {
-                  device = "/dev/disk/by-label/this-is-not-real-and-will-never-be-used";
-                  fsType = "ext4";
-                };
+        target =
+          { ... }:
+          {
+            imports = [ commonConfig ];
+            virtualisation = {
+              # Boot the installed disk via Limine (installer.nix:809-812).
+              useBootLoader = true;
+              useEFIBoot = true;
+              useDefaultFilesystems = false;
+              # Limine installs to \EFI\BOOT\BOOTX64.EFI (canTouchEfiVariables
+              # = false, removable path) — firmware boots it from the default
+              # removable path, so no persistent EFI NVRAM vars are needed
+              # (installer.nix:812 sets efi.keepVariables = false).
+              efi.keepVariables = false;
+              # Dummy root; the real root comes from the installed system's
+              # bootloader/kernel (installer.nix:814-817).
+              fileSystems."/" = {
+                device = "/dev/disk/by-label/this-is-not-real-and-will-never-be-used";
+                fsType = "ext4";
               };
             };
-        };
-
-      testScript =
-        ''
-          import base64
-
-          installer.start()
-          installer.wait_for_unit("multi-user.target")
-          installer.succeed("udevadm settle")
-
-          with subtest("Generate the one-shot LUKS keyfile"):
-              installer.succeed("umask 077; head -c 64 /dev/urandom > /tmp/dots-luks-pass")
-
-          with subtest("disko partition + format + mount on /dev/vda"):
-              # Run the PRE-BUILT disko destroy-format-mount script directly
-              # (testDiskoScript = testTokyonight.config.system.build.
-              # destroyFormatMount) instead of the `disko` CLI. The CLI does an
-              # in-VM `nix build` of the script drv, whose hash differs from the
-              # host-built one (import <nixpkgs> {} != nixosSystem's pkgs), so
-              # it rebuilds — and rebuilding pulls the offline-unfetchable stdenv
-              # bootstrap chain. The pre-built script is self-contained: it
-              # exports PATH = makeBinPath of _packages + bash + destroyDeps
-              # (all absolute store paths), so its whole tool closure (staged
-              # via extraDependencies + mountHostNixStore) is all it needs. Same
-              # disko.nix + test args as the real installer's `disko --mode
-              # destroy,format,mount` — only the dep-bundling differs.
-              installer.succeed(
-                  "${testDiskoScript}/bin/disko-destroy-format-mount"
-                  " --yes-wipe-all-disks >&2"
-              )
-
-          with subtest("Stage a writable flake copy + write test settings.nix"):
-              installer.succeed(
-                  "rm -rf /tmp/dots-flake"
-                  " && mkdir -p /tmp/dots-flake"
-                  " && cp -rTL /etc/dots /tmp/dots-flake"
-                  " && chmod -R u+w /tmp/dots-flake"
-              )
-              # base64 round-trips the file in with zero quoting ambiguity — no
-              # shell heredoc indentation pitfalls, no $ expansion.
-              settings_nix = """{
-                username = "test";
-                hostname = "test";
-                disks = ["/dev/vda"];
-                swapSize = "1G";
-                gitName = "Test User";
-                gitEmail = "test@example.com";
-              }
-              """
-              s_b64 = base64.b64encode(settings_nix.encode()).decode()
-              installer.succeed(f"printf '%s' {s_b64} | base64 -d > /tmp/dots-flake/nix/settings.nix")
-              installer.succeed("cat /tmp/dots-flake/nix/settings.nix >&2")
-
-          with subtest("nixos-install completes — Limine sidesteps the machine-id abort"):
-              # Replicate the impermanence condition that broke systemd-boot: an
-              # empty /etc/machine-id on the installer. systemd-boot's installer
-              # reads it and aborts; Limine's does not. The test VM has a real
-              # machine-id, so truncate it to mirror the LiveISO's tmpfs root —
-              # if Limine's installer secretly depended on it, this would catch it.
-              installer.succeed(": > /etc/machine-id")
-              # The load-bearing step: Limine (not systemd-boot) is the installed
-              # bootloader precisely so nixos-install does not abort on the empty
-              # /etc/machine-id that impermanence produces.
-              installer.succeed(
-                  "nixos-install --root /mnt --no-root-passwd"
-                  " --flake /tmp/dots-flake#tokyonight < /dev/null >&2"
-              )
-
-          with subtest("Enroll TPM2 token (no PCR policy) + LUKS recovery key"):
-              # No --tpm2-pcrs: the token is PCR-unbound so it unseals on the
-              # target via the shared swtpm regardless of PCR 7 (which differs
-              # between the direct-boot installer and the OVMF-booted target).
-              installer.succeed(
-                  "systemd-cryptenroll --unlock-key-file=/tmp/dots-luks-pass"
-                  " --tpm2-device=auto /dev/tokyonightvg/root >&2"
-              )
-              installer.succeed(
-                  "systemd-cryptenroll --unlock-key-file=/tmp/dots-luks-pass"
-                  " --recovery-key /dev/tokyonightvg/root >&2"
-              )
-
-          with subtest("Shred the keyfile and shut down the installer"):
-              installer.succeed("shred -u /tmp/dots-luks-pass")
-              installer.succeed("umount -R /mnt || true")
-              installer.succeed("sync")
-              installer.shutdown()
-
-          # Share state_dir (installer.nix:255) — shares BOTH the qcow2 disk
-          # file AND the swtpm state (forced to the same dir via the shared
-          # system.name in commonConfig), so the target's TPM2 is the chip the
-          # installer enrolled against.
-          target.state_dir = installer.state_dir
-          target.start()
-
-          with subtest("Installed system boots via Limine + TPM2 auto-unlock"):
-              target.wait_for_unit("multi-user.target")
-              # multi-user.target is only reachable if the LUKS root auto-unlocked
-              # via the TPM2 token (no recovery-key prompt in a non-interactive
-              # boot). Confirm the mapper is the root backing device.
-              assert "/dev/mapper/cryptroot" in target.succeed("mount"), \
-                  "cryptroot not mounted — TPM2 unseal did not fire"
-        '';
-    };
-
-  isoBootTest =
-    pkgs.testers.runNixOSTest {
-      name = "iso-boot";
-      # Headroom for TCG on KVM-less CI runners; under KVM this needs minutes.
-      globalTimeout = 2 * 60 * 60;
-
-      nodes.machine = {
-        virtualisation = {
-          # Boot the attached ISO through real UEFI firmware instead of the
-          # test driver's default direct -kernel boot.
-          directBoot.enable = false;
-          useEFIBoot = true;
-          # swtpm-backed TPM 2.0 — the installed system unlocks the LUKS root
-          # via a TPM2 token (PCR 7), so emulate the chip the boot chain needs.
-          tpm.enable = true;
-          memorySize = 4096;
-          # The launcher's root qcow2 is a bare non-bootable ext4 image — it
-          # doubles as the blank 20G install-target disk.
-          diskSize = 20 * 1024;
-          qemu.options = [
-            "-drive if=none,id=installcd,media=cdrom,readonly=on,format=raw,file=${iso}/iso/${iso.isoName}"
-            # The root disk carries bootindex=1; the cdrom must outrank it.
-            "-device ide-cd,drive=installcd,bootindex=0"
-          ];
-        };
+          };
       };
 
-      # Console-only assertions: the ISO carries no test instrumentation, so
-      # backdoor-based helpers (wait_for_unit, succeed, shutdown) are off
-      # limits. nix/iso.nix emits DOTS_TUI_READY on the serial console once the
-      # installer TUI starts on tty1.
-      testScript = ''
-        machine.start()
-        machine.wait_for_console_text("DOTS_TUI_READY", timeout=6600)
-      '';
+    testScript = ''
+      import base64
+
+      installer.start()
+      installer.wait_for_unit("multi-user.target")
+      installer.succeed("udevadm settle")
+
+      with subtest("Generate the one-shot LUKS keyfile"):
+          installer.succeed("umask 077; head -c 64 /dev/urandom > /tmp/dots-luks-pass")
+
+      with subtest("disko partition + format + mount on /dev/vda"):
+          # Run the PRE-BUILT disko destroy-format-mount script directly
+          # (testDiskoScript = testTokyonight.config.system.build.
+          # destroyFormatMount) instead of the `disko` CLI. The CLI does an
+          # in-VM `nix build` of the script drv, whose hash differs from the
+          # host-built one (import <nixpkgs> {} != nixosSystem's pkgs), so
+          # it rebuilds — and rebuilding pulls the offline-unfetchable stdenv
+          # bootstrap chain. The pre-built script is self-contained: it
+          # exports PATH = makeBinPath of _packages + bash + destroyDeps
+          # (all absolute store paths), so its whole tool closure (staged
+          # via extraDependencies + mountHostNixStore) is all it needs. Same
+          # disko.nix + test args as the real installer's `disko --mode
+          # destroy,format,mount` — only the dep-bundling differs.
+          installer.succeed(
+              "${testDiskoScript}/bin/disko-destroy-format-mount"
+              " --yes-wipe-all-disks >&2"
+          )
+
+      with subtest("Stage a writable flake copy + write test settings.nix"):
+          installer.succeed(
+              "rm -rf /tmp/dots-flake"
+              " && mkdir -p /tmp/dots-flake"
+              " && cp -rTL /etc/dots /tmp/dots-flake"
+              " && chmod -R u+w /tmp/dots-flake"
+          )
+          # base64 round-trips the file in with zero quoting ambiguity — no
+          # shell heredoc indentation pitfalls, no $ expansion.
+          settings_nix = """{
+            username = "test";
+            hostname = "test";
+            disks = ["/dev/vda"];
+            swapSize = "1G";
+            gitName = "Test User";
+            gitEmail = "test@example.com";
+          }
+          """
+          s_b64 = base64.b64encode(settings_nix.encode()).decode()
+          installer.succeed(f"printf '%s' {s_b64} | base64 -d > /tmp/dots-flake/nix/settings.nix")
+          installer.succeed("cat /tmp/dots-flake/nix/settings.nix >&2")
+
+      with subtest("nixos-install completes — Limine sidesteps the machine-id abort"):
+          # Replicate the impermanence condition that broke systemd-boot: an
+          # empty /etc/machine-id on the installer. systemd-boot's installer
+          # reads it and aborts; Limine's does not. The test VM has a real
+          # machine-id, so truncate it to mirror the LiveISO's tmpfs root —
+          # if Limine's installer secretly depended on it, this would catch it.
+          installer.succeed(": > /etc/machine-id")
+          # The load-bearing step: Limine (not systemd-boot) is the installed
+          # bootloader precisely so nixos-install does not abort on the empty
+          # /etc/machine-id that impermanence produces.
+          installer.succeed(
+              "nixos-install --root /mnt --no-root-passwd"
+              " --flake /tmp/dots-flake#tokyonight < /dev/null >&2"
+          )
+
+      with subtest("Enroll TPM2 token (no PCR policy) + LUKS recovery key"):
+          # No --tpm2-pcrs: the token is PCR-unbound so it unseals on the
+          # target via the shared swtpm regardless of PCR 7 (which differs
+          # between the direct-boot installer and the OVMF-booted target).
+          installer.succeed(
+              "systemd-cryptenroll --unlock-key-file=/tmp/dots-luks-pass"
+              " --tpm2-device=auto /dev/tokyonightvg/root >&2"
+          )
+          installer.succeed(
+              "systemd-cryptenroll --unlock-key-file=/tmp/dots-luks-pass"
+              " --recovery-key /dev/tokyonightvg/root >&2"
+          )
+
+      with subtest("Shred the keyfile and shut down the installer"):
+          installer.succeed("shred -u /tmp/dots-luks-pass")
+          installer.succeed("umount -R /mnt || true")
+          installer.succeed("sync")
+          installer.shutdown()
+
+      # Share state_dir (installer.nix:255) — shares BOTH the qcow2 disk
+      # file AND the swtpm state (forced to the same dir via the shared
+      # system.name in commonConfig), so the target's TPM2 is the chip the
+      # installer enrolled against.
+      target.state_dir = installer.state_dir
+      target.start()
+
+      with subtest("Installed system boots via Limine + TPM2 auto-unlock"):
+          target.wait_for_unit("multi-user.target")
+          # multi-user.target is only reachable if the LUKS root auto-unlocked
+          # via the TPM2 token (no recovery-key prompt in a non-interactive
+          # boot). Confirm the mapper is the root backing device.
+          assert "/dev/mapper/cryptroot" in target.succeed("mount"), \
+              "cryptroot not mounted — TPM2 unseal did not fire"
+    '';
+  };
+
+  isoBootTest = pkgs.testers.runNixOSTest {
+    name = "iso-boot";
+    # Headroom for TCG on KVM-less CI runners; under KVM this needs minutes.
+    globalTimeout = 2 * 60 * 60;
+
+    nodes.machine = {
+      virtualisation = {
+        # Boot the attached ISO through real UEFI firmware instead of the
+        # test driver's default direct -kernel boot.
+        directBoot.enable = false;
+        useEFIBoot = true;
+        # swtpm-backed TPM 2.0 — the installed system unlocks the LUKS root
+        # via a TPM2 token (PCR 7), so emulate the chip the boot chain needs.
+        tpm.enable = true;
+        memorySize = 4096;
+        # The launcher's root qcow2 is a bare non-bootable ext4 image — it
+        # doubles as the blank 20G install-target disk.
+        diskSize = 20 * 1024;
+        qemu.options = [
+          "-drive if=none,id=installcd,media=cdrom,readonly=on,format=raw,file=${iso}/iso/${iso.isoName}"
+          # The root disk carries bootindex=1; the cdrom must outrank it.
+          "-device ide-cd,drive=installcd,bootindex=0"
+        ];
+      };
     };
+
+    # Console-only assertions: the ISO carries no test instrumentation, so
+    # backdoor-based helpers (wait_for_unit, succeed, shutdown) are off
+    # limits. nix/iso.nix emits DOTS_TUI_READY on the serial console once the
+    # installer TUI starts on tty1.
+    testScript = ''
+      machine.start()
+      machine.wait_for_console_text("DOTS_TUI_READY", timeout=6600)
+    '';
+  };
 
   # The load-bearing "can I log in after reboot?" guarantee for the
   # nixos-init migration: userborn creates the account at FIRST boot (not at

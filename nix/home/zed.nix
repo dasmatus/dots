@@ -90,8 +90,7 @@
     # definition's top value, so nesting it inside this freeform JSON attrset
     # would serialize as {_type,condition,content} garbage. optionalAttrs is a
     # plain function, so the key is cleanly absent when dots.ai.ollama is off.
-    userSettings =
-      {
+    userSettings = {
       # --- Neovim parity: theme, icons, font, vim mode ---
       # Tokyo Night plain variant == Neovim tokyonight style "night". Object
       # form so it tracks the dark/light system preference (the host is dark).
@@ -337,17 +336,17 @@
         };
       };
 
-      }
-      // lib.optionalAttrs dots.ai.ollama {
-        # Native Agent panel (replaces VSCodium's Continue extension).
-        # Anthropic Claude is built-in — the API key is read from
-        # ANTHROPIC_API_KEY or set via the UI (stored in the system keychain,
-        # never in settings.json), so no static config is needed for it.
-        # Ollama (local) only needs an api_url and is gated on the same
-        # dots.ai.ollama toggle the rest of the repo uses (e.g. Newelle in
-        # pkgs.nix) — with ollama off there's no backend, so the whole
-        # language_models key is absent rather than left empty.
-        language_models.ollama.api_url = "http://localhost:11434";
-      };
+    }
+    // lib.optionalAttrs dots.ai.ollama {
+      # Native Agent panel (replaces VSCodium's Continue extension).
+      # Anthropic Claude is built-in — the API key is read from
+      # ANTHROPIC_API_KEY or set via the UI (stored in the system keychain,
+      # never in settings.json), so no static config is needed for it.
+      # Ollama (local) only needs an api_url and is gated on the same
+      # dots.ai.ollama toggle the rest of the repo uses (e.g. Newelle in
+      # pkgs.nix) — with ollama off there's no backend, so the whole
+      # language_models key is absent rather than left empty.
+      language_models.ollama.api_url = "http://localhost:11434";
+    };
   };
 }

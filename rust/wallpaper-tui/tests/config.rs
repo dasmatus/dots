@@ -53,8 +53,6 @@ fn effective_output_merge() {
         wallpaper_folder: "/w".to_string(),
         recursive: true,
         current_output: "eDP-1".to_string(),
-        transition_type: "grow".to_string(),
-        transition_duration: 1.0,
         outputs,
         tint_backend: "pywal".to_string(),
     };
