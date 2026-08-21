@@ -67,10 +67,12 @@ in
           (lua ''
                                     function()
                                       -- eww daemon must be up before keybinds.sh opens the cheatsheet
-                                      -- window (and before any SUPER+D launcher toggle). keybinds.sh
-                                      -- sleeps 2s on first login to let it initialize its IPC socket.
+                                      -- window. keybinds.sh sleeps 2s on first login to let it
+                                      -- initialize its IPC socket.
+                                      -- No wallpaper daemon exec here: wallpaper-tui --restore starts
+                                      -- hyprtile-wallpaperd itself (shared ~/.hyprtile/wallpaperd.pid;
+                                      -- the hyprtile launcher would also start it on first open).
                                       hl.exec_cmd("eww daemon")
-                                      hl.exec_cmd("awww-daemon")
                                       hl.exec_cmd("waybar")
             			      hl.exec_cmd("hyprmon apply")
                                       hl.exec_cmd("nm-applet --indicator")
@@ -340,16 +342,20 @@ in
             (lua ''hl.dsp.exec_cmd("kitty")'')
           ];
         }
+        # HyprTile (nix/home/hyprtile.nix) is the app launcher — a fullscreen
+        # Tokyonight tile grid; page 2 holds the session/power tiles.
         {
           _args = [
             (lua ''mod .. " + D"'')
-            (lua ''hl.dsp.exec_cmd("rofi -show drun -show-icons -theme \"$(f=~/.local/state/wallpaper-tui/tint/rofi.rasi; [ -f \"$f\" ] && echo \"$f\" || echo tokyonight)\"")'')
+            (lua ''hl.dsp.exec_cmd("hyprtile")'')
           ];
         }
+        # Nautilus directly (GNOME Files, services.gnome.core-apps) — the
+        # rofi-files.sh dmenu browser retired with the HyprTile conversion.
         {
           _args = [
             (lua ''mod .. " + SHIFT + F"'')
-            (lua ''hl.dsp.exec_cmd("~/.config/rofi/rofi-files.sh")'')
+            (lua ''hl.dsp.exec_cmd("nautilus")'')
           ];
         }
         {
@@ -688,16 +694,13 @@ in
           ];
         }
         {
-          # rofi-power-menu grid (logout/suspend/hibernate/reboot/shutdown).
-          # --no-symbols keeps the icon in the \0icon hint only, so the
-          # shared tokyonight grid renders one glyph over the label just
-          # like the drun launcher. lockscreen is excluded — see rofi/default.nix.
-          # Supersedes the old Mod+Shift+E → hl.dsp.exit(): "log out" in the
-          # grid runs `loginctl terminate-session`, which ends the session
-          # the way a raw Hyprland quit used to.
+          # Power menu → HyprTile's session page (page 2 of the tile grid:
+          # lock/logout/suspend/hibernate/reboot/shutdown). Replaces the
+          # rofi-power-menu grid; same binary as SUPER+D, the session tiles
+          # are one page-flip away.
           _args = [
             (lua ''mod .. " + SHIFT + E"'')
-            (lua ''hl.dsp.exec_cmd("rofi -show powermenu -modi 'powermenu:rofi-power-menu --choices=logout/suspend/hibernate/reboot/shutdown --no-symbols' -theme \"$(f=~/.local/state/wallpaper-tui/tint/rofi.rasi; [ -f \"$f\" ] && echo \"$f\" || echo tokyonight)\" -show-icons")'')
+            (lua ''hl.dsp.exec_cmd("hyprtile")'')
           ];
         }
         {
@@ -707,17 +710,21 @@ in
           ];
         }
 
-        # Print (no modifier) grabs the whole desktop with grim. grim writes a
-        # timestamped file but never prints the path, so we name the file
-        # ourselves under $XDG_PICTURES_DIR/Screenshots (mirroring grim's own
-        # dir resolution) and pass it explicitly — that makes $screen_pwd the
-        # actual path grim saved to, which notify-send surfaces. mkdir -p keeps
-        # it robust the first time; `&&` skips the notify if the capture failed.
-        # `''${` is the Nix `''...''`-string escape for a literal shell `${`.
+        # Print (no modifier) grabs the whole desktop with hyprtile-shotter
+        # (the HyprTile suite's wlr-screencopy tool), which names the file
+        # Screenshot_<stamp>.png in the xdg-user-dir PICTURES folder itself;
+        # notify-send surfaces the folder. SUPER+Print is the region variant
+        # (--select). `&&` skips the notify if the capture failed.
         {
           _args = [
             "Print"
-            (lua ''hl.dsp.exec_cmd("d=\"''${XDG_PICTURES_DIR:-$HOME/Pictures}/Screenshots\"; mkdir -p \"$d\"; screen_pwd=\"$d/$(date +%Y-%m-%d_%H-%M-%S).png\"; grim \"$screen_pwd\" && notify-send \"Screenshot saved as $screen_pwd\"")'')
+            (lua ''hl.dsp.exec_cmd("hyprtile-shotter && notify-send \"Screenshot saved in $(xdg-user-dir PICTURES 2>/dev/null || echo ~/Pictures)\"")'')
+          ];
+        }
+        {
+          _args = [
+            (lua ''mod .. " + Print"'')
+            (lua ''hl.dsp.exec_cmd("hyprtile-shotter --select && notify-send \"Screenshot saved in $(xdg-user-dir PICTURES 2>/dev/null || echo ~/Pictures)\"")'')
           ];
         }
 
@@ -817,17 +824,20 @@ in
     };
   };
 
-  # Runtime tools for the Print-key screenshot: grim (Wayland capture) and
-  # libnotify (notify-send, which surfaces the saved path — dunst in
-  # nix/home/dunst.nix is the daemon that displays it).
+  # Runtime tools for the Print-key screenshot: hyprtile-shotter does the
+  # Wayland capture (on PATH via nix/home/hyprtile.nix — grim retired with
+  # the HyprTile conversion); libnotify's notify-send surfaces the saved
+  # folder — dunst in nix/home/dunst.nix is the daemon that displays it;
+  # xdg-user-dirs provides xdg-user-dir, which both the bind and the shotter
+  # use to resolve the PICTURES folder.
   #
   # xdg-desktop-portal-gtk is also listed here (not just in the system
   # xdg.portal.extraPortals) because NixOS sets NIX_XDG_DESKTOP_PORTAL_DIR to
   # the per-user profile portal dir, so xdg-desktop-portal only sees portal
   # backends that are in the user's environment.
   home.packages = [
-    pkgs.grim
     pkgs.libnotify
+    pkgs.xdg-user-dirs
     pkgs.xdg-desktop-portal-gtk
   ];
 

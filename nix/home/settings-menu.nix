@@ -1,8 +1,11 @@
-# rofi settings menu (rust/settings-global, built at the flake level as
+# Settings menu (rust/settings-global, built at the flake level as
 # packages.${system}.settings and handed in via extraSpecialArgs like
 # wallpaperTui/hyprmon): edits the installer answers in
 # /var/lib/dots/settings.nix. Launched by name (`global-settings`) from the
-# SUPER+comma bind in hyprland.nix; cheatsheet entry in keybinds.nix.
+# SUPER+comma bind in hyprland.nix and the HyprTile Settings tile
+# (nix/home/hyprtile.nix); cheatsheet entry in keybinds.nix. Renders via
+# rofi -dmenu — the last rofi consumer since the HyprTile conversion
+# (see nix/home/rofi/default.nix).
 #
 # The menu runs as the user; only the root-owned file write re-execs the
 # binary under pkexec. pkexec needs a polkit *authentication agent* in the

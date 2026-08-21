@@ -19,11 +19,11 @@ let
       }
       {
         key = "SUPER + D";
-        desc = "App launcher";
+        desc = "App launcher (HyprTile)";
       }
       {
         key = "SUPER + Shift + F";
-        desc = "File manager";
+        desc = "File manager (Nautilus)";
       }
       {
         key = "SUPER + O";
@@ -39,7 +39,7 @@ let
       }
       {
         key = "SUPER + ,";
-        desc = "Settings menu (rofi)";
+        desc = "Settings menu";
       }
     ];
     window = [
@@ -121,7 +121,7 @@ let
       }
       {
         key = "SUPER + Shift + E";
-        desc = "Power menu";
+        desc = "Power tiles (HyprTile page 2)";
       }
       {
         key = "SUPER + Shift + C";
@@ -130,6 +130,10 @@ let
       {
         key = "Print";
         desc = "Screenshot (whole screen)";
+      }
+      {
+        key = "SUPER + Print";
+        desc = "Screenshot (select region)";
       }
       {
         key = "SUPER + L/R-drag";

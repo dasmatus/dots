@@ -1,7 +1,7 @@
-# eww widget configuration. Keeps the rofi drun app launcher (see
-# nix/home/hyprland.nix) and replaces only the rofi first-login keybind
-# cheatsheet with a native eww window. Rofi is also kept for the file manager
-# (rofi-files.sh) and the power menu.
+# eww widget configuration — only the first-login keybind cheatsheet window
+# (nix/home/keybinds.nix data, SUPER+/ to re-open). The app launcher, power
+# menu and file browser are HyprTile / Nautilus since the HyprTile
+# conversion (nix/home/hyprtile.nix).
 { pkgs, ... }:
 {
   home.packages = [

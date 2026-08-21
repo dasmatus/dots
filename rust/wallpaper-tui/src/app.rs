@@ -11,9 +11,9 @@ use abstracttui::base::Rgba;
 use abstracttui::gfx::Bitmap;
 
 use crate::accent::TintBackend;
-use crate::awww::Group;
 use crate::config::{effective_output, Config, State, COLOR_PALETTE, DEFAULT_COLOR, MODES};
 use crate::input::{KeyCode, KeyEvent};
+use crate::wallpaperd::Group;
 
 /// A request the event loop drains off the TUI thread.
 #[derive(Debug, Clone)]
@@ -21,16 +21,14 @@ pub enum PendingOp {
     /// Apply one group + run the accent tint.
     Apply {
         group: Group,
-        transition_type: String,
-        transition_duration: f64,
         no_tint: bool,
         backend: TintBackend,
     },
-    /// Re-apply every declared output + tint the first one.
+    /// Re-apply every declared output + tint the first one. Only the first
+    /// group is actually rendered — `hyprtile-wallpaperd` has no per-output
+    /// targeting (see `wallpaperd`'s module docs).
     Restore {
         groups: Vec<Group>,
-        transition_type: String,
-        transition_duration: f64,
         no_tint: bool,
         backend: TintBackend,
     },
@@ -268,23 +266,19 @@ impl App {
         };
         self.pending = Some(PendingOp::Apply {
             group,
-            transition_type: self.config.transition_type.clone(),
-            transition_duration: self.config.transition_duration,
             no_tint: self.no_tint,
             backend: self.backend,
         });
     }
 
     fn restore(&mut self) {
-        let groups = crate::awww::restore_groups(&self.config, &self.state);
+        let groups = crate::wallpaperd::restore_groups(&self.config, &self.state);
         if groups.is_empty() {
             self.status = Some("nothing to restore".to_string());
             return;
         }
         self.pending = Some(PendingOp::Restore {
             groups,
-            transition_type: self.config.transition_type.clone(),
-            transition_duration: self.config.transition_duration,
             no_tint: self.no_tint,
             backend: self.backend,
         });

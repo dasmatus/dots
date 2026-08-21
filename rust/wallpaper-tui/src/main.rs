@@ -23,13 +23,15 @@ use clap::Parser;
 
 use wallpaper_tui::accent::TintBackend;
 use wallpaper_tui::app::{App, Event, PendingOp};
-use wallpaper_tui::awww::{apply_wallpaper, LiveAwww};
 use wallpaper_tui::cli::{self, Args};
 use wallpaper_tui::config::{Config, State};
 use wallpaper_tui::fx::Fx;
 use wallpaper_tui::preview;
 use wallpaper_tui::tint;
 use wallpaper_tui::ui;
+use wallpaper_tui::wallpaperd::{
+    apply_wallpaper, hyprtile_config_path, pidfile_path, sync_hyprtile_config, LiveWallpaperd,
+};
 
 fn resolve_backend(args_backend: Option<String>, config_backend: &str) -> TintBackend {
     if let Some(b) = args_backend {
@@ -58,7 +60,6 @@ fn main() -> anyhow::Result<()> {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("--output is required when a path is given"))?;
         return cli::apply_noninteractive(
-            &config,
             &mut { state },
             &output,
             &path,
@@ -160,15 +161,15 @@ fn run_tui(
             match op {
                 PendingOp::Apply {
                     group,
-                    transition_type,
-                    transition_duration,
                     no_tint,
                     backend,
                 } => {
                     let tx = apply_tx.clone();
                     std::thread::spawn(move || {
                         let groups = vec![group.clone()];
-                        apply_wallpaper(&LiveAwww, &groups, &transition_type, transition_duration);
+                        if apply_wallpaper(&LiveWallpaperd, &groups, &pidfile_path()) {
+                            sync_hyprtile_config(&hyprtile_config_path(), &group.path, &group.mode);
+                        }
                         let status = tint::apply_tint(&group.path, no_tint, backend);
                         let msg = match status {
                             Some(s) => format!("applied {} (tint {})", group.path, s.qt),
@@ -179,14 +180,16 @@ fn run_tui(
                 }
                 PendingOp::Restore {
                     groups,
-                    transition_type,
-                    transition_duration,
                     no_tint,
                     backend,
                 } => {
                     let tx = apply_tx.clone();
                     std::thread::spawn(move || {
-                        apply_wallpaper(&LiveAwww, &groups, &transition_type, transition_duration);
+                        if apply_wallpaper(&LiveWallpaperd, &groups, &pidfile_path()) {
+                            if let Some(g) = groups.first() {
+                                sync_hyprtile_config(&hyprtile_config_path(), &g.path, &g.mode);
+                            }
+                        }
                         let tint_path = groups.first().map_or("", |g| g.path.as_str());
                         let status = if tint_path.is_empty() {
                             None

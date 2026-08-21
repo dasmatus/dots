@@ -31,6 +31,7 @@
     ./brave.nix
     ./junction.nix
     ./hyprland.nix
+    ./hyprtile.nix
     ./hyprmon.nix
     ./waybar.nix
     ./wallpaper-tui.nix
@@ -90,11 +91,11 @@
   };
 
   home.packages = with pkgs; [
-    # Wayland wallpaper daemon (renamed swww) exec'd by wallpaper-tui via
-    # `awww img` for animated transitions; random_wp.nix routes through
-    # wallpaper-tui so it inherits awww too. awww-daemon is started at
-    # hyprland.start (hyprland.nix).
-    awww
+    # The wallpaper daemon is hyprtile-wallpaperd (nix/home/hyprtile.nix
+    # puts the hyprtile suite on PATH); wallpaper-tui restarts it per apply
+    # via ~/.hyprtile/wallpaperd.pid, and random_wp.nix routes through
+    # wallpaper-tui so it inherits the same daemon. The old awww daemon
+    # (renamed swww) is gone with the HyprTile conversion.
     brightnessctl
     # Haskell toolchain — shared by Neovim (nixvim lsp.servers.hls) and Zed
     # (the `haskell` extension finds these on PATH) plus the shell. Installed

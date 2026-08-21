@@ -61,8 +61,12 @@ Two things worth knowing before the first switch:
   lazy.nvim config: LSP via nixpkgs packages (no Mason), Treesitter,
   rainbow-delimiters, bufferline, Tokyonight theme.
 - **Wayland-only Hyprland session** — `nix/home/hyprland.nix` +
-  `waybar.nix` + `dunst.nix` + `rofi/` provide the compositor, bar,
-  notifications and launcher; `services.hypridle` / `programs.hyprlock` /
+  `waybar.nix` + `dunst.nix` + `hyprtile.nix` provide the compositor, bar,
+  notifications and the [HyprTile](https://hyprtile.org/) fullscreen tile
+  launcher (SUPER+D; its page 2 is the power menu, `hyprtile-shotter` takes
+  the Print-key screenshots and `hyprtile-wallpaperd` draws the wallpaper —
+  the suite is built from source as the flake package `hyprtile`);
+  `services.hypridle` / `programs.hyprlock` /
   `services.gammastep` replace the old swayidle/swaylock/redshift
   exec-once lines. No X11 session remains.
 - **LibreWolf** (`nix/home/librewolf.nix`) — runs as a flatpak with an
@@ -74,7 +78,8 @@ Two things worth knowing before the first switch:
   into `~/Dokumente` on login, idempotently.
 - **Wallhaven wallpaper service** (`nix/home/random_wp.nix`) — a user
   timer that pulls a random wallpaper from the Wallhaven API on login and
-  hourly, applied via `swaybg` under Hyprland or `gsettings` under GNOME.
+  hourly, applied via `wallpaper-tui`/`hyprtile-wallpaperd` under Hyprland
+  or `gsettings` under GNOME.
 
 ## Testing
 

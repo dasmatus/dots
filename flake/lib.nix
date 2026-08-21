@@ -43,14 +43,17 @@ let
           # stub; the installer regenerates the report on real hardware, so
           # the delta (drivers, microcode) still comes from the binary cache.
           #
-          # The aipage dists are embedded on BOTH ISOs (not gated on
-          # embedSystem): they're small static store paths, and embedding
-          # them lets the installer substitute AIPage from the ISO store
-          # instead of rebuilding Rust/WASM/JS at install time (and keeps
-          # lean-ISO installs offline-capable for the extension itself).
+          # The aipage dists and the hyprtile suite are embedded on BOTH
+          # ISOs (not gated on embedSystem): they're small static store
+          # paths, and embedding them lets the installer substitute them
+          # from the ISO store instead of rebuilding Rust/WASM/JS/C at
+          # install time (and keeps lean-ISO installs offline-capable for
+          # them — hyprtile is in no binary cache and its fetchurl source
+          # would otherwise depend on hyprtile.org uptime mid-install).
           isoImage.storeContents = [
             inputs.self.packages.${system}.aipage-firefox
             inputs.self.packages.${system}.aipage-chrome
+            inputs.self.packages.${system}.hyprtile
           ]
           ++ nixpkgs.lib.optionals embedSystem [
             inputs.self.nixosConfigurations.tokyonight.config.system.build.toplevel

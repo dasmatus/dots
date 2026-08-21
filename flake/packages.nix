@@ -1,11 +1,87 @@
-# packages.${system} — the dots-installer Rust TUI, the in-flake aipage dists
-# and the two LiveISO images.
+# packages.${system} — the dots-installer Rust TUI, the in-flake aipage dists,
+# the hyprtile suite and the two LiveISO images.
 {
   pkgs,
   aipagePackages,
   ...
 }:
 self: {
+  # HyprTile (https://hyprtile.org) — the fullscreen tile launcher + tool
+  # suite for Hyprland that the desktop stack is converted to (launcher,
+  # settings/config center, screenshots, wallpaper daemon). Upstream ships a
+  # source zip and a sudo-to-/usr/local install.sh; here only the pieces the
+  # dots stack uses are built — launcher, wallpaperd, shotter, screener and
+  # the small helper tools — skipping the heavy TTS/STT/XMPP/videoplayer/
+  # remoteviewer subprojects. nix/home/hyprtile.nix wraps the store path.
+  hyprtile = pkgs.stdenv.mkDerivation (finalAttrs: {
+    pname = "hyprtile";
+    version = "0.16";
+    src = pkgs.fetchurl {
+      url = "https://hyprtile.org/file/695476a2a14981a8720b";
+      name = "hyprtile-v${finalAttrs.version}.zip";
+      hash = "sha256-YrGB1sVBMp+j9OTIhOD9zSEg0A7g6ahiiPMeo2Vuox4=";
+    };
+    sourceRoot = "hyprtile";
+    nativeBuildInputs = with pkgs; [
+      unzip
+      pkg-config
+      wayland-scanner
+    ];
+    buildInputs = with pkgs; [
+      sdl3
+      sdl3-ttf
+      librsvg
+      libepoxy
+      glib
+      fontconfig
+      libpulseaudio
+      fftw
+      ffmpeg
+      libsodium
+      wayland
+      libglvnd
+      libpng
+    ];
+    # Upstream printf()s translated strings (tr("key")) as format strings,
+    # which nix cc-wrapper's -Werror=format-security rejects.
+    hardeningDisable = [ "format" ];
+    # The icon lookup falls back to the install.sh location; point it at the
+    # store instead. User icons under ~/.hyprtile/icons still take priority.
+    postPatch = ''
+      substituteInPlace ui_icons.c \
+        --replace-fail "/usr/local/share/hyprtile/icons" "$out/share/hyprtile/icons"
+    '';
+    enableParallelBuilding = true;
+    buildPhase = ''
+      runHook preBuild
+      protoFlags="WLR_PROTO_DIR=${pkgs.wlr-protocols}/share/wlr-protocols/unstable \
+        WAYLAND_PROTO_DIR=${pkgs.wayland-protocols}/share/wayland-protocols/stable/xdg-shell"
+      make -C hyprtile-screener-build $protoFlags
+      make -C hyprtile-shotter $protoFlags
+      make hyprtile hyprtile-wallpaperd hyprtile-setaudiovol hyprtile-setbrightness \
+        hyprtile-batterystat hyprtile-bt hyprtile-notes/hyprtile-notes \
+        hyprtile-pwsafe/hyprtile-pwsafe hyprtile-ai
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      install -Dm755 -t $out/bin \
+        hyprtile hyprtile-wallpaperd hyprtile-setaudiovol hyprtile-setbrightness \
+        hyprtile-batterystat hyprtile-bt hyprtile-shotter/hyprtile-shotter \
+        hyprtile-screener-build/hyprtile-screener hyprtile-notes/hyprtile-notes \
+        hyprtile-pwsafe/hyprtile-pwsafe hyprtile-ai
+      mkdir -p $out/share/hyprtile
+      cp -r icons languages config.json example-configs $out/share/hyprtile/
+      runHook postInstall
+    '';
+    meta = {
+      description = "Fullscreen tile-based launcher and command center for Hyprland";
+      homepage = "https://hyprtile.org/";
+      license = pkgs.lib.licenses.gpl3Plus;
+      mainProgram = "hyprtile";
+      platforms = pkgs.lib.platforms.linux;
+    };
+  });
   dots-installer = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-installer";
     version = "0.1.0";

@@ -8,13 +8,19 @@ use clap::builder::PossibleValuesParser;
 use clap::Parser;
 
 use crate::accent::TintBackend;
-use crate::awww::{apply_wallpaper, restore_groups, Group, LiveAwww};
 use crate::config::{preview_cache_dir, Config, State, DEFAULT_COLOR, MODES};
 use crate::preview::{cache_previews, parse_preview_size};
 use crate::tint::apply_tint;
+use crate::wallpaperd::{
+    apply_wallpaper, hyprtile_config_path, pidfile_path, restore_groups, sync_hyprtile_config,
+    Group, LiveWallpaperd,
+};
 
 #[derive(Parser, Debug)]
-#[command(name = "wallpaper-tui", about = "awww-based TUI wallpaper changer")]
+#[command(
+    name = "wallpaper-tui",
+    about = "hyprtile-wallpaperd-based TUI wallpaper changer"
+)]
 pub struct Args {
     /// Re-apply effective wallpapers and exit.
     #[arg(long)]
@@ -22,7 +28,7 @@ pub struct Args {
     /// Output name (non-interactive apply).
     #[arg(long)]
     pub output: Option<String>,
-    /// awww --resize mode (was swaybg scaling mode).
+    /// hyprtile-wallpaperd --mode (was swaybg scaling mode).
     #[arg(long, value_parser = PossibleValuesParser::new(MODES.iter().copied()), default_value = "fill")]
     pub mode: String,
     /// Fill color (hex) for letterbox modes.
@@ -53,12 +59,9 @@ pub fn restore_all(config: &Config, state: &State, no_tint: bool, backend: TintB
         eprintln!("wallpaper-tui: nothing to restore.");
         return 1;
     }
-    apply_wallpaper(
-        &LiveAwww,
-        &groups,
-        &config.transition_type,
-        config.transition_duration,
-    );
+    if apply_wallpaper(&LiveWallpaperd, &groups, &pidfile_path()) {
+        sync_hyprtile_config(&hyprtile_config_path(), &groups[0].path, &groups[0].mode);
+    }
     let _ = apply_tint(&groups[0].path, no_tint, backend);
     eprintln!("wallpaper-tui: restored {} output(s).", groups.len());
     0
@@ -67,7 +70,6 @@ pub fn restore_all(config: &Config, state: &State, no_tint: bool, backend: TintB
 /// Non-interactive apply of one path to one output, with tint.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_noninteractive(
-    config: &Config,
     state: &mut State,
     output: &str,
     path: &str,
@@ -92,12 +94,9 @@ pub fn apply_noninteractive(
         mode: mode.to_string(),
         fill_color: color.to_string(),
     }];
-    apply_wallpaper(
-        &LiveAwww,
-        &groups,
-        &config.transition_type,
-        config.transition_duration,
-    );
+    if apply_wallpaper(&LiveWallpaperd, &groups, &pidfile_path()) {
+        sync_hyprtile_config(&hyprtile_config_path(), path, mode);
+    }
     let _ = apply_tint(path, no_tint, backend);
     eprintln!("wallpaper-tui: applied {path} to {output}.");
     Ok(())

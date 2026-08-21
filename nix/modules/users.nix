@@ -13,6 +13,7 @@
   wallpaperTui,
   hyprmon,
   settingsMenu,
+  hyprtilePkg,
   ...
 }:
 let
@@ -118,6 +119,7 @@ in
         wallpaperTui
         hyprmon
         settingsMenu
+        hyprtilePkg
         ;
       dots = config.dots;
     };

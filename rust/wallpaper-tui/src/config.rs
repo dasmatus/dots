@@ -33,7 +33,10 @@ pub fn xdg_dir(env: &str, default_sub: &str) -> PathBuf {
     }
 }
 
-fn home_dir() -> PathBuf {
+/// Resolve `$HOME`, falling back to `/` if unset — shared with
+/// `wallpaperd.rs`'s `~/.hyprtile` paths.
+#[must_use]
+pub(crate) fn home_dir() -> PathBuf {
     std::env::var("HOME").map_or_else(|_| PathBuf::from("/"), PathBuf::from)
 }
 
