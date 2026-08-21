@@ -1,11 +1,16 @@
 # HyprTile (https://hyprtile.org) — the fullscreen tile launcher / command
 # center the desktop stack is converted to. It replaces the rofi drun
-# launcher, the rofi power menu and the grim Print-screenshot with one
-# Layer-Shell app driven by Hyprland IPC: SUPER+D opens the tile grid
-# (page 1 apps, page 2 session/power), Print runs hyprtile-shotter, and
-# hyprtile-wallpaperd is the wallpaper daemon (started by wallpaper-tui
-# --restore at hyprland.start, or by hyprtile itself if not yet running —
-# both share ~/.hyprtile/wallpaperd.pid).
+# launcher, the rofi power menu and the grim Print-screenshot: SUPER+D
+# toggles the tile grid (page 1 apps, page 2 session/power), Print runs
+# hyprtile-shotter, and hyprtile-wallpaperd is the wallpaper daemon
+# (started by wallpaper-tui --restore at hyprland.start, or by hyprtile
+# itself if not yet running — both share ~/.hyprtile/wallpaperd.pid).
+#
+# The launcher is RESIDENT, scratchpad-style: one instance lives parked in
+# the special:hyprtile workspace (window rule in hyprland.nix maps it
+# there silently), hyprtile-toggle below shows/hides it, and the package
+# patch parks it back on focus loss instead of quitting — so toggling is
+# instant, with no per-keypress process spawn.
 #
 # The flake-level package (flake/packages.nix, `nix build .#hyprtile`)
 # builds only the pieces used here: launcher, wallpaperd, shotter,
@@ -230,11 +235,41 @@ let
     ' "$config" <("$jq" -s . "$tiles_tmp") >"$tmp" && mv "$tmp" "$config"
     echo "hyprtile-sync-apps: $i apps -> pages 3+ of $config"
   '';
+  # Show/hide the resident launcher (SUPER+D / SUPER+SHIFT+E binds, and
+  # `--spawn-only` from hyprland.start to pre-warm it parked). Spawns the
+  # instance if it is not running (ESC quits it; the window rule parks new
+  # spawns silently in special:hyprtile), waits for the window to map, then
+  # toggles the special workspace via the Lua dispatch API (plain
+  # `hyprctl dispatch` is Lua-typed on Hyprland 0.55+, and hl.dsp.*
+  # constructors only execute when handed to hl.dispatch).
+  toggle = pkgs.writeShellScriptBin "hyprtile-toggle" ''
+    set -eu
+    jq=${pkgs.jq}/bin/jq
+    have() {
+      hyprctl clients -j | "$jq" -e 'any(.[]; .class == "hyprtile")' >/dev/null
+    }
+    # Two spawn attempts: right after an instance dies (ESC, or a rapid
+    # re-toggle) the single-instance flock in ~/.hyprtile may still be held
+    # by the exiting process, making the first spawn bail out — observed
+    # live, so retry once after the map-wait expires.
+    attempt=0
+    while ! have && [ $attempt -lt 2 ]; do
+      setsid -f hyprtile >/dev/null 2>&1 </dev/null
+      for _ in $(seq 1 40); do
+        have && break
+        sleep 0.05
+      done
+      attempt=$((attempt + 1))
+    done
+    [ "''${1:-}" = "--spawn-only" ] && exit 0
+    exec hyprctl eval "hl.dispatch(hl.dsp.workspace.toggle_special('hyprtile'))"
+  '';
 in
 {
   home.packages = [
     hyprtilePkg
     syncApps
+    toggle
   ];
 
   # Translations ship in the store; HyprTile only looks in

@@ -77,6 +77,9 @@ in
             			      hl.exec_cmd("hyprmon apply")
                                       hl.exec_cmd("nm-applet --indicator")
                                       hl.exec_cmd("wallpaper-tui --restore")
+                                      -- pre-warm the resident HyprTile launcher, parked
+                                      -- silently in special:hyprtile by its window rule
+                                      hl.exec_cmd("hyprtile-toggle --spawn-only")
                                       hl.exec_cmd("~/.config/eww/scripts/keybinds.sh")
                                     end'')
         ];
@@ -234,28 +237,35 @@ in
             class = ".*";
           };
         }
-        # HyprTile as a rofi-like overlay, not a tiled window: the package
-        # patch (nix/patches/hyprtile-rofi-like-overlay.patch) pins the
-        # app_id to "hyprtile" and quits the launcher on focus loss; this
-        # rule keeps the compositor from tiling it — floating, pinned to
-        # the top layer, monitor-sized at the origin, no open/close
-        # animation, no border/rounding. Field names verified against
-        # Hyprland 0.56's Lua rule engine (hyprctl eval probe).
-        # stay_focused is deliberately absent: it would stop launched apps
-        # from taking focus, which is exactly what triggers the rofi-like
-        # dismiss.
+        # HyprTile as a RESIDENT scratchpad launcher, not a window you spawn
+        # per keypress: the window maps straight into its own special
+        # workspace, silently (no focus steal at session start), floating,
+        # monitor-sized, instant (no animation, no border/rounding). The
+        # package patch (nix/patches/hyprtile-rofi-like-overlay.patch) pins
+        # the app_id to "hyprtile" and, on focus loss (a launched app taking
+        # focus, or a click elsewhere), parks the launcher back into this
+        # special workspace instead of quitting — so SUPER+D toggles it in
+        # and out with zero startup latency (hyprtile-toggle in
+        # nix/home/hyprtile.nix owns spawn-if-missing + the toggle). Field
+        # names verified against Hyprland 0.56's Lua rule engine (hyprctl
+        # eval probe). No `pin`: pinned-on-all-workspaces conflicts with
+        # special-workspace parking. NB the hyprlang-era `workspace
+        # "special:x silent"` suffix silently breaks the Lua engine's
+        # workspace selector parse (the whole effect no-ops) — silent is
+        # its own boolean effect there, `no_initial_focus`. Verified live.
         {
           name = "hyprtile-overlay";
           match = {
             class = "hyprtile";
           };
           float = true;
-          pin = true;
           no_anim = true;
           size = "monitor_w monitor_h";
           move = "0 0";
           border_size = 0;
           rounding = 0;
+          workspace = "special:hyprtile";
+          no_initial_focus = true;
         }
       ];
 
@@ -366,11 +376,13 @@ in
           ];
         }
         # HyprTile (nix/home/hyprtile.nix) is the app launcher — a fullscreen
-        # Tokyonight tile grid; page 2 holds the session/power tiles.
+        # Tokyonight tile grid living in the special:hyprtile scratchpad;
+        # page 2 holds the session/power tiles. hyprtile-toggle shows/hides
+        # the resident instance (and respawns it if it quit).
         {
           _args = [
             (lua ''mod .. " + D"'')
-            (lua ''hl.dsp.exec_cmd("hyprtile")'')
+            (lua ''hl.dsp.exec_cmd("hyprtile-toggle")'')
           ];
         }
         # Nautilus directly (GNOME Files, services.gnome.core-apps) — the
@@ -719,11 +731,11 @@ in
         {
           # Power menu → HyprTile's session page (page 2 of the tile grid:
           # lock/logout/suspend/hibernate/reboot/shutdown). Replaces the
-          # rofi-power-menu grid; same binary as SUPER+D, the session tiles
+          # rofi-power-menu grid; same toggle as SUPER+D, the session tiles
           # are one page-flip away.
           _args = [
             (lua ''mod .. " + SHIFT + E"'')
-            (lua ''hl.dsp.exec_cmd("hyprtile")'')
+            (lua ''hl.dsp.exec_cmd("hyprtile-toggle")'')
           ];
         }
         {
