@@ -27,19 +27,18 @@
 let
   cfg = config.programs.beamenu;
 
-  # Lifted from nix/home/rofi/tokyonight.rasi so the launcher reads as the
-  # same surface the old rofi menus did: same Tokyonight ramp, same 16px
-  # corner, same 720px body. bemenu wants #RRGGBBAA, and the alpha on the
-  # background is the only opacity knob it has. rofi got its translucency
-  # from `transparency: "real"`, which has no bemenu equivalent.
+  # The binding design palette: a near-black panel, a barely-lighter border,
+  # off-white text, a desaturated muted tone, and a single teal accent whose
+  # own on-fill text is near-black rather than white. bemenu wants
+  # #RRGGBBAA; the alpha on the background is the only opacity knob it has.
   theme = {
-    background = "#1a1b26f2"; # rofi @bg
-    foreground = "#a9b1d6ff"; # rofi @fg-alt
-    muted = "#6a6f87ff"; # rofi @fg
-    selected_background = "#2d3252ff"; # rofi @selected-bg
-    selected_foreground = "#c0caf5ff";
-    border = "#2d3252ff";
-    heading = "#7aa2f7ee"; # rofi @accent, which coloured its prompt
+    background = "#0d1013f2"; # panel
+    foreground = "#e6ebefff"; # text
+    muted = "#5b6672ff";
+    selected_background = "#7fd6c2ff"; # matches accent: pairs with the near-black selected_foreground below
+    selected_foreground = "#08110eff"; # on-accent text
+    border = "#1e252cff";
+    heading = "#7fd6c2ee"; # accent-tinted, like the section heading always was
     font = "Lilex Nerd Font 12";
     accent = cfg.accent;
   };
@@ -134,9 +133,11 @@ in
       example = "#8fb8f0";
       description = ''
         Accent colour for the currently-active element: the highlighted
-        result row and the active filter pill. Alternates that read well
-        against the Tokyonight background above: `#8fb8f0` (blue), `#e0b083`
-        (amber), `#c9a8f0` (violet).
+        result row and the active filter pill. Its own text is always
+        near-black (`selected_foreground`/`selected_background` in the
+        theme option), so alternates should stay light, like the panel
+        background above is dark: `#8fb8f0` (blue), `#e0b083` (amber),
+        `#c9a8f0` (violet).
       '';
     };
 

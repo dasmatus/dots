@@ -51,7 +51,7 @@ index a1fc704..5706c2f 100644
 
  common.a: client/common/common.c client/common/common.h
 diff --git a/lib/bemenu.h b/lib/bemenu.h
-index 0f3a33c..623f36c 100644
+index decca89..84ad4be 100644
 --- a/lib/bemenu.h
 +++ b/lib/bemenu.h
 @@ -599,6 +599,42 @@ BM_PUBLIC void bm_menu_set_line_height(struct bm_menu *menu, uint32_t line_heigh
@@ -98,7 +98,7 @@ index 0f3a33c..623f36c 100644
   * Set height of cursor in pixels.
   * Some renderers such as ncurses may ignore this when it does not make sense.
 diff --git a/lib/internal.h b/lib/internal.h
-index c0a9205..131a690 100644
+index c0a9205..5f3a81a 100644
 --- a/lib/internal.h
 +++ b/lib/internal.h
 @@ -444,6 +444,19 @@ struct bm_menu {
@@ -163,7 +163,7 @@ index 741d782..c01a6ef 100644
  bm_menu_set_cursor_height(struct bm_menu *menu, uint32_t cursor_height)
  {
 diff --git a/lib/renderers/cairo_renderer.h b/lib/renderers/cairo_renderer.h
-index f0543f5..8a933c7 100644
+index f0543f5..ec3067d 100644
 --- a/lib/renderers/cairo_renderer.h
 +++ b/lib/renderers/cairo_renderer.h
 @@ -3,10 +3,12 @@
@@ -179,7 +179,7 @@ index f0543f5..8a933c7 100644
 
  struct cairo {
      cairo_t *cr;
-@@ -279,6 +281,274 @@ bm_cairo_rounded_path(cairo_t *cr, double x, double y, double width, double heig
+@@ -279,6 +281,284 @@ bm_cairo_rounded_path(cairo_t *cr, double x, double y, double width, double heig
  }
 
 
@@ -391,12 +391,22 @@ index f0543f5..8a933c7 100644
 +        prev_section = section;
 +
 +        const bool highlighted = (item == bm_menu_get_highlighted_item(menu));
++
++        /* Muted text for this row: BM_COLOR_ALTERNATE_FG everywhere except
++         * the highlighted pill, where that global muted tone is gray drawn
++         * on the accent fill rather than on the panel background it was
++         * chosen against. There, derive the row's muted tone from the
++         * highlighted fg itself, dimmed, so subtitle and accessory stay
++         * legible against the fill instead of low-contrast on it. */
++        struct cairo_color row_muted = muted;
 +        if (highlighted) {
 +            bm_cairo_color_from_menu_color(menu, BM_COLOR_HIGHLIGHTED_BG, &bg);
 +            bm_cairo_rounded_path(cairo->cr, pad_x, posy, width - pad_x * 2, row_h, 8.0);
 +            cairo_set_source_rgba(cairo->cr, bg.r, bg.b, bg.g, bg.a);
 +            cairo_fill(cairo->cr);
 +            bm_cairo_color_from_menu_color(menu, BM_COLOR_HIGHLIGHTED_FG, &fg);
++            row_muted = fg;
++            row_muted.a *= 0.65f;
 +        } else {
 +            bm_cairo_color_from_menu_color(menu, BM_COLOR_ITEM_FG, &fg);
 +        }
@@ -429,7 +439,7 @@ index f0543f5..8a933c7 100644
 +        int32_t title_limit = right_limit;
 +        if (accessory && *accessory) {
 +            uint32_t aw = bm_cairo_run_width(cairo, paint, accessory);
-+            bm_cairo_draw_run(cairo, paint, &muted, accessory,
++            bm_cairo_draw_run(cairo, paint, &row_muted, accessory,
 +                              right_limit - (int32_t)aw, line1_baseline, (int32_t)aw, false);
 +            title_limit = right_limit - (int32_t)aw - (int32_t)gap;
 +        }
@@ -441,7 +451,7 @@ index f0543f5..8a933c7 100644
 +         * line 1's accessory-narrowed budget. */
 +        const char *subtitle = bm_item_get_subtitle(item);
 +        if (subtitle && *subtitle) {
-+            bm_cairo_draw_run(cairo, paint, &muted, subtitle,
++            bm_cairo_draw_run(cairo, paint, &row_muted, subtitle,
 +                              text_x, line2_baseline, right_limit - text_x, true);
 +        }
 +
@@ -454,7 +464,7 @@ index f0543f5..8a933c7 100644
  static inline void
  bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct bm_menu *menu, struct cairo_paint_result *out_result)
  {
-@@ -386,7 +656,11 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+@@ -386,7 +666,11 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
      uint32_t posy = (menu->lines_mode == BM_LINES_UP ? 0 : titleh);
      uint32_t spacing_x = menu->spacing ? title_x : 0, spacing_y = 0; // 0 == variable width spacing
 
