@@ -123,18 +123,22 @@ impl Default for App {
 /// here. Keyworded providers (`=`, `:`, `c `, `f `, `w `) are prefix-triggered
 /// modes rather than list-and-filter sources and are left out.
 pub struct Pills {
-    labels: Vec<&'static str>,
+    labels: Vec<String>,
 }
 
 impl Pills {
     /// Collect the ambient providers' section labels, in registry order.
+    ///
+    /// Owned rather than borrowed: a plugin provider's section is its
+    /// manifest's `title`, read from disk, so it has no `'static` lifetime to
+    /// borrow.
     #[must_use]
     pub fn new(providers: &[Box<dyn Provider>]) -> Self {
         Self {
             labels: providers
                 .iter()
                 .filter(|p| p.trigger() == Trigger::Ambient)
-                .map(|p| p.section())
+                .map(|p| p.section().to_string())
                 .collect(),
         }
     }
@@ -142,7 +146,7 @@ impl Pills {
     /// Section labels, in the same order as pill indices 1.. (index 0 is
     /// always `All`, which has no section of its own).
     #[must_use]
-    pub fn labels(&self) -> &[&'static str] {
+    pub fn labels(&self) -> &[String] {
         &self.labels
     }
 
@@ -188,7 +192,7 @@ impl Pills {
 
         ambient
             .iter()
-            .filter(|item| item.section.as_deref() == Some(*label))
+            .filter(|item| item.section.as_deref() == Some(label.as_str()))
             .cloned()
             .collect()
     }
