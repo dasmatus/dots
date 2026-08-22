@@ -7,7 +7,9 @@
 //! tested — the pure model in `beamenu_canvas` (`src/lib.rs`) is what
 //! `tests/` exercises.
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -19,9 +21,20 @@ use beamenu_canvas::theme::CanvasTheme;
 
 /// A built canvas window: the layer-shell `ApplicationWindow` and the
 /// `WebView` inside it.
+///
+/// `eval` calls made before the page's `load-changed` signal reports
+/// `Finished` are queued rather than run immediately — `load_html` is
+/// asynchronous, and a plugin worker's very first `ui.render` can (and in
+/// practice does) reach `Worker::spawn`'s channel before WebKit has parsed
+/// `PAGE_SHELL` and executed the inline `<script>` that defines
+/// `window.__beamenu`; calling into it before then is a silent
+/// `ReferenceError` with no retry, which is why the pane could come up
+/// completely blank.
 pub struct Canvas {
     pub window: gtk4::ApplicationWindow,
     pub webview: webkit6::WebView,
+    page_ready: Rc<Cell<bool>>,
+    pending_eval: Rc<RefCell<Vec<String>>>,
 }
 
 impl Canvas {
@@ -103,9 +116,38 @@ impl Canvas {
         });
         window.add_controller(key_controller);
 
+        let page_ready = Rc::new(Cell::new(false));
+        let pending_eval: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+        {
+            let page_ready = page_ready.clone();
+            let pending_eval = pending_eval.clone();
+            webview.connect_load_changed(move |webview, event| {
+                if event == webkit6::LoadEvent::Finished {
+                    page_ready.set(true);
+                    for script in pending_eval.borrow_mut().drain(..) {
+                        run_eval(webview, &script);
+                    }
+                }
+            });
+        }
+
         webview.load_html(PAGE_SHELL, None);
 
-        Self { window, webview }
+        // Every property above (layer, namespace, keyboard mode, anchors,
+        // size) only takes effect once the window is actually realized and
+        // mapped — constructing an `ApplicationWindow` does not show it in
+        // GTK4 (unlike GTK3's implicit-show patterns). Without this, the
+        // window object exists but gtk4-layer-shell never creates the
+        // underlying wl_surface/zwlr_layer_surface_v1, so nothing appears
+        // on screen and no compositor layer namespace is ever registered.
+        window.present();
+
+        Self {
+            window,
+            webview,
+            page_ready,
+            pending_eval,
+        }
     }
 
     /// Toggle keyboard interactivity — `NONE` while a `form.submit` request
@@ -120,15 +162,15 @@ impl Canvas {
     }
 
     /// Run one `evaluate_javascript` call against the loaded page, ignoring
-    /// the result — every call here is a fire-and-forget DOM update.
+    /// the result — every call here is a fire-and-forget DOM update. Queued
+    /// instead if the page hasn't finished its initial load yet (see the
+    /// struct doc comment), and flushed in order once it has.
     pub fn eval(&self, script: &str) {
-        self.webview.evaluate_javascript(
-            script,
-            None,
-            None,
-            None::<&gtk4::gio::Cancellable>,
-            |_result| {},
-        );
+        if self.page_ready.get() {
+            run_eval(&self.webview, script);
+        } else {
+            self.pending_eval.borrow_mut().push(script.to_string());
+        }
     }
 
     /// Wire the `formSubmit` script message handler: fires `on_submit` with
@@ -151,6 +193,25 @@ impl Canvas {
             },
         );
     }
+}
+
+/// The actual `evaluate_javascript` call, shared by `Canvas::eval`'s
+/// immediate path and the queue flush in `connect_load_changed` above.
+/// Errors (a malformed script, or — the bug this module now guards
+/// against — calling into the page before it's ready) go to stderr rather
+/// than vanishing silently.
+fn run_eval(webview: &webkit6::WebView, script: &str) {
+    webview.evaluate_javascript(
+        script,
+        None,
+        None,
+        None::<&gtk4::gio::Cancellable>,
+        |result| {
+            if let Err(err) = result {
+                eprintln!("beamenu-canvas: evaluate_javascript failed: {err}");
+            }
+        },
+    );
 }
 
 fn panel_size(width_factor: f32) -> (i32, i32) {
