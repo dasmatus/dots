@@ -7,6 +7,7 @@
 //! dispatches, and a child in its process group would be killed with it; a
 //! `setsid` child survives, which is what "launch an app" has to mean.
 
+use std::fmt::Write as _;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
@@ -36,6 +37,11 @@ fn spawn_detached(command: &str) -> Result<()> {
             .with_context(|| format!("failed to spawn: {command}"))?;
     }
     Ok(())
+}
+
+/// Single-quote `arg` so it survives a `sh -c` round trip as one shell word.
+fn shell_quote(arg: &str) -> String {
+    format!("'{}'", arg.replace('\'', r"'\''"))
 }
 
 extern "C" {
@@ -114,6 +120,27 @@ pub fn dispatch(action: &Action, terminal: &str) -> Result<()> {
         }
         Action::FocusWindow(address) => {
             spawn_detached(&format!("hyprctl dispatch focuswindow address:{address}"))
+        }
+        Action::View {
+            manifest,
+            command,
+            query,
+        } => {
+            // beamenu-canvas re-reads the manifest and re-substitutes
+            // `{query}` itself, so only the argv contract crosses here.
+            let mut spawn = format!(
+                "beamenu-canvas --manifest {} --command {}",
+                shell_quote(&manifest.to_string_lossy()),
+                shell_quote(command),
+            );
+            if !query.is_empty() {
+                let _ = write!(spawn, " --query {}", shell_quote(query));
+            }
+            // The sidecar binary may not exist yet (it ships from a parallel
+            // task); a missing executable fails spawn_detached's own spawn
+            // call and propagates as an ordinary Result::Err, same as any
+            // other missing command — never a panic.
+            spawn_detached(&spawn)
         }
         // Frame pushes are handled by the loop, which owns the stack; reaching
         // here would mean the loop failed to intercept one.

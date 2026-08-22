@@ -83,7 +83,7 @@ impl Provider for Windows {
     }
 
     fn trigger(&self) -> Trigger {
-        Trigger::Prefix("w ")
+        Trigger::Prefix("w ".to_string())
     }
 
     fn query(&self, _ctx: &Ctx, _query: &str) -> Vec<Item> {

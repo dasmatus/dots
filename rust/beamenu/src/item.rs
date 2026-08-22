@@ -24,6 +24,18 @@ pub enum Action {
     OpenUrl(String),
     /// Focus a Hyprland client by address.
     FocusWindow(String),
+    /// Open the `beamenu-canvas` sidecar on one plugin command.
+    ///
+    /// `manifest` is the plugin's manifest file, `command` the id of the
+    /// command within it, and `query` the launcher query remainder captured
+    /// when the row was activated. Rebuilding the argv (rather than shipping
+    /// `exec` here) keeps the `{query}` substitution rule in one place: the
+    /// canvas re-reads the manifest and re-substitutes itself.
+    View {
+        manifest: PathBuf,
+        command: String,
+        query: String,
+    },
     /// Descend into another provider's list instead of closing the launcher.
     Push { provider: String, query: String },
     /// Do nothing. Used by informational rows such as a calculator result

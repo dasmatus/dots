@@ -73,7 +73,7 @@ impl Provider for Files {
     }
 
     fn trigger(&self) -> Trigger {
-        Trigger::Prefix("f ")
+        Trigger::Prefix("f ".to_string())
     }
 
     fn query(&self, ctx: &Ctx, query: &str) -> Vec<Item> {

@@ -117,7 +117,7 @@ impl Provider for Emoji {
     }
 
     fn trigger(&self) -> Trigger {
-        Trigger::Prefix(":")
+        Trigger::Prefix(":".to_string())
     }
 
     fn query(&self, _ctx: &Ctx, query: &str) -> Vec<Item> {
