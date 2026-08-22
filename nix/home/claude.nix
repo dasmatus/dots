@@ -241,22 +241,28 @@ in
           ui = "log";
           # stream-json emits one event per assistant content block plus a
           # final result line; keep only the readable text (thinking/system
-          # /tool-use events are launcher noise) — `{query}` is substituted
-          # by beamenu itself.
+          # /tool-use events are launcher noise). The query is never spliced
+          # into the script text — beamenu substitutes `{query}` into its own
+          # argv element, which `bash -lc script $0 $1` binds to `$1` (the
+          # literal "beamenu" is just a $0 placeholder), so an adversarial
+          # query can't break out of shell quoting.
           exec = [
             "bash"
             "-lc"
             ''
-              claude -p "{query}" --output-format stream-json --verbose | ${lib.getExe pkgs.jq} -r '
+              set -euo pipefail
+              claude -p "$1" --output-format stream-json --verbose | ${lib.getExe pkgs.jq} -r '
                 if .type == "assistant" then
                   (.message.content[]? | select(.type == "text") | .text)
                 elif .type == "result" then
-                  .result
+                  (.result // empty)
                 else
                   empty
                 end
               '
             ''
+            "beamenu"
+            "{query}"
           ];
         }
         {
@@ -272,25 +278,43 @@ in
           mode = "view";
           ui = "log";
           # ccbar only renders whatever JSON lands on its stdin (src/main.rs
-          # — no fetching of its own); its rate-limit block reads
-          # rate_limits.{five_hour,seven_day}.used_percentage (src/status.rs
-          # RateWindow, confirmed against the built crates.io source).
-          # resets_at is an epoch int in that struct and is left out here:
-          # the only source for it is prose ("resets Aug 22, 7:10pm
-          # (Europe/London)"), not safe to machine-parse. The percentages
-          # come from Claude Code's own built-in `/usage` slash command,
-          # which is a free local computation (verified live: total_cost_usd
+          # — no fetching of its own) and always draws its default blocks
+          # (ctx/tokens/cost ahead of the rate-limit bars) with no
+          # per-invocation way to ask for rate-limit-only output short of a
+          # config.toml — which is shared with the live statusline, so
+          # dropping one there to declutter this command would declutter the
+          # statusline too. Render the two bars directly instead. The
+          # percentages come from Claude Code's own built-in `/usage` slash
+          # command, a free local computation (verified live: total_cost_usd
           # 0, zero tokens) rather than a real model call.
           exec = [
             "bash"
             "-lc"
             ''
-              out=$(claude -p "/usage" --output-format json | ${lib.getExe pkgs.jq} -r .result)
-              five=$(printf '%s' "$out" | grep -oP 'Current session: \K[0-9]+')
-              week=$(printf '%s' "$out" | grep -oP 'Current week \(all models\): \K[0-9]+')
-              ${lib.getExe pkgs.jq} -n --argjson five "''${five:-0}" --argjson week "''${week:-0}" \
-                '{rate_limits: {five_hour: {used_percentage: $five}, seven_day: {used_percentage: $week}}}' \
-                | ${lib.getExe ccbar}
+              set -euo pipefail
+
+              bar() {
+                local pct="$1" width=8 filled i
+                filled=$(( pct * width / 100 ))
+                if (( filled > width )); then
+                  filled=$width
+                elif (( filled < 0 )); then
+                  filled=0
+                fi
+                # tr mangles multi-byte UTF-8 replacement chars (it maps
+                # byte-for-byte, not character-for-character), so build the
+                # bar with plain repeated printf calls instead.
+                for ((i = 0; i < filled; i++)); do printf '━'; done
+                for ((i = filled; i < width; i++)); do printf '┄'; done
+              }
+
+              result=$(claude -p "/usage" --output-format json | ${lib.getExe pkgs.jq} -r '.result // empty')
+
+              five=$(printf '%s' "$result" | grep -oP 'Current session: \K[0-9]+' || echo 0)
+              week=$(printf '%s' "$result" | grep -oP 'Current week \(all models\): \K[0-9]+' || echo 0)
+
+              printf '5h    %s %s%%\n' "$(bar "$five")" "$five"
+              printf 'week  %s %s%%\n' "$(bar "$week")" "$week"
             ''
           ];
         }
