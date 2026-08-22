@@ -215,4 +215,86 @@ in
       model = "claude-fable-5[1m]";
     };
   };
+
+  # Beamenu plugin manifest: an "Ask Claude" one-shot prompt, a terminal
+  # drop-in, and a usage readout. `programs.beamenu.plugins` lands via a
+  # parallel task on the same plan — this worktree was cut before it (and
+  # before the claude-desktop packaging, hence `icon = null` below), so gate
+  # visibility with lib.mkIf the same way the rest of this file gates on
+  # dots.ai.claude: eval stays inert here and picks the block up once both
+  # land on merge.
+  programs.beamenu.plugins = lib.mkIf dots.ai.claude {
+    claude = {
+      name = "claude";
+      title = "Claude Code";
+      # nix/claude-desktop.nix and its `claudeDesktop` specialArg (which
+      # would give a hicolor icon store path) aren't present in this
+      # worktree — it was branched before that packaging landed.
+      icon = null;
+      keyword = "cl";
+      commands = [
+        {
+          id = "ask";
+          title = "Ask Claude";
+          description = "Prompt Claude Code";
+          mode = "view";
+          ui = "log";
+          # stream-json emits one event per assistant content block plus a
+          # final result line; keep only the readable text (thinking/system
+          # /tool-use events are launcher noise) — `{query}` is substituted
+          # by beamenu itself.
+          exec = [
+            "bash"
+            "-lc"
+            ''
+              claude -p "{query}" --output-format stream-json --verbose | ${lib.getExe pkgs.jq} -r '
+                if .type == "assistant" then
+                  (.message.content[]? | select(.type == "text") | .text)
+                elif .type == "result" then
+                  .result
+                else
+                  empty
+                end
+              '
+            ''
+          ];
+        }
+        {
+          id = "shell";
+          title = "Claude in terminal";
+          mode = "terminal";
+          exec = [ "claude" ];
+        }
+        {
+          id = "usage";
+          title = "Claude usage";
+          description = "5h and weekly limits";
+          mode = "view";
+          ui = "log";
+          # ccbar only renders whatever JSON lands on its stdin (src/main.rs
+          # — no fetching of its own); its rate-limit block reads
+          # rate_limits.{five_hour,seven_day}.used_percentage (src/status.rs
+          # RateWindow, confirmed against the built crates.io source).
+          # resets_at is an epoch int in that struct and is left out here:
+          # the only source for it is prose ("resets Aug 22, 7:10pm
+          # (Europe/London)"), not safe to machine-parse. The percentages
+          # come from Claude Code's own built-in `/usage` slash command,
+          # which is a free local computation (verified live: total_cost_usd
+          # 0, zero tokens) rather than a real model call.
+          exec = [
+            "bash"
+            "-lc"
+            ''
+              out=$(claude -p "/usage" --output-format json | ${lib.getExe pkgs.jq} -r .result)
+              five=$(printf '%s' "$out" | grep -oP 'Current session: \K[0-9]+')
+              week=$(printf '%s' "$out" | grep -oP 'Current week \(all models\): \K[0-9]+')
+              ${lib.getExe pkgs.jq} -n --argjson five "''${five:-0}" --argjson week "''${week:-0}" \
+                '{rate_limits: {five_hour: {used_percentage: $five}, seven_day: {used_percentage: $week}}}' \
+                | ${lib.getExe ccbar}
+            ''
+          ];
+        }
+      ];
+    };
+  };
 }
