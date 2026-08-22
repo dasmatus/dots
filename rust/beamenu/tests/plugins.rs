@@ -174,7 +174,7 @@ fn a_plugin_without_a_keyword_is_ambient() {
 }
 
 #[test]
-fn a_plugin_with_a_keyword_triggers_on_exactly_that_prefix() {
+fn a_keyword_without_a_trailing_space_gets_one_appended() {
     let tmp = tempfile::tempdir().unwrap();
     write_manifest(
         tmp.path(),
@@ -183,7 +183,70 @@ fn a_plugin_with_a_keyword_triggers_on_exactly_that_prefix() {
     );
 
     let providers = load_all(tmp.path());
-    assert_eq!(providers[0].trigger(), Trigger::Prefix("cl".to_string()));
+    assert_eq!(providers[0].trigger(), Trigger::Prefix("cl ".to_string()));
+}
+
+#[test]
+fn a_keyword_already_ending_in_whitespace_is_not_double_spaced() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_manifest(
+        tmp.path(),
+        "claude.json",
+        r#"{"name":"claude","title":"Claude Code","keyword":"cl ","commands":[]}"#,
+    );
+
+    let providers = load_all(tmp.path());
+    assert_eq!(providers[0].trigger(), Trigger::Prefix("cl ".to_string()));
+}
+
+#[test]
+fn a_keyword_does_not_match_a_query_that_merely_starts_with_its_letters() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_manifest(
+        tmp.path(),
+        "claude.json",
+        r#"{"name":"claude","title":"Claude Code","keyword":"cl",
+            "commands":[{"id":"ask","title":"Ask Claude","mode":"exec","exec":["true"]}]}"#,
+    );
+
+    let providers: Vec<Box<dyn Provider>> = load_all(tmp.path())
+        .into_iter()
+        .map(|provider| Box::new(provider) as Box<dyn Provider>)
+        .collect();
+
+    let context = ctx(tmp.path());
+    // "clone repo" starts with "cl" but not at a word boundary, so the
+    // unmatched keyword must fall through rather than swallow it.
+    let (items, rank_query) = collect(&providers, &context, "clone repo");
+
+    assert!(items.is_empty());
+    assert_eq!(rank_query, "clone repo");
+}
+
+#[test]
+fn a_keyword_triggers_at_a_word_boundary_with_the_remainder_as_query() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_manifest(
+        tmp.path(),
+        "claude.json",
+        r#"{"name":"claude","title":"Claude Code","keyword":"cl",
+            "commands":[{"id":"ask","title":"Ask Claude","mode":"exec","exec":["echo","{query}"]}]}"#,
+    );
+
+    let providers: Vec<Box<dyn Provider>> = load_all(tmp.path())
+        .into_iter()
+        .map(|provider| Box::new(provider) as Box<dyn Provider>)
+        .collect();
+
+    let context = ctx(tmp.path());
+    let (items, rank_query) = collect(&providers, &context, "cl foo");
+
+    assert_eq!(rank_query, "");
+    assert_eq!(items.len(), 1);
+    match &items[0].action {
+        Action::Launch { exec, .. } => assert_eq!(exec, "'echo' 'foo'"),
+        other => panic!("expected Action::Launch, got {other:?}"),
+    }
 }
 
 // --- mode -> Action mapping ---

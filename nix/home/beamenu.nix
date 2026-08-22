@@ -243,6 +243,9 @@ in
                 Prefix that reaches this plugin, narrowing the root list down
                 to just its commands. Omitted means ambient: every command is
                 fuzzy-ranked into the root list instead, like a quicklink.
+                Matched at a word boundary: a trailing space is appended
+                automatically when not already present, so `"cl"` reaches
+                this plugin on `"cl ask"` but not on `"clone"`.
               '';
             };
             commands = lib.mkOption {

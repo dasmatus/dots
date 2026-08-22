@@ -73,6 +73,9 @@ pub struct Manifest {
     pub icon: Option<String>,
     /// The prefix that reaches this plugin, if any. Absent means ambient:
     /// every command is fuzzy-ranked into the root list like a quicklink.
+    /// Matched at a word boundary: a trailing space is appended if the
+    /// manifest did not already include one, so `"cl"` reaches this plugin on
+    /// `"cl ask"` but not on `"clone"`. See [`keyword_trigger`].
     #[serde(default)]
     pub keyword: Option<String>,
     pub commands: Vec<Command>,
@@ -100,6 +103,23 @@ pub fn expand(exec: &[String], query: &str) -> Vec<String> {
     exec.iter()
         .map(|arg| arg.replace("{query}", query))
         .collect()
+}
+
+/// Turn a manifest's `keyword` into a [`Trigger::Prefix`], appending a
+/// trailing space when the author did not already include one.
+///
+/// Every built-in keyworded provider bakes a trailing space into its own
+/// prefix (`"c "`, `"f "`, `"w "`) so a query only reaches it at a word
+/// boundary. A plugin keyword gets the same treatment here rather than
+/// trusting each manifest author to remember the space: without it, `"cl"`
+/// would also swallow `"clone"` and `"class"`.
+#[must_use]
+fn keyword_trigger(keyword: &str) -> Trigger {
+    if keyword.ends_with(char::is_whitespace) {
+        Trigger::Prefix(keyword.to_string())
+    } else {
+        Trigger::Prefix(format!("{keyword} "))
+    }
 }
 
 /// Join an argv into one shell command line, single-quoting each element.
@@ -193,8 +213,8 @@ impl Provider for PluginProvider {
     fn trigger(&self) -> Trigger {
         self.manifest
             .keyword
-            .clone()
-            .map_or(Trigger::Ambient, Trigger::Prefix)
+            .as_deref()
+            .map_or(Trigger::Ambient, keyword_trigger)
     }
 
     fn query(&self, _ctx: &Ctx, query: &str) -> Vec<Item> {
