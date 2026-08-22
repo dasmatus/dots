@@ -8,7 +8,9 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 struct Serve {
     child: Child,
-    stdin: ChildStdin,
+    // `None` after `close_stdin` — models the canvas process exiting/crashing
+    // without ever sending `shutdown`.
+    stdin: Option<ChildStdin>,
     stdout: BufReader<std::process::ChildStdout>,
 }
 
@@ -26,7 +28,7 @@ impl Serve {
         let stdout = BufReader::new(child.stdout.take().unwrap());
         Self {
             child,
-            stdin,
+            stdin: Some(stdin),
             stdout,
         }
     }
@@ -39,8 +41,21 @@ impl Serve {
     }
 
     fn send(&mut self, value: &serde_json::Value) {
-        writeln!(self.stdin, "{value}").unwrap();
-        self.stdin.flush().unwrap();
+        self.send_raw(&value.to_string());
+    }
+
+    /// Write a literal line as-is, unlike `send` this does not require valid
+    /// JSON — lets a test feed the worker garbage on the wire.
+    fn send_raw(&mut self, line: &str) {
+        let stdin = self.stdin.as_mut().expect("stdin already closed");
+        writeln!(stdin, "{line}").unwrap();
+        stdin.flush().unwrap();
+    }
+
+    /// Close stdin (simulating the canvas process exiting/crashing) without
+    /// sending `shutdown`.
+    fn close_stdin(&mut self) {
+        self.stdin = None;
     }
 
     fn finish(mut self) -> std::process::ExitStatus {
@@ -193,6 +208,68 @@ fn shutdown_exits_cleanly() {
     let mut serve = Serve::spawn(&path);
     let _initial_render = serve.recv();
     let status = serve.finish();
+    assert!(status.success());
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn survives_a_malformed_line_between_valid_requests() {
+    let path = temp_file("serve-garbage", "{\n  hostname = \"box\";\n}\n");
+    let mut serve = Serve::spawn(&path);
+    let _initial_render = serve.recv();
+
+    serve.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "form.submit",
+        "params": { "values": { "hostname": "first" } },
+    }));
+    let result1 = serve.recv();
+    assert_eq!(result1["id"], 1);
+    assert_eq!(result1["result"], serde_json::json!({}));
+    let render1 = serve.recv();
+    assert_eq!(render1["method"], "ui.render");
+
+    // A garbage line between two valid requests must not kill the worker —
+    // if it did, the second request below would never get a response and
+    // `recv` would panic on a closed stdout instead.
+    serve.send_raw("not json");
+
+    serve.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "form.submit",
+        "params": { "values": { "hostname": "second" } },
+    }));
+    let result2 = serve.recv();
+    assert_eq!(result2["id"], 2);
+    assert_eq!(result2["result"], serde_json::json!({}));
+    let render2 = serve.recv();
+    assert_eq!(render2["method"], "ui.render");
+    let hostname = render2["params"]["tree"]["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["key"] == "hostname")
+        .unwrap();
+    assert_eq!(hostname["value"], "second");
+
+    let status = serve.finish();
+    assert!(status.success());
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn eof_without_shutdown_exits_cleanly() {
+    let path = temp_file("serve-eof", "{\n  hostname = \"box\";\n}\n");
+    let mut serve = Serve::spawn(&path);
+    let _initial_render = serve.recv();
+
+    // Close stdin (the canvas process exiting/crashing) without ever sending
+    // `shutdown` — the worker must still notice EOF on stdin and exit 0
+    // rather than hang waiting for a line that will never arrive.
+    serve.close_stdin();
+    let status = serve.child.wait().unwrap();
     assert!(status.success());
     std::fs::remove_file(&path).unwrap();
 }
