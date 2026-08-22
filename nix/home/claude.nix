@@ -130,6 +130,15 @@ in
     # mechanisms coexist.
     plugins.pstack = "${cursorPlugins}/pstack";
 
+    # Personal skills from this repo's skills/ tree (one folder per skill,
+    # each holding a SKILL.md). The module symlinks the whole directory into
+    # ~/.claude/skills/, so dropping a new skill folder into skills/ needs no
+    # Nix change. Each skill self-triggers off its frontmatter description;
+    # dodging-cdb is additionally injected at session start via the
+    # SessionStart hook in settings below, because Claude Code has no native
+    # "run this skill at startup" mechanism.
+    skills = ../../skills;
+
     # ~/.claude/CLAUDE.md — global memory, loaded in every project: this is
     # what makes the MCP tool the *default* rather than merely available.
     context = ''
@@ -178,6 +187,24 @@ in
         ];
         defaultMode = "auto";
       };
+
+      # Claude Code lifecycle hooks (settings.json "hooks", distinct from
+      # the HM module's hooks/ script directory). A SessionStart hook's
+      # stdout is added to the session context, so cat-ing dodging-cdb's
+      # SKILL.md from its store path primes every fresh session with it
+      # before any git push happens. That is the closest thing to "run this
+      # skill at startup". The path interpolation pins the file into the
+      # store, so the hook can never dangle even if the repo checkout moves.
+      hooks.SessionStart = [
+        {
+          hooks = [
+            {
+              type = "command";
+              command = "cat ${../../skills/dodging-cdb/SKILL.md}";
+            }
+          ];
+        }
+      ];
 
       disableClaudeAiConnectors = true;
 
