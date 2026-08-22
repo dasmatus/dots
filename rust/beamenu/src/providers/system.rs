@@ -85,7 +85,6 @@ impl Provider for System {
                     Action::Shell((*command).to_string()),
                 )
                 .subtitle(*subtitle)
-                .accessory("Command")
             })
             .collect()
     }

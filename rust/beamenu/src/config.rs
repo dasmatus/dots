@@ -85,7 +85,7 @@ fn default_icon_size() -> u32 {
     24
 }
 fn default_line_height() -> u32 {
-    44
+    52
 }
 fn default_search_height() -> u32 {
     56

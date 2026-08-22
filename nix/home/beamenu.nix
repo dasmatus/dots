@@ -110,7 +110,7 @@ in
 
     lineHeight = lib.mkOption {
       type = lib.types.ints.positive;
-      default = 44;
+      default = 52;
       description = "Result row height in pixels.";
     };
 

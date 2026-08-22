@@ -62,7 +62,6 @@ impl Provider for Snippets {
                     Action::Paste(snippet.text.clone()),
                 )
                 .subtitle(preview(&snippet.text))
-                .accessory(snippet.keyword.unwrap_or_else(|| "Snippet".to_string()))
                 .alt("Copy", Action::Copy(snippet.text))
             })
             .collect()

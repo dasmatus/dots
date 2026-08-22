@@ -113,7 +113,6 @@ impl Provider for Scripts {
                     title,
                     Action::Shell(quoted),
                 )
-                .accessory("Script")
                 .icon(meta.icon.map(PathBuf::from));
                 if let Some(subtitle) = meta.subtitle {
                     item = item.subtitle(subtitle);

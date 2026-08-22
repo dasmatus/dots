@@ -96,7 +96,6 @@ impl Provider for Windows {
                     Action::FocusWindow(client.address.clone()),
                 )
                 .subtitle(client.class.clone())
-                .accessory(format!("Workspace {}", client.workspace.name))
                 .alt(
                     "Close",
                     Action::Shell(format!(
@@ -113,7 +112,6 @@ impl Provider for Windows {
                 *label,
                 Action::Shell((*command).to_string()),
             )
-            .accessory("Window")
             .section("Window Management")
         }));
 

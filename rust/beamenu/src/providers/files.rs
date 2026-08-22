@@ -99,7 +99,6 @@ impl Provider for Files {
                     Action::Shell(format!("xdg-open {quoted}")),
                 )
                 .subtitle(display_path(&path, &home))
-                .accessory(if path.is_dir() { "Folder" } else { "File" })
                 .alt(
                     "Reveal in file manager",
                     Action::Shell(format!("{} {quoted}", ctx.config.file_manager)),

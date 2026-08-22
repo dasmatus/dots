@@ -47,9 +47,16 @@ fn the_action_panel_leads_with_the_primary_action() {
     assert_eq!(frame.items[0].title, "Open");
     assert_eq!(frame.items[0].action, Action::Shell("open".into()));
     assert_eq!(frame.items[0].subtitle.as_deref(), Some("Notes"));
+    assert_eq!(
+        frame.items[0].accessory.as_deref(),
+        Some("Enter"),
+        "the primary row keeps its functional hint, unlike a provider's category tag"
+    );
 
     assert_eq!(frame.items[1].title, "Copy path");
+    assert_eq!(frame.items[1].accessory.as_deref(), Some("Action"));
     assert_eq!(frame.items[2].title, "Reveal");
+    assert_eq!(frame.items[2].accessory.as_deref(), Some("Action"));
 }
 
 #[test]

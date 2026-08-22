@@ -129,10 +129,6 @@ impl Provider for Clipboard {
     }
 
     fn query(&self, ctx: &Ctx, _query: &str) -> Vec<Item> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-
         load(&ctx.state_dir.join("clipboard.jsonl"))
             .into_iter()
             .enumerate()
@@ -142,7 +138,6 @@ impl Provider for Clipboard {
                     preview(&entry.text),
                     Action::Paste(entry.text.clone()),
                 )
-                .accessory(relative_age(entry.at, now))
                 .alt("Copy", Action::Copy(entry.text))
             })
             .collect()

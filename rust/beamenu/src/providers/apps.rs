@@ -233,7 +233,6 @@ impl Provider for Apps {
                         terminal: entry.terminal,
                     },
                 )
-                .accessory("Application")
                 .icon(icon);
                 if let Some(comment) = entry.comment {
                     item = item.subtitle(comment);

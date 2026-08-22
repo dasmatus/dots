@@ -2,12 +2,15 @@
 
 use std::path::{Path, PathBuf};
 
+use beamenu::config::Config;
 use beamenu::providers::apps::{clean_exec, parse_entry, scan};
 use beamenu::providers::clipboard::{load, parse_log, preview, relative_age, Entry};
 use beamenu::providers::files::{display_path, parse_output};
 use beamenu::providers::quicklinks::{expand, percent_encode};
 use beamenu::providers::scripts::{executables, parse_metadata};
+use beamenu::providers::system::System;
 use beamenu::providers::window::parse_clients;
+use beamenu::providers::{Ctx, Provider};
 
 // --- desktop entries ---
 
@@ -225,6 +228,23 @@ fn finds_only_executable_files() {
 
     let found = executables(tmp.path());
     assert_eq!(found, vec![runnable]);
+}
+
+// --- system ---
+
+#[test]
+fn system_commands_carry_no_category_accessory() {
+    // Providers no longer stamp a static type noun ("Command") into the
+    // accessory slot; that space is reserved for functional hints such as
+    // the action panel's "Enter"/"Action" (see tests/navigation.rs).
+    let ctx = Ctx {
+        config: Config::default(),
+        config_dir: PathBuf::new(),
+        state_dir: PathBuf::new(),
+    };
+    let items = System.query(&ctx, "");
+    assert!(!items.is_empty(), "the command list is never empty");
+    assert!(items.iter().all(|item| item.accessory.is_none()));
 }
 
 // --- windows ---

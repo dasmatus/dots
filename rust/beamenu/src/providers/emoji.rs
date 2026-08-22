@@ -135,7 +135,6 @@ impl Provider for Emoji {
                     format!("{glyph}  {name}"),
                     Action::Paste((*glyph).to_string()),
                 )
-                .accessory("Paste")
                 .alt("Copy", Action::Copy((*glyph).to_string()))
             })
             .collect()

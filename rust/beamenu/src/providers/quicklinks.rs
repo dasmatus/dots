@@ -102,7 +102,6 @@ impl Provider for Quicklinks {
                     action,
                 )
                 .subtitle(target)
-                .accessory(if link.command { "Command" } else { "Link" })
                 .icon(link.icon.map(std::path::PathBuf::from))
             })
             .collect()
