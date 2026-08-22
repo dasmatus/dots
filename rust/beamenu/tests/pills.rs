@@ -16,6 +16,21 @@ fn providers() -> Vec<Box<dyn Provider>> {
     providers::all(dir.path())
 }
 
+/// Every provider, scanned from a scratch directory holding one ambient
+/// plugin manifest (a title, no keyword) under `plugins/`, so it takes its
+/// place after the built-in providers the same way `providers::all()` does.
+fn providers_with_one_ambient_plugin() -> Vec<Box<dyn Provider>> {
+    let dir = tempfile::tempdir().expect("a scratch dir");
+    let plugins_dir = dir.path().join("plugins");
+    std::fs::create_dir_all(&plugins_dir).expect("a plugins dir");
+    std::fs::write(
+        plugins_dir.join("notes.json"),
+        r#"{"name":"notes","title":"Notes","commands":[]}"#,
+    )
+    .expect("a manifest file");
+    providers::all(dir.path())
+}
+
 #[test]
 fn pills_follow_registry_order_and_skip_prefix_providers() {
     let pills = Pills::new(&providers());
@@ -95,4 +110,28 @@ fn an_out_of_range_pill_index_falls_back_to_all() {
     let pills = Pills::new(&providers());
     let ambient = vec![item("Applications"), item("System")];
     assert_eq!(pills.filter(&ambient, 99), ambient);
+}
+
+#[test]
+fn a_plugin_manifest_earns_a_pill_that_filters_to_its_own_section() {
+    let pills = Pills::new(&providers_with_one_ambient_plugin());
+
+    // providers::all() appends plugin providers after the built-in ones, so
+    // the manifest's title lands last, following the same five ambient
+    // built-ins as pills_follow_registry_order_and_skip_prefix_providers.
+    assert_eq!(
+        pills.labels(),
+        [
+            "Applications",
+            "Quicklinks",
+            "Snippets",
+            "Script Commands",
+            "System",
+            "Notes"
+        ]
+    );
+
+    // Pill 6 is "Notes", the first (and only) label after the five built-ins.
+    let ambient = vec![item("Applications"), item("Notes"), item("System")];
+    assert_eq!(pills.filter(&ambient, 6), vec![item("Notes")]);
 }
