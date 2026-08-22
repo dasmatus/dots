@@ -24,11 +24,47 @@
 #     exception for both the IMAP and SMTP ports, confirmed separately on
 #     first use of each.
 #   - Proton VPN GUI needs its own interactive login on first launch.
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 {
   services.protonmail-bridge.enable = true;
 
   home.packages = [ pkgs.proton-vpn ];
+
+  # Start the VPN app with the session, minimised to the tray.
+  #
+  # `--start-minimized` is a real upstream flag (proton/vpn/app/gtk/app.py adds
+  # it via add_main_option), but it only takes effect when the app has a tray
+  # indicator: app.py gates on `self._start_app_minimized and
+  # self.tray_indicator`, so with no StatusNotifierItem host it would open a
+  # normal window instead. Under Hyprland that host is waybar's `tray` module
+  # (nix/home/waybar.nix), which is why this waits for the graphical session
+  # rather than starting alongside it — waybar is launched from
+  # hyprland.start, not by systemd, so there is no unit to order against and
+  # the SNI watcher appears a moment after the session does.
+  #
+  # Restart=on-failure rather than always: a clean exit means the user quit the
+  # app deliberately, and respawning it then would be a nuisance.
+  systemd.user.services.protonvpn-app = {
+    Unit = {
+      Description = "Proton VPN, started minimised to the tray";
+      PartOf = [ "graphical-session.target" ];
+      After = [ "graphical-session.target" ];
+      # No tray host outside a Wayland/X session, so do not spawn a window.
+      ConditionEnvironment = [ "WAYLAND_DISPLAY" ];
+    };
+    Service = {
+      # The tray host has to be up before the app registers its item, and the
+      # only signal available is time. A few seconds is enough for waybar and
+      # cheap on a session that lasts hours.
+      ExecStartPre = "${pkgs.coreutils}/bin/sleep 5";
+      ExecStart = "${lib.getExe pkgs.proton-vpn} --start-minimized";
+      Restart = "on-failure";
+      RestartSec = 5;
+    };
+    Install = {
+      WantedBy = [ "graphical-session.target" ];
+    };
+  };
 
   programs.thunderbird = {
     enable = true;
