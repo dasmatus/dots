@@ -261,11 +261,26 @@ in
       #
       # Field names verified against Hyprland 0.56.2's HL.LayerRuleSpec stub
       # (share/hypr/stubs/hl.meta.lua).
+      #
+      # beamenu-canvas (rust/beamenu-canvas) is the WebKitGTK sidecar beamenu
+      # spawns for a plugin's `view` command — its own layer-shell surface,
+      # namespaced literally "beamenu-canvas" (unlike bemenu's hardcoded
+      # "menu"), so it needs its own rule rather than sharing the match above.
+      # Same blur/alpha settings: it is deliberately dressed as the same
+      # surface family as the launcher panel.
       layer_rule = [
         {
           name = "beamenu-blur";
           match = {
             namespace = "menu";
+          };
+          blur = true;
+          ignore_alpha = 0.1;
+        }
+        {
+          name = "beamenu-canvas-blur";
+          match = {
+            namespace = "beamenu-canvas";
           };
           blur = true;
           ignore_alpha = 0.1;

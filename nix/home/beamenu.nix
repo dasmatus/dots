@@ -18,6 +18,7 @@
 # the frecency store and the clipboard log, both under $XDG_STATE_HOME.
 {
   beamenuPkg,
+  beamenuCanvasPkg,
   config,
   lib,
   pkgs,
@@ -352,6 +353,10 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [
       beamenuPkg
+      # The WebKitGTK sidecar `beamenu` spawns for a plugin's `view`
+      # command (rust/beamenu-canvas) — a separate binary/process, so it
+      # needs its own store path on PATH the same way beamenuPkg does.
+      beamenuCanvasPkg
       recordToggle
       # Runtime dependencies of the providers and of dispatch. Each is reached
       # by name from Rust rather than by store path, because they are all
