@@ -19,6 +19,21 @@ pub struct Theme {
     pub border: String,
     pub heading: String,
     pub font: String,
+    /// Accent for the currently-active element: the highlighted result row
+    /// and the active filter pill (`BM_COLOR_HIGHLIGHTED_BG` on the C side;
+    /// `BM_COLOR_HIGHLIGHTED_FG` stays `selected_foreground`, unchanged).
+    ///
+    /// `#[serde(default)]` on this field alone, unlike its siblings: a
+    /// config.json written before this field existed is otherwise missing
+    /// `theme.accent`, which would fail all of `Theme`'s deserialization
+    /// (none of its other fields have a per-field default) and silently
+    /// reset every theme colour to `Theme::default()`, not just this one.
+    #[serde(default = "default_accent")]
+    pub accent: String,
+}
+
+fn default_accent() -> String {
+    "#7fd6c2".into()
 }
 
 impl Default for Theme {
@@ -38,6 +53,7 @@ impl Default for Theme {
             border: "#2d3252ff".into(),
             heading: "#7aa2f7ee".into(),
             font: "Lilex Nerd Font 12".into(),
+            accent: default_accent(),
         }
     }
 }

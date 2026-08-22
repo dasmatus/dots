@@ -1,0 +1,457 @@
+Filter pill bar for the beamenu launcher: `All <total>` plus one capsule per
+provider, drawn between the search row and the list in the rich layout.
+
+Narrow FFI, mirroring the shape of the rest of the rich-mode surface:
+bm_menu_set_pills() takes a `\x1f`-separated `label:count` spec plus an
+active index, and bm_menu_get_active_pill() reads back whatever Tab and
+Shift+Tab last moved it to. Cycling happens inside bm_menu_run_with_key(),
+ahead of the vim-binding switch and the rest of the key handling, so it
+replaces rather than falls through to Tab's stock highlight-next and
+Shift+Tab's stock copy-to-filter for as long as a pill bar is set — the
+client sets and polls the pill bar every frame, the library owns the
+keystroke in between.
+
+The row's height joins the same total_height math patch 05 introduced for
+the rich panel, and shifts the list's start (posy) down by exactly that
+much, the same way patch 03's search row already does. It is otherwise
+additive: no line patch 01-05 touched is modified, only new functions and a
+handful of small, clearly separated hunks that read values those patches
+already compute (ascii_height, search_h's sibling total_height branch,
+titleh). Pill capsules reuse bm_cairo_rounded_path from patch 02 for their
+fully-rounded shape, and the capsule height is derived from the item font's
+own ascii_height rather than from line_height, so it does not depend on
+whatever row height patch 02 ends up configured with.
+
+The count run needs a smaller point size than anything else this file draws
+(which is otherwise always at the configured item font size), so this patch
+adds bm_pango_get_layout_sized/bm_cairo_run_width_sized/
+bm_cairo_draw_run_sized as siblings of the existing unsized helpers rather
+than changing their signatures.
+
+Layout values the design left unspecified (internal pill padding, the gaps
+between a pill's dot/label/count) were chosen to read as a scaled-down
+version of the row gutters bm_cairo_paint_rich_rows already uses (pad_x/
+gutter 10px there becomes 12px/6px here); see the comment above the
+BM_PILL_* constants in cairo_renderer.h.
+
+diff --git a/lib/bemenu.h b/lib/bemenu.h
+index cc5f07d..c61f50f 100644
+--- a/lib/bemenu.h
++++ b/lib/bemenu.h
+@@ -666,6 +666,32 @@ BM_PUBLIC void bm_menu_set_search_height(struct bm_menu *menu, uint32_t search_h
+  */
+ BM_PUBLIC uint32_t bm_menu_get_search_height(struct bm_menu *menu);
+
++/**
++ * Set the filter pill bar, drawn between the search row and the list in the
++ * rich layout.
++ *
++ * @param menu bm_menu instance where to set the pill bar.
++ * @param spec `\x1f`-separated `label:count` entries, UTF-8 label plus ASCII
++ * digit count; empty or NULL clears the bar. Replaces any previous set.
++ * @param active index of the pill to mark active; clamped to the last entry
++ * when out of range.
++ */
++BM_PUBLIC void bm_menu_set_pills(struct bm_menu *menu, const char *spec, uint32_t active);
++
++/**
++ * Get the index of the active pill.
++ *
++ * Tab and Shift+Tab cycle this internally, wrapping, whenever the rich
++ * layout is enabled and the pill bar is non-empty; that key handling
++ * replaces their stock bindings (highlight-next and copy-to-filter) for as
++ * long as a pill bar is set.
++ *
++ * @param menu bm_menu instance to query.
++ * @return uint32_t index into the last bm_menu_set_pills() spec, 0 when no
++ * pill bar is set.
++ */
++BM_PUBLIC uint32_t bm_menu_get_active_pill(struct bm_menu *menu);
++
+ /**
+  * Set height of cursor in pixels.
+  * Some renderers such as ncurses may ignore this when it does not make sense.
+diff --git a/lib/internal.h b/lib/internal.h
+index f4b196f..051f076 100644
+--- a/lib/internal.h
++++ b/lib/internal.h
+@@ -256,6 +256,22 @@ struct bm_font {
+     char *name;
+ };
+
++/**
++ * Internal bm_pill struct that is not exposed to public.
++ * One entry of the filter pill bar set by bm_menu_set_pills().
++ */
++struct bm_pill {
++    /**
++     * Label text, owned by this entry.
++     */
++    char *label;
++
++    /**
++     * Item count shown after the label.
++     */
++    uint32_t count;
++};
++
+ /**
+  * Internal bm_menu struct that is not exposed to public.
+  */
+@@ -463,6 +479,23 @@ struct bm_menu {
+      */
+     uint32_t search_height;
+
++    /**
++     * Filter pill bar entries set by bm_menu_set_pills(), owned by the menu.
++     * NULL/0 when no pill bar is set. Only honoured when rich_rows is set.
++     */
++    struct bm_pill *pills;
++
++    /**
++     * Number of entries in pills.
++     */
++    uint32_t pill_count;
++
++    /**
++     * Index into pills of the active (filtering) pill. Cycled by Tab and
++     * Shift+Tab in rich mode instead of their stock bindings.
++     */
++    uint32_t pill_active;
++
+     /**
+      * Is menu grabbed?
+      */
+diff --git a/lib/menu.c b/lib/menu.c
+index 093dec8..72251cc 100644
+--- a/lib/menu.c
++++ b/lib/menu.c
+@@ -134,6 +134,10 @@ bm_menu_free(struct bm_menu *menu)
+     if (menu->filter_item)
+         bm_item_free(menu->filter_item);
+
++    for (uint32_t i = 0; i < menu->pill_count; ++i)
++        free(menu->pills[i].label);
++    free(menu->pills);
++
+     free(menu);
+ }
+
+@@ -373,6 +377,81 @@ bm_menu_get_search_height(struct bm_menu *menu)
+     return menu->search_height;
+ }
+
++/**
++ * Free the pill bar bm_menu_set_pills replaces or clears.
++ */
++static void
++bm_pills_free(struct bm_menu *menu)
++{
++    for (uint32_t i = 0; i < menu->pill_count; ++i)
++        free(menu->pills[i].label);
++    free(menu->pills);
++    menu->pills = NULL;
++    menu->pill_count = 0;
++}
++
++void
++bm_menu_set_pills(struct bm_menu *menu, const char *spec, uint32_t active)
++{
++    assert(menu);
++
++    bm_pills_free(menu);
++
++    if (!spec || !*spec)
++        return;
++
++    char *copy = bm_strdup(spec);
++    if (!copy)
++        return;
++
++    /* Upper bound on how many entries the spec can hold, so the array can be
++     * allocated once rather than grown per entry. */
++    uint32_t max_entries = 1;
++    for (const char *c = spec; *c; ++c) {
++        if (*c == '\x1f')
++            max_entries++;
++    }
++
++    struct bm_pill *pills = calloc(max_entries, sizeof(struct bm_pill));
++    if (!pills) {
++        free(copy);
++        return;
++    }
++
++    uint32_t n = 0;
++    char *saveptr = NULL;
++    for (char *tok = strtok_r(copy, "\x1f", &saveptr); tok && n < max_entries; tok = strtok_r(NULL, "\x1f", &saveptr)) {
++        /* Split on the rightmost ':' so a label is free to contain the
++         * character itself; only the trailing run of digits is the count. */
++        char *sep = strrchr(tok, ':');
++        uint32_t count = 0;
++        if (sep) {
++            count = (uint32_t)strtoul(sep + 1, NULL, 10);
++            *sep = 0;
++        }
++
++        if (!(pills[n].label = bm_strdup(tok)))
++            continue;
++        pills[n].count = count;
++        n++;
++    }
++
++    free(copy);
++
++    menu->pills = pills;
++    menu->pill_count = n;
++    menu->pill_active = (n > 0 ? (active < n ? active : n - 1) : 0);
++    menu->dirty = true;
++}
++
++uint32_t
++bm_menu_get_active_pill(struct bm_menu *menu)
++{
++    assert(menu);
++
++    return menu->pill_active;
++}
++
+ void
+ bm_menu_set_cursor_height(struct bm_menu *menu, uint32_t cursor_height)
+ {
+@@ -1088,6 +1167,20 @@ bm_menu_run_with_key(struct bm_menu *menu, enum bm_key key, uint32_t unicode)
+ {
+     assert(menu);
+
++    /* Tab/Shift+Tab cycle the active pill instead of their stock bindings
++     * (highlight-next, copy-to-filter) whenever the rich layout has a pill
++     * bar to cycle. Handled here, ahead of everything else including vim
++     * bindings, so neither stock action nor bm_menu_filter below ever sees
++     * these keys while a pill bar is set. */
++    if (menu->rich_rows && menu->pill_count > 0 && (key == BM_KEY_TAB || key == BM_KEY_SHIFT_TAB)) {
++        if (key == BM_KEY_TAB)
++            menu->pill_active = (menu->pill_active + 1) % menu->pill_count;
++        else
++            menu->pill_active = (menu->pill_active == 0 ? menu->pill_count - 1 : menu->pill_active - 1);
++        menu->dirty = true;
++        return BM_RUN_RESULT_RUNNING;
++    }
++
+     uint32_t count;
+     bm_menu_get_filtered_items(menu, &count);
+
+diff --git a/lib/renderers/cairo_renderer.h b/lib/renderers/cairo_renderer.h
+index eba3fe3..91b9a98 100644
+--- a/lib/renderers/cairo_renderer.h
++++ b/lib/renderers/cairo_renderer.h
+@@ -541,6 +541,173 @@ bm_cairo_paint_rich_rows(struct cairo *cairo, struct cairo_paint *paint, struct
+     }
+ }
+
++/* Layout constants for the filter pill bar. Values the design left
++ * unspecified (internal pill padding, the gap between the dot/label/count
++ * runs) were chosen to read as a scaled-down version of the row gutters
++ * already used above: pad_x/gutter is 10px there, so 12px inside a shorter
++ * capsule and 6px between its three runs keep the same rough proportion. */
++#define BM_PILLS_ROW_PAD_X 20
++#define BM_PILLS_ROW_PAD_Y 14
++#define BM_PILLS_GAP 8
++#define BM_PILL_PAD_X 12
++#define BM_PILL_PAD_Y 8
++#define BM_PILL_DOT 6
++#define BM_PILL_RUN_GAP 6
++#define BM_PILL_COUNT_PT 10.0
++#define BM_PILL_COUNT_ALPHA 0.55f
++#define BM_PILL_ACTIVE_DOT_ALPHA 0.45f
++
++/**
++ * Variant of bm_pango_get_layout() that overrides the font's point size.
++ * The pill bar's count run is the only caller: it is drawn smaller than the
++ * configured item font, so it needs its own PangoFontDescription rather than
++ * paint->font's.
++ */
++static inline PangoLayout*
++bm_pango_get_layout_sized(struct cairo *cairo, struct cairo_paint *paint, const char *buffer, double points)
++{
++    PangoLayout *layout = pango_cairo_create_layout(cairo->cr);
++    pango_layout_set_text(layout, buffer, -1);
++    PangoFontDescription *desc = pango_font_description_from_string(paint->font);
++    pango_font_description_set_size(desc, (gint)(points * PANGO_SCALE));
++    pango_layout_set_font_description(layout, desc);
++    pango_layout_set_single_paragraph_mode(layout, 1);
++    pango_font_description_free(desc);
++    return layout;
++}
++
++static inline uint32_t
++bm_cairo_run_width_sized(struct cairo *cairo, struct cairo_paint *paint, const char *text, double points)
++{
++    if (!text || !*text)
++        return 0;
++    PangoLayout *layout = bm_pango_get_layout_sized(cairo, paint, text, points);
++    int w, h;
++    pango_layout_get_pixel_size(layout, &w, &h);
++    g_object_unref(layout);
++    return (uint32_t)w;
++}
++
++/**
++ * Sized counterpart to bm_cairo_draw_run(): same NOTE about the (r, b, g, a)
++ * argument order applies here.
++ */
++static inline uint32_t
++bm_cairo_draw_run_sized(struct cairo *cairo, struct cairo_paint *paint, const struct cairo_color *color,
++                        const char *text, int32_t x, int32_t baseline_y, int32_t max_width, double points)
++{
++    if (!text || !*text || max_width <= 0)
++        return 0;
++
++    PangoLayout *layout = bm_pango_get_layout_sized(cairo, paint, text, points);
++    pango_cairo_update_layout(cairo->cr, layout);
++
++    int w, h;
++    pango_layout_get_pixel_size(layout, &w, &h);
++    int base = pango_layout_get_baseline(layout) / PANGO_SCALE;
++
++    cairo_set_source_rgba(cairo->cr, color->r, color->b, color->g, color->a);
++    cairo_move_to(cairo->cr, x, baseline_y - base);
++    pango_cairo_show_layout(cairo->cr, layout);
++    g_object_unref(layout);
++
++    return (uint32_t)MIN(w, max_width);
++}
++
++/**
++ * Height of the pill bar row, or 0 when rich mode has no pills to draw.
++ *
++ * 14px of padding above and below a single row of capsules; the capsule
++ * itself is the item font's own ascent+descent (ascii_height, as measured by
++ * the caller) plus 8px of internal padding above and below the label, so it
++ * scales with the configured font instead of a hard-coded pixel height.
++ */
++static inline uint32_t
++bm_cairo_pills_row_height(struct bm_menu *menu, uint32_t ascii_height)
++{
++    if (!menu->rich_rows || menu->pill_count == 0)
++        return 0;
++    return BM_PILLS_ROW_PAD_Y * 2 + ascii_height + BM_PILL_PAD_Y * 2;
++}
++
++/**
++ * Draw the filter pill bar between the search row and the list: `All
++ * <total>` plus one capsule per bm_menu_set_pills() entry, each a leading
++ * dot, the label, and the count in a smaller, dimmer run.
++ *
++ * Two states only, matching what a keyboard-only launcher can actually
++ * reach: the active pill (menu->pill_active) is a filled capsule in
++ * BM_COLOR_HIGHLIGHTED_BG/_FG with its dot darkened to 45% alpha of the text
++ * colour; every other pill is an outline in BM_COLOR_BORDER over
++ * BM_COLOR_ALTERNATE_FG text with the dot at full colour. The count run is
++ * always at 55% alpha of whichever text colour the pill is using.
++ */
++static inline void
++bm_cairo_paint_pills_row(struct cairo *cairo, struct cairo_paint *paint, struct bm_menu *menu,
++                         uint32_t width, uint32_t posy, uint32_t row_h)
++{
++    const uint32_t pill_h = row_h - BM_PILLS_ROW_PAD_Y * 2;
++    const uint32_t pill_y = posy + BM_PILLS_ROW_PAD_Y;
++    const double radius = pill_h / 2.0;
++
++    struct cairo_color border_color, default_fg, active_bg, active_fg;
++    bm_cairo_color_from_menu_color(menu, BM_COLOR_BORDER, &border_color);
++    bm_cairo_color_from_menu_color(menu, BM_COLOR_ALTERNATE_FG, &default_fg);
++    bm_cairo_color_from_menu_color(menu, BM_COLOR_HIGHLIGHTED_BG, &active_bg);
++    bm_cairo_color_from_menu_color(menu, BM_COLOR_HIGHLIGHTED_FG, &active_fg);
++
++    uint32_t x = BM_PILLS_ROW_PAD_X;
++    const int32_t baseline = (int32_t)(pill_y + pill_h / 2 + paint->baseline / 2);
++
++    for (uint32_t i = 0; i < menu->pill_count && x < width; ++i) {
++        const struct bm_pill *pill = &menu->pills[i];
++        const bool active = (i == menu->pill_active);
++        const struct cairo_color *fg = (active ? &active_fg : &default_fg);
++
++        char count_text[16];
++        snprintf(count_text, sizeof(count_text), "%u", pill->count);
++
++        const uint32_t label_w = bm_cairo_run_width(cairo, paint, pill->label);
++        const uint32_t count_w = bm_cairo_run_width_sized(cairo, paint, count_text, BM_PILL_COUNT_PT);
++        const uint32_t content_w = BM_PILL_DOT + BM_PILL_RUN_GAP + label_w + BM_PILL_RUN_GAP + count_w;
++        const uint32_t pill_w = BM_PILL_PAD_X * 2 + content_w;
++
++        if (x + pill_w > width)
++            break;
++
++        if (active) {
++            bm_cairo_rounded_path(cairo->cr, x, pill_y, pill_w, pill_h, radius);
++            cairo_set_source_rgba(cairo->cr, active_bg.r, active_bg.b, active_bg.g, active_bg.a);
++            cairo_fill(cairo->cr);
++        } else {
++            bm_cairo_rounded_path(cairo->cr, x + 0.5, pill_y + 0.5, pill_w - 1, pill_h - 1, radius - 0.5);
++            cairo_set_source_rgba(cairo->cr, border_color.r, border_color.b, border_color.g, border_color.a);
++            cairo_set_line_width(cairo->cr, 1.0);
++            cairo_stroke(cairo->cr);
++        }
++
++        uint32_t cx = x + BM_PILL_PAD_X;
++
++        struct cairo_color dot_color = *fg;
++        if (active)
++            dot_color.a *= BM_PILL_ACTIVE_DOT_ALPHA;
++        cairo_set_source_rgba(cairo->cr, dot_color.r, dot_color.b, dot_color.g, dot_color.a);
++        cairo_arc(cairo->cr, cx + BM_PILL_DOT / 2.0, pill_y + pill_h / 2.0, BM_PILL_DOT / 2.0, 0, 2 * M_PI);
++        cairo_fill(cairo->cr);
++        cx += BM_PILL_DOT + BM_PILL_RUN_GAP;
++
++        bm_cairo_draw_run(cairo, paint, fg, pill->label, (int32_t)cx, baseline, (int32_t)label_w + 1, false);
++        cx += label_w + BM_PILL_RUN_GAP;
++
++        struct cairo_color count_color = *fg;
++        count_color.a *= BM_PILL_COUNT_ALPHA;
++        bm_cairo_draw_run_sized(cairo, paint, &count_color, count_text, (int32_t)cx, baseline,
++                                (int32_t)count_w + 1, BM_PILL_COUNT_PT);
++
++        x += pill_w + BM_PILLS_GAP;
++    }
++}
++
+ static inline void
+ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct bm_menu *menu, struct cairo_paint_result *out_result)
+ {
+@@ -573,6 +740,11 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+     uint32_t search_h = (rich_search ? fmin(menu->search_height, max_height) : height);
+     uint32_t search_vpadding = (search_h > ascii_height ? (search_h - ascii_height) / 2 : 0);
+
++    /* The filter pill bar sits between the search row and the list; see
++     * bm_cairo_pills_row_height. 0 when rich mode has no pills to draw, so
++     * every use below is a no-op in that case. */
++    const uint32_t pills_h = bm_cairo_pills_row_height(menu, ascii_height);
++
+     double border_radius = menu->border_radius;
+
+     uint32_t total_item_count = menu->items.count;
+@@ -605,7 +777,7 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+         uint32_t rows = menu->lines;
+         if (!menu->fixed_height)
+             rows = MIN(count, rows);
+-        total_height = search_h + rows * (menu->line_height > 0 ? menu->line_height : height)
++        total_height = search_h + pills_h + rows * (menu->line_height > 0 ? menu->line_height : height)
+                      + border_size * 2;
+         total_height = MIN(total_height, max_height);
+     } else {
+@@ -695,7 +867,14 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+         cairo_fill(cairo->cr);
+     }
+
+-    uint32_t posy = (menu->lines_mode == BM_LINES_UP ? 0 : titleh);
++    /* The pill bar is rich-mode-only and rich mode already assumes
++     * BM_LINES_DOWN (see bm_cairo_paint_rich_rows's own doc comment); only
++     * displace the downward list start; BM_LINES_UP is left exactly as
++     * before, same as the rest of the rich-mode geometry. */
++    if (pills_h > 0 && menu->lines_mode != BM_LINES_UP)
++        bm_cairo_paint_pills_row(cairo, &paint, menu, width / cairo->scale, titleh, pills_h);
++
++    uint32_t posy = (menu->lines_mode == BM_LINES_UP ? 0 : titleh + pills_h);
+     uint32_t spacing_x = menu->spacing ? title_x : 0, spacing_y = 0; // 0 == variable width spacing
+
+     if (menu->lines > 0 && menu->rich_rows) {

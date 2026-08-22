@@ -108,6 +108,8 @@ extern "C" {
     fn bm_menu_set_rich_rows(menu: *mut BmMenu, rich: bool);
     fn bm_menu_set_icon_size(menu: *mut BmMenu, size: c_uint);
     fn bm_menu_set_search_height(menu: *mut BmMenu, height: c_uint);
+    fn bm_menu_set_pills(menu: *mut BmMenu, spec: *const c_char, active: c_uint);
+    fn bm_menu_get_active_pill(menu: *mut BmMenu) -> c_uint;
 
     fn bm_item_new(text: *const c_char) -> *mut BmItem;
     fn bm_item_set_subtitle(item: *mut BmItem, text: *const c_char) -> bool;
@@ -210,7 +212,11 @@ impl Menu {
             (BM_COLOR_CURSOR_FG, &theme.foreground),
             (BM_COLOR_ITEM_BG, &theme.background),
             (BM_COLOR_ITEM_FG, &theme.foreground),
-            (BM_COLOR_HIGHLIGHTED_BG, &theme.selected_background),
+            // The pill bar's active capsule and the highlighted list row
+            // share this pair (patch 06), so the accent used for one is the
+            // accent used for both; the foreground half is left on
+            // selected_foreground, unchanged from before this field existed.
+            (BM_COLOR_HIGHLIGHTED_BG, &theme.accent),
             (BM_COLOR_HIGHLIGHTED_FG, &theme.selected_foreground),
             (BM_COLOR_SELECTED_BG, &theme.selected_background),
             (BM_COLOR_SELECTED_FG, &theme.selected_foreground),
@@ -323,6 +329,25 @@ impl Menu {
         // SAFETY: bm_menu_set_filter copies the string.
         let query = cstr(query);
         unsafe { bm_menu_set_filter(self.ptr, query.as_ptr()) };
+    }
+
+    /// Set the filter pill bar, drawn between the search row and the list.
+    ///
+    /// `spec` is `\x1f`-separated `label:count` entries; empty clears the
+    /// bar. `active` is the pill to mark active, clamped to the last entry
+    /// by the C side when out of range.
+    pub fn set_pills(&self, spec: &str, active: u32) {
+        // SAFETY: bm_menu_set_pills copies spec for the duration of the
+        // call; self.ptr is non-null for the lifetime of this Menu.
+        let spec = cstr(spec);
+        unsafe { bm_menu_set_pills(self.ptr, spec.as_ptr(), active) };
+    }
+
+    /// Index of the active pill, last moved by Tab/Shift+Tab in rich mode.
+    #[must_use]
+    pub fn active_pill(&self) -> u32 {
+        // SAFETY: self.ptr is non-null for the lifetime of this Menu.
+        unsafe { bm_menu_get_active_pill(self.ptr) }
     }
 
     /// Index of the highlighted row, read back out of its userdata.

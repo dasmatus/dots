@@ -25,7 +25,7 @@ use anyhow::Result;
 use crate::config::Config;
 use crate::frame::{Frame, Stack};
 use crate::item::{Action, Item};
-use crate::providers::{Ctx, Provider};
+use crate::providers::{Ctx, Provider, Trigger};
 
 /// Everything the launcher needs to answer a query.
 pub struct App {
@@ -115,26 +115,153 @@ impl Default for App {
     }
 }
 
+/// The filter pill bar's ordered model: `All` plus one pill per ambient
+/// provider, in registry order.
+///
+/// Built once from [`providers::all`]'s registry order rather than naming
+/// any provider, so a later plugin provider earns a pill with zero changes
+/// here. Keyworded providers (`=`, `:`, `c `, `f `, `w `) are prefix-triggered
+/// modes rather than list-and-filter sources and are left out.
+pub struct Pills {
+    labels: Vec<&'static str>,
+}
+
+impl Pills {
+    /// Collect the ambient providers' section labels, in registry order.
+    #[must_use]
+    pub fn new(providers: &[Box<dyn Provider>]) -> Self {
+        Self {
+            labels: providers
+                .iter()
+                .filter(|p| p.trigger() == Trigger::Ambient)
+                .map(|p| p.section())
+                .collect(),
+        }
+    }
+
+    /// Section labels, in the same order as pill indices 1.. (index 0 is
+    /// always `All`, which has no section of its own).
+    #[must_use]
+    pub fn labels(&self) -> &[&'static str] {
+        &self.labels
+    }
+
+    /// The `bm_menu_set_pills` spec for `ambient`: `All:<total>` followed by
+    /// one `\x1f`-separated `label:count` entry per pill, in registry order.
+    #[must_use]
+    pub fn spec(&self, ambient: &[Item]) -> String {
+        let mut counts = vec![0usize; self.labels.len()];
+        for item in ambient {
+            if let Some(section) = item.section.as_deref() {
+                if let Some(i) = self.labels.iter().position(|label| *label == section) {
+                    counts[i] += 1;
+                }
+            }
+        }
+
+        let mut spec = format!("All:{}", ambient.len());
+        for (label, count) in self.labels.iter().zip(&counts) {
+            spec.push('\u{1f}');
+            spec.push_str(label);
+            spec.push(':');
+            spec.push_str(&count.to_string());
+        }
+        spec
+    }
+
+    /// Rows to display for pill `active`: every ambient row for pill 0
+    /// (`All`), or only the rows whose section is that pill's provider.
+    ///
+    /// Filtering `ambient` rather than re-querying the provider directly
+    /// gives the same rows either way — `rank::rank` only drops non-matches,
+    /// it never truncates — while keeping this a pure function of results
+    /// [`App::results`] already computed.
+    #[must_use]
+    pub fn filter(&self, ambient: &[Item], active: u32) -> Vec<Item> {
+        let label = active
+            .checked_sub(1)
+            .and_then(|i| self.labels.get(i as usize));
+
+        let Some(label) = label else {
+            return ambient.to_vec();
+        };
+
+        ambient
+            .iter()
+            .filter(|item| item.section.as_deref() == Some(*label))
+            .cloned()
+            .collect()
+    }
+}
+
+/// Recompute the pill bar and the row list together and push both to the
+/// menu, returning the rows now shown.
+///
+/// Pills are root-only: a pushed frame (the Ctrl+K action panel, or a future
+/// `Action::Push` continuation) clears the bar rather than show providers
+/// that frame's rows have nothing to do with. With the bar cleared,
+/// `bm_menu_get_active_pill` reads back whatever it last was and
+/// Tab/Shift+Tab fall through to their stock bindings again (the C side only
+/// intercepts them while `pill_count > 0`), which is the behaviour an action
+/// panel wants.
+fn sync(
+    menu: &mut view::Menu,
+    app: &App,
+    query: &str,
+    pills: &Pills,
+    active_pill: u32,
+) -> Vec<Item> {
+    let ambient = app.results(query);
+
+    if !app.stack.is_empty() {
+        menu.set_pills("", 0);
+        menu.set_items(&ambient);
+        return ambient;
+    }
+
+    menu.set_pills(&pills.spec(&ambient), active_pill);
+    let shown = pills.filter(&ambient, active_pill);
+    menu.set_items(&shown);
+    shown
+}
+
 /// Drive the launcher until it is dismissed or an item is activated.
 ///
 /// # Errors
 /// Fails when no renderer can be opened, or when an activated action fails.
 pub fn run(app: &mut App) -> Result<()> {
     let mut menu = view::Menu::new(&app.ctx.config)?;
-    let mut shown = app.results("");
-    menu.set_items(&shown);
+    let pills = Pills::new(&app.providers);
 
     let mut last_query = String::new();
+    let mut active_pill: u32 = 0;
+    let mut shown = sync(&mut menu, app, &last_query, &pills, active_pill);
 
     loop {
         match menu.pump() {
             view::Outcome::Running { query } => {
                 // Rebuilding on every frame would re-scan the desktop entries
                 // for a keystroke that only moved the highlight.
-                if query != last_query {
+                let mut dirty = query != last_query;
+                if dirty {
                     last_query.clone_from(&query);
-                    shown = app.results(&query);
-                    menu.set_items(&shown);
+                }
+
+                // Polling only at the root keeps a Tab press inside the
+                // action panel doing what it always did (highlight-next):
+                // the pill bar is cleared there, so the C side never
+                // intercepts Tab in the first place, but this still avoids
+                // reading back a stale index while it's inert.
+                if app.stack.is_empty() {
+                    let polled = menu.active_pill();
+                    if polled != active_pill {
+                        active_pill = polled;
+                        dirty = true;
+                    }
+                }
+
+                if dirty {
+                    shown = sync(&mut menu, app, &last_query, &pills, active_pill);
                 }
             }
             view::Outcome::Selected { index } => {
@@ -150,8 +277,7 @@ pub fn run(app: &mut App) -> Result<()> {
                     let _ = provider;
                     menu.set_query(query);
                     last_query.clone_from(query);
-                    shown = app.results(query);
-                    menu.set_items(&shown);
+                    shown = sync(&mut menu, app, query, &pills, active_pill);
                     continue;
                 }
                 app.activate(&item)?;
@@ -162,8 +288,7 @@ pub fn run(app: &mut App) -> Result<()> {
                     continue;
                 };
                 if app.open_actions(&item) {
-                    shown = app.results("");
-                    menu.set_items(&shown);
+                    shown = sync(&mut menu, app, "", &pills, active_pill);
                 }
             }
             view::Outcome::Cancelled => {
@@ -174,8 +299,7 @@ pub fn run(app: &mut App) -> Result<()> {
                     Some(query) => {
                         menu.set_query(&query);
                         last_query.clone_from(&query);
-                        shown = app.results(&query);
-                        menu.set_items(&shown);
+                        shown = sync(&mut menu, app, &last_query, &pills, active_pill);
                     }
                     None => return Ok(()),
                 }
