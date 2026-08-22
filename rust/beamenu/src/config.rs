@@ -37,21 +37,23 @@ fn default_accent() -> String {
 }
 
 impl Default for Theme {
-    /// The Tokyonight ramp from `nix/home/rofi/tokyonight.rasi`, so the
-    /// launcher reads as the same surface the old rofi menus did.
+    /// The binding design palette: panel `#0d1013`, border `#1e252c`, text
+    /// `#e6ebef`, muted `#5b6672`, accent `#7fd6c2`, and near-black
+    /// `#08110e` for text drawn on the accent fill (the highlighted row,
+    /// and the selection colours that share its foreground slot).
     ///
     /// Kept in step with `nix/home/beamenu.nix`, which writes these same
     /// values into config.json. This is the fallback for a missing or
     /// unparseable file, not the configured path.
     fn default() -> Self {
         Self {
-            background: "#1a1b26f2".into(),
-            foreground: "#a9b1d6ff".into(),
-            muted: "#6a6f87ff".into(),
-            selected_background: "#2d3252ff".into(),
-            selected_foreground: "#c0caf5ff".into(),
-            border: "#2d3252ff".into(),
-            heading: "#7aa2f7ee".into(),
+            background: "#0d1013f2".into(),
+            foreground: "#e6ebefff".into(),
+            muted: "#5b6672ff".into(),
+            selected_background: "#7fd6c2ff".into(),
+            selected_foreground: "#08110eff".into(),
+            border: "#1e252cff".into(),
+            heading: "#7fd6c2ee".into(),
             font: "Lilex Nerd Font 12".into(),
             accent: default_accent(),
         }
