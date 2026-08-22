@@ -28,6 +28,7 @@ let
         hyprmon = inputs.self.packages.x86_64-linux.hyprmon;
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
         beamenuPkg = inputs.self.packages.x86_64-linux.beamenu;
+        beamenuCanvasPkg = inputs.self.packages.x86_64-linux.beamenu-canvas;
         claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;
       };
       modules = [

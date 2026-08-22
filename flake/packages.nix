@@ -54,6 +54,28 @@ self: {
     meta.mainProgram = "beamenu";
   };
 
+  # beamenu-canvas — the WebKitGTK sidecar beamenu spawns for a plugin's
+  # `view` command: a layer-shell window that renders the command's output
+  # (streamed log text, or a JSON-RPC-driven component tree) under one
+  # host-enforced design system. Workers never supply CSS or HTML, only
+  # typed component trees; see rust/beamenu-canvas for the protocol.
+  beamenu-canvas = pkgs.rustPlatform.buildRustPackage {
+    pname = "beamenu-canvas";
+    version = "0.1.0";
+    src = ../rust/beamenu-canvas;
+    cargoLock.lockFile = ../rust/beamenu-canvas/Cargo.lock;
+    nativeBuildInputs = [
+      pkgs.pkg-config
+      pkgs.wrapGAppsHook4
+    ];
+    buildInputs = [
+      pkgs.gtk4
+      pkgs.webkitgtk_6_0
+      pkgs.gtk4-layer-shell
+    ];
+    meta.mainProgram = "beamenu-canvas";
+  };
+
   # Claude Desktop for Linux (beta) — repackaged from Anthropic's .deb, which
   # is the only distribution channel upstream offers. See nix/claude-desktop.nix.
   claude-desktop = pkgsClaude.callPackage ../nix/claude-desktop.nix { };

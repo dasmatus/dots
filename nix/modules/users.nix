@@ -14,6 +14,7 @@
   hyprmon,
   settingsMenu,
   beamenuPkg,
+  beamenuCanvasPkg,
   claudeDesktop,
   ...
 }:
@@ -121,6 +122,7 @@ in
         hyprmon
         settingsMenu
         beamenuPkg
+        beamenuCanvasPkg
         claudeDesktop
         ;
       dots = config.dots;
