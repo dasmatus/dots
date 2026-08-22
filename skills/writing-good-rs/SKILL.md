@@ -1,6 +1,6 @@
 ---
 name: writing-good-rs
-description: Use when writing, reviewing, or editing Rust code: choosing an error-handling crate, writing or placing tests, adding logging, using iterators vs index loops, spawning threads or channels, considering unstable features, or benchmarking a Cargo crate.
+description: Use when writing, reviewing, or editing Rust code, including choosing an error-handling crate, writing or placing tests, adding logging, using iterators vs index loops, spawning threads or channels, considering unstable features, or benchmarking a Cargo crate.
 ---
 
 # Writing good Rust
