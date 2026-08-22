@@ -24,11 +24,10 @@
 {
   home.packages = [ settingsMenu ];
 
-  # programs.beamenu.plugins is added by a parallel task (not yet present in
-  # this worktree at time of writing — see task-F-brief.md); this config is
-  # written against its binding schema regardless, per the brief.
+  # programs.beamenu.plugins: the attribute name (`settings`, below) doubles
+  # as the manifest's `name` field — the module injects it at render time,
+  # so it is not a settable option here.
   programs.beamenu.plugins.settings = {
-    name = "settings";
     title = "Settings";
     keyword = "set";
     commands = [

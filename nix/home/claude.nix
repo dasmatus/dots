@@ -7,6 +7,7 @@
   pkgs,
   lib,
   dots,
+  claudeDesktop,
   ...
 }:
 let
@@ -218,19 +219,18 @@ in
 
   # Beamenu plugin manifest: an "Ask Claude" one-shot prompt, a terminal
   # drop-in, and a usage readout. `programs.beamenu.plugins` lands via a
-  # parallel task on the same plan — this worktree was cut before it (and
-  # before the claude-desktop packaging, hence `icon = null` below), so gate
-  # visibility with lib.mkIf the same way the rest of this file gates on
-  # dots.ai.claude: eval stays inert here and picks the block up once both
-  # land on merge.
+  # parallel task on the same plan, so gate visibility with lib.mkIf the same
+  # way the rest of this file gates on dots.ai.claude: eval stays inert here
+  # until both land on merge.
   programs.beamenu.plugins = lib.mkIf dots.ai.claude {
     claude = {
-      name = "claude";
+      # The attribute name (`claude`, above) doubles as the manifest's
+      # `name` field — the module injects it at render time, so it is not
+      # a settable option here.
       title = "Claude Code";
-      # nix/claude-desktop.nix and its `claudeDesktop` specialArg (which
-      # would give a hicolor icon store path) aren't present in this
-      # worktree — it was branched before that packaging landed.
-      icon = null;
+      # Largest hicolor size nix/claude-desktop.nix installs (it ships
+      # 16/32/48/128/256), so it downscales cleanly to beamenu's icon_size.
+      icon = "${claudeDesktop}/share/icons/hicolor/256x256/apps/claude-desktop.png";
       keyword = "cl";
       commands = [
         {
