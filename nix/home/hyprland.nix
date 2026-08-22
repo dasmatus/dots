@@ -416,13 +416,18 @@ in
             (lua ''hl.dsp.exec_cmd("~/.config/eww/scripts/keybinds.sh --force")'')
           ];
         }
-        # rofi settings menu (nix/home/settings-menu.nix): edit the installer
-        # answers in /var/lib/dots/settings.nix; the file write goes through
-        # pkexec. By name, since the package is in home.packages.
+        # Settings menu (nix/home/settings-menu.nix): opens the "settings"
+        # beamenu plugin's view directly in beamenu-canvas rather than going
+        # through the launcher's search UI first — `global-settings serve`
+        # is the RPC worker behind it; the file write goes through pkexec.
+        # The launcher has no direct-open flag yet, so this binds straight
+        # to the canvas sidecar with the plugin's manifest/command (argv
+        # contract from task-C/task-B: `beamenu-canvas --manifest <path>
+        # --command <id>`).
         {
           _args = [
             (lua ''mod .. " + comma"'')
-            (lua ''hl.dsp.exec_cmd("global-settings")'')
+            (lua ''hl.dsp.exec_cmd("beamenu-canvas --manifest ~/.config/beamenu/plugins/settings.json --command edit")'')
           ];
         }
         # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved

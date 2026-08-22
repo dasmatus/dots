@@ -39,7 +39,7 @@ let
       }
       {
         key = "SUPER + ,";
-        desc = "Settings menu";
+        desc = "Settings menu (beamenu)";
       }
     ];
     window = [
