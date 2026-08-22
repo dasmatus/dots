@@ -91,23 +91,25 @@ let
         mcp.run()
       '';
 
-  # The pstack plugin (github.com/cursor/plugins) — poteto's rigorous
-  # agent-workflow skills + subagents. The upstream repo is a Cursor
-  # `.cursor-plugin/` marketplace, which Claude Code does not read; but a
-  # plugin manifest is optional in Claude Code — it auto-discovers a
-  # `skills/` and `agents/` subdir at the plugin root and derives the name
-  # from the directory — so pointing `programs.claude-code.plugins.pstack`
-  # straight at the fetched `pstack/` dir works with no third-party
-  # `.claude-plugin/` shim fork. fetchFromGitHub (not builtins.fetchGit) so
-  # the output path is hash-determined and the offline installer can
-  # substitute it without the fetcher cache — the same reason nix/aipage.nix
-  # uses a derivation. rev pinned to the cursor/plugins main HEAD at adoption
-  # time; bump deliberately with `nix flake update`-style intent.
-  cursorPlugins = pkgs.fetchFromGitHub {
-    owner = "cursor";
-    repo = "plugins";
-    rev = "60c641e4fad674784b30abcf9f8915dea39df38d";
-    sha256 = "1983c5ivszcbrxyg35hv6zsrv99s42144vrpfk8qrsaaalpzy0n6";
+  # The pstack plugin, fetched from its canonical upstream
+  # (github.com/backnotprop/pstack) rather than the cursor/plugins
+  # marketplace mirror it used to ride in. The repo keeps `skills/` and
+  # `agents/` at its root with only a `.cursor-plugin/` manifest, which
+  # Claude Code does not read; a plugin manifest is optional though, so the
+  # HM module auto-discovers both subdirs and synthesizes the
+  # `.claude-plugin/plugin.json`. Among the skills is
+  # typescript-best-practices, which skills/writing-good-code routes web
+  # work to, so this pin is load-bearing for that umbrella skill.
+  # fetchFromGitHub (not builtins.fetchGit) so the output path is
+  # hash-determined and the offline installer can substitute it without the
+  # fetcher cache, the same reason nix/aipage.nix uses a derivation. rev
+  # pinned to backnotprop/pstack main HEAD at adoption time; bump
+  # deliberately.
+  pstackSrc = pkgs.fetchFromGitHub {
+    owner = "backnotprop";
+    repo = "pstack";
+    rev = "18e0e908a13553b0e58d065ab26dbc9a972ec8ba";
+    sha256 = "1nj8hrvakcpvbi89gvpcj1szr2yr6531w86npyx56msj6683c61m";
   };
 in
 {
@@ -122,13 +124,13 @@ in
       command = "${searxng-mcp}/bin/searxng-mcp";
     };
 
-    # pstack — see `cursorPlugins` above. A personal plugin: the HM module
+    # pstack — see `pstackSrc` above. A personal plugin: the HM module
     # symlinks it into ~/.claude/skills/pstack and synthesizes a
     # .claude-plugin/plugin.json (pstack ships only a .cursor-plugin/ one,
     # which Claude Code ignores), exposing its skills + subagents. Distinct
     # from the marketplace plugins in settings.enabledPlugins below; the two
     # mechanisms coexist.
-    plugins.pstack = "${cursorPlugins}/pstack";
+    plugins.pstack = "${pstackSrc}";
 
     # Personal skills from this repo's skills/ tree (one folder per skill,
     # each holding a SKILL.md). The module symlinks the whole directory into
