@@ -177,7 +177,11 @@ fn apply_sgr(param: &str, fg: &mut Option<AnsiColor>, bold: &mut bool) {
         *bold = false;
         return;
     }
-    for code in param.split(';') {
+    // A plain iterator, not `for`, because 38/48 (extended colour) need to
+    // pull their own payload params out of the same stream before the loop
+    // continues — see below.
+    let mut codes = param.split(';');
+    while let Some(code) = codes.next() {
         let Ok(n) = code.parse::<u32>() else {
             continue;
         };
@@ -191,9 +195,30 @@ fn apply_sgr(param: &str, fg: &mut Option<AnsiColor>, bold: &mut bool) {
             39 => *fg = None,
             30..=37 => *fg = AnsiColor::from_standard_code(n - 30),
             90..=97 => *fg = AnsiColor::from_bright_code(n - 90),
-            // Background colours and everything else fall outside "basic
-            // colour/bold" and are intentionally ignored, not stripped from
-            // the text — they simply don't change rendering state.
+            38 | 48 => {
+                // Extended (256-colour / truecolor) foreground (38) or
+                // background (48) — outside "basic colour/bold" scope, so
+                // its payload is consumed as a UNIT and ignored rather than
+                // left to fall through param-by-param. Falling through
+                // would let a literal "0" or "1" inside the payload (e.g.
+                // the green channel of `38;2;0;255;0`, or the palette index
+                // of `38;5;0`) get misread as an unrelated reset/bold code.
+                match codes.next().and_then(|mode| mode.parse::<u32>().ok()) {
+                    Some(5) => {
+                        codes.next(); // 256-colour palette index
+                    }
+                    Some(2) => {
+                        codes.next(); // r
+                        codes.next(); // g
+                        codes.next(); // b
+                    }
+                    _ => {}
+                }
+            }
+            // Background colours (40-47/100-107) and everything else fall
+            // outside "basic colour/bold" and are intentionally ignored,
+            // not stripped from the text — they simply don't change
+            // rendering state.
             _ => {}
         }
     }

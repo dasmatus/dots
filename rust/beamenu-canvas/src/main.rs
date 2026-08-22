@@ -33,6 +33,12 @@ use worker::{Worker, WorkerLine};
 /// runnable.
 const EXIT_USAGE: u8 = 2;
 
+/// How long the child gets, after `shutdown` is sent (`ui: "rpc"`) or
+/// immediately (`ui: "log"`), to exit on its own before `Worker::kill`
+/// sends it `SIGKILL`. Closing the canvas must never leave a worker or exec
+/// child running past this.
+const SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -73,6 +79,7 @@ fn main() -> ExitCode {
             }
         };
         let worker = Rc::new(RefCell::new(worker));
+        connect_shutdown(app, &canvas, &worker, matches!(ui_mode, Ui::Rpc));
 
         match ui_mode {
             Ui::Log => {
@@ -90,6 +97,49 @@ fn main() -> ExitCode {
     let _ = app.run_with_args(&no_args);
 
     ExitCode::SUCCESS
+}
+
+/// Wire the window's `close-request` (which the Esc handler's
+/// `window.close()` also funnels through) to a graceful-then-forced worker
+/// shutdown: send `shutdown` first for `ui: "rpc"`, then `SIGKILL` the
+/// child if it hasn't exited within `SHUTDOWN_GRACE`.
+///
+/// `app.hold()` keeps the GLib main loop (and so the process) alive for
+/// that grace window even though the window itself is hidden immediately
+/// for an instant-feeling close; the grace timer's `app.quit()` is what
+/// actually ends it. `hold()` returns an `ApplicationHoldGuard` whose
+/// `Drop` is the actual release — it has to be kept alive (here, in a
+/// shared `Rc` cloned into the one-shot timer below) rather than discarded
+/// as a bare statement, or the hold ends the instant it's taken.
+fn connect_shutdown(
+    app: &gtk4::Application,
+    canvas: &Rc<Canvas>,
+    worker: &Rc<RefCell<Worker>>,
+    is_rpc: bool,
+) {
+    let hold_guard = Rc::new(app.hold());
+    let app = app.clone();
+    let worker = worker.clone();
+    canvas.window.connect_close_request(move |window| {
+        window.set_visible(false);
+        if is_rpc {
+            let _ = worker.borrow_mut().send(&rpc::shutdown_notification());
+        }
+        let app = app.clone();
+        let worker = worker.clone();
+        // `timeout_add_local` needs `FnMut`, not `FnOnce`, so the guard
+        // can't be explicitly `drop`-ed inside it (that would only be valid
+        // for a single call) — it's captured by value instead and released
+        // when GLib discards this closure after it returns `Break`.
+        let hold_guard = hold_guard.clone();
+        glib::source::timeout_add_local(SHUTDOWN_GRACE, move || {
+            let _ = &hold_guard; // held, not used — keeps the app alive until here
+            worker.borrow().kill();
+            app.quit();
+            glib::ControlFlow::Break
+        });
+        glib::Propagation::Stop
+    });
 }
 
 /// Poll the worker's channel for `ui: "log"`: raw stdout/stderr text run

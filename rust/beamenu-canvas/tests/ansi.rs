@@ -59,6 +59,42 @@ fn reset_clears_state_for_following_text() {
 }
 
 #[test]
+fn truecolor_sequence_leaves_colour_and_bold_state_untouched() {
+    // 38;2;0;255;0 is truecolor green — out of "basic colour" scope, so it
+    // must be consumed as a unit rather than corrupt state by having its
+    // "0" and "255" component values fall through to the reset/other arms.
+    let spans = parse("\u{1b}[1;38;2;0;255;0mstill bold\u{1b}[0m");
+    assert_eq!(spans[0].fg, None);
+    assert!(spans[0].bold);
+    assert_eq!(spans[0].text, "still bold");
+}
+
+#[test]
+fn reset_after_truecolor_sequence_still_resets() {
+    let spans = parse("\u{1b}[38;2;0;255;0mtruecolor\u{1b}[0mplain");
+    assert_eq!(spans.len(), 2);
+    assert_eq!(spans[1].fg, None);
+    assert!(!spans[1].bold);
+    assert_eq!(spans[1].text, "plain");
+}
+
+#[test]
+fn extended_256_colour_index_is_ignored_without_corrupting_following_codes() {
+    // 38;5;196 is 256-colour red; its palette index component (196, and
+    // critically a case like `38;5;0`) must not be misread as SGR 0
+    // (reset) or leak into whatever code comes after it in the sequence.
+    let spans = parse("\u{1b}[38;5;196;1mbold, not red\u{1b}[0m");
+    assert_eq!(spans[0].fg, None);
+    assert!(spans[0].bold);
+}
+
+#[test]
+fn extended_256_colour_zero_index_does_not_reset() {
+    let spans = parse("\u{1b}[1;38;5;0mstill bold\u{1b}[0m");
+    assert!(spans[0].bold);
+}
+
+#[test]
 fn strips_cursor_movement_sequences() {
     // ESC[2K (erase line) and ESC[10;5H (cursor position) are not `m`
     // sequences and must be dropped along with their parameters, leaving
