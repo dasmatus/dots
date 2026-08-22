@@ -12,6 +12,7 @@ vm-state-*/
 rust/installer-tui/target/
 rust/wallpaper-tui/target/
 rust/hyprmon/target/
+rust/beamenu/target/
 result
 result-*
 

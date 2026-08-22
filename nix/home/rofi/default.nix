@@ -1,6 +1,6 @@
 # Rofi is no longer a user-facing launcher — the app launcher, power menu
-# and file browser all moved to HyprTile (nix/home/hyprtile.nix, SUPER+D /
-# SUPER+SHIFT+E) or Nautilus (SUPER+SHIFT+F) in the HyprTile conversion.
+# and file browser are beamenu (nix/home/beamenu.nix, SUPER+D / SUPER+SHIFT+E)
+# or Nautilus (SUPER+SHIFT+F).
 # What remains here is rofi as a RENDERING DEPENDENCY of the settings menu:
 # rust/settings-global shells out to `rofi -dmenu` (nix/home/settings-menu.nix
 # points it at settings.rasi via GLOBAL_SETTINGS_ROFI_THEME), so the binary

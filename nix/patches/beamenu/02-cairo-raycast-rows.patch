@@ -1,0 +1,447 @@
+Raycast-style row rendering for the beamenu launcher.
+
+Adds bm_menu_set_rich_rows(), which swaps the classic one-string-per-row loop
+for a row that draws: icon, title, muted subtitle, right-aligned accessory,
+and a heading wherever the section changes. Highlight is a rounded pill rather
+than a full-bleed rectangle.
+
+Icons decode through librsvg (SVG) and cairo's own PNG loader, covering what
+XDG icon themes ship, and are cached per (path, size) because the menu
+repaints on every keystroke. gdk-pixbuf is deliberately avoided: its formats
+live in loader modules discovered at runtime via GDK_PIXBUF_MODULE_FILE, which
+would make icon rendering depend on an environment variable reaching the
+wrapper.
+
+The rich path is a separate function rather than a branch inside the existing
+loop: it assumes lines > 0 drawn downwards, which is all beamenu configures,
+so none of the fixed-height / lines-up index arithmetic applies.
+
+diff --git a/GNUmakefile b/GNUmakefile
+index a1fc704..5706c2f 100644
+--- a/GNUmakefile
++++ b/GNUmakefile
+@@ -72,8 +72,8 @@ bemenu-renderer-curses.so: private override LDLIBS += $(shell $(PKG_CONFIG) --li
+ bemenu-renderer-curses.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I ncursesw)
+ bemenu-renderer-curses.so: lib/renderers/curses/curses.c util.a
+ 
+-bemenu-renderer-x11.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs x11 xinerama cairo pango pangocairo)
+-bemenu-renderer-x11.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I x11 xinerama cairo pango pangocairo)
++bemenu-renderer-x11.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs x11 xinerama cairo pango pangocairo librsvg-2.0)
++bemenu-renderer-x11.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I x11 xinerama cairo pango pangocairo librsvg-2.0)
+ bemenu-renderer-x11.so: lib/renderers/cairo_renderer.h lib/renderers/x11/x11.c lib/renderers/x11/x11.h lib/renderers/x11/window.c lib/renderers/x11/xkb_unicode.c lib/renderers/x11/xkb_unicode.h util.a
+ 
+ lib/renderers/wayland/xdg-shell.c:
+@@ -109,8 +109,8 @@ fractional-scale.a: lib/renderers/wayland/fractional-scale-v1.c lib/renderers/wa
+ viewporter.a: private override LDFLAGS += -fPIC
+ viewporter.a: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I wayland-client)
+ viewporter.a: lib/renderers/wayland/viewporter.c lib/renderers/wayland/viewporter.h
+-bemenu-renderer-wayland.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs wayland-client cairo pango pangocairo xkbcommon)
+-bemenu-renderer-wayland.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I wayland-client cairo pango pangocairo xkbcommon)
++bemenu-renderer-wayland.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs wayland-client cairo pango pangocairo librsvg-2.0 xkbcommon)
++bemenu-renderer-wayland.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I wayland-client cairo pango pangocairo librsvg-2.0 xkbcommon)
+ bemenu-renderer-wayland.so: lib/renderers/cairo_renderer.h lib/renderers/wayland/wayland.c lib/renderers/wayland/wayland.h lib/renderers/wayland/registry.c lib/renderers/wayland/window.c xdg-shell.a wlr-layer-shell.a fractional-scale.a viewporter.a util.a
+ 
+ common.a: client/common/common.c client/common/common.h
+diff --git a/lib/bemenu.h b/lib/bemenu.h
+index 0f3a33c..623f36c 100644
+--- a/lib/bemenu.h
++++ b/lib/bemenu.h
+@@ -599,6 +599,42 @@ BM_PUBLIC void bm_menu_set_line_height(struct bm_menu *menu, uint32_t line_heigh
+  */
+ BM_PUBLIC uint32_t bm_menu_get_line_height(struct bm_menu *menu);
+ 
++/**
++ * Draw list rows in the rich layout: a per-item icon, the title, the muted
++ * subtitle, a right-aligned accessory, and headings between sections.
++ *
++ * Only the cairo-backed renderers honour this; curses ignores it and draws
++ * the plain item text. Assumes a vertical list (lines > 0) drawn downwards.
++ *
++ * @param menu bm_menu instance to set the row layout on.
++ * @param rich_rows true for the rich layout, false for one string per row.
++ */
++BM_PUBLIC void bm_menu_set_rich_rows(struct bm_menu *menu, bool rich_rows);
++
++/**
++ * Get whether the menu draws rows in the rich layout.
++ *
++ * @param menu bm_menu instance to query.
++ * @return true if the rich layout is enabled.
++ */
++BM_PUBLIC bool bm_menu_get_rich_rows(struct bm_menu *menu);
++
++/**
++ * Set the edge length of the per-row icon in the rich layout.
++ *
++ * @param menu bm_menu instance where to set the icon size.
++ * @param icon_size 0 for the default, > 0 for that many pixels.
++ */
++BM_PUBLIC void bm_menu_set_icon_size(struct bm_menu *menu, uint32_t icon_size);
++
++/**
++ * Get the edge length of the per-row icon in the rich layout.
++ *
++ * @param menu bm_menu instance to query.
++ * @return uint32_t icon edge length in pixels, 0 when defaulted.
++ */
++BM_PUBLIC uint32_t bm_menu_get_icon_size(struct bm_menu *menu);
++
+ /**
+  * Set height of cursor in pixels.
+  * Some renderers such as ncurses may ignore this when it does not make sense.
+diff --git a/lib/internal.h b/lib/internal.h
+index c0a9205..131a690 100644
+--- a/lib/internal.h
++++ b/lib/internal.h
+@@ -444,6 +444,19 @@ struct bm_menu {
+      */
+     double border_radius;
+ 
++    /**
++     * Draw list rows in the rich layout, meaning icon, title, muted subtitle,
++     * right-aligned accessory and section headings, instead of the classic
++     * one-string-per-row loop. Assumes lines > 0 and BM_LINES_DOWN.
++     */
++    bool rich_rows;
++
++    /**
++     * Edge length of the per-row icon in the rich layout, in pixels.
++     * 0 selects the built-in default.
++     */
++    uint32_t icon_size;
++
+     /**
+      * Is menu grabbed?
+      */
+diff --git a/lib/menu.c b/lib/menu.c
+index 741d782..c01a6ef 100644
+--- a/lib/menu.c
++++ b/lib/menu.c
+@@ -318,6 +318,36 @@ bm_menu_get_line_height(struct bm_menu *menu)
+     return menu->line_height;
+ }
+ 
++void
++bm_menu_set_rich_rows(struct bm_menu *menu, bool rich_rows)
++{
++    assert(menu);
++    menu->rich_rows = rich_rows;
++}
++
++bool
++bm_menu_get_rich_rows(struct bm_menu *menu)
++{
++    assert(menu);
++
++    return menu->rich_rows;
++}
++
++void
++bm_menu_set_icon_size(struct bm_menu *menu, uint32_t icon_size)
++{
++    assert(menu);
++    menu->icon_size = icon_size;
++}
++
++uint32_t
++bm_menu_get_icon_size(struct bm_menu *menu)
++{
++    assert(menu);
++
++    return menu->icon_size;
++}
++
+ void
+ bm_menu_set_cursor_height(struct bm_menu *menu, uint32_t cursor_height)
+ {
+diff --git a/lib/renderers/cairo_renderer.h b/lib/renderers/cairo_renderer.h
+index f0543f5..ca6cf83 100644
+--- a/lib/renderers/cairo_renderer.h
++++ b/lib/renderers/cairo_renderer.h
+@@ -3,10 +3,12 @@
+ 
+ #include "internal.h"
+ #include <string.h>
++#include <strings.h>
+ #include <assert.h>
+ #include <math.h>
+ #include <cairo.h>
+ #include <pango/pangocairo.h>
++#include <librsvg/rsvg.h>
+ 
+ struct cairo {
+     cairo_t *cr;
+@@ -279,6 +281,260 @@ bm_cairo_rounded_path(cairo_t *cr, double x, double y, double width, double heig
+ }
+ 
+ 
++/**
++ * Icon cache.
++ *
++ * The menu repaints on every keystroke, and decoding an SVG once per row per
++ * frame is far too slow to keep a launcher responsive. Entries are keyed by
++ * (path, size) and never evicted: a session's icon set is bounded by the
++ * number of installed applications, and each surface costs at most
++ * size * size * 4 bytes. A failed load is cached as a NULL surface so a
++ * broken path is retried at most once.
++ */
++#define BM_ICON_CACHE_MAX 512
++
++struct bm_icon_entry {
++    char *path;
++    uint32_t size;
++    cairo_surface_t *surface;
++};
++
++static struct bm_icon_entry icon_cache[BM_ICON_CACHE_MAX];
++static size_t icon_cache_len = 0;
++
++static inline bool
++bm_cairo_has_suffix(const char *str, const char *suffix)
++{
++    size_t l = strlen(str), s = strlen(suffix);
++    return l >= s && !strcasecmp(str + l - s, suffix);
++}
++
++/**
++ * Decode *path* into a size*size ARGB32 surface.
++ *
++ * SVG goes through librsvg and PNG through cairo's own loader, which between
++ * them cover every format XDG icon themes actually ship. Deliberately not
++ * gdk-pixbuf: its format support is spread across loader modules discovered
++ * at runtime via GDK_PIXBUF_MODULE_FILE, which would make icon rendering
++ * depend on an environment variable surviving all the way to the wrapper.
++ *
++ * Returns NULL for an unreadable or unsupported file; callers draw an empty
++ * gutter rather than an error glyph.
++ */
++static inline cairo_surface_t *
++bm_cairo_icon_load(const char *path, uint32_t size)
++{
++    for (size_t i = 0; i < icon_cache_len; ++i) {
++        if (icon_cache[i].size == size && !strcmp(icon_cache[i].path, path))
++            return icon_cache[i].surface;
++    }
++
++    cairo_surface_t *surface = NULL;
++
++    if (bm_cairo_has_suffix(path, ".svg")) {
++        RsvgHandle *handle = rsvg_handle_new_from_file(path, NULL);
++        if (handle) {
++            surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
++            cairo_t *cr = cairo_create(surface);
++            RsvgRectangle viewport = { 0.0, 0.0, (double)size, (double)size };
++            if (!rsvg_handle_render_document(handle, cr, &viewport, NULL)) {
++                cairo_surface_destroy(surface);
++                surface = NULL;
++            }
++            cairo_destroy(cr);
++            g_object_unref(handle);
++        }
++    } else if (bm_cairo_has_suffix(path, ".png")) {
++        cairo_surface_t *png = cairo_image_surface_create_from_png(path);
++        if (cairo_surface_status(png) == CAIRO_STATUS_SUCCESS) {
++            double sw = cairo_image_surface_get_width(png);
++            double sh = cairo_image_surface_get_height(png);
++            if (sw > 0 && sh > 0) {
++                surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
++                cairo_t *cr = cairo_create(surface);
++                cairo_scale(cr, (double)size / sw, (double)size / sh);
++                cairo_set_source_surface(cr, png, 0, 0);
++                cairo_paint(cr);
++                cairo_destroy(cr);
++            }
++        }
++        cairo_surface_destroy(png);
++    }
++
++    if (icon_cache_len < BM_ICON_CACHE_MAX) {
++        char *copy = bm_strdup(path);
++        if (copy) {
++            icon_cache[icon_cache_len].path = copy;
++            icon_cache[icon_cache_len].size = size;
++            icon_cache[icon_cache_len].surface = surface;
++            icon_cache_len++;
++        }
++    }
++
++    return surface;
++}
++
++/**
++ * Draw one Pango run at (x, baseline_y) in *color*, clipped to *max_width*
++ * and ellipsized at the end. Returns the drawn width in pixels.
++ *
++ * NOTE the (r, b, g, a) argument order to cairo_set_source_rgba, matching
++ * every other call site in this file: bm_menu_set_color parses "#RRGGBB"
++ * with sscanf("#%2x%2x%2x%2x", &r, &b, &g, &a), so struct bm_hex_color's
++ * .g field holds the blue byte and .b holds the green one. The two swaps
++ * cancel; breaking the pairing here would transpose green and blue.
++ */
++static inline uint32_t
++bm_cairo_draw_run(struct cairo *cairo, struct cairo_paint *paint, const struct cairo_color *color,
++                  const char *text, int32_t x, int32_t baseline_y, int32_t max_width, bool ellipsize)
++{
++    if (!text || !*text || max_width <= 0)
++        return 0;
++
++    PangoLayout *layout = bm_pango_get_layout(cairo, paint, text);
++    if (ellipsize) {
++        pango_layout_set_width(layout, max_width * PANGO_SCALE);
++        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
++    }
++    pango_cairo_update_layout(cairo->cr, layout);
++
++    int w, h;
++    pango_layout_get_pixel_size(layout, &w, &h);
++    int base = pango_layout_get_baseline(layout) / PANGO_SCALE;
++
++    cairo_set_source_rgba(cairo->cr, color->r, color->b, color->g, color->a);
++    cairo_move_to(cairo->cr, x, baseline_y - base);
++    pango_cairo_show_layout(cairo->cr, layout);
++    g_object_unref(layout);
++
++    return (uint32_t)MIN(w, max_width);
++}
++
++static inline uint32_t
++bm_cairo_run_width(struct cairo *cairo, struct cairo_paint *paint, const char *text)
++{
++    if (!text || !*text)
++        return 0;
++    PangoLayout *layout = bm_pango_get_layout(cairo, paint, text);
++    int w, h;
++    pango_layout_get_pixel_size(layout, &w, &h);
++    g_object_unref(layout);
++    return (uint32_t)w;
++}
++
++/**
++ * Rich (Raycast-style) vertical row painting.
++ *
++ * Owns the whole list region below the search row. It replaces, rather
++ * than extends, the classic row loop: it assumes lines > 0 and
++ * BM_LINES_DOWN, which is all beamenu ever configures, so none of the
++ * fixed-height / lines-up index arithmetic applies.
++ *
++ * Row anatomy, left to right:
++ *
++ *   pad_x | pill: gutter [icon] gap Title  Subtitle ... Accessory gutter |
++ *
++ * A section heading is emitted above the first item whose section differs
++ * from the previous one's, and consumes one row slot.
++ */
++static inline void
++bm_cairo_paint_rich_rows(struct cairo *cairo, struct cairo_paint *paint, struct bm_menu *menu,
++                         struct bm_item **items, uint32_t count, uint32_t width,
++                         uint32_t max_height, uint32_t start_y, struct cairo_paint_result *out_result)
++{
++    const uint32_t row_h = (menu->line_height > 0 ? menu->line_height : 44);
++    const uint32_t icon_size = (menu->icon_size > 0 ? menu->icon_size : 24);
++    const uint32_t pad_x = 10, gutter = 10, gap = 12;
++    const uint32_t head_h = row_h * 2 / 3;
++
++    struct cairo_color fg, bg, muted, head_fg;
++    bm_cairo_color_from_menu_color(menu, BM_COLOR_ITEM_FG, &fg);
++    bm_cairo_color_from_menu_color(menu, BM_COLOR_ALTERNATE_FG, &muted);
++    bm_cairo_color_from_menu_color(menu, BM_COLOR_TITLE_FG, &head_fg);
++
++    /* Keep the highlighted row on screen: page on the highlight index, in
++     * whole rows, ignoring headings (they ride along with their group). */
++    const uint32_t lines = (menu->lines > 0 ? menu->lines : 1);
++    const uint32_t page = (menu->index / lines) * lines;
++
++    uint32_t posy = start_y;
++    const char *prev_section = NULL;
++
++    /* A heading only makes sense above its own group, so the first drawn row
++     * always re-emits its heading even mid-list. */
++    if (page < count)
++        prev_section = NULL;
++
++    for (uint32_t i = page; i < count && posy + row_h <= max_height; ++i) {
++        struct bm_item *item = items[i];
++        const char *section = bm_item_get_section(item);
++
++        if (section && *section && (!prev_section || strcmp(prev_section, section))) {
++            if (posy + head_h + row_h > max_height)
++                break;
++            bm_cairo_draw_run(cairo, paint, &head_fg, section,
++                              pad_x + gutter, posy + head_h * 2 / 3,
++                              (int32_t)(width - (pad_x + gutter) * 2), true);
++            posy += head_h;
++            out_result->height = posy;
++        }
++        prev_section = section;
++
++        const bool highlighted = (item == bm_menu_get_highlighted_item(menu));
++        if (highlighted) {
++            bm_cairo_color_from_menu_color(menu, BM_COLOR_HIGHLIGHTED_BG, &bg);
++            bm_cairo_rounded_path(cairo->cr, pad_x, posy, width - pad_x * 2, row_h, 8.0);
++            cairo_set_source_rgba(cairo->cr, bg.r, bg.b, bg.g, bg.a);
++            cairo_fill(cairo->cr);
++            bm_cairo_color_from_menu_color(menu, BM_COLOR_HIGHLIGHTED_FG, &fg);
++        } else {
++            bm_cairo_color_from_menu_color(menu, BM_COLOR_ITEM_FG, &fg);
++        }
++
++        int32_t x = (int32_t)(pad_x + gutter);
++
++        const char *icon = bm_item_get_icon(item);
++        if (icon && *icon) {
++            cairo_surface_t *surface = bm_cairo_icon_load(icon, icon_size);
++            if (surface) {
++                cairo_save(cairo->cr);
++                cairo_set_source_surface(cairo->cr, surface, x, posy + (row_h - icon_size) / 2.0);
++                cairo_paint(cairo->cr);
++                cairo_restore(cairo->cr);
++            }
++            x += (int32_t)(icon_size + gap);
++        }
++
++        const int32_t right_limit = (int32_t)(width - pad_x - gutter);
++        const int32_t baseline = (int32_t)(posy + row_h / 2 + paint->baseline / 2);
++
++        /* The accessory owns its width outright; title and subtitle then
++         * share whatever is left, so a long title never overruns it. */
++        const char *accessory = bm_item_get_accessory(item);
++        int32_t text_limit = right_limit;
++        if (accessory && *accessory) {
++            uint32_t aw = bm_cairo_run_width(cairo, paint, accessory);
++            bm_cairo_draw_run(cairo, paint, &muted, accessory,
++                              right_limit - (int32_t)aw, baseline, (int32_t)aw, false);
++            text_limit = right_limit - (int32_t)aw - (int32_t)gap;
++        }
++
++        uint32_t tw = bm_cairo_draw_run(cairo, paint, &fg, bm_item_get_text(item),
++                                        x, baseline, text_limit - x, true);
++        x += (int32_t)tw;
++
++        const char *subtitle = bm_item_get_subtitle(item);
++        if (subtitle && *subtitle && x + (int32_t)gap < text_limit) {
++            x += (int32_t)gap;
++            bm_cairo_draw_run(cairo, paint, &muted, subtitle, x, baseline, text_limit - x, true);
++        }
++
++        posy += row_h;
++        out_result->height = posy;
++        out_result->displayed++;
++    }
++}
++
+ static inline void
+ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct bm_menu *menu, struct cairo_paint_result *out_result)
+ {
+@@ -386,7 +642,11 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+     uint32_t posy = (menu->lines_mode == BM_LINES_UP ? 0 : titleh);
+     uint32_t spacing_x = menu->spacing ? title_x : 0, spacing_y = 0; // 0 == variable width spacing
+ 
+-    if (menu->lines > 0) {
++    if (menu->lines > 0 && menu->rich_rows) {
++        /* rich mode owns the whole list region; see bm_cairo_paint_rich_rows */
++        bm_cairo_paint_rich_rows(cairo, &paint, menu, items, count,
++                                 width / cairo->scale, max_height, posy, out_result);
++    } else if (menu->lines > 0) {
+         /* vertical mode */
+ 
+         const bool scrollbar = (menu->scrollbar > BM_SCROLLBAR_NONE && (menu->scrollbar != BM_SCROLLBAR_AUTOHIDE || count > lines) ? true : false);

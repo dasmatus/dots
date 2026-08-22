@@ -19,7 +19,7 @@ let
       }
       {
         key = "SUPER + D";
-        desc = "App launcher (HyprTile)";
+        desc = "App launcher (beamenu)";
       }
       {
         key = "SUPER + Shift + F";
@@ -121,7 +121,7 @@ let
       }
       {
         key = "SUPER + Shift + E";
-        desc = "Power tiles (HyprTile page 2)";
+        desc = "System commands (beamenu)";
       }
       {
         key = "SUPER + Shift + C";

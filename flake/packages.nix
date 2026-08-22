@@ -1,92 +1,62 @@
 # packages.${system} — the dots-installer Rust TUI, the in-flake aipage dists,
-# the hyprtile suite and the two LiveISO images.
+# the beamenu launcher (view + binary), Claude Desktop and the two LiveISO images.
 {
   pkgs,
   aipagePackages,
+  pkgsClaude,
   ...
 }:
 self: {
-  # HyprTile (https://hyprtile.org) — the fullscreen tile launcher + tool
-  # suite for Hyprland that the desktop stack is converted to (launcher,
-  # settings/config center, screenshots, wallpaper daemon). Upstream ships a
-  # source zip and a sudo-to-/usr/local install.sh; here only the pieces the
-  # dots stack uses are built — launcher, wallpaperd, shotter, screener and
-  # the small helper tools — skipping the heavy TTS/STT/XMPP/videoplayer/
-  # remoteviewer subprojects. nix/home/hyprtile.nix wraps the store path.
-  hyprtile = pkgs.stdenv.mkDerivation (finalAttrs: {
-    pname = "hyprtile";
-    version = "0.16";
-    src = pkgs.fetchurl {
-      url = "https://hyprtile.org/file/695476a2a14981a8720b";
-      name = "hyprtile-v${finalAttrs.version}.zip";
-      hash = "sha256-YrGB1sVBMp+j9OTIhOD9zSEg0A7g6ahiiPMeo2Vuox4=";
-    };
-    sourceRoot = "hyprtile";
-    nativeBuildInputs = with pkgs; [
-      unzip
-      pkg-config
-      wayland-scanner
+  # beamenu-view — bemenu carrying the beamenu patch series (nix/patches/beamenu).
+  #
+  # This is the VIEW half of the launcher, not a user-facing program: it ships
+  # libbemenu plus the renderers, and `beamenu` below links against it. The
+  # patches add what a Raycast-style row needs and stock bemenu has no model
+  # for — per-item icon, subtitle, accessory and section heading, drawn as a
+  # rounded-pill row — plus an eventfd in the renderer's existing epoll set so
+  # asynchronous providers can push results into a blocked frame.
+  #
+  # Why patch bemenu rather than drive it over a pipe: bemenu's event loop is
+  # client-owned. client/bemenu.c is 80 lines around run_menu(), which loops on
+  # bm_menu_run_with_events() and returns after every keystroke, so the Rust
+  # binary can simply *be* the client — no IPC protocol, no second process.
+  #
+  # librsvg is a new buildInput: the row renderer decodes SVG icons through it
+  # and PNG through cairo, covering what XDG icon themes ship without taking on
+  # gdk-pixbuf's runtime loader-module discovery.
+  beamenu-view = pkgs.bemenu.overrideAttrs (old: {
+    pname = "beamenu-view";
+    patches = (old.patches or [ ]) ++ [
+      ../nix/patches/beamenu/01-item-richtext.patch
+      ../nix/patches/beamenu/02-cairo-raycast-rows.patch
+      ../nix/patches/beamenu/03-panel-chrome.patch
+      ../nix/patches/beamenu/04-client-ranking.patch
+      ../nix/patches/beamenu/05-rich-panel-body.patch
     ];
-    buildInputs = with pkgs; [
-      sdl3
-      sdl3-ttf
-      librsvg
-      libepoxy
-      glib
-      fontconfig
-      libpulseaudio
-      fftw
-      ffmpeg
-      libsodium
-      wayland
-      libglvnd
-      libpng
-    ];
-    # Upstream printf()s translated strings (tr("key")) as format strings,
-    # which nix cc-wrapper's -Werror=format-security rejects.
-    hardeningDisable = [ "format" ];
-    # Launcher-as-overlay (rofi-like) behavior: a stable "hyprtile" Wayland
-    # app_id (so the hyprland.nix window rule can float/pin it instead of
-    # letting it tile like a normal window) + dismiss-on-focus-loss, so
-    # launching a tile or clicking elsewhere closes the grid like rofi.
-    patches = [ ../nix/patches/hyprtile-rofi-like-overlay.patch ];
-    # The icon lookup falls back to the install.sh location; point it at the
-    # store instead. User icons under ~/.hyprtile/icons still take priority.
-    postPatch = ''
-      substituteInPlace ui_icons.c \
-        --replace-fail "/usr/local/share/hyprtile/icons" "$out/share/hyprtile/icons"
-    '';
-    enableParallelBuilding = true;
-    buildPhase = ''
-      runHook preBuild
-      protoFlags="WLR_PROTO_DIR=${pkgs.wlr-protocols}/share/wlr-protocols/unstable \
-        WAYLAND_PROTO_DIR=${pkgs.wayland-protocols}/share/wayland-protocols/stable/xdg-shell"
-      make -C hyprtile-screener-build $protoFlags
-      make -C hyprtile-shotter $protoFlags
-      make hyprtile hyprtile-wallpaperd hyprtile-setaudiovol hyprtile-setbrightness \
-        hyprtile-batterystat hyprtile-bt hyprtile-notes/hyprtile-notes \
-        hyprtile-pwsafe/hyprtile-pwsafe hyprtile-ai
-      runHook postBuild
-    '';
-    installPhase = ''
-      runHook preInstall
-      install -Dm755 -t $out/bin \
-        hyprtile hyprtile-wallpaperd hyprtile-setaudiovol hyprtile-setbrightness \
-        hyprtile-batterystat hyprtile-bt hyprtile-shotter/hyprtile-shotter \
-        hyprtile-screener-build/hyprtile-screener hyprtile-notes/hyprtile-notes \
-        hyprtile-pwsafe/hyprtile-pwsafe hyprtile-ai
-      mkdir -p $out/share/hyprtile
-      cp -r icons languages config.json example-configs $out/share/hyprtile/
-      runHook postInstall
-    '';
-    meta = {
-      description = "Fullscreen tile-based launcher and command center for Hyprland";
-      homepage = "https://hyprtile.org/";
-      license = pkgs.lib.licenses.gpl3Plus;
-      mainProgram = "hyprtile";
-      platforms = pkgs.lib.platforms.linux;
+    buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
+    meta = old.meta // {
+      description = "bemenu patched into the beamenu launcher's view layer";
+      mainProgram = "bemenu";
     };
   });
+
+  # beamenu — the launcher itself: links beamenu-view's libbemenu, owns the
+  # event loop, and implements the provider set (apps, system, calculator,
+  # emoji, clipboard, snippets, quicklinks, windows, files, script commands).
+  # nix/home/beamenu.nix wraps the store path and wires the keybinds.
+  beamenu = pkgs.rustPlatform.buildRustPackage {
+    pname = "beamenu";
+    version = "0.1.0";
+    src = ../rust/beamenu;
+    cargoLock.lockFile = ../rust/beamenu/Cargo.lock;
+    nativeBuildInputs = [ pkgs.pkg-config ];
+    buildInputs = [ self.packages.${pkgs.stdenv.hostPlatform.system}.beamenu-view ];
+    meta.mainProgram = "beamenu";
+  };
+
+  # Claude Desktop for Linux (beta) — repackaged from Anthropic's .deb, which
+  # is the only distribution channel upstream offers. See nix/claude-desktop.nix.
+  claude-desktop = pkgsClaude.callPackage ../nix/claude-desktop.nix { };
   dots-installer = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-installer";
     version = "0.1.0";

@@ -69,17 +69,15 @@ in
                                       -- eww daemon must be up before keybinds.sh opens the cheatsheet
                                       -- window. keybinds.sh sleeps 2s on first login to let it
                                       -- initialize its IPC socket.
-                                      -- No wallpaper daemon exec here: wallpaper-tui --restore starts
-                                      -- hyprtile-wallpaperd itself (shared ~/.hyprtile/wallpaperd.pid;
-                                      -- the hyprtile launcher would also start it on first open).
+                                      -- awww-daemon must be up before wallpaper-tui --restore
+                                      -- talks to it; awww img blocks briefly and retries, so the
+                                      -- ordering here is belt and braces rather than a race fix.
+                                      hl.exec_cmd("awww-daemon")
                                       hl.exec_cmd("eww daemon")
                                       hl.exec_cmd("waybar")
             			      hl.exec_cmd("hyprmon apply")
                                       hl.exec_cmd("nm-applet --indicator")
                                       hl.exec_cmd("wallpaper-tui --restore")
-                                      -- pre-warm the resident HyprTile launcher, parked
-                                      -- silently in special:hyprtile by its window rule
-                                      hl.exec_cmd("hyprtile-toggle --spawn-only")
                                       hl.exec_cmd("~/.config/eww/scripts/keybinds.sh")
                                     end'')
         ];
@@ -179,11 +177,18 @@ in
           # shipped hl.meta.lua — same visual result, no crash risk.
           active_opacity = 0.9;
           inactive_opacity = 0.75;
+          # Heavy blur. size/passes are GLOBAL — Hyprland has no per-window or
+          # per-layer strength — so these numbers are what gives the beamenu
+          # launcher its frosted backdrop (see the layer_rule below), and every
+          # window inherits the same depth. 3 passes at size 8 is the usual
+          # ceiling before the cost stops being worth it; going higher mostly
+          # buys smear, not depth.
           blur = {
             enabled = true;
-            size = 3;
-            passes = 1;
+            size = 8;
+            passes = 3;
             new_optimizations = true;
+            xray = false;
           };
           shadow = {
             enabled = true;
@@ -237,42 +242,35 @@ in
             class = ".*";
           };
         }
-        # HyprTile as a RESIDENT scratchpad launcher, not a window you spawn
-        # per keypress: the window maps straight into its own special
-        # workspace, silently (no focus steal at session start), floating,
-        # monitor-sized, instant (no animation, no border/rounding). The
-        # package patch (nix/patches/hyprtile-rofi-like-overlay.patch) pins
-        # the app_id to "hyprtile" and, on focus loss (a launched app taking
-        # focus, or a click elsewhere), parks the launcher back into this
-        # special workspace instead of quitting — so SUPER+D toggles it in
-        # and out with zero startup latency (hyprtile-toggle in
-        # nix/home/hyprtile.nix owns spawn-if-missing + the toggle). Field
-        # names verified against Hyprland 0.56's Lua rule engine (hyprctl
-        # eval probe). No `pin`: pinned-on-all-workspaces conflicts with
-        # special-workspace parking. NB the hyprlang-era `workspace
-        # "special:x silent"` suffix silently breaks the Lua engine's
-        # workspace selector parse (the whole effect no-ops) — silent is
-        # its own boolean effect there, `no_initial_focus`. Verified live.
-        {
-          name = "hyprtile-overlay";
-          match = {
-            class = "hyprtile";
-          };
-          float = true;
-          no_anim = true;
-          size = "monitor_w monitor_h";
-          move = "0 0";
-          border_size = 0;
-          rounding = 0;
-          workspace = "special:hyprtile";
-          no_initial_focus = true;
-        }
       ];
 
-      # No layer_rule entries: the old `hyprcapture-ui` layer-shell rule went
-      # away with HyprCapture, and the dots-snip Tauri overlay that followed it
-      # has now been removed too — Print just runs `grim` directly (see the
-      # bind below), so there's no special surface to layer-rule anymore.
+      # beamenu draws into a wlr-layer-shell surface, and bemenu hardcodes its
+      # namespace to "menu" (lib/renderers/wayland/window.c, the
+      # zwlr_layer_shell_v1_get_layer_surface call) — that string is the only
+      # handle a rule has on it, since a layer surface has no class or title.
+      #
+      # ignore_alpha 0.1 is what makes the blur actually show: Hyprland skips
+      # blurring behind pixels below the threshold, and the panel background is
+      # deliberately translucent (#1a1b26f2 in nix/home/beamenu.nix). Leaving
+      # it at the default would blur only the fully opaque text.
+      #
+      # Blur STRENGTH is global in Hyprland — there is no per-layer size or
+      # pass count — so the heavy look comes from decoration.blur above, which
+      # this rule opts the launcher into. Add `dim_around = true` here for a
+      # spotlight effect that darkens the rest of the screen.
+      #
+      # Field names verified against Hyprland 0.56.2's HL.LayerRuleSpec stub
+      # (share/hypr/stubs/hl.meta.lua).
+      layer_rule = [
+        {
+          name = "beamenu-blur";
+          match = {
+            namespace = "menu";
+          };
+          blur = true;
+          ignore_alpha = 0.1;
+        }
+      ];
 
       # myBezier, 0.05, 0.9, 0.1, 1.05 →
       # hl.curve("myBezier", { type = "bezier", points = {{0.05,0.9},{0.1,1.05}} }).
@@ -375,14 +373,15 @@ in
             (lua ''hl.dsp.exec_cmd("kitty")'')
           ];
         }
-        # HyprTile (nix/home/hyprtile.nix) is the app launcher — a fullscreen
-        # Tokyonight tile grid living in the special:hyprtile scratchpad;
-        # page 2 holds the session/power tiles. hyprtile-toggle shows/hides
-        # the resident instance (and respawns it if it quit).
+        # beamenu (nix/home/beamenu.nix) is the app launcher: a Raycast-style
+        # search panel drawn by patched bemenu. No pre-warm and no scratchpad
+        # parking — layer-shell plus cairo starts fast enough to just run the
+        # binary, which is what retired HyprTile's whole resident-instance
+        # apparatus.
         {
           _args = [
             (lua ''mod .. " + D"'')
-            (lua ''hl.dsp.exec_cmd("hyprtile-toggle")'')
+            (lua ''hl.dsp.exec_cmd("beamenu")'')
           ];
         }
         # Nautilus directly (GNOME Files, services.gnome.core-apps) — the
@@ -729,13 +728,13 @@ in
           ];
         }
         {
-          # Power menu → HyprTile's session page (page 2 of the tile grid:
-          # lock/logout/suspend/hibernate/reboot/shutdown). Replaces the
-          # rofi-power-menu grid; same toggle as SUPER+D, the session tiles
-          # are one page-flip away.
+          # Power menu → beamenu's System provider (lock, logout, suspend,
+          # hibernate, reboot, shutdown, plus screenshot and recording). Same
+          # binary as SUPER+D; the query is pre-seeded so the session commands
+          # are already the list rather than a page-flip away.
           _args = [
             (lua ''mod .. " + SHIFT + E"'')
-            (lua ''hl.dsp.exec_cmd("hyprtile-toggle")'')
+            (lua ''hl.dsp.exec_cmd("beamenu")'')
           ];
         }
         {
@@ -745,21 +744,21 @@ in
           ];
         }
 
-        # Print (no modifier) grabs the whole desktop with hyprtile-shotter
-        # (the HyprTile suite's wlr-screencopy tool), which names the file
-        # Screenshot_<stamp>.png in the xdg-user-dir PICTURES folder itself;
-        # notify-send surfaces the folder. SUPER+Print is the region variant
-        # (--select). `&&` skips the notify if the capture failed.
+        # Print (no modifier) grabs the focused output with hyprshot, which
+        # writes Screenshot_<stamp>.png into the xdg-user-dir PICTURES folder
+        # itself; notify-send surfaces the folder. SUPER+Print is the region
+        # variant. `&&` skips the notify if the capture failed. Both are also
+        # reachable from beamenu's System provider.
         {
           _args = [
             "Print"
-            (lua ''hl.dsp.exec_cmd("hyprtile-shotter && notify-send \"Screenshot saved in $(xdg-user-dir PICTURES 2>/dev/null || echo ~/Pictures)\"")'')
+            (lua ''hl.dsp.exec_cmd("hyprshot -m output && notify-send \"Screenshot saved in $(xdg-user-dir PICTURES 2>/dev/null || echo ~/Pictures)\"")'')
           ];
         }
         {
           _args = [
             (lua ''mod .. " + Print"'')
-            (lua ''hl.dsp.exec_cmd("hyprtile-shotter --select && notify-send \"Screenshot saved in $(xdg-user-dir PICTURES 2>/dev/null || echo ~/Pictures)\"")'')
+            (lua ''hl.dsp.exec_cmd("hyprshot -m region && notify-send \"Screenshot saved in $(xdg-user-dir PICTURES 2>/dev/null || echo ~/Pictures)\"")'')
           ];
         }
 
@@ -859,9 +858,9 @@ in
     };
   };
 
-  # Runtime tools for the Print-key screenshot: hyprtile-shotter does the
-  # Wayland capture (on PATH via nix/home/hyprtile.nix — grim retired with
-  # the HyprTile conversion); libnotify's notify-send surfaces the saved
+  # Runtime tools for the Print-key screenshot: hyprshot does the Wayland
+  # capture (on PATH via nix/home/beamenu.nix, which owns the screenshot and
+  # recording tools now); libnotify's notify-send surfaces the saved
   # folder — dunst in nix/home/dunst.nix is the daemon that displays it;
   # xdg-user-dirs provides xdg-user-dir, which both the bind and the shotter
   # use to resolve the PICTURES folder.
