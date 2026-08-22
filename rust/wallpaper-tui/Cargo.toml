@@ -2,8 +2,8 @@
 name = "wallpaper-tui"
 version = "0.1.0"
 edition = "2021"
-description = "hyprtile-wallpaperd-based TUI wallpaper changer with wallpaper-derived accent tinting"
-license = "MIT"
+description = "awww-based TUI wallpaper changer with wallpaper-derived accent tinting"
+license = "AGPL-3.0-only"
 
 [dependencies]
 abstracttui = "0.2"

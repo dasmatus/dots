@@ -13,7 +13,7 @@ use abstracttui::gfx::Bitmap;
 use crate::accent::TintBackend;
 use crate::config::{effective_output, Config, State, COLOR_PALETTE, DEFAULT_COLOR, MODES};
 use crate::input::{KeyCode, KeyEvent};
-use crate::wallpaperd::Group;
+use crate::awww::Group;
 
 /// A request the event loop drains off the TUI thread.
 #[derive(Debug, Clone)]
@@ -24,9 +24,10 @@ pub enum PendingOp {
         no_tint: bool,
         backend: TintBackend,
     },
-    /// Re-apply every declared output + tint the first one. Only the first
-    /// group is actually rendered — `hyprtile-wallpaperd` has no per-output
-    /// targeting (see `wallpaperd`'s module docs).
+    /// Re-apply every declared output, tinting from the first. awww targets
+    /// outputs individually, so every group is rendered rather than only the
+    /// first; the tint still comes from one wallpaper because the accent
+    /// palette is global.
     Restore {
         groups: Vec<Group>,
         no_tint: bool,
@@ -272,7 +273,7 @@ impl App {
     }
 
     fn restore(&mut self) {
-        let groups = crate::wallpaperd::restore_groups(&self.config, &self.state);
+        let groups = crate::awww::restore_groups(&self.config, &self.state);
         if groups.is_empty() {
             self.status = Some("nothing to restore".to_string());
             return;

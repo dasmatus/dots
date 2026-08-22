@@ -33,8 +33,7 @@ pub fn xdg_dir(env: &str, default_sub: &str) -> PathBuf {
     }
 }
 
-/// Resolve `$HOME`, falling back to `/` if unset — shared with
-/// `wallpaperd.rs`'s `~/.hyprtile` paths.
+/// Resolve `$HOME`, falling back to `/` if unset.
 #[must_use]
 pub(crate) fn home_dir() -> PathBuf {
     std::env::var("HOME").map_or_else(|_| PathBuf::from("/"), PathBuf::from)
@@ -106,6 +105,27 @@ pub struct Config {
     pub outputs: std::collections::BTreeMap<String, OutputConfig>,
     #[serde(default = "default_tint_backend")]
     pub tint_backend: String,
+    /// awww --transition-type. See `programs.wallpaper-tui.transition`.
+    #[serde(default = "default_transition")]
+    pub transition: String,
+    /// awww --transition-duration, in seconds.
+    #[serde(default = "default_transition_duration")]
+    pub transition_duration: String,
+    /// awww --transition-fps.
+    #[serde(default = "default_transition_fps")]
+    pub transition_fps: String,
+}
+
+fn default_transition() -> String {
+    "fade".to_string()
+}
+
+fn default_transition_duration() -> String {
+    "1".to_string()
+}
+
+fn default_transition_fps() -> String {
+    "60".to_string()
 }
 
 fn default_tint_backend() -> String {

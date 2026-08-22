@@ -27,11 +27,9 @@ use wallpaper_tui::cli::{self, Args};
 use wallpaper_tui::config::{Config, State};
 use wallpaper_tui::fx::Fx;
 use wallpaper_tui::preview;
+use wallpaper_tui::awww::{apply_wallpaper, LiveAwww, Transition};
 use wallpaper_tui::tint;
 use wallpaper_tui::ui;
-use wallpaper_tui::wallpaperd::{
-    apply_wallpaper, hyprtile_config_path, pidfile_path, sync_hyprtile_config, LiveWallpaperd,
-};
 
 fn resolve_backend(args_backend: Option<String>, config_backend: &str) -> TintBackend {
     if let Some(b) = args_backend {
@@ -67,6 +65,7 @@ fn main() -> anyhow::Result<()> {
             &args.color,
             args.no_tint,
             backend,
+            &Transition::from_config(&config),
         );
     }
 
@@ -83,6 +82,10 @@ fn run_tui(
     if !have_tty() {
         anyhow::bail!("wallpaper TUI needs a tty (run on a real console)");
     }
+
+    // Read the configured transition once: App::new takes ownership of the
+    // config, and each worker thread needs its own clone anyway.
+    let transition = Transition::from_config(&config);
 
     let mut app_state = App::new(config, state, no_tint, backend);
     // Kick off the preview for the initial selection before the state moves
@@ -165,11 +168,10 @@ fn run_tui(
                     backend,
                 } => {
                     let tx = apply_tx.clone();
+                    let transition = transition.clone();
                     std::thread::spawn(move || {
                         let groups = vec![group.clone()];
-                        if apply_wallpaper(&LiveWallpaperd, &groups, &pidfile_path()) {
-                            sync_hyprtile_config(&hyprtile_config_path(), &group.path, &group.mode);
-                        }
+                        apply_wallpaper(&LiveAwww, &groups, &transition);
                         let status = tint::apply_tint(&group.path, no_tint, backend);
                         let msg = match status {
                             Some(s) => format!("applied {} (tint {})", group.path, s.qt),
@@ -184,12 +186,9 @@ fn run_tui(
                     backend,
                 } => {
                     let tx = apply_tx.clone();
+                    let transition = transition.clone();
                     std::thread::spawn(move || {
-                        if apply_wallpaper(&LiveWallpaperd, &groups, &pidfile_path()) {
-                            if let Some(g) = groups.first() {
-                                sync_hyprtile_config(&hyprtile_config_path(), &g.path, &g.mode);
-                            }
-                        }
+                        apply_wallpaper(&LiveAwww, &groups, &transition);
                         let tint_path = groups.first().map_or("", |g| g.path.as_str());
                         let status = if tint_path.is_empty() {
                             None
