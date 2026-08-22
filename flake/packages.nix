@@ -32,6 +32,7 @@ self: {
       ../nix/patches/beamenu/03-panel-chrome.patch
       ../nix/patches/beamenu/04-client-ranking.patch
       ../nix/patches/beamenu/05-rich-panel-body.patch
+      ../nix/patches/beamenu/06-filter-pills.patch
     ];
     buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
     meta = old.meta // {

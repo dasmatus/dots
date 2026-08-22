@@ -40,6 +40,7 @@ let
     border = "#2d3252ff";
     heading = "#7aa2f7ee"; # rofi @accent, which coloured its prompt
     font = "Lilex Nerd Font 12";
+    accent = cfg.accent;
   };
 
   # The Rust side reads snake_case; the Nix options are camelCase to match the
@@ -124,6 +125,18 @@ in
       type = lib.types.ints.unsigned;
       default = 16;
       description = "Panel corner radius in pixels; 16 matches the old rofi theme.";
+    };
+
+    accent = lib.mkOption {
+      type = lib.types.str;
+      default = "#7fd6c2";
+      example = "#8fb8f0";
+      description = ''
+        Accent colour for the currently-active element: the highlighted
+        result row and the active filter pill. Alternates that read well
+        against the Tokyonight background above: `#8fb8f0` (blue), `#e0b083`
+        (amber), `#c9a8f0` (violet).
+      '';
     };
 
     terminal = lib.mkOption {
