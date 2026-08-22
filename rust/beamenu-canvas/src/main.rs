@@ -64,8 +64,17 @@ fn main() -> ExitCode {
     let theme = config.theme.canvas;
     let width_factor = config.width_factor;
 
+    // NON_UNIQUE: without it, `gio::Application` D-Bus-activates whatever
+    // process first registered "dev.dots.beamenu-canvas" instead of
+    // actually starting a new one — every subsequent `beamenu-canvas`
+    // invocation (opening a second plugin view while one is still open)
+    // would silently pile another window onto the FIRST process rather
+    // than running independently, and closing any one of them would
+    // `app.quit()` the shared process out from under all the others. Each
+    // invocation of this argv contract is meant to be its own sidecar.
     let app = gtk4::Application::builder()
         .application_id("dev.dots.beamenu-canvas")
+        .flags(gtk4::gio::ApplicationFlags::NON_UNIQUE)
         .build();
 
     app.connect_activate(move |app| {
