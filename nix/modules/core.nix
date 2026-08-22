@@ -35,6 +35,9 @@
     pkg:
     builtins.elem (lib.getName pkg) [
       "claude-code"
+      # Anthropic's desktop app, repackaged from their .deb because that is
+      # the only channel they publish (nix/claude-desktop.nix).
+      "claude-desktop"
       # proprietary Electron app, ex-flatpak (nix/home/pkgs.nix)
       "obsidian"
       # no upstream license → nixpkgs marks it unfree

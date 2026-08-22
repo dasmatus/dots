@@ -18,6 +18,16 @@ let
   aipagePackages = pkgsBun.callPackage ../nix/aipage.nix {
     rustPlatform = pkgsBun.rustPlatform;
   };
+  # nixpkgs that permits exactly one unfree package, for the Claude desktop
+  # app. nix/modules/core.nix's allowUnfreePredicate governs the NixOS `pkgs`
+  # only; `packages.${system}` is built from the plain legacyPackages above,
+  # which has no config, so `nix build .#claude-desktop` would be refused
+  # without this. Kept separate from `pkgs` for the same reason pkgsBun is:
+  # so the permission does not leak into the rest of the closure.
+  pkgsClaude = import nixpkgs {
+    inherit system;
+    config.allowUnfreePredicate = pkg: nixpkgs.lib.getName pkg == "claude-desktop";
+  };
   # defaults.nix holds the non-install-time params (timezone, locale, desktop,
   # boot knobs, network backend); the installer TUI rewrites only the four
   # install answers (username/hostname/disk/swapSize) into settings.nix on the
@@ -43,17 +53,19 @@ let
           # stub; the installer regenerates the report on real hardware, so
           # the delta (drivers, microcode) still comes from the binary cache.
           #
-          # The aipage dists and the hyprtile suite are embedded on BOTH
+          # The aipage dists and the beamenu launcher are embedded on BOTH
           # ISOs (not gated on embedSystem): they're small static store
           # paths, and embedding them lets the installer substitute them
           # from the ISO store instead of rebuilding Rust/WASM/JS/C at
-          # install time (and keeps lean-ISO installs offline-capable for
-          # them — hyprtile is in no binary cache and its fetchurl source
-          # would otherwise depend on hyprtile.org uptime mid-install).
+          # install time, which keeps lean-ISO installs offline-capable for
+          # them. beamenu-view is listed alongside the binary because it is
+          # a runtime dependency, not just a build one — beamenu dlopens its
+          # renderers out of that store path.
           isoImage.storeContents = [
             inputs.self.packages.${system}.aipage-firefox
             inputs.self.packages.${system}.aipage-chrome
-            inputs.self.packages.${system}.hyprtile
+            inputs.self.packages.${system}.beamenu
+            inputs.self.packages.${system}.beamenu-view
           ]
           ++ nixpkgs.lib.optionals embedSystem [
             inputs.self.nixosConfigurations.tokyonight.config.system.build.toplevel
@@ -70,6 +82,7 @@ in
     system
     pkgs
     pkgsBun
+    pkgsClaude
     aipagePackages
     settings
     mkIso

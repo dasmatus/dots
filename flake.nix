@@ -91,6 +91,7 @@
       inherit (lib)
         system
         pkgs
+        pkgsClaude
         aipagePackages
         settings
         mkIso
@@ -116,7 +117,7 @@
       # (this outputs attrset) so iso/iso-full can reach the LiveISO closures
       # built above.
       packages.${system} = import ./flake/packages.nix {
-        inherit pkgs aipagePackages;
+        inherit pkgs aipagePackages pkgsClaude;
       } self;
 
       # Task-runner apps — the retired Justfile, now nix-native. See
