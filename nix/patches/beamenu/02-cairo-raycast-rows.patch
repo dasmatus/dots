@@ -24,6 +24,22 @@ The rich path is a separate function rather than a branch inside the existing
 loop: it assumes lines > 0 drawn downwards, which is all beamenu configures,
 so none of the fixed-height / lines-up index arithmetic applies.
 
+The heading emitted "wherever the section changes" is now conditional on
+menu->pill_count being 0, i.e. on there being no pill bar: patch 06 gives the
+pill bar its own always-visible statement of the current section, so a
+heading repeating the same name in-list would be redundant wherever that bar
+is drawn. This patch forward-references pill_count, a field patch 06 adds to
+struct bm_menu, purely as a size check — the two patches only need to agree
+on that one field, and the ordering reads better with the row painter's own
+patch owning the condition that governs its own output rather than tucking a
+row-loop change into 06, which never otherwise touches this function. The
+Ctrl+K action panel has no pill bar (see patch 06's sync(), which clears it
+for any pushed frame), so it still gets the heading it needs: rows pushed
+through this same painter with pill_count == 0 render exactly as before.
+Patch 05, which already touches this same condition line to fold max_height
+into list_bottom, carries the pill_count guard forward as unchanged context;
+see its header for that side of the story.
+
 diff --git a/GNUmakefile b/GNUmakefile
 index a1fc704..5706c2f 100644
 --- a/GNUmakefile
@@ -31,13 +47,13 @@ index a1fc704..5706c2f 100644
 @@ -72,8 +72,8 @@ bemenu-renderer-curses.so: private override LDLIBS += $(shell $(PKG_CONFIG) --li
  bemenu-renderer-curses.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I ncursesw)
  bemenu-renderer-curses.so: lib/renderers/curses/curses.c util.a
-
+ 
 -bemenu-renderer-x11.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs x11 xinerama cairo pango pangocairo)
 -bemenu-renderer-x11.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I x11 xinerama cairo pango pangocairo)
 +bemenu-renderer-x11.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs x11 xinerama cairo pango pangocairo librsvg-2.0)
 +bemenu-renderer-x11.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I x11 xinerama cairo pango pangocairo librsvg-2.0)
  bemenu-renderer-x11.so: lib/renderers/cairo_renderer.h lib/renderers/x11/x11.c lib/renderers/x11/x11.h lib/renderers/x11/window.c lib/renderers/x11/xkb_unicode.c lib/renderers/x11/xkb_unicode.h util.a
-
+ 
  lib/renderers/wayland/xdg-shell.c:
 @@ -109,8 +109,8 @@ fractional-scale.a: lib/renderers/wayland/fractional-scale-v1.c lib/renderers/wa
  viewporter.a: private override LDFLAGS += -fPIC
@@ -48,7 +64,7 @@ index a1fc704..5706c2f 100644
 +bemenu-renderer-wayland.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs wayland-client cairo pango pangocairo librsvg-2.0 xkbcommon)
 +bemenu-renderer-wayland.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I wayland-client cairo pango pangocairo librsvg-2.0 xkbcommon)
  bemenu-renderer-wayland.so: lib/renderers/cairo_renderer.h lib/renderers/wayland/wayland.c lib/renderers/wayland/wayland.h lib/renderers/wayland/registry.c lib/renderers/wayland/window.c xdg-shell.a wlr-layer-shell.a fractional-scale.a viewporter.a util.a
-
+ 
  common.a: client/common/common.c client/common/common.h
 diff --git a/lib/bemenu.h b/lib/bemenu.h
 index decca89..84ad4be 100644
@@ -57,7 +73,7 @@ index decca89..84ad4be 100644
 @@ -599,6 +599,42 @@ BM_PUBLIC void bm_menu_set_line_height(struct bm_menu *menu, uint32_t line_heigh
   */
  BM_PUBLIC uint32_t bm_menu_get_line_height(struct bm_menu *menu);
-
+ 
 +/**
 + * Draw list rows in the rich layout: a per-item icon, the title, the muted
 + * subtitle, a right-aligned accessory, and headings between sections.
@@ -104,7 +120,7 @@ index c0a9205..5f3a81a 100644
 @@ -444,6 +444,19 @@ struct bm_menu {
       */
      double border_radius;
-
+ 
 +    /**
 +     * Draw list rows in the rich layout, meaning icon, title, muted subtitle,
 +     * right-aligned accessory and section headings, instead of the classic
@@ -128,7 +144,7 @@ index 741d782..c01a6ef 100644
 @@ -318,6 +318,36 @@ bm_menu_get_line_height(struct bm_menu *menu)
      return menu->line_height;
  }
-
+ 
 +void
 +bm_menu_set_rich_rows(struct bm_menu *menu, bool rich_rows)
 +{
@@ -163,11 +179,11 @@ index 741d782..c01a6ef 100644
  bm_menu_set_cursor_height(struct bm_menu *menu, uint32_t cursor_height)
  {
 diff --git a/lib/renderers/cairo_renderer.h b/lib/renderers/cairo_renderer.h
-index f0543f5..ec3067d 100644
+index f0543f5..3bf0ba9 100644
 --- a/lib/renderers/cairo_renderer.h
 +++ b/lib/renderers/cairo_renderer.h
 @@ -3,10 +3,12 @@
-
+ 
  #include "internal.h"
  #include <string.h>
 +#include <strings.h>
@@ -176,13 +192,13 @@ index f0543f5..ec3067d 100644
  #include <cairo.h>
  #include <pango/pangocairo.h>
 +#include <librsvg/rsvg.h>
-
+ 
  struct cairo {
      cairo_t *cr;
-@@ -279,6 +281,284 @@ bm_cairo_rounded_path(cairo_t *cr, double x, double y, double width, double heig
+@@ -279,6 +281,292 @@ bm_cairo_rounded_path(cairo_t *cr, double x, double y, double width, double heig
  }
-
-
+ 
+ 
 +/**
 + * Icon cache.
 + *
@@ -345,7 +361,14 @@ index f0543f5..ec3067d 100644
 + * so the two lines keep their split as row_h changes.
 + *
 + * A section heading is emitted above the first item whose section differs
-+ * from the previous one's, and consumes one row slot.
++ * from the previous one's, and consumes one row slot — but only when the
++ * caller has no pill bar (menu->pill_count == 0). The pill bar already
++ * names the current section, so the heading would be redundant wherever it
++ * is drawn; the Ctrl+K action panel has no pill bar (its rows are pushed
++ * through the same painter with the bar cleared, see bm_menu_set_pills's
++ * caller in the client), and its single "Actions" heading is load-bearing
++ * there, so this must stay a size check on pill_count rather than a switch
++ * on rich_rows or any other rich-mode-wide flag.
 + */
 +static inline void
 +bm_cairo_paint_rich_rows(struct cairo *cairo, struct cairo_paint *paint, struct bm_menu *menu,
@@ -379,7 +402,8 @@ index f0543f5..ec3067d 100644
 +        struct bm_item *item = items[i];
 +        const char *section = bm_item_get_section(item);
 +
-+        if (section && *section && (!prev_section || strcmp(prev_section, section))) {
++        if (menu->pill_count == 0 && section && *section
++            && (!prev_section || strcmp(prev_section, section))) {
 +            if (posy + head_h + row_h > max_height)
 +                break;
 +            bm_cairo_draw_run(cairo, paint, &head_fg, section,
@@ -464,10 +488,10 @@ index f0543f5..ec3067d 100644
  static inline void
  bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct bm_menu *menu, struct cairo_paint_result *out_result)
  {
-@@ -386,7 +666,11 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+@@ -386,7 +674,11 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
      uint32_t posy = (menu->lines_mode == BM_LINES_UP ? 0 : titleh);
      uint32_t spacing_x = menu->spacing ? title_x : 0, spacing_y = 0; // 0 == variable width spacing
-
+ 
 -    if (menu->lines > 0) {
 +    if (menu->lines > 0 && menu->rich_rows) {
 +        /* rich mode owns the whole list region; see bm_cairo_paint_rich_rows */
@@ -475,5 +499,5 @@ index f0543f5..ec3067d 100644
 +                                 width / cairo->scale, max_height, posy, out_result);
 +    } else if (menu->lines > 0) {
          /* vertical mode */
-
+ 
          const bool scrollbar = (menu->scrollbar > BM_SCROLLBAR_NONE && (menu->scrollbar != BM_SCROLLBAR_AUTOHIDE || count > lines) ? true : false);
