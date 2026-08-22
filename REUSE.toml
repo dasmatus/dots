@@ -1,0 +1,50 @@
+# REUSE 3.3 licensing manifest (https://reuse.software).
+#
+# One file instead of a header in every source file: this repo is mostly Nix
+# and Rust with dense top-of-file documentation, and a copyright banner above
+# each of those would bury the part that actually explains the module.
+#
+# Annotations are matched most-specific-last. A later block carrying
+# `precedence = "override"` beats the repo-wide default above it. Check with
+# `reuse lint`.
+version = 1
+SPDX-PackageName = "dots"
+SPDX-PackageDownloadLocation = "https://codeberg.org/dasmatus/dots"
+
+# Everything in the repo, unless a block below overrides it.
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Matus Mastena"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# The bemenu patch series is a derivative work of bemenu and cannot be
+# relicensed. Every hunk lands in bemenu's `lib/`, which upstream ships under
+# LICENSE-LIB (LGPL-3.0); its `client/` is GPL-3.0 and is not patched here.
+[[annotations]]
+path = "nix/patches/beamenu/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Jari Vetoniemi and the bemenu contributors"
+SPDX-License-Identifier = "LGPL-3.0-or-later"
+
+# Wallpapers downloaded from wallhaven. Their terms are set by whoever made
+# each image, so claiming any licence over them here would be wrong; this
+# records that the terms are not established rather than pretending they are.
+[[annotations]]
+path = "Wallpapers/**"
+precedence = "override"
+SPDX-FileCopyrightText = "the respective image authors"
+SPDX-License-Identifier = "LicenseRef-wallhaven-unknown"
+
+# Generated lockfiles and hardware reports: facts about the build, not
+# authored work, so they are dedicated to the public domain rather than
+# carrying a copyleft that would be meaningless on them.
+[[annotations]]
+path = [
+  "flake.lock",
+  "nix/facter.json",
+  "rust/*/Cargo.lock",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "CC0-1.0"

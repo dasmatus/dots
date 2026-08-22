@@ -1,0 +1,10 @@
+Terms not established.
+
+The files annotated with this identifier are wallpapers fetched from
+wallhaven.cc. Copyright in each image belongs to whoever made it, and the terms
+under which any given one may be redistributed have not been established.
+
+They are kept in this repository because the desktop configuration references
+them by path. Nothing here grants you a licence to them. If you fork this
+repository and intend to redistribute it, replace the Wallpapers/ directory
+with images whose terms you know.
