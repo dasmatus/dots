@@ -1,0 +1,198 @@
+//! End-to-end tests for `global-settings serve`'s JSON-RPC 2.0 conversation
+//! with the beamenu-canvas sidecar (protocol v1): line-delimited JSON over
+//! stdio. Drives the real subprocess rather than extracted functions, so a
+//! framing bug (missing newline, wrong flush) would actually be caught.
+
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Child, ChildStdin, Command, Stdio};
+
+struct Serve {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<std::process::ChildStdout>,
+}
+
+impl Serve {
+    fn spawn(file: &std::path::Path) -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_global-settings"))
+            .args(["serve", "--file"])
+            .arg(file)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("binary must spawn");
+        let stdin = child.stdin.take().unwrap();
+        let stdout = BufReader::new(child.stdout.take().unwrap());
+        Self {
+            child,
+            stdin,
+            stdout,
+        }
+    }
+
+    fn recv(&mut self) -> serde_json::Value {
+        let mut line = String::new();
+        let n = self.stdout.read_line(&mut line).expect("stdout readable");
+        assert!(n > 0, "child closed stdout without sending a line");
+        serde_json::from_str(line.trim_end()).unwrap_or_else(|e| panic!("not JSON: {line:?}: {e}"))
+    }
+
+    fn send(&mut self, value: &serde_json::Value) {
+        writeln!(self.stdin, "{value}").unwrap();
+        self.stdin.flush().unwrap();
+    }
+
+    fn finish(mut self) -> std::process::ExitStatus {
+        self.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "shutdown" }));
+        self.child.wait().unwrap()
+    }
+
+    /// Send `shutdown`, then collect every remaining line up to EOF — lets a
+    /// test assert nothing extra arrived after the point it stopped reading.
+    fn finish_collecting_remainder(mut self) -> (std::process::ExitStatus, Vec<String>) {
+        self.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "shutdown" }));
+        let mut rest = Vec::new();
+        loop {
+            let mut line = String::new();
+            let n = self.stdout.read_line(&mut line).expect("stdout readable");
+            if n == 0 {
+                break;
+            }
+            rest.push(line.trim_end().to_string());
+        }
+        (self.child.wait().unwrap(), rest)
+    }
+}
+
+fn temp_file(name: &str, content: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("{name}-{}.nix", std::process::id()));
+    std::fs::write(&path, content).unwrap();
+    path
+}
+
+#[test]
+fn serve_renders_the_form_on_start() {
+    let path = temp_file(
+        "serve-start",
+        "{\n  hostname = \"box\";\n  aiCodex = false;\n}\n",
+    );
+    let mut serve = Serve::spawn(&path);
+    let msg = serve.recv();
+    assert_eq!(msg["method"], "ui.render");
+    let tree = &msg["params"]["tree"];
+    assert_eq!(tree["type"], "form");
+    assert_eq!(tree["submit_label"], "Save");
+    let fields = tree["fields"].as_array().unwrap();
+    assert_eq!(fields.len(), 6);
+    let hostname = fields.iter().find(|f| f["key"] == "hostname").unwrap();
+    assert_eq!(hostname["type"], "text");
+    assert_eq!(hostname["value"], "box");
+    let codex = fields.iter().find(|f| f["key"] == "aiCodex").unwrap();
+    assert_eq!(codex["type"], "checkbox");
+    assert_eq!(codex["value"], false);
+
+    let status = serve.finish();
+    assert!(status.success());
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn form_submit_saves_and_re_renders() {
+    let path = temp_file("serve-submit", "{\n  hostname = \"box\";\n}\n");
+    let mut serve = Serve::spawn(&path);
+    let _initial_render = serve.recv();
+
+    serve.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "form.submit",
+        "params": { "values": { "hostname": "renamed" } },
+    }));
+
+    let result = serve.recv();
+    assert_eq!(result["id"], 1);
+    assert_eq!(result["result"], serde_json::json!({}));
+
+    let render = serve.recv();
+    assert_eq!(render["method"], "ui.render");
+    let hostname = render["params"]["tree"]["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["key"] == "hostname")
+        .unwrap();
+    assert_eq!(hostname["value"], "renamed");
+
+    let status = serve.finish();
+    assert!(status.success());
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("hostname = \"renamed\";"));
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn form_submit_validation_failure_reports_error_and_does_not_save() {
+    let path = temp_file("serve-invalid", "{\n  hostname = \"box\";\n}\n");
+    let mut serve = Serve::spawn(&path);
+    let _initial_render = serve.recv();
+
+    serve.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42,
+        "method": "form.submit",
+        "params": { "values": { "hostname": "UpperCase" } },
+    }));
+
+    let response = serve.recv();
+    assert_eq!(response["id"], 42);
+    assert!(response["error"]["message"].is_string(), "{response}");
+    assert!(response.get("result").is_none(), "{response}");
+
+    let status = serve.finish();
+    assert!(status.success());
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "{\n  hostname = \"box\";\n}\n"
+    );
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn form_submit_with_no_changes_skips_the_re_render() {
+    let path = temp_file("serve-nochange", "{\n  hostname = \"box\";\n}\n");
+    let mut serve = Serve::spawn(&path);
+    let _initial_render = serve.recv();
+
+    serve.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "form.submit",
+        "params": { "values": { "hostname": "box" } },
+    }));
+
+    let response = serve.recv();
+    assert_eq!(response["id"], 7);
+    assert_eq!(response["result"], serde_json::json!({}));
+
+    // Nothing changed, so serve must not re-render: draining to EOF after
+    // shutdown must not turn up a stray ui.render line.
+    let (status, remainder) = serve.finish_collecting_remainder();
+    assert!(status.success());
+    assert!(
+        remainder.is_empty(),
+        "unexpected extra output: {remainder:?}"
+    );
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn shutdown_exits_cleanly() {
+    let path = temp_file("serve-shutdown", "{\n  hostname = \"box\";\n}\n");
+    let mut serve = Serve::spawn(&path);
+    let _initial_render = serve.recv();
+    let status = serve.finish();
+    assert!(status.success());
+    std::fs::remove_file(&path).unwrap();
+}

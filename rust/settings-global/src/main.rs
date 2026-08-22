@@ -1,62 +1,229 @@
-//! rofi frontend over the settings store. The menu, value inputs and error
-//! dialogs are rofi windows running as the invoking user (a root rofi could
-//! not even connect to the Wayland session); only the file replacement is
-//! privileged, done by re-running this binary's `write` mode under pkexec
-//! with the rendered file on stdin. Std-only: rofi and pkexec are spawned
-//! as subprocesses, no crates involved.
+//! Headless frontends over the settings store: `dump`/`set` for scripting and
+//! `serve` for beamenu-canvas's JSON-RPC form view. Only the file
+//! replacement is privileged, done by re-running this binary's `write` mode
+//! under pkexec with the rendered file on stdin — unchanged from the retired
+//! rofi frontend.
 
 use std::env;
-use std::io::{Read as _, Write as _};
+use std::io::{self, BufRead as _, Read as _, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-use global_settings::menu::{rows, theme_args, Action, ITEMS};
+use global_settings::menu::{apply_values, dump, Action, ITEMS};
+use global_settings::rpc::{self, Incoming};
 use global_settings::settings::Settings;
 
 const DEFAULT_FILE: &str = "/var/lib/dots/settings.nix";
 
-const USAGE: &str = "usage: global-settings [write] [--file PATH]
+const USAGE: &str = "usage: global-settings <dump|set|serve|write> [--file PATH]
 
-Without `write`: edit PATH (default /var/lib/dots/settings.nix) via rofi.
-With `write`: replace PATH with a validated settings.nix read from stdin —
-the rofi menu runs this mode under pkexec to reach the root-owned default.";
+  dump              print every field as a JSON array (for scripting)
+  set <key> <value> validate and write one field
+  serve             speak JSON-RPC 2.0 over stdio (for beamenu-canvas)
+  write             replace PATH with a validated settings.nix read from
+                    stdin (serve/set re-exec this mode under pkexec when
+                    PATH is root-owned)
+
+PATH defaults to /var/lib/dots/settings.nix.";
 
 fn main() -> ExitCode {
-    let mut file = PathBuf::from(DEFAULT_FILE);
-    let mut write_mode = false;
     let mut args = env::args().skip(1);
+    let Some(mode) = args.next() else {
+        eprintln!("{USAGE}");
+        return ExitCode::FAILURE;
+    };
+    match mode.as_str() {
+        "-h" | "--help" => {
+            println!("{USAGE}");
+            ExitCode::SUCCESS
+        }
+        "dump" => match parse_args(args) {
+            Ok((file, _)) => dump_mode(&file),
+            Err(e) => usage_failure(&e),
+        },
+        "set" => match parse_args(args) {
+            Ok((file, positionals)) => match <[String; 2]>::try_from(positionals) {
+                Ok([key, value]) => set_mode(&file, &key, &value),
+                Err(got) => usage_failure(&format!(
+                    "`set` needs <key> <value>, got {} args",
+                    got.len()
+                )),
+            },
+            Err(e) => usage_failure(&e),
+        },
+        "serve" => match parse_args(args) {
+            Ok((file, _)) => serve_mode(&file),
+            Err(e) => usage_failure(&e),
+        },
+        "write" => match parse_args(args) {
+            Ok((file, _)) => write_from_stdin(&file),
+            Err(e) => usage_failure(&e),
+        },
+        other => usage_failure(&format!("unknown argument `{other}`")),
+    }
+}
+
+fn usage_failure(message: &str) -> ExitCode {
+    eprintln!("{message}\n{USAGE}");
+    ExitCode::FAILURE
+}
+
+/// Split a mode's remaining args into `--file PATH` (default
+/// `DEFAULT_FILE`) and everything else, in order.
+fn parse_args(args: impl Iterator<Item = String>) -> Result<(PathBuf, Vec<String>), String> {
+    let mut file = PathBuf::from(DEFAULT_FILE);
+    let mut positionals = Vec::new();
+    let mut args = args;
     while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "write" => write_mode = true,
-            "--file" => {
-                let Some(path) = args.next() else {
-                    eprintln!("--file needs a path\n{USAGE}");
-                    return ExitCode::FAILURE;
-                };
-                file = PathBuf::from(path);
-            }
-            "-h" | "--help" => {
-                println!("{USAGE}");
-                return ExitCode::SUCCESS;
-            }
-            other => {
-                eprintln!("unknown argument `{other}`\n{USAGE}");
-                return ExitCode::FAILURE;
-            }
+        if arg == "--file" {
+            file = PathBuf::from(args.next().ok_or("--file needs a path")?);
+        } else {
+            positionals.push(arg);
         }
     }
-    if write_mode {
-        write_from_stdin(&file)
-    } else {
-        rofi_ui(&file)
+    Ok((file, positionals))
+}
+
+/// `dump`: print every item's current value as a JSON array.
+fn dump_mode(file: &Path) -> ExitCode {
+    let settings = match Settings::load(file) {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match serde_json::to_string(&dump(&settings)) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("cannot encode settings: {e}");
+            ExitCode::FAILURE
+        }
     }
+}
+
+/// `set <key> <value>`: validate (for `EditStr` keys) or parse `true`/`false`
+/// (for `Toggle` keys), then save through the same path as the JSON-RPC form.
+fn set_mode(file: &Path, key: &str, value: &str) -> ExitCode {
+    let Some(item) = ITEMS.iter().find(|item| item.key() == key) else {
+        eprintln!("unknown key `{key}`");
+        return ExitCode::FAILURE;
+    };
+    let mut settings = match Settings::load(file) {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match &item.action {
+        Action::EditStr { validate, .. } => {
+            if let Err(e) = validate(value) {
+                eprintln!("{e}");
+                return ExitCode::FAILURE;
+            }
+            settings.set_str(key, value);
+        }
+        Action::Toggle { .. } => match value {
+            "true" => settings.set_bool(key, true),
+            "false" => settings.set_bool(key, false),
+            other => {
+                eprintln!("`{key}` is a checkbox; expected `true` or `false`, got `{other}`");
+                return ExitCode::FAILURE;
+            }
+        },
+    }
+    match save(&settings, file) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `serve`: render the form once, then loop handling `form.submit` requests
+/// and the `shutdown` notification over stdio.
+fn serve_mode(file: &Path) -> ExitCode {
+    let mut settings = match Settings::load(file) {
+        Ok(settings) => settings,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut stdout = io::stdout();
+    if send_line(&mut stdout, &rpc::render_notification(&settings)).is_err() {
+        return ExitCode::FAILURE;
+    }
+
+    for line in io::stdin().lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+        match rpc::parse_line(&line) {
+            Ok(Incoming::Shutdown) => return ExitCode::SUCCESS,
+            Ok(Incoming::FormSubmit { id, values }) => {
+                let mut trial = settings.clone();
+                let outcome = apply_values(&mut trial, &values).and_then(|changed| {
+                    if changed {
+                        save(&trial, file)?;
+                    }
+                    Ok(changed)
+                });
+                match outcome {
+                    Ok(changed) => {
+                        if send_line(&mut stdout, &rpc::result_response(&id)).is_err() {
+                            break;
+                        }
+                        if changed {
+                            settings = trial;
+                            if send_line(&mut stdout, &rpc::render_notification(&settings)).is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    Err(message) => {
+                        if send_line(&mut stdout, &rpc::error_response(&id, &message)).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok(Incoming::Unknown {
+                id: Some(id),
+                method,
+            }) => {
+                let message = format!("unknown method `{method}`");
+                if send_line(&mut stdout, &rpc::error_response(&id, &message)).is_err() {
+                    break;
+                }
+            }
+            Ok(Incoming::Unknown { id: None, .. }) => {
+                // An unrecognised notification: nothing to respond to, and
+                // nothing this worker knows how to act on.
+            }
+            Err(e) => eprintln!("{e}"),
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn send_line(out: &mut impl Write, line: &str) -> io::Result<()> {
+    writeln!(out, "{line}")?;
+    out.flush()
 }
 
 /// The pkexec-elevated half: stdin holds the whole new settings.nix; refuse
 /// anything that does not parse, then atomically replace `file`.
 fn write_from_stdin(file: &Path) -> ExitCode {
     let mut src = String::new();
-    if let Err(e) = std::io::stdin().read_to_string(&mut src) {
+    if let Err(e) = io::stdin().read_to_string(&mut src) {
         eprintln!("cannot read stdin: {e}");
         return ExitCode::FAILURE;
     }
@@ -74,63 +241,6 @@ fn write_from_stdin(file: &Path) -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-/// The rofi menu loop: pick a row, edit or toggle, save after each change.
-fn rofi_ui(file: &Path) -> ExitCode {
-    let mut settings = match Settings::load(file) {
-        Ok(settings) => settings,
-        Err(e) => {
-            rofi_error(&e.to_string());
-            return ExitCode::FAILURE;
-        }
-    };
-    loop {
-        let Some(index) = rofi_menu(&rows(&settings)) else {
-            return ExitCode::SUCCESS;
-        };
-        let changed = match &ITEMS[index].action {
-            Action::EditStr {
-                key,
-                prompt,
-                validate,
-            } => edit_str(&mut settings, key, prompt, *validate),
-            Action::Toggle { key } => {
-                let value = !settings.get_bool(key).unwrap_or_default();
-                settings.set_bool(key, value);
-                true
-            }
-            Action::Exit => return ExitCode::SUCCESS,
-        };
-        if changed {
-            if let Err(e) = save(&settings, file) {
-                rofi_error(&e);
-                return ExitCode::FAILURE;
-            }
-        }
-    }
-}
-
-/// rofi input prefilled with the current value; returns whether it changed.
-fn edit_str(
-    settings: &mut Settings,
-    key: &str,
-    prompt: &str,
-    validate: fn(&str) -> Result<(), String>,
-) -> bool {
-    let current = settings.get_str(key).unwrap_or_default();
-    let Some(value) = rofi_input(prompt, &current) else {
-        return false;
-    };
-    if value == current {
-        return false;
-    }
-    if let Err(reason) = validate(&value) {
-        rofi_error(&reason);
-        return false;
-    }
-    settings.set_str(key, &value);
-    true
 }
 
 /// Direct save when the file is user-writable; otherwise re-exec ourselves
@@ -162,54 +272,4 @@ fn save(settings: &Settings, file: &Path) -> Result<(), String> {
     } else {
         Err("privileged write failed (pkexec dismissed?)".into())
     }
-}
-
-/// Show rows as a dmenu and return the selected index (None on Esc).
-/// `-no-custom` so a typed filter that matches no row is ignored rather than
-/// returned as `-1` (which would parse to `None` and quit the whole tool).
-fn rofi_menu(rows: &[String]) -> Option<usize> {
-    let out = rofi(
-        &["-dmenu", "-no-custom", "-p", "Settings", "-format", "i"],
-        &rows.join("\n"),
-    )?;
-    out.trim().parse().ok()
-}
-
-/// Free-text rofi prompt prefilled with the current value.
-fn rofi_input(prompt: &str, current: &str) -> Option<String> {
-    let out = rofi(&["-dmenu", "-p", prompt, "-filter", current, "-l", "0"], "")?;
-    let value = out.trim_end_matches('\n');
-    if value.is_empty() {
-        None
-    } else {
-        Some(value.to_string())
-    }
-}
-
-/// rofi message dialog; falls back to stderr when rofi is unavailable.
-fn rofi_error(message: &str) {
-    eprintln!("{message}");
-    let _ = Command::new("rofi")
-        .args(theme_args(env::var("GLOBAL_SETTINGS_ROFI_THEME").ok()))
-        .args(["-e", message])
-        .status();
-}
-
-/// Spawn rofi with `input` on stdin; None on Esc or when rofi cannot run.
-/// `GLOBAL_SETTINGS_ROFI_THEME` (set by the Nix wrapper) picks the theme.
-fn rofi(args: &[&str], input: &str) -> Option<String> {
-    let mut child = Command::new("rofi")
-        .args(theme_args(env::var("GLOBAL_SETTINGS_ROFI_THEME").ok()))
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|e| eprintln!("cannot run rofi: {e}"))
-        .ok()?;
-    child.stdin.take()?.write_all(input.as_bytes()).ok()?;
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8(output.stdout).ok()
 }
