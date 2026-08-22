@@ -125,7 +125,7 @@ impl Provider for Clipboard {
     }
 
     fn trigger(&self) -> Trigger {
-        Trigger::Prefix("c ")
+        Trigger::Prefix("c ".to_string())
     }
 
     fn query(&self, ctx: &Ctx, _query: &str) -> Vec<Item> {

@@ -222,6 +222,115 @@ in
       default = [ ];
       description = "Parameterised links and commands.";
     };
+
+    plugins = lib.mkOption {
+      type = lib.types.attrsOf (
+        lib.types.submodule {
+          options = {
+            title = lib.mkOption {
+              type = lib.types.str;
+              description = "Section heading this plugin's rows are grouped under, and its pill label.";
+            };
+            icon = lib.mkOption {
+              type = lib.types.nullOr lib.types.path;
+              default = null;
+              description = "Icon file shared by every row this plugin contributes; SVG and PNG render.";
+            };
+            keyword = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = ''
+                Prefix that reaches this plugin, narrowing the root list down
+                to just its commands. Omitted means ambient: every command is
+                fuzzy-ranked into the root list instead, like a quicklink.
+              '';
+            };
+            commands = lib.mkOption {
+              type = lib.types.listOf (
+                lib.types.submodule {
+                  options = {
+                    id = lib.mkOption {
+                      type = lib.types.str;
+                      description = ''
+                        Stable identity within the plugin. Reaches this
+                        command via `beamenu --command`-style argv when
+                        `mode = "view"`: `beamenu-canvas --manifest … --command <id>`.
+                      '';
+                    };
+                    title = lib.mkOption {
+                      type = lib.types.str;
+                      description = "Row title.";
+                    };
+                    description = lib.mkOption {
+                      type = lib.types.nullOr lib.types.str;
+                      default = null;
+                      description = "Row subtitle.";
+                    };
+                    mode = lib.mkOption {
+                      type = lib.types.enum [
+                        "exec"
+                        "terminal"
+                        "copy"
+                        "view"
+                      ];
+                      description = ''
+                        What activating the row does: `exec` spawns `exec`
+                        detached; `terminal` wraps it in the configured
+                        terminal; `copy` copies the `{query}`-substituted
+                        `exec`, joined into one shell command, onto the
+                        clipboard; `view` opens the `beamenu-canvas` sidecar.
+                      '';
+                    };
+                    ui = lib.mkOption {
+                      type = lib.types.enum [
+                        "log"
+                        "rpc"
+                      ];
+                      default = "log";
+                      description = "Sidecar renderer used when `mode = \"view\"`.";
+                    };
+                    exec = lib.mkOption {
+                      type = lib.types.listOf lib.types.str;
+                      description = ''
+                        Argv. `{query}` in any element is replaced with
+                        whatever was typed past the plugin's keyword (or the
+                        whole query, for an ambient plugin) before this runs.
+                      '';
+                    };
+                  };
+                }
+              );
+              default = [ ];
+              description = "Commands this plugin exposes as rows.";
+            };
+          };
+        }
+      );
+      default = { };
+      description = ''
+        JSON plugin manifests. Each attribute becomes its own provider — own
+        section heading, own pill, own optional keyword — rendered to
+        `beamenu/plugins/<name>.json`, where `<name>` is the attribute name
+        and doubles as the manifest's `name` field and the provider id
+        `disabledProviders` matches against.
+      '';
+      example = lib.literalExpression ''
+        {
+          claude = {
+            title = "Claude Code";
+            keyword = "cl";
+            commands = [
+              {
+                id = "ask";
+                title = "Ask Claude";
+                mode = "view";
+                exec = [ "bash" "-lc" "claude --print {query}" ];
+              }
+            ];
+          };
+        }
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -242,11 +351,22 @@ in
       "beamenu/config.json".text = builtins.toJSON configJson;
       "beamenu/snippets.json".text = builtins.toJSON cfg.snippets;
       "beamenu/quicklinks.json".text = builtins.toJSON cfg.quicklinks;
-    };
+    }
+    // lib.mapAttrs' (
+      name: plugin:
+      # The attribute name is the manifest's `name` field too, so the file
+      # a plugin ships as and the provider id `disabledProviders` names are
+      # never able to drift apart from each other.
+      lib.nameValuePair "beamenu/plugins/${name}.json" {
+        text = builtins.toJSON (plugin // { inherit name; });
+      }
+    ) cfg.plugins;
 
-    # Script commands are discovered at query time, so the directory has to
-    # exist even when empty or the provider has nothing to scan.
+    # Script commands and plugin manifests are both discovered at query time,
+    # so their directories have to exist even when empty or the respective
+    # provider has nothing to scan.
     home.file.".config/beamenu/scripts/.keep".text = "";
+    home.file.".config/beamenu/plugins/.keep".text = "";
 
     systemd.user.services.beamenu-clipboard = lib.mkIf cfg.clipboardHistory {
       Unit = {

@@ -44,7 +44,7 @@ impl App {
         let config = Config::load(&config_dir.join("config.json"));
         let disabled = config.disabled.clone();
 
-        let providers = providers::all()
+        let providers = providers::all(&config_dir)
             .into_iter()
             .filter(|p| !disabled.iter().any(|d| d == p.id()))
             .collect();

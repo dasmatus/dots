@@ -20,13 +20,14 @@ pub mod calc;
 pub mod clipboard;
 pub mod emoji;
 pub mod files;
+pub mod plugins;
 pub mod quicklinks;
 pub mod scripts;
 pub mod snippets;
 pub mod system;
 pub mod window;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 use crate::item::Item;
@@ -47,15 +48,26 @@ pub enum Trigger {
     Ambient,
     /// Contributes only when the query starts with this prefix. The prefix is
     /// stripped before the provider sees the query.
-    Prefix(&'static str),
+    ///
+    /// Owned rather than `&'static str` because a plugin's keyword comes from
+    /// its JSON manifest at load time, not from a string literal.
+    Prefix(String),
 }
 
 pub trait Provider {
-    /// Stable identity, used by `Action::Push` and by the frecency store.
-    fn id(&self) -> &'static str;
+    /// Stable identity, used by `Action::Push`, the frecency store and
+    /// `Config::disabled`.
+    ///
+    /// Borrowed rather than `&'static str` because a plugin provider's id is
+    /// its manifest's `name`, read from disk rather than known at compile
+    /// time.
+    fn id(&self) -> &str;
 
     /// Heading rows from this provider are grouped under.
-    fn section(&self) -> &'static str;
+    ///
+    /// Borrowed for the same reason as [`Provider::id`]: a plugin's section
+    /// is its manifest's `title`.
+    fn section(&self) -> &str;
 
     /// How this provider is reached.
     fn trigger(&self) -> Trigger {
@@ -67,9 +79,14 @@ pub trait Provider {
 }
 
 /// Every provider, in the order their sections should appear.
+///
+/// `config_dir` is scanned once here for `plugins/*.json`, appending one
+/// [`plugins::PluginProvider`] per manifest after the built-in providers.
+/// beamenu spawns fresh per invocation, so a single scan at startup is always
+/// current — there is no long-lived process to go stale.
 #[must_use]
-pub fn all() -> Vec<Box<dyn Provider>> {
-    vec![
+pub fn all(config_dir: &Path) -> Vec<Box<dyn Provider>> {
+    let mut providers: Vec<Box<dyn Provider>> = vec![
         Box::new(calc::Calc),
         Box::new(apps::Apps),
         Box::new(quicklinks::Quicklinks),
@@ -80,7 +97,13 @@ pub fn all() -> Vec<Box<dyn Provider>> {
         Box::new(files::Files),
         Box::new(emoji::Emoji),
         Box::new(system::System),
-    ]
+    ];
+    providers.extend(
+        plugins::load_all(&config_dir.join("plugins"))
+            .into_iter()
+            .map(|provider| Box::new(provider) as Box<dyn Provider>),
+    );
+    providers
 }
 
 /// Rows for `query`, plus the text the caller should rank them against.
@@ -97,7 +120,7 @@ pub fn all() -> Vec<Box<dyn Provider>> {
 pub fn collect(providers: &[Box<dyn Provider>], ctx: &Ctx, query: &str) -> (Vec<Item>, String) {
     for provider in providers {
         if let Trigger::Prefix(prefix) = provider.trigger() {
-            if let Some(rest) = query.strip_prefix(prefix) {
+            if let Some(rest) = query.strip_prefix(prefix.as_str()) {
                 // A keyworded provider has already narrowed to exactly what
                 // was asked for, so its rows are shown in the order it chose.
                 return (decorate(provider.as_ref(), ctx, rest), String::new());
