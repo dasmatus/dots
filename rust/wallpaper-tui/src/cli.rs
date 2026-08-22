@@ -8,9 +8,9 @@ use clap::builder::PossibleValuesParser;
 use clap::Parser;
 
 use crate::accent::TintBackend;
+use crate::awww::{apply_wallpaper, restore_groups, Group, LiveAwww, Transition};
 use crate::config::{preview_cache_dir, Config, State, DEFAULT_COLOR, MODES};
 use crate::preview::{cache_previews, parse_preview_size};
-use crate::awww::{apply_wallpaper, restore_groups, Group, LiveAwww, Transition};
 use crate::tint::apply_tint;
 
 #[derive(Parser, Debug)]

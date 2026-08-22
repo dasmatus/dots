@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use wallpaper_tui::awww::{
-    apply_wallpaper, ensure_daemon, map_mode, awww_args, Group, AwwwBackend, Transition,
+    apply_wallpaper, awww_args, ensure_daemon, map_mode, AwwwBackend, Group, Transition,
 };
 
 fn group(output: &str, path: &str, mode: &str) -> Group {

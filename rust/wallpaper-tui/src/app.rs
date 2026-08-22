@@ -11,9 +11,9 @@ use abstracttui::base::Rgba;
 use abstracttui::gfx::Bitmap;
 
 use crate::accent::TintBackend;
+use crate::awww::Group;
 use crate::config::{effective_output, Config, State, COLOR_PALETTE, DEFAULT_COLOR, MODES};
 use crate::input::{KeyCode, KeyEvent};
-use crate::awww::Group;
 
 /// A request the event loop drains off the TUI thread.
 #[derive(Debug, Clone)]

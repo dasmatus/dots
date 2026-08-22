@@ -23,11 +23,11 @@ use clap::Parser;
 
 use wallpaper_tui::accent::TintBackend;
 use wallpaper_tui::app::{App, Event, PendingOp};
+use wallpaper_tui::awww::{apply_wallpaper, LiveAwww, Transition};
 use wallpaper_tui::cli::{self, Args};
 use wallpaper_tui::config::{Config, State};
 use wallpaper_tui::fx::Fx;
 use wallpaper_tui::preview;
-use wallpaper_tui::awww::{apply_wallpaper, LiveAwww, Transition};
 use wallpaper_tui::tint;
 use wallpaper_tui::ui;
 
