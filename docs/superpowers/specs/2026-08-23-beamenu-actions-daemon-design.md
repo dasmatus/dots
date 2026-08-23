@@ -94,29 +94,53 @@ defeats the warm-cache purpose and the daemon needs the Wayland session
 anyway. Rejected: daemon that forks a fresh UI process per show — keeps the
 scan-per-launch cost and adds a second process model for nothing.)
 
-CLI surface (`rust/beamenu/src/main.rs`):
+Transport: the **session D-Bus**, not a private socket. It is the bus every
+other desktop service on this system already sits on, it gives us
+introspection and a name-ownership check for free (`busctl --user`,
+`gdbus`), systemd can wait on the name with `Type=dbus`, and it removes
+the stale-socket-file problem entirely — name ownership dies with the
+process. zbus is pure Rust, so it adds no C dependency and no
+`buildInputs`, the same reasoning already recorded for the AT-SPI bridge
+at `nix/home/computer-use-linux-pkg.nix:6-7`. beamenu uses
+`cargoLock.lockFile`, so the new dependency costs a lock regeneration and
+no hash update.
 
-- `beamenu` (no args, the SUPER+Space bind — unchanged): connect to
-  `$XDG_RUNTIME_DIR/beamenu/ipc.sock`, send `show`, exit. If the socket is
-  absent/refused, fall back to today's in-process one-shot `run()` so the
-  launcher works on a half-configured system. Window UX identical.
-- `beamenu daemon`: replaces `--daemon`. Owns: warm state, the socket, the
+Interface `dev.dots.Beamenu1` at `/dev/dots/Beamenu`, well-known name
+`dev.dots.Beamenu`:
+
+- `Show()` — open the launcher. Idempotent: a second call while the panel
+  is up returns Ok without queuing, because that is a double keypress, not
+  a request to reopen later.
+- `RunCommand(s id)` — the `--command` path. Errors with
+  `org.freedesktop.DBus.Error.InvalidArgs` naming the id when unknown.
+- `Reload()` — discard cached config/manifests before the next show.
+- Read-only properties `Visible: b`, `Apps: u`, `Providers: u`,
+  `Version: s` — a status surface that costs no method and that
+  `busctl --user introspect` renders on its own.
+
+CLI surface (`rust/beamenu/src/main.rs`) — argv unchanged:
+
+- `beamenu` (no args, the SUPER+Space bind): call `Show()`; on any bus or
+  call failure fall back to today's in-process one-shot `run()`, so the
+  launcher still works with no daemon, no session bus, or a crashed
+  service. Window UX identical.
+- `beamenu --daemon`: now the full daemon — warm state, bus name, the
   clipboard watcher thread (absorbed from `daemon::watch`), the UI loop.
-- `beamenu --command <id>`: routed through the daemon when the socket is
-  up (single writer for frecency/state), local fallback otherwise.
-  `--list-commands` stays local.
+- `beamenu --command <id>`: call `RunCommand`, same fallback.
+  `--list-commands` stays local and never touches the bus.
 
-Threading: main thread = UI thread; it blocks on an mpsc channel while
-hidden, builds `view::Menu` on `show`, runs the existing `run()` loop,
-frees the menu on dismiss, returns to the channel. Socket accept loop on a
-second thread translates requests into channel messages and replies
-`{"ok":true}` / `{"ok":false,"err":...}`; a `show` while visible is a
-no-op reply, never a queue. Clipboard watcher is a third thread (same
-logic as today's `daemon.rs`, same jsonl file, still the single writer).
-
-Protocol: newline-delimited JSON, `{"cmd":"show"}`, `{"cmd":"command",
-"id":"..."}`, `{"cmd":"status"}`, `{"cmd":"reload"}`. Codec is a pure
-module with tests; no serde-untyped passthrough.
+Threading: main thread = UI thread; it blocks on an `mpsc` receiver while
+hidden, builds `view::Menu` on Show, runs the existing `run()` loop, frees
+the menu on dismiss, returns to the receiver. zbus's blocking object
+server owns its own thread and dispatches method calls there. `Show` and
+`Reload` are fire-and-forget sends onto the channel, so a method call
+never blocks for as long as the panel is open. `RunCommand` needs no `App`
+state — only `system::command_for` and the configured terminal, published
+as an `Arc<RwLock<String>>` the UI thread refreshes — so it dispatches
+directly on the bus thread with no cross-thread wait at all. `Visible`,
+`Apps` and `Providers` are atomics the UI thread stores after each
+refresh. Clipboard watcher is a third thread (same logic, same jsonl
+file, still the single writer), restarted with a delay if `wl-paste` dies.
 
 Warm state and staleness rules (preserving one-shot semantics):
 
@@ -128,12 +152,15 @@ Warm state and staleness rules (preserving one-shot semantics):
   `show` (small files; keeps HM switches taking effect like today).
 - Frecency: in-memory, write-through on activation, as today.
 
-systemd (`nix/home/beamenu.nix`): `beamenu.service` (`ExecStart=beamenu
-daemon`, `ConditionEnvironment=WAYLAND_DISPLAY`,
+systemd (`nix/home/beamenu.nix`): `beamenu.service` (`Type=dbus`,
+`BusName=dev.dots.Beamenu`, `ExecStart=beamenu --daemon`,
+`ConditionEnvironment=WAYLAND_DISPLAY`,
 `PartOf/After=graphical-session.target`, `Restart=on-failure`,
 `WantedBy=graphical-session.target`) replaces `beamenu-clipboard.service`;
 the `clipboardHistory` option now toggles the watcher thread via config
-instead of a separate unit.
+instead of a separate unit. `Type=dbus` means systemd considers the
+service started only once the name is actually on the bus, which is the
+readiness signal a private socket could not give us.
 
 Known risk, spiked first: repeated `bm_menu_new`/free cycles in one
 process (renderer registry + Wayland globals in patched bemenu were only
@@ -143,9 +170,14 @@ never on the live session). If the C side leaks or wedges across cycles,
 the fix is patch 07 in `nix/patches/beamenu/`, with a driver test beside
 `pills_scroll_test.cpp`.
 
-Tests: `rust/beamenu/tests/` for protocol codec, mtime revalidation
-decision logic, and request routing (fake socket via `UnixStream::pair`);
-existing suites must stay green.
+Tests: `rust/beamenu/tests/` for mtime revalidation decision logic and for
+request handling driven directly against the interface type, no bus
+required — the D-Bus methods are thin wrappers over functions that take
+plain arguments, which is what keeps them testable. Bus-level behaviour
+(name ownership, introspection, a real `Show`) is verified end to end
+under the nested headless compositor rather than in `cargo test`, since a
+session bus is not a thing a unit test should conjure. Existing suites
+must stay green.
 
 ## Delivery order and gates
 

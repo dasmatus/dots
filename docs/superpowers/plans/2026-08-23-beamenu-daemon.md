@@ -8,14 +8,14 @@ desktop-entry index warm and shows the same launcher window on request, while
 with no daemon running.
 
 **Architecture:** One process owns the UI thread (bemenu's Wayland connection
-is thread-bound), a UNIX-socket listener thread, and the clipboard-watcher
-thread absorbed from today's `--daemon`. The socket speaks newline-delimited
-JSON. `beamenu` with no arguments is a thin client that falls back to today's
-in-process one-shot when the socket is absent. The desktop-entry scan and icon
-resolution move behind a cache revalidated once per *show* instead of once per
-keystroke.
+is thread-bound), a zbus blocking object server on its own thread exporting
+`dev.dots.Beamenu1` on the session bus, and the clipboard-watcher thread
+absorbed from today's `--daemon`. `beamenu` with no arguments is a thin D-Bus
+client that falls back to today's in-process one-shot whenever the call does
+not go through. The desktop-entry scan and icon resolution move behind a cache
+revalidated once per *show* instead of once per keystroke.
 
-**Tech Stack:** Rust std (`std::os::unix::net`, `std::sync::mpsc`), serde,
+**Tech Stack:** Rust, `zbus` (pure Rust D-Bus, blocking API), `std::sync::mpsc`,
 Home Manager systemd user units.
 
 **Spec:** `docs/superpowers/specs/2026-08-23-beamenu-actions-daemon-design.md`
@@ -39,8 +39,12 @@ Home Manager systemd user units.
 - Gate per task: `nix shell nixpkgs#rustfmt -c cargo fmt --all` then
   `cargo clippy --all-targets -- -D warnings -W clippy::all -W clippy::perf -W clippy::pedantic`
   then `cargo test`.
-- No new crate dependencies. `std::os::unix::net` covers the socket; adding
-  tokio/serde-untagged for this would be a dependency for four message types.
+- Exactly one new crate dependency: `zbus`. It is pure Rust, so it adds no
+  `buildInputs` — the same reasoning already recorded at
+  `nix/home/computer-use-linux-pkg.nix:6-7`. beamenu is packaged with
+  `cargoLock.lockFile` (`flake/packages.nix:118`), so a regenerated
+  `rust/beamenu/Cargo.lock` is the whole packaging change; there is no
+  `cargoHash` to update. Do not add tokio: use zbus's blocking API.
 - All nix eval/build commands need `--impure`; `git add` new files before any
   `nix build` (flake filesets copy tracked files only).
 - **Never test the launcher on the live Hyprland session.** GUI verification
@@ -140,8 +144,8 @@ exit 0, no ASan-style crash, no hang.
     daemon keeps the warm caches but spawns a short-lived UI child per show:
     it re-execs `/proc/self/exe --show-warm`, writes the serialized warm index
     to the child's stdin, and the child runs today's one-shot path against it.
-    Take that branch in Task 5, and say so in the report; the socket, cache,
-    and nix work in Tasks 2-4 and 6 are unchanged either way.
+    Take that branch in Task 5, and say so in the report; the bus interface,
+    the cache and the nix work in Tasks 2-4 and 6 are unchanged either way.
 
 - [ ] **Step 5: Delete the throwaway and kill the compositor**
 
@@ -159,8 +163,8 @@ git status --short   # must show no examples/ leftovers
 ### Task 2: warm desktop-entry index
 
 **Files:**
-- Create: `rust/beamenu/src/index.rs`
-- Modify: `rust/beamenu/src/lib.rs` (add `pub mod index;`)
+- Modify: `rust/beamenu/src/index.rs` (already declared in `lib.rs` as
+  `pub mod index;` with a one-line stub — do not re-add the module line)
 - Test: `rust/beamenu/tests/index.rs`
 
 **Interfaces:**
@@ -565,270 +569,370 @@ git commit -m "refactor(beamenu): apps provider reads the warm cache, App::refre
 
 ---
 
-### Task 4: the IPC protocol
+### Task 4: the D-Bus interface
 
 **Files:**
-- Create: `rust/beamenu/src/ipc.rs`
-- Modify: `rust/beamenu/src/lib.rs` (add `pub mod ipc;`)
+- Modify: `rust/beamenu/Cargo.toml`, `rust/beamenu/Cargo.lock`
+- Modify: `rust/beamenu/src/ipc.rs` (already declared in `lib.rs` as
+  `pub mod ipc;` with a one-line stub — do not re-add the module line)
 - Test: `rust/beamenu/tests/ipc.rs`
 
 **Interfaces:**
+- Consumes: `system::command_for` (`rust/beamenu/src/providers/system.rs`),
+  `dispatch::dispatch`, `item::Action`.
 - Produces:
-  - `pub enum Request { Show, Command { id: String }, Status, Reload }`,
-    serde-tagged on `"cmd"`, lowercase.
-  - `pub enum Response { Ok, Error { message: String }, Status { visible: bool, apps: usize, providers: usize, version: String } }`,
-    serde-tagged on `"reply"`, lowercase.
-  - `pub fn socket_path() -> PathBuf`
-  - `pub fn encode<T: Serialize>(value: &T) -> String` (JSON plus `\n`)
-  - `pub fn decode<T: DeserializeOwned>(line: &str) -> anyhow::Result<T>`
-  - `pub fn request(path: &Path, req: &Request) -> Option<Response>` — connect,
-    send, read one line; `None` on any I/O or parse failure, which is what
-    makes the caller's fallback unconditional.
-  - `pub fn bind(path: &Path) -> anyhow::Result<UnixListener>` — creates the
-    parent directory and clears a stale socket.
-  Task 5 consumes all of these.
+  - `pub const BUS_NAME: &str = "dev.dots.Beamenu";`
+    `pub const OBJECT_PATH: &str = "/dev/dots/Beamenu";`
+  - `pub enum Signal { Show, Reload }` — what the bus thread hands the UI thread.
+  - `pub struct Shared { pub visible: AtomicBool, pub apps: AtomicUsize, pub providers: AtomicUsize, pub terminal: RwLock<String> }`
+    with `Shared::new()`; the UI thread writes it, the bus thread reads it.
+  - `pub struct Beamenu { tx: Sender<Signal>, shared: Arc<Shared> }` with
+    `Beamenu::new(tx, shared)`, exporting `dev.dots.Beamenu1`.
+  - `pub fn run_command(id: &str, terminal: &str) -> Result<(), String>` — the
+    body of the `RunCommand` method, taking plain arguments so tests can call
+    it without a bus.
+  - `pub fn show(&self) -> bool` / `pub fn reload(&self) -> bool` as the
+    inherent (non-D-Bus) halves the tests drive.
+  Task 5 builds the connection; Task 6 calls the interface as a client.
 
-- [ ] **Step 1: Write the failing tests** (`rust/beamenu/tests/ipc.rs`)
+- [ ] **Step 1: Add the dependency**
+
+```bash
+cd rust/beamenu
+cargo add zbus --no-default-features --features blocking-api
+```
+
+zbus's feature names move between majors. If that invocation fails or
+`zbus::blocking` is still missing, run `cargo add zbus` plainly and then trim
+features until `cargo build` compiles with `zbus::blocking` available and no
+tokio in the tree (`cargo tree -i tokio` must find nothing). Record the exact
+version and feature list that worked in your report. Do not add `serde` or
+`futures` explicitly — zbus re-exports what it needs.
+
+- [ ] **Step 2: Write the failing tests** (`rust/beamenu/tests/ipc.rs`)
 
 ```rust
-//! The daemon protocol: wire format, stale-socket recovery, and the
-//! client's silent fallback. None of it needs a compositor.
+//! The daemon's D-Bus surface, exercised without a bus.
+//!
+//! Every method body is a plain function over plain arguments, which is what
+//! makes this testable: the D-Bus layer contributes the name, the signature
+//! and the error mapping, and none of those need a session bus to be right.
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixListener;
+use std::sync::atomic::Ordering;
+use std::sync::mpsc;
+use std::sync::Arc;
 
-use beamenu::ipc::{bind, decode, encode, request, socket_path, Request, Response};
+use beamenu::ipc::{run_command, Beamenu, Shared, Signal, BUS_NAME, OBJECT_PATH};
 
-#[test]
-fn requests_round_trip_through_the_wire_format() {
-    for req in [
-        Request::Show,
-        Request::Reload,
-        Request::Status,
-        Request::Command { id: "lock".into() },
-    ] {
-        let line = encode(&req);
-        assert!(line.ends_with('\n'), "framing is newline-delimited");
-        assert_eq!(decode::<Request>(line.trim()).unwrap(), req);
-    }
+fn iface() -> (Beamenu, Arc<Shared>, mpsc::Receiver<Signal>) {
+    let (tx, rx) = mpsc::channel();
+    let shared = Arc::new(Shared::new());
+    (Beamenu::new(tx, Arc::clone(&shared)), shared, rx)
 }
 
 #[test]
-fn show_is_spelled_the_way_the_wire_format_documents() {
-    assert_eq!(encode(&Request::Show).trim(), r#"{"cmd":"show"}"#);
+fn the_bus_name_and_path_agree_with_each_other() {
+    assert_eq!(BUS_NAME, "dev.dots.Beamenu");
+    assert_eq!(OBJECT_PATH, "/dev/dots/Beamenu");
     assert_eq!(
-        encode(&Request::Command { id: "lock".into() }).trim(),
-        r#"{"cmd":"command","id":"lock"}"#
+        OBJECT_PATH.trim_start_matches('/').replace('/', "."),
+        BUS_NAME,
+        "the object path is the bus name's path form, so one cannot drift"
     );
 }
 
 #[test]
-fn a_malformed_line_is_an_error_not_a_panic() {
-    assert!(decode::<Request>("not json").is_err());
-    assert!(decode::<Request>(r#"{"cmd":"nope"}"#).is_err());
+fn show_signals_the_ui_thread() {
+    let (iface, _shared, rx) = iface();
+    assert!(iface.show(), "a hidden launcher accepts a show");
+    assert_eq!(rx.try_recv().unwrap(), Signal::Show);
 }
 
 #[test]
-fn requesting_an_absent_socket_yields_none_rather_than_failing() {
-    let dir = tempfile::tempdir().unwrap();
-    assert!(request(&dir.path().join("missing.sock"), &Request::Show).is_none());
+fn show_while_visible_is_a_no_op_rather_than_a_queued_second_panel() {
+    let (iface, shared, rx) = iface();
+    shared.visible.store(true, Ordering::SeqCst);
+
+    assert!(iface.show(), "a double keypress is not an error");
+    assert!(
+        rx.try_recv().is_err(),
+        "nothing may be queued, or the panel reopens after the user dismissed it"
+    );
 }
 
 #[test]
-fn a_served_request_comes_back_decoded() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ipc.sock");
-    let listener = bind(&path).unwrap();
-
-    let server = std::thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        let req: Request = decode(line.trim()).unwrap();
-        assert_eq!(req, Request::Show);
-        let mut out = stream;
-        out.write_all(encode(&Response::Ok).as_bytes()).unwrap();
-    });
-
-    assert_eq!(request(&path, &Request::Show), Some(Response::Ok));
-    server.join().unwrap();
+fn reload_signals_the_ui_thread() {
+    let (iface, _shared, rx) = iface();
+    assert!(iface.reload());
+    assert_eq!(rx.try_recv().unwrap(), Signal::Reload);
 }
 
 #[test]
-fn bind_reclaims_a_socket_left_behind_by_a_dead_daemon() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ipc.sock");
-    drop(bind(&path).unwrap());
-    assert!(path.exists(), "the file outlives the listener");
-
-    bind(&path).expect("a stale socket file must not block a fresh bind");
+fn signalling_a_dead_ui_thread_reports_failure_rather_than_panicking() {
+    let (iface, _shared, rx) = iface();
+    drop(rx);
+    assert!(!iface.show(), "a closed channel is a failed send, not an unwrap");
 }
 
 #[test]
-fn the_socket_lives_under_the_runtime_directory_when_there_is_one() {
-    // socket_path reads the environment, so assert only the shape that holds
-    // either way: a beamenu-owned directory and a stable file name.
-    let path = socket_path();
-    assert_eq!(path.file_name().unwrap(), "ipc.sock");
-    assert!(path.to_string_lossy().contains("beamenu"));
+fn an_unknown_command_id_is_an_error_naming_it() {
+    let err = run_command("definitely-not-a-command", "kitty")
+        .expect_err("an unknown id cannot dispatch");
+    assert!(
+        err.contains("definitely-not-a-command"),
+        "the message must name the id that was not found: {err}"
+    );
+}
+
+#[test]
+fn properties_read_through_to_what_the_ui_thread_published() {
+    let (iface, shared, _rx) = iface();
+    shared.apps.store(42, Ordering::SeqCst);
+    shared.providers.store(11, Ordering::SeqCst);
+    shared.visible.store(true, Ordering::SeqCst);
+
+    assert_eq!(iface.apps(), 42);
+    assert_eq!(iface.providers(), 11);
+    assert!(iface.visible());
+    assert_eq!(iface.version(), env!("CARGO_PKG_VERSION"));
 }
 ```
 
-- [ ] **Step 2: Run to verify failure:** `cargo test --test ipc`. Expected:
-FAIL — unresolved module `beamenu::ipc`.
+- [ ] **Step 3: Run to verify failure**
 
-- [ ] **Step 3: Implement `rust/beamenu/src/ipc.rs`**
+`cargo test --test ipc` (with the `BMV` prefix). Expected: FAIL — nothing in
+`beamenu::ipc` yet.
+
+- [ ] **Step 4: Implement `rust/beamenu/src/ipc.rs`**
 
 ```rust
-//! The daemon protocol.
+//! The daemon's D-Bus interface.
 //!
-//! One line of JSON in, one line of JSON out, over a UNIX socket in the
-//! runtime directory. Newline framing rather than a length prefix because
-//! every message is small, and `socat`/`nc` being able to drive the daemon by
-//! hand is worth more here than saving a delimiter scan.
+//! The session bus rather than a private socket, because everything the
+//! daemon needs from a transport it already has there: `busctl --user` can
+//! introspect and drive it by hand, name ownership tells systemd when the
+//! service is genuinely up (`Type=dbus`), and a name dies with the process
+//! that held it — so there is no stale socket file to reclaim on a crash.
 //!
-//! The client half never reports a failure to connect. A missing socket is
-//! the ordinary state of a machine where the user never enabled the service,
-//! and the keybind must still open a launcher there — so [`request`] returns
-//! `None` and the caller runs the launcher in-process instead.
+//! Every method body below is an inherent method taking plain arguments, with
+//! the `#[zbus::interface]` block a thin wrapper over it. That split is what
+//! lets the whole surface be tested without conjuring a session bus.
+//!
+//! Threading: the object server runs on zbus's own thread, so nothing here
+//! may block for as long as the panel is open. [`Beamenu::show`] and
+//! [`Beamenu::reload`] hand a [`Signal`] to the UI thread and return
+//! immediately; `RunCommand` needs no launcher state at all and so runs
+//! inline; the properties read atomics the UI thread publishes.
 
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, RwLock};
 
-use anyhow::{Context, Result};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use crate::dispatch;
+use crate::item::Action;
+use crate::providers::system;
 
-/// What a client asks the daemon to do.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "cmd", rename_all = "lowercase")]
-pub enum Request {
-    /// Open the launcher.
+/// The well-known name the daemon owns on the session bus.
+pub const BUS_NAME: &str = "dev.dots.Beamenu";
+
+/// The object the interface is exported at.
+pub const OBJECT_PATH: &str = "/dev/dots/Beamenu";
+
+/// What the bus thread asks the UI thread to do.
+///
+/// Deliberately only the two things that need the UI thread. Anything that
+/// can be answered without it is answered on the bus thread instead, so a
+/// method call never waits on a panel the user has not dismissed yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signal {
     Show,
-    /// Run one system command by id, the `--command` path.
-    Command { id: String },
-    /// Report what the daemon is holding, for debugging a live session.
-    Status,
-    /// Drop and rebuild the cached configuration on the next show.
     Reload,
 }
 
-/// What the daemon answers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "reply", rename_all = "lowercase")]
-pub enum Response {
-    Ok,
-    Error {
-        message: String,
-    },
-    Status {
-        visible: bool,
-        apps: usize,
-        providers: usize,
-        version: String,
-    },
+/// State the UI thread publishes and the bus thread reads.
+#[derive(Debug)]
+pub struct Shared {
+    /// True while the panel is up. Read by `Show` to stay idempotent.
+    pub visible: AtomicBool,
+    pub apps: AtomicUsize,
+    pub providers: AtomicUsize,
+    /// The configured terminal emulator, republished on every refresh so a
+    /// `RunCommand` arriving after a Home Manager switch uses the new one.
+    pub terminal: RwLock<String>,
 }
 
-/// `$XDG_RUNTIME_DIR/beamenu/ipc.sock`.
-///
-/// Falls back to a per-uid directory under `/tmp` when the session has no
-/// runtime directory, which is the case in a bare `ssh` login — the daemon is
-/// useless there, but the path has to resolve for the client to decide that.
-#[must_use]
-pub fn socket_path() -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(
-        || {
-            // SAFETY: getuid is always successful and has no preconditions.
-            let uid = unsafe { libc_getuid() };
-            PathBuf::from(format!("/tmp/beamenu-{uid}"))
-        },
-        PathBuf::from,
-    );
-    base.join("beamenu").join("ipc.sock")
-}
-
-/// `getuid(2)`, declared here rather than pulling in the `libc` crate for one
-/// call that cannot fail.
-extern "C" {
-    #[link_name = "getuid"]
-    fn libc_getuid() -> u32;
-}
-
-/// JSON plus the newline that frames it.
-#[must_use]
-pub fn encode<T: Serialize>(value: &T) -> String {
-    let mut line = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
-    line.push('\n');
-    line
-}
-
-/// Parse one framed line.
-///
-/// # Errors
-/// Fails when the line is not JSON, or not this message type.
-pub fn decode<T: DeserializeOwned>(line: &str) -> Result<T> {
-    serde_json::from_str(line).context("malformed protocol line")
-}
-
-/// Send one request and read one response.
-///
-/// Returns `None` whenever the daemon cannot be reached or does not answer
-/// intelligibly, so callers can treat "no daemon" and "broken daemon"
-/// identically: both mean do it yourself.
-#[must_use]
-pub fn request(path: &Path, req: &Request) -> Option<Response> {
-    let mut stream = UnixStream::connect(path).ok()?;
-    stream.write_all(encode(req).as_bytes()).ok()?;
-    stream.flush().ok()?;
-
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line).ok()?;
-    decode(line.trim()).ok()
-}
-
-/// Listen on `path`, creating its directory and clearing a stale socket.
-///
-/// A socket file outlives the process that bound it, so a daemon killed with
-/// SIGKILL leaves one behind that `bind` would refuse. Probing it with a
-/// connect distinguishes the two cases: a refused connection means nobody is
-/// listening and the file is debris.
-///
-/// # Errors
-/// Fails when the directory cannot be created, when a live daemon already
-/// holds the socket, or when `bind` fails for any other reason.
-pub fn bind(path: &Path) -> Result<UnixListener> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("cannot create {}", parent.display()))?;
-    }
-
-    if path.exists() {
-        if UnixStream::connect(path).is_ok() {
-            anyhow::bail!("another beamenu daemon is already listening on {}", path.display());
+impl Shared {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            visible: AtomicBool::new(false),
+            apps: AtomicUsize::new(0),
+            providers: AtomicUsize::new(0),
+            terminal: RwLock::new(String::new()),
         }
-        std::fs::remove_file(path)
-            .with_context(|| format!("cannot clear stale socket {}", path.display()))?;
+    }
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Run one system command by id.
+///
+/// Split out of the D-Bus method so it can be called with two strings.
+///
+/// # Errors
+/// Returns a message naming the id when no such command exists, or the
+/// dispatch failure otherwise.
+pub fn run_command(id: &str, terminal: &str) -> Result<(), String> {
+    let Some(command) = system::command_for(id) else {
+        return Err(format!("unknown command '{id}'"));
+    };
+    // The command list is all shell one-liners; dispatch still wants a
+    // terminal for its Launch arm, which is why one is threaded through.
+    dispatch::dispatch(&Action::Shell(command.to_string()), terminal)
+        .map_err(|err| err.to_string())
+}
+
+/// The exported object.
+pub struct Beamenu {
+    tx: Sender<Signal>,
+    shared: Arc<Shared>,
+}
+
+impl Beamenu {
+    #[must_use]
+    pub fn new(tx: Sender<Signal>, shared: Arc<Shared>) -> Self {
+        Self { tx, shared }
     }
 
-    UnixListener::bind(path).with_context(|| format!("cannot bind {}", path.display()))
+    /// Ask the UI thread to open the launcher. Returns whether the signal
+    /// was delivered — or was deliberately not needed.
+    ///
+    /// A show while the panel is already up sends nothing and still reports
+    /// success: that is a second keypress, and queueing it would reopen the
+    /// launcher at some arbitrary moment after the user dismissed it.
+    pub fn show(&self) -> bool {
+        if self.shared.visible.load(Ordering::SeqCst) {
+            return true;
+        }
+        self.tx.send(Signal::Show).is_ok()
+    }
+
+    /// Ask the UI thread to rebuild its cached configuration.
+    pub fn reload(&self) -> bool {
+        self.tx.send(Signal::Reload).is_ok()
+    }
+
+    #[must_use]
+    pub fn visible(&self) -> bool {
+        self.shared.visible.load(Ordering::SeqCst)
+    }
+
+    #[must_use]
+    pub fn apps(&self) -> usize {
+        self.shared.apps.load(Ordering::SeqCst)
+    }
+
+    #[must_use]
+    pub fn providers(&self) -> usize {
+        self.shared.providers.load(Ordering::SeqCst)
+    }
+
+    #[must_use]
+    pub fn version(&self) -> &'static str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    fn terminal(&self) -> String {
+        self.shared
+            .terminal
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// `dev.dots.Beamenu1`.
+#[zbus::interface(name = "dev.dots.Beamenu1")]
+impl Beamenu {
+    /// Open the launcher.
+    #[zbus(name = "Show")]
+    fn dbus_show(&self) -> zbus::fdo::Result<()> {
+        if self.show() {
+            Ok(())
+        } else {
+            Err(zbus::fdo::Error::Failed(
+                "the launcher thread is gone".to_string(),
+            ))
+        }
+    }
+
+    /// Run one system command by id.
+    #[zbus(name = "RunCommand")]
+    fn dbus_run_command(&self, id: &str) -> zbus::fdo::Result<()> {
+        run_command(id, &self.terminal()).map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    /// Rebuild cached configuration before the next show.
+    #[zbus(name = "Reload")]
+    fn dbus_reload(&self) -> zbus::fdo::Result<()> {
+        if self.reload() {
+            Ok(())
+        } else {
+            Err(zbus::fdo::Error::Failed(
+                "the launcher thread is gone".to_string(),
+            ))
+        }
+    }
+
+    #[zbus(property, name = "Visible")]
+    fn dbus_visible(&self) -> bool {
+        self.visible()
+    }
+
+    #[zbus(property, name = "Apps")]
+    fn dbus_apps(&self) -> u32 {
+        u32::try_from(self.apps()).unwrap_or(u32::MAX)
+    }
+
+    #[zbus(property, name = "Providers")]
+    fn dbus_providers(&self) -> u32 {
+        u32::try_from(self.providers()).unwrap_or(u32::MAX)
+    }
+
+    #[zbus(property, name = "Version")]
+    fn dbus_version(&self) -> String {
+        self.version().to_string()
+    }
 }
 ```
 
-Register `pub mod ipc;` in `rust/beamenu/src/lib.rs`.
+The `#[zbus::interface]` attribute's exact spelling (`#[zbus::interface]` vs
+the older `#[dbus_interface]`), the `#[zbus(name = ...)]` renames and whether
+an inherent `impl` may coexist with the interface `impl` all depend on the
+zbus major you landed in Step 1. Adapt to what compiles — keeping the split
+between plain-argument inherent methods and the D-Bus wrappers, since that is
+what the tests bind to — and describe any deviation in your report.
 
-- [ ] **Step 4: Run to verify pass:** `cargo test --test ipc`. Expected: PASS.
+- [ ] **Step 5: Run to verify pass:** `cargo test --test ipc`. Expected: PASS.
 
-- [ ] **Step 5: fmt + clippy per Global Constraints.** Clippy pedantic will
-want `#[must_use]` and may object to the `extern "C"` block style; match how
-`rust/beamenu/src/dispatch.rs:22-40` already declares `setsid` and follow it.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Confirm the lock file moved and nothing pulled in tokio**
 
 ```bash
-git add rust/beamenu/src/ipc.rs rust/beamenu/src/lib.rs rust/beamenu/tests/ipc.rs
-git commit -m "feat(beamenu): unix-socket protocol for the daemon"
+git diff --stat rust/beamenu/Cargo.lock   # must show additions
+cargo tree -i tokio                        # must report nothing
+```
+
+- [ ] **Step 7: fmt + clippy per Global Constraints**
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add rust/beamenu/Cargo.toml rust/beamenu/Cargo.lock rust/beamenu/src/ipc.rs rust/beamenu/src/lib.rs rust/beamenu/tests/ipc.rs
+git commit -m "feat(beamenu): dev.dots.Beamenu1 session-bus interface"
 ```
 
 ---
@@ -840,120 +944,99 @@ git commit -m "feat(beamenu): unix-socket protocol for the daemon"
 - Test: `rust/beamenu/tests/daemon.rs`
 
 **Interfaces:**
-- Consumes: Task 3's `App::refresh`, Task 4's `ipc::*`, existing
-  `daemon::watch`/`log_path`, `system::command_for`, `dispatch::dispatch`.
+- Consumes: Task 3's `App::refresh`, Task 4's `ipc::{Beamenu, Shared, Signal,
+  BUS_NAME, OBJECT_PATH}`, existing `daemon::watch`/`log_path`.
 - Produces: `pub fn serve() -> anyhow::Result<()>` — never returns normally;
-  `pub fn handle(app: &mut App, req: &Request) -> Response` — the pure-ish
-  request handler Task 5's tests drive directly. Task 6's `main.rs` calls
-  `serve`.
+  `pub fn publish(app: &App, shared: &ipc::Shared)` — copies the launcher's
+  current counts and terminal into the shared cell, which is the one piece of
+  `serve` worth testing without a bus. Task 6's `main.rs` calls `serve`.
 
 - [ ] **Step 1: Write the failing tests** (`rust/beamenu/tests/daemon.rs`)
 
 ```rust
-//! Request handling, without a compositor. `Show` is the one request that
-//! needs a display, so it is the one request these tests do not make.
+//! What the daemon publishes about itself. The bus and the panel both need a
+//! live session, so neither appears here; the state they read does.
 
-use beamenu::ipc::{Request, Response};
+use std::sync::atomic::Ordering;
+
+use beamenu::daemon::publish;
+use beamenu::ipc::Shared;
 
 #[test]
-fn status_reports_what_the_daemon_is_holding() {
-    let mut app = beamenu::App::new();
-    let reply = beamenu::daemon::handle(&mut app, &Request::Status);
+fn publish_copies_the_launchers_counts_into_the_shared_cell() {
+    let app = beamenu::App::new();
+    let shared = Shared::new();
+    publish(&app, &shared);
 
-    match reply {
-        Response::Status { providers, version, .. } => {
-            assert!(providers >= 10, "the ten built-in providers are always registered");
-            assert_eq!(version, env!("CARGO_PKG_VERSION"));
-        }
-        other => panic!("expected a status reply, got {other:?}"),
-    }
+    assert_eq!(shared.providers.load(Ordering::SeqCst), app.providers.len());
+    assert!(
+        shared.providers.load(Ordering::SeqCst) >= 10,
+        "the ten built-in providers are always registered"
+    );
 }
 
 #[test]
-fn an_unknown_command_id_is_an_error_reply_not_a_dispatch() {
+fn publish_republishes_the_terminal_so_a_reconfigured_one_takes_effect() {
     let mut app = beamenu::App::new();
-    let reply = beamenu::daemon::handle(&mut app, &Request::Command {
-        id: "definitely-not-a-command".into(),
-    });
+    let shared = Shared::new();
+    app.ctx.config.terminal = "some-other-terminal".to_string();
+    publish(&app, &shared);
 
-    match reply {
-        Response::Error { message } => assert!(
-            message.contains("definitely-not-a-command"),
-            "the reply must name the id that was not found: {message}"
-        ),
-        other => panic!("expected an error reply, got {other:?}"),
-    }
+    assert_eq!(
+        shared.terminal.read().unwrap().as_str(),
+        "some-other-terminal"
+    );
 }
 
 #[test]
-fn reload_rebuilds_and_answers_ok() {
-    let mut app = beamenu::App::new();
-    assert_eq!(beamenu::daemon::handle(&mut app, &Request::Reload), Response::Ok);
+fn publish_is_idempotent() {
+    let app = beamenu::App::new();
+    let shared = Shared::new();
+    publish(&app, &shared);
+    let first = shared.apps.load(Ordering::SeqCst);
+    publish(&app, &shared);
+
+    assert_eq!(shared.apps.load(Ordering::SeqCst), first);
 }
 ```
 
 - [ ] **Step 2: Run to verify failure:** `cargo test --test daemon`. Expected:
-FAIL — no function `handle`.
+FAIL — no function `publish`.
 
-- [ ] **Step 3: Implement.** Keep `watch`, `log_path`, `should_store`,
-`history_limit` in `rust/beamenu/src/daemon.rs` exactly as they are; extend
-the module docs and add below them:
+- [ ] **Step 3: Implement.** Keep `watch`, `log_path`, `should_store` and
+`history_limit` in `rust/beamenu/src/daemon.rs` exactly as they are; extend the
+module docs to describe the daemon rather than only the watcher, and add:
 
 ```rust
-/// Answer one request against the live `app`.
+/// Copy what the bus thread reports about the launcher out of `app`.
 ///
-/// [`Request::Show`] is absent here on purpose: it needs the UI thread and a
-/// display, so [`serve`] handles it inline and everything that can be decided
-/// without a compositor stays in a function tests can call.
-#[must_use]
-pub fn handle(app: &mut App, req: &Request) -> Response {
-    match req {
-        Request::Show => Response::Error {
-            message: "show is handled by the UI thread".to_string(),
-        },
-        Request::Reload => {
-            app.refresh();
-            Response::Ok
-        }
-        Request::Status => Response::Status {
-            visible: false,
-            apps: app.ctx.apps.entries().len(),
-            providers: app.providers.len(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-        },
-        Request::Command { id } => match system::command_for(id) {
-            Some(command) => match dispatch::dispatch(
-                &Action::Shell(command.to_string()),
-                &app.ctx.config.terminal,
-            ) {
-                Ok(()) => Response::Ok,
-                Err(err) => Response::Error { message: err.to_string() },
-            },
-            None => Response::Error {
-                message: format!("unknown command '{id}'"),
-            },
-        },
+/// Called after every refresh rather than read on demand, because the `App`
+/// belongs to the UI thread and a property read arrives on zbus's.
+pub fn publish(app: &App, shared: &ipc::Shared) {
+    shared
+        .apps
+        .store(app.ctx.apps.entries().len(), Ordering::SeqCst);
+    shared.providers.store(app.providers.len(), Ordering::SeqCst);
+    if let Ok(mut terminal) = shared.terminal.write() {
+        terminal.clone_from(&app.ctx.config.terminal);
     }
 }
 
-/// Run the resident daemon: socket, clipboard watcher, and the UI.
+/// Run the resident daemon: bus name, clipboard watcher, and the UI.
 ///
 /// Three threads, and which one is which is forced by the C library. The UI
 /// must run on the thread that first touched bemenu, because its renderer
-/// keeps the Wayland connection in unsynchronised globals
-/// (see [`crate::view::Menu`]) — so the UI gets the main thread, and the
-/// socket listener and the clipboard watcher, which are both just blocking
-/// reads, get spawned ones.
+/// keeps the Wayland connection in unsynchronised globals (see
+/// [`crate::view::Menu`]) — so the UI keeps the main thread, and zbus's object
+/// server and the clipboard watcher, which both only block on reads, get
+/// threads of their own.
 ///
 /// # Errors
-/// Fails when the socket cannot be bound, which usually means another daemon
-/// already holds it.
+/// Fails when the session bus is unreachable or when the well-known name is
+/// already owned, which means another daemon is running.
 pub fn serve() -> Result<()> {
     let state = crate::config::state_dir();
     std::fs::create_dir_all(&state)?;
-
-    let path = ipc::socket_path();
-    let listener = ipc::bind(&path)?;
 
     // The watcher outlives any single selection, and losing it must not take
     // the launcher down with it: wl-paste dying (a compositor restart, say)
@@ -966,82 +1049,59 @@ pub fn serve() -> Result<()> {
         std::thread::sleep(RETRY_DELAY);
     });
 
-    let visible = Arc::new(AtomicBool::new(false));
-    let (tx, rx) = std::sync::mpsc::channel::<(Request, SyncSender<Response>)>();
+    let shared = Arc::new(ipc::Shared::new());
+    let (tx, rx) = std::sync::mpsc::channel::<ipc::Signal>();
 
-    let accept_visible = Arc::clone(&visible);
-    std::thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            let _ = answer(stream, &tx, &accept_visible);
-        }
-    });
+    // Held for the process's lifetime: dropping the connection releases the
+    // well-known name, and systemd's Type=dbus readiness is that name.
+    let _connection = zbus::blocking::connection::Builder::session()
+        .context("no session bus")?
+        .name(ipc::BUS_NAME)
+        .context("another beamenu daemon already owns the name")?
+        .serve_at(ipc::OBJECT_PATH, ipc::Beamenu::new(tx, Arc::clone(&shared)))?
+        .build()?;
 
     let mut app = App::new();
-    for (req, reply) in rx {
-        let response = if matches!(req, Request::Show) {
-            visible.store(true, Ordering::SeqCst);
-            // Answering before showing rather than after: the client is a
-            // keybind that should not sit blocked for as long as the panel is
-            // open, and there is nothing it could do with the outcome anyway.
-            let _ = reply.send(Response::Ok);
-            app.refresh();
-            let outcome = crate::run(&mut app);
-            visible.store(false, Ordering::SeqCst);
-            if let Err(err) = outcome {
-                eprintln!("beamenu: show failed: {err}");
+    publish(&app, &shared);
+
+    for signal in rx {
+        match signal {
+            ipc::Signal::Show => {
+                shared.visible.store(true, Ordering::SeqCst);
+                app.refresh();
+                publish(&app, &shared);
+                let outcome = crate::run(&mut app);
+                shared.visible.store(false, Ordering::SeqCst);
+                if let Err(err) = outcome {
+                    eprintln!("beamenu: show failed: {err}");
+                }
             }
-            continue;
-        } else {
-            handle(&mut app, &req)
-        };
-        let _ = reply.send(response);
+            ipc::Signal::Reload => {
+                app.refresh();
+                publish(&app, &shared);
+            }
+        }
     }
 
     Ok(())
 }
-
-/// Read one request off `stream`, get it answered, and write the reply back.
-fn answer(
-    mut stream: UnixStream,
-    tx: &Sender<(Request, SyncSender<Response>)>,
-    visible: &AtomicBool,
-) -> Result<()> {
-    let mut line = String::new();
-    BufReader::new(stream.try_clone()?).read_line(&mut line)?;
-    let req: Request = ipc::decode(line.trim())?;
-
-    // A second Show while the panel is up is a double keypress, not a queued
-    // one: honouring it later would pop the launcher open again at some
-    // arbitrary moment after the user had already dismissed it.
-    let response = if matches!(req, Request::Show) && visible.load(Ordering::SeqCst) {
-        Response::Error { message: "already visible".to_string() }
-    } else {
-        let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
-        tx.send((req, reply_tx))?;
-        reply_rx.recv()?
-    };
-
-    stream.write_all(ipc::encode(&response).as_bytes())?;
-    stream.flush()?;
-    Ok(())
-}
 ```
 
-Add the imports this needs (`std::io::Write`, `std::os::unix::net::UnixStream`,
-`std::sync::atomic::{AtomicBool, Ordering}`, `std::sync::mpsc::{Sender, SyncSender}`,
-`std::sync::Arc`, `std::time::Duration`, `crate::dispatch`, `crate::ipc`,
-`crate::item::Action`, `crate::providers::system`, `crate::App`) and a
+Add the imports this needs (`std::sync::atomic::Ordering`, `std::sync::Arc`,
+`std::time::Duration`, `anyhow::Context`, `crate::ipc`, `crate::App`) and
 `const RETRY_DELAY: Duration = Duration::from_secs(3);` beside
-`COMPACT_INTERVAL`.
+`COMPACT_INTERVAL`. The zbus builder's exact path
+(`zbus::blocking::connection::Builder` vs `zbus::blocking::ConnectionBuilder`)
+depends on the major you landed in Task 4 — adapt and report.
 
-**If Task 1's spike came back FAIL**, replace the `Request::Show` arm's
-`crate::run(&mut app)` with the child-process branch described in Task 1
-Step 4, keeping everything else identical, and add a `///` note on `serve`
-saying why the UI is out of process.
+**If Task 1's spike came back FAIL**, replace the `crate::run(&mut app)` call
+with the child-process branch described in Task 1 Step 4, keeping everything
+else identical, and add a `///` note on `serve` saying why the UI is out of
+process.
 
 - [ ] **Step 4: Run to verify pass:** `cargo test --test daemon`. Expected:
-PASS. (`App::new()` in these tests reads the real user config dir, which is
-fine: it is a read, and `Status`/`Reload`/unknown-`Command` touch nothing.)
+PASS. (`App::new()` here reads the real user config dir, which is fine: it is
+a read, and nothing in these tests dispatches or draws.)
 
 - [ ] **Step 5: fmt + clippy per Global Constraints**
 
@@ -1049,7 +1109,7 @@ fine: it is a read, and `Status`/`Reload`/unknown-`Command` touch nothing.)
 
 ```bash
 git add rust/beamenu/src/daemon.rs rust/beamenu/tests/daemon.rs
-git commit -m "feat(beamenu): resident daemon hosting the UI, socket and clipboard watcher"
+git commit -m "feat(beamenu): resident daemon owning the bus name, UI and clipboard watcher"
 ```
 
 ---
@@ -1060,13 +1120,59 @@ git commit -m "feat(beamenu): resident daemon hosting the UI, socket and clipboa
 - Modify: `rust/beamenu/src/main.rs`
 
 **Interfaces:**
-- Consumes: Task 4's `ipc::{request, socket_path, Request, Response}`,
-  Task 5's `daemon::serve`.
+- Consumes: Task 4's `ipc::{BUS_NAME, OBJECT_PATH}`, Task 5's `daemon::serve`.
 - Produces: unchanged argv surface — `beamenu`, `beamenu --daemon`,
   `beamenu --command ID`, `beamenu --list-commands` — with `--daemon` now
   running the full daemon and the other two preferring it when it is up.
 
-- [ ] **Step 1: Rewrite the module docs and `run`**
+- [ ] **Step 1: Add a client helper to `rust/beamenu/src/ipc.rs`**
+
+```rust
+/// Call one method on a running daemon.
+///
+/// Returns `Err` for every reason a call might not land — no session bus, no
+/// daemon owning the name, a method error — because the caller treats them
+/// identically: do the work in-process instead. The distinction only matters
+/// for the message, and a keybind has nowhere to print one.
+///
+/// # Errors
+/// Fails when the bus, the name, or the call itself is unavailable.
+pub fn call(method: &str, arg: Option<&str>) -> zbus::Result<()> {
+    let connection = zbus::blocking::Connection::session()?;
+    let proxy = zbus::blocking::Proxy::new(
+        &connection,
+        BUS_NAME,
+        OBJECT_PATH,
+        "dev.dots.Beamenu1",
+    )?;
+    match arg {
+        Some(value) => proxy.call::<_, _, ()>(method, &(value,)),
+        None => proxy.call::<_, _, ()>(method, &()),
+    }
+}
+```
+
+Add a test for it in `rust/beamenu/tests/ipc.rs`:
+
+```rust
+#[test]
+fn calling_with_no_daemon_is_an_error_the_caller_can_fall_back_from() {
+    // Either there is no session bus in this environment, or there is one and
+    // nobody owns the name. Both are the same answer to the caller.
+    assert!(beamenu::ipc::call("Show", None).is_err());
+}
+```
+
+If the developer running the suite happens to have a real beamenu daemon on
+their session bus, this test would open a panel — guard it by pointing the
+call at a bus address that cannot resolve:
+`std::env::set_var("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent")` at
+the top of the test, and note that `set_var` is `unsafe` in edition 2024 but
+this crate is edition 2021 (`rust/beamenu/Cargo.toml:4`), so it is a plain
+call here. Because environment mutation is process-global, this test must be
+the only one in the file that touches it.
+
+- [ ] **Step 2: Rewrite the module docs and `run`**
 
 Module docs, replacing `rust/beamenu/src/main.rs:1-9`:
 
@@ -1075,10 +1181,10 @@ Module docs, replacing `rust/beamenu/src/main.rs:1-9`:
 //!
 //! Four modes, and one rule that shapes them: whatever the daemon can do,
 //! this binary must still do on its own. A machine where the user never
-//! enabled the service, a session where it crashed, a first login before the
-//! unit started — the keybind has to open a launcher in all of them. So
-//! `--command` and the no-argument launcher try the socket first and fall
-//! back to doing the work in-process, and nothing here treats a missing
+//! enabled the service, a session where it crashed, a login before the unit
+//! started — the keybind has to open a launcher in all of them. So
+//! `--command` and the no-argument launcher try the session bus first and
+//! fall back to doing the work in-process, and nothing here treats a missing
 //! daemon as an error.
 //!
 //! Exit codes matter because a keybind is the usual caller and has no
@@ -1089,7 +1195,7 @@ Module docs, replacing `rust/beamenu/src/main.rs:1-9`:
 `--daemon`'s help text becomes:
 
 ```rust
-    /// Run the resident daemon: launcher host, command socket and clipboard
+    /// Run the resident daemon: launcher host, D-Bus interface and clipboard
     /// watcher.
     #[arg(long)]
     daemon: bool,
@@ -1103,18 +1209,9 @@ Module docs, replacing `rust/beamenu/src/main.rs:1-9`:
         return Ok(ExitCode::SUCCESS);
     }
 
-    let socket = ipc::socket_path();
-
     if let Some(id) = &cli.command {
-        match ipc::request(&socket, &ipc::Request::Command { id: id.clone() }) {
-            Some(ipc::Response::Ok) => return Ok(ExitCode::SUCCESS),
-            Some(ipc::Response::Error { message }) => {
-                eprintln!("beamenu: {message}");
-                eprintln!("beamenu: run --list-commands to see the available ids");
-                return Ok(ExitCode::from(EXIT_USAGE));
-            }
-            // No daemon, or one that answered something else: do it here.
-            _ => {}
+        if ipc::call("RunCommand", Some(id)).is_ok() {
+            return Ok(ExitCode::SUCCESS);
         }
 
         let Some(command) = system::command_for(id) else {
@@ -1130,7 +1227,7 @@ Module docs, replacing `rust/beamenu/src/main.rs:1-9`:
         return Ok(ExitCode::SUCCESS);
     }
 
-    if ipc::request(&socket, &ipc::Request::Show).is_some() {
+    if ipc::call("Show", None).is_ok() {
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -1139,28 +1236,33 @@ Module docs, replacing `rust/beamenu/src/main.rs:1-9`:
     Ok(ExitCode::SUCCESS)
 ```
 
-Update the `use` line to bring in `ipc` and drop nothing that is still used.
+Note the deliberate asymmetry: an unknown id reaching a live daemon comes back
+as a call error, so it falls through to the local path, which then prints the
+usage message and exits 2. The user-visible behaviour is identical whether or
+not a daemon is running, which is the property worth keeping.
 
-- [ ] **Step 2: Verify it builds and the whole suite still passes**
+Update the `use` line to bring in `ipc`.
+
+- [ ] **Step 3: Verify it builds and the whole suite still passes**
 
 `cargo build && cargo test` (with the `BMV` prefix). Expected: clean.
 
-- [ ] **Step 3: Verify the argv surface by hand** (no display needed for these)
+- [ ] **Step 4: Verify the argv surface by hand** (no display needed)
 
 ```bash
-target/debug/beamenu --list-commands | head -3
-target/debug/beamenu --command definitely-not-a-command; echo "exit=$?"
+DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent target/debug/beamenu --list-commands | head -3
+DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent target/debug/beamenu --command definitely-not-a-command; echo "exit=$?"
 ```
 
 Expected: ids printed; then the unknown-command message and `exit=2`.
 
-- [ ] **Step 4: fmt + clippy per Global Constraints**
+- [ ] **Step 5: fmt + clippy per Global Constraints**
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add rust/beamenu/src/main.rs
-git commit -m "feat(beamenu): prefer the daemon, fall back to running in-process"
+git add rust/beamenu/src/main.rs rust/beamenu/src/ipc.rs rust/beamenu/tests/ipc.rs
+git commit -m "feat(beamenu): prefer the daemon over the bus, fall back to running in-process"
 ```
 
 ---
@@ -1168,25 +1270,30 @@ git commit -m "feat(beamenu): prefer the daemon, fall back to running in-process
 ### Task 7: the systemd user unit
 
 **Files:**
-- Modify: `nix/home/beamenu.nix:457-474`
+- Modify: `nix/home/beamenu.nix` (the `systemd.user.services.beamenu-clipboard`
+  block)
 
 **Interfaces:**
-- Consumes: Task 6's `beamenu --daemon`.
+- Consumes: Task 6's `beamenu --daemon`, Task 4's `dev.dots.Beamenu`.
 - Produces: `systemd.user.services.beamenu` replacing
   `systemd.user.services.beamenu-clipboard`.
 
-- [ ] **Step 1: Read the existing unit** at `nix/home/beamenu.nix:457-474`,
-including the `lib.mkIf cfg.clipboardHistory` gate around it and the
-`clipboardHistory` option's description.
+- [ ] **Step 1: Read the existing unit**, including the
+`lib.mkIf cfg.clipboardHistory` gate around it and the `clipboardHistory`
+option's description. Note that other agents have edited this file recently:
+re-read it rather than working from memory.
 
 - [ ] **Step 2: Replace it**
 
 ```nix
     # One resident process now, not one per keypress. It holds the desktop
-    # entry index warm, owns the launcher's Wayland connection, answers the
-    # command socket, and runs the clipboard watcher that used to be its own
-    # unit — all of which need the graphical session, hence the condition and
-    # the ordering.
+    # entry index warm, owns the launcher's Wayland connection, exports
+    # dev.dots.Beamenu1 on the session bus, and runs the clipboard watcher
+    # that used to be its own unit.
+    #
+    # Type=dbus rather than simple: the well-known name appearing IS the
+    # readiness signal, so anything ordered after this unit can rely on the
+    # launcher actually answering rather than merely having been exec'd.
     systemd.user.services.beamenu = {
       Unit = {
         Description = "beamenu launcher daemon";
@@ -1195,6 +1302,8 @@ including the `lib.mkIf cfg.clipboardHistory` gate around it and the
         ConditionEnvironment = "WAYLAND_DISPLAY";
       };
       Service = {
+        Type = "dbus";
+        BusName = "dev.dots.Beamenu";
         ExecStart = "${lib.getExe beamenuPkg} --daemon";
         Restart = "on-failure";
         RestartSec = 3;
@@ -1204,11 +1313,10 @@ including the `lib.mkIf cfg.clipboardHistory` gate around it and the
 ```
 
 Keep whatever `lib.getExe`-vs-`${beamenuPkg}/bin/beamenu` form the file
-already used, and drop the `clipboardHistory` gate from the unit — the daemon
-is now wanted whether or not clipboard history is on. If `clipboardHistory`
-gated anything else, leave that alone; if the option now only gates the
-`clipboard` provider, say so in the report so its description can be
-revisited.
+already uses. Drop the `clipboardHistory` gate from the unit — the daemon is
+now wanted whether or not clipboard history is on. If `clipboardHistory` gated
+anything else, leave that alone; if it now only gates the `clipboard`
+provider, say so in your report so its description can be revisited.
 
 - [ ] **Step 3: Eval-check**
 
@@ -1216,16 +1324,11 @@ revisited.
 cd /home/matus/Dokumente/codeberg/personal/dots
 host=$(nix eval --impure .#nixosConfigurations --apply 'c: builtins.head (builtins.attrNames c)' --raw)
 nix eval --impure ".#nixosConfigurations.$host.config.system.build.toplevel.drvPath"
-```
-
-Expected: evaluates clean. Also confirm the old unit is gone:
-
-```bash
 user=$(nix eval --impure ".#nixosConfigurations.$host.config.home-manager.users" --apply 'u: builtins.head (builtins.attrNames u)' --raw)
 nix eval --impure ".#nixosConfigurations.$host.config.home-manager.users.$user.systemd.user.services" --apply 'builtins.attrNames'
 ```
 
-Expected: `beamenu` present, `beamenu-clipboard` absent.
+Expected: evaluates clean; `beamenu` present and `beamenu-clipboard` absent.
 
 - [ ] **Step 4: Commit**
 
@@ -1250,57 +1353,97 @@ cd /home/matus/Dokumente/codeberg/personal/dots && git add -A && nix build --imp
 commit — staging is enough, and `rust/wallpaper-tui/tests/tint.rs` must stay
 uncommitted.)
 
-- [ ] **Step 2: Start a nested headless compositor** exactly as in Task 1
-Step 2, and note its `WAYLAND_DISPLAY`.
+- [ ] **Step 2: Start a private session bus and a nested compositor**
+
+The daemon must not land on the user's real session bus, where it would take
+the `dev.dots.Beamenu` name from whatever is running and steal keyboard focus
+on the live screen. Give it both a private bus and a nested display:
+
+```bash
+SCRATCH=/tmp/claude-1000/-home-matus-Dokumente-codeberg-personal-dots/59ef0e92-f17d-45dc-a9bb-ea295026e5cd/scratchpad
+cat > "$SCRATCH/hypr-soak.conf" <<'EOF'
+misc {
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+}
+animations { enabled = false }
+EOF
+eval "$(dbus-launch --sh-syntax)"       # exports DBUS_SESSION_BUS_ADDRESS + PID
+echo "private bus: $DBUS_SESSION_BUS_ADDRESS"
+WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman \
+  Hyprland --config "$SCRATCH/hypr-soak.conf" > "$SCRATCH/hypr-soak.log" 2>&1 &
+sleep 3
+grep -o 'wayland-[0-9]*' "$SCRATCH/hypr-soak.log" | head -1
+```
+
+Everything below runs in that same shell so it inherits the private bus.
 
 - [ ] **Step 3: Run the daemon inside it**
 
 ```bash
-XDG_RUNTIME_DIR=$(mktemp -d) WAYLAND_DISPLAY=<nested> <store-path>/bin/beamenu --daemon &
+WAYLAND_DISPLAY=<nested> <store-path>/bin/beamenu --daemon &
 sleep 2
 ```
 
-- [ ] **Step 4: Prove the socket answers**
+- [ ] **Step 4: Prove the interface is on the bus**
 
 ```bash
-XDG_RUNTIME_DIR=<same> printf '{"cmd":"status"}\n' | nc -U <runtime>/beamenu/ipc.sock
+busctl --user list | grep dev.dots.Beamenu
+busctl --user introspect dev.dots.Beamenu /dev/dots/Beamenu
+busctl --user get-property dev.dots.Beamenu /dev/dots/Beamenu dev.dots.Beamenu1 Apps
 ```
 
-Expected: a `{"reply":"status", ...}` line with a non-zero `apps` count and
-`providers` at least 10. (`nc -U` may be absent; `socat - UNIX-CONNECT:<path>`
-works too, and `nix shell nixpkgs#socat -c` gets it.)
+Expected: the name is owned; introspection lists `Show`, `RunCommand`,
+`Reload` and the four properties; `Apps` is non-zero.
 
 - [ ] **Step 5: Show the launcher repeatedly**
 
 ```bash
 for i in 1 2 3 4 5; do
-  XDG_RUNTIME_DIR=<same> WAYLAND_DISPLAY=<nested> <store-path>/bin/beamenu
+  WAYLAND_DISPLAY=<nested> <store-path>/bin/beamenu
   sleep 1
-  WAYLAND_DISPLAY=<nested> grim /tmp/.../scratchpad/show-$i.png
+  WAYLAND_DISPLAY=<nested> grim "$SCRATCH/show-$i.png"
   WAYLAND_DISPLAY=<nested> hyprctl dispatch sendshortcut ",Escape,"
   sleep 1
 done
 ```
 
-Expected: five screenshots each showing the panel, the daemon still alive
-between them, and RSS not climbing round over round
-(`grep VmRSS /proc/<daemon-pid>/status` before and after).
+Expected: five screenshots each showing the panel, the daemon alive between
+them, and RSS not climbing round over round (`grep VmRSS /proc/<pid>/status`
+before and after).
 
-- [ ] **Step 6: Prove the fallback**
+- [ ] **Step 6: Prove idempotent Show and the property**
 
 ```bash
-XDG_RUNTIME_DIR=$(mktemp -d) WAYLAND_DISPLAY=<nested> timeout 5 <store-path>/bin/beamenu
+WAYLAND_DISPLAY=<nested> <store-path>/bin/beamenu &   # opens the panel
+sleep 1
+busctl --user get-property dev.dots.Beamenu /dev/dots/Beamenu dev.dots.Beamenu1 Visible
+WAYLAND_DISPLAY=<nested> <store-path>/bin/beamenu     # must return at once
+WAYLAND_DISPLAY=<nested> hyprctl dispatch sendshortcut ",Escape,"
 ```
 
-With no daemon on that runtime dir, this must still open the panel (screenshot
-it) rather than exit immediately.
+Expected: `Visible` reads `b true` while up; the second invocation exits
+immediately without stacking a second panel.
 
-- [ ] **Step 7: Tear down**
+- [ ] **Step 7: Prove the fallback**
+
+```bash
+pkill -f 'beamenu --daemon'
+sleep 1
+DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent WAYLAND_DISPLAY=<nested> \
+  timeout 5 <store-path>/bin/beamenu
+```
+
+With no bus at all, this must still open the panel (screenshot it) rather
+than exit immediately.
+
+- [ ] **Step 8: Tear down**
 
 ```bash
 pkill -f 'beamenu --daemon'
 pkill -f 'Hyprland --config .*hypr-soak.conf'
+kill "$DBUS_SESSION_BUS_PID"
 ```
 
-- [ ] **Step 8: Report** — attach the screenshots' paths, the status reply, and
-the RSS readings. No commit.
+- [ ] **Step 9: Report** — the screenshots' paths, the introspection output,
+the `Apps`/`Visible` readings, and the RSS numbers. No commit.
