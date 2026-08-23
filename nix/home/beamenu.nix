@@ -267,89 +267,151 @@ in
 
     plugins = lib.mkOption {
       type = lib.types.attrsOf (
-        lib.types.submodule {
-          options = {
-            title = lib.mkOption {
-              type = lib.types.str;
-              description = "Section heading this plugin's rows are grouped under, and its pill label.";
+        lib.types.submodule (
+          { name, ... }:
+          {
+            options = {
+              title = lib.mkOption {
+                type = lib.types.str;
+                default = name;
+                description = ''
+                  Section heading this plugin's rows are grouped under, and its
+                  pill label.
+
+                  Defaults to the attribute name because a plugin's commands
+                  and its identity may be declared by different modules: the
+                  module owning a tool contributes the commands, and it has no
+                  say in whether the module declaring the identity is enabled.
+                  Without a default, that arrangement leaves a plugin whose
+                  `commands` exist while `title` has no value, which throws the
+                  moment anything reads the attribute set.
+                '';
+              };
+              icon = lib.mkOption {
+                type = lib.types.nullOr lib.types.path;
+                default = null;
+                description = "Icon file shared by every row this plugin contributes; SVG and PNG render.";
+              };
+              keyword = lib.mkOption {
+                type = lib.types.nullOr lib.types.str;
+                default = null;
+                description = ''
+                  Prefix that reaches this plugin, narrowing the root list down
+                  to just its commands. Omitted means ambient: every command is
+                  fuzzy-ranked into the root list instead, like a quicklink.
+                  Matched at a word boundary: a trailing space is appended
+                  automatically when not already present, so `"cl"` reaches
+                  this plugin on `"cl ask"` but not on `"clone"`.
+                '';
+              };
+              commands = lib.mkOption {
+                type = lib.types.listOf (
+                  lib.types.submodule {
+                    options = {
+                      id = lib.mkOption {
+                        type = lib.types.str;
+                        description = ''
+                          Stable identity within the plugin. Reaches this
+                          command via `beamenu --command`-style argv when
+                          `mode = "view"`: `beamenu-canvas --manifest … --command <id>`.
+                        '';
+                      };
+                      title = lib.mkOption {
+                        type = lib.types.str;
+                        description = "Row title.";
+                      };
+                      description = lib.mkOption {
+                        type = lib.types.nullOr lib.types.str;
+                        default = null;
+                        description = "Row subtitle.";
+                      };
+                      mode = lib.mkOption {
+                        type = lib.types.enum [
+                          "exec"
+                          "terminal"
+                          "copy"
+                          "view"
+                        ];
+                        description = ''
+                          What activating the row does: `exec` spawns `exec`
+                          detached; `terminal` wraps it in the configured
+                          terminal; `copy` copies the `{query}`-substituted
+                          `exec`, joined into one shell command, onto the
+                          clipboard; `view` opens the `beamenu-canvas` sidecar.
+                        '';
+                      };
+                      ui = lib.mkOption {
+                        type = lib.types.enum [
+                          "log"
+                          "rpc"
+                        ];
+                        default = "log";
+                        description = "Sidecar renderer used when `mode = \"view\"`.";
+                      };
+                      exec = lib.mkOption {
+                        type = lib.types.listOf lib.types.str;
+                        description = ''
+                          Argv. `{query}` in any element is replaced with
+                          whatever was typed past the plugin's keyword (or the
+                          whole query, for an ambient plugin) before this runs.
+                        '';
+                      };
+                      actions = lib.mkOption {
+                        type = lib.types.listOf (
+                          lib.types.submodule {
+                            options = {
+                              id = lib.mkOption {
+                                type = lib.types.str;
+                                description = ''
+                                  Stable identity within the plugin. Shares the
+                                  command id namespace: `mode = "view"` actions
+                                  are resolved by the canvas through the same
+                                  lookup, top-level commands winning ties.
+                                '';
+                              };
+                              title = lib.mkOption {
+                                type = lib.types.str;
+                                description = "Action-panel row label.";
+                              };
+                              mode = lib.mkOption {
+                                type = lib.types.enum [
+                                  "exec"
+                                  "terminal"
+                                  "copy"
+                                  "view"
+                                ];
+                                description = "Same semantics as a command's `mode`.";
+                              };
+                              ui = lib.mkOption {
+                                type = lib.types.enum [
+                                  "log"
+                                  "rpc"
+                                ];
+                                default = "log";
+                                description = "Sidecar renderer used when `mode = \"view\"`.";
+                              };
+                              exec = lib.mkOption {
+                                type = lib.types.listOf lib.types.str;
+                                description = "Argv, `{query}`-substituted like a command's.";
+                              };
+                            };
+                          }
+                        );
+                        default = [ ];
+                        description = ''
+                          Ctrl+K panel actions for this command. One level:
+                          actions cannot nest further.
+                        '';
+                      };
+                    };
+                  }
+                );
+                default = [ ];
+                description = "Commands this plugin exposes as rows.";
+              };
             };
-            icon = lib.mkOption {
-              type = lib.types.nullOr lib.types.path;
-              default = null;
-              description = "Icon file shared by every row this plugin contributes; SVG and PNG render.";
-            };
-            keyword = lib.mkOption {
-              type = lib.types.nullOr lib.types.str;
-              default = null;
-              description = ''
-                Prefix that reaches this plugin, narrowing the root list down
-                to just its commands. Omitted means ambient: every command is
-                fuzzy-ranked into the root list instead, like a quicklink.
-                Matched at a word boundary: a trailing space is appended
-                automatically when not already present, so `"cl"` reaches
-                this plugin on `"cl ask"` but not on `"clone"`.
-              '';
-            };
-            commands = lib.mkOption {
-              type = lib.types.listOf (
-                lib.types.submodule {
-                  options = {
-                    id = lib.mkOption {
-                      type = lib.types.str;
-                      description = ''
-                        Stable identity within the plugin. Reaches this
-                        command via `beamenu --command`-style argv when
-                        `mode = "view"`: `beamenu-canvas --manifest … --command <id>`.
-                      '';
-                    };
-                    title = lib.mkOption {
-                      type = lib.types.str;
-                      description = "Row title.";
-                    };
-                    description = lib.mkOption {
-                      type = lib.types.nullOr lib.types.str;
-                      default = null;
-                      description = "Row subtitle.";
-                    };
-                    mode = lib.mkOption {
-                      type = lib.types.enum [
-                        "exec"
-                        "terminal"
-                        "copy"
-                        "view"
-                      ];
-                      description = ''
-                        What activating the row does: `exec` spawns `exec`
-                        detached; `terminal` wraps it in the configured
-                        terminal; `copy` copies the `{query}`-substituted
-                        `exec`, joined into one shell command, onto the
-                        clipboard; `view` opens the `beamenu-canvas` sidecar.
-                      '';
-                    };
-                    ui = lib.mkOption {
-                      type = lib.types.enum [
-                        "log"
-                        "rpc"
-                      ];
-                      default = "log";
-                      description = "Sidecar renderer used when `mode = \"view\"`.";
-                    };
-                    exec = lib.mkOption {
-                      type = lib.types.listOf lib.types.str;
-                      description = ''
-                        Argv. `{query}` in any element is replaced with
-                        whatever was typed past the plugin's keyword (or the
-                        whole query, for an ambient plugin) before this runs.
-                      '';
-                    };
-                  };
-                }
-              );
-              default = [ ];
-              description = "Commands this plugin exposes as rows.";
-            };
-          };
-        }
+          }
+        )
       );
       default = { };
       description = ''
@@ -411,6 +473,68 @@ in
         }
       ];
     };
+
+    # Within one plugin, command ids and action ids share a single namespace:
+    # a `view` row hands beamenu-canvas an id, and the canvas resolves it by
+    # searching the manifest's commands and then their actions, first match
+    # winning. A duplicate therefore does not collide loudly — it silently
+    # runs the wrong thing. Commands arrive by list concatenation from
+    # several modules, none of which can see the others' ids, so the check
+    # belongs here, where the merged result is finally visible.
+    assertions = lib.mapAttrsToList (
+      name: plugin:
+      let
+        ids =
+          map (command: command.id) plugin.commands
+          ++ lib.concatMap (command: map (action: action.id) command.actions) plugin.commands;
+        duplicates = lib.unique (lib.filter (id: lib.count (other: other == id) ids > 1) ids);
+      in
+      {
+        assertion = duplicates == [ ];
+        message = ''
+          beamenu plugin '${name}' declares the id ${
+            lib.concatMapStringsSep ", " (id: "'${id}'") duplicates
+          } more than once.
+          Command and action ids share one namespace per plugin, and a `view`
+          row is resolved by id, so a duplicate silently activates whichever
+          came first.
+        '';
+      }
+    ) cfg.plugins;
+
+    # Titles and keywords for the plugins whose commands are contributed by
+    # the module that owns each tool (wallpaper-tui.nix, random_wp.nix,
+    # proton.nix, waybar.nix, bitwarden.nix). Only presentation: `title`
+    # defaults to the attribute name, so a plugin stays valid even when this
+    # module is disabled and a contributing one is not.
+    programs.beamenu.plugins.wallpaper = {
+      title = "Wallpaper";
+      keyword = "wp";
+    };
+    programs.beamenu.plugins.dots = {
+      title = "Dots";
+      keyword = "dots";
+    };
+    programs.beamenu.plugins.net = {
+      title = "Network";
+      keyword = "net";
+    };
+
+    # The eww keybind overlay, same availability as today's SUPER+/ bind
+    # (hyprland.nix); the script ships unconditionally with this desktop
+    # setup (nix/home/eww/default.nix).
+    programs.beamenu.plugins.dots.commands = [
+      {
+        id = "keybinds";
+        title = "Keybinds Cheatsheet";
+        description = "Show the eww keybind overlay";
+        mode = "exec";
+        exec = [
+          "${config.xdg.configHome}/eww/scripts/keybinds.sh"
+          "--force"
+        ];
+      }
+    ];
 
     home.packages = [
       beamenuPkg
