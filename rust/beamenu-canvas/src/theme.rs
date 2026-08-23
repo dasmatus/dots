@@ -131,7 +131,15 @@ html, body {{
 }}
 pre, code, .log {{ font-family: var(--font-mono); }}
 .muted {{ color: var(--muted); }}
-input, select, textarea {{
+input:not([type='checkbox']):not([type='radio']), select, textarea {{
+  /* WebKitGTK renders form controls via the native GTK theme engine
+     unless `appearance` is disabled, which silently ignores the
+     `background`/`color`/`border` below — unlike Safari/macOS WebKit,
+     where the same rule needs no such override. Checkboxes/radios are
+     excluded: their native GTK check/dot indicator is worth keeping over
+     an unstyled box with no checked-state affordance at all. */
+  appearance: none;
+  -webkit-appearance: none;
   background: var(--panel-end);
   color: var(--text);
   border: 1px solid var(--border-strong);
@@ -145,6 +153,11 @@ input:focus, select:focus, textarea:focus {{
   border-color: var(--accent);
 }}
 button.primary {{
+  /* Same native-GTK-theme override as the `input`/`select`/`textarea`
+     rule above — without it WebKitGTK paints the button chrome itself
+     and ignores `background` below. */
+  appearance: none;
+  -webkit-appearance: none;
   background: var(--accent);
   color: var(--button-text);
   border: none;
