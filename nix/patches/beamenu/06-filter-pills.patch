@@ -1,5 +1,5 @@
-Filter pill bar for the beamenu launcher: `All <total>` plus one capsule per
-provider, drawn between the search row and the list in the rich layout.
+Filter pill bar for the beamenu launcher: one capsule per provider that has
+rows, drawn between the search row and the list in the rich layout.
 
 Narrow FFI, mirroring the shape of the rest of the rich-mode surface:
 bm_menu_set_pills() takes a `\x1f`-separated `label:count` spec plus an
@@ -7,9 +7,50 @@ active index, and bm_menu_get_active_pill() reads back whatever Tab and
 Shift+Tab last moved it to. Cycling happens inside bm_menu_run_with_key(),
 ahead of the vim-binding switch and the rest of the key handling, so it
 replaces rather than falls through to Tab's stock highlight-next and
-Shift+Tab's stock copy-to-filter for as long as a pill bar is set — the
-client sets and polls the pill bar every frame, the library owns the
+Shift+Tab's stock copy-to-filter for as long as a pill bar is set. The
+client sets and polls the pill bar every frame; the library owns the
 keystroke in between.
+
+The client decides which providers have rows, so the spec it sends shrinks
+and grows between frames, and an empty spec clears the bar outright. Two
+consequences worth naming. The row's height already collapses to 0 when
+pill_count is 0, so the panel reflows on its own. And patch 02 draws its
+in-list section headings again whenever the bar is empty, which is now what
+a keyword query (`=2+2`, sectioned "Calculator") or a query matching no
+ambient row looks like. That patch's header calls the bar "always-visible",
+which stopped being true here rather than there.
+
+An active index of BM_PILL_NONE (UINT32_MAX) means nothing is filtering. The
+bar still draws, and the capsule naming the highlighted row's section takes
+the active fill instead of its outline, since no chosen capsule is left to
+confuse it with. A launcher wants this while a search spans every section:
+the bar then reports where the highlight landed rather than what is
+filtering. The sentinel survives bm_menu_set_pills()'s clamp deliberately,
+and stepping off it with Tab/Shift+Tab is spelled out rather than left to
+unsigned wraparound. Forwards happens to land on 0 by accident; backwards
+would give UINT32_MAX - 1, an index that is neither the sentinel nor a real
+pill, and every later Tab would walk on from there.
+
+The run scrolls instead of clipping. Capsules that did not fit were dropped
+without a trace, which hid whichever providers sorted last: six capsules
+against a 720px panel meant the sixth simply never appeared. The run is now
+offset so the focus capsule stays on screen (the active one, else the
+current one, else the first), and drawing is clipped to the row so a
+partly-visible capsule is cut cleanly at the edge instead of vanishing.
+Centring that capsule rather than scrolling by the smallest amount that fits
+is deliberate: the minimum shift pins it against the right edge on the way
+out, then jumps the whole bar back to 0 as soon as Shift+Tab brings it
+inside again, which reads as a glitch. Centring moves about one capsule per
+Tab in either direction.
+
+The offset is the one piece of this patch that is pure arithmetic, with no
+cairo context, no pango measurement and no menu state, so it lives in its
+own translation unit: lib/renderers/pills.cpp, reached through extern "C".
+It uses no STL, exceptions or RTTI, so the archive links into the C
+renderers without dragging in libstdc++. Being pure also makes it the piece
+worth testing on its own. nix/patches/beamenu/tests/pills_scroll_test.cpp in
+the dots repo covers it under -fsanitize=address,undefined, and stays
+outside this patch so the series has one less hunk to rebase.
 
 The row's height joins the same total_height math patch 05 introduced for
 the rich panel, and shifts the list's start (posy) down by exactly that
@@ -40,33 +81,90 @@ used to leave pill_active exactly where Tab/Shift+Tab last left it instead of
 honouring that; bm_menu_free() now shares bm_pills_free() (forward declared
 next to it) rather than duplicating its loop, which the same read caught.
 
-bm_cairo_paint_pills_row() now also marks whichever pill names the currently
+bm_cairo_paint_pills_row() also marks whichever pill names the currently
 highlighted row's section as "current", replacing the in-list section
 headings patch 02 stops drawing whenever this bar is present (see that
 patch's header). No new FFI: bm_menu_get_highlighted_item() and
 bm_item_get_section() are both already public, so the match is a plain
-string compare between the highlighted item's section and each pill's label
-— the same strings bm_menu_set_pills()'s spec was built from in the first
-place — done once per paint rather than per pill. Active beats current when
-a pill is both (the label match is skipped once a pill is already
-menu->pill_active), so the filled active state is never doubled up with the
+string compare between the highlighted item's section and each pill's label,
+the same strings bm_menu_set_pills()'s spec was built from in the first
+place, done once per paint rather than per pill. Active beats current when a
+pill is both, so the filled active state is never doubled up with the
 current outline. The current pill keeps the transparent background of a
 plain pill but strokes its border in BM_COLOR_HIGHLIGHTED_BG instead of
 BM_COLOR_BORDER, adds a second concentric rounded stroke ~2px further out at
 20% of that colour's alpha as a focus ring, and brightens its label/count
-from BM_COLOR_ALTERNATE_FG to BM_COLOR_ITEM_FG — the same three-tier
+from BM_COLOR_ALTERNATE_FG to BM_COLOR_ITEM_FG: the same three-tier
 treatment (fill / accent outline+ring / plain outline) a focus-visible chip
 gets in the design, adapted to what cairo_stroke can do with two paths
 instead of a CSS box-shadow.
 
+diff --git a/GNUmakefile b/GNUmakefile
+index 5706c2f..bae1332 100644
+--- a/GNUmakefile
++++ b/GNUmakefile
+@@ -16,6 +16,12 @@ VISIBILITY ?= -fvisibility=hidden
+ 
+ override CFLAGS ?= -g -O2 $(WARNINGS) $(EXTRA_WARNINGS)
+ override CFLAGS += -std=c99 $(VISIBILITY)
++# The pill bar's scroll geometry (lib/renderers/pills.cpp) is the one C++
++# translation unit here. It uses no STL, exceptions or RTTI, so the archive
++# links into the C renderers without dragging in libstdc++; -fno-exceptions
++# and -fno-rtti keep it that way rather than leaving it to luck.
++override CXXFLAGS ?= -g -O2 $(WARNINGS) $(EXTRA_WARNINGS)
++override CXXFLAGS += -std=c++23 -fno-exceptions -fno-rtti $(VISIBILITY)
+ override CPPFLAGS ?= -D_FORTIFY_SOURCE=2
+ override CPPFLAGS += -DBM_VERSION=\"$(VERSION)\" -DBM_PLUGIN_VERSION=\"$(VERSION)-$(GIT_SHA1)\" -DINSTALL_LIBDIR=\"$(PREFIX)$(libdir)\"
+ override CPPFLAGS += -D_DEFAULT_SOURCE -Ilib
+@@ -65,6 +71,11 @@ cdl.a: lib/3rdparty/cdl.c lib/3rdparty/cdl.h
+ util.a: private override LDFLAGS += -fPIC
+ util.a: lib/util.c lib/internal.h
+ 
++# Explicit recipe rather than the %.a pattern above, which only compiles %.c.
++pills.a: private override LDFLAGS += -fPIC
++pills.a: lib/renderers/pills.cpp lib/renderers/pills.h
++	$(LINK.cc) -c $(filter %.cpp,$^) $(LDLIBS) -o $@
++
+ libbemenu.so: private override LDLIBS += -ldl
+ libbemenu.so: lib/bemenu.h lib/internal.h lib/filter.c lib/item.c lib/library.c lib/list.c lib/menu.c lib/vim.c util.a cdl.a
+ 
+@@ -74,7 +85,7 @@ bemenu-renderer-curses.so: lib/renderers/curses/curses.c util.a
+ 
+ bemenu-renderer-x11.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs x11 xinerama cairo pango pangocairo librsvg-2.0)
+ bemenu-renderer-x11.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I x11 xinerama cairo pango pangocairo librsvg-2.0)
+-bemenu-renderer-x11.so: lib/renderers/cairo_renderer.h lib/renderers/x11/x11.c lib/renderers/x11/x11.h lib/renderers/x11/window.c lib/renderers/x11/xkb_unicode.c lib/renderers/x11/xkb_unicode.h util.a
++bemenu-renderer-x11.so: lib/renderers/cairo_renderer.h lib/renderers/x11/x11.c lib/renderers/x11/x11.h lib/renderers/x11/window.c lib/renderers/x11/xkb_unicode.c lib/renderers/x11/xkb_unicode.h pills.a util.a
+ 
+ lib/renderers/wayland/xdg-shell.c:
+ 	wayland-scanner private-code < "$$($(PKG_CONFIG) --variable=pkgdatadir wayland-protocols)/stable/xdg-shell/xdg-shell.xml" > $@
+@@ -111,7 +122,7 @@ viewporter.a: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I
+ viewporter.a: lib/renderers/wayland/viewporter.c lib/renderers/wayland/viewporter.h
+ bemenu-renderer-wayland.so: private override LDLIBS += $(shell $(PKG_CONFIG) --libs wayland-client cairo pango pangocairo librsvg-2.0 xkbcommon)
+ bemenu-renderer-wayland.so: private override CPPFLAGS += $(shell $(PKG_CONFIG) --cflags-only-I wayland-client cairo pango pangocairo librsvg-2.0 xkbcommon)
+-bemenu-renderer-wayland.so: lib/renderers/cairo_renderer.h lib/renderers/wayland/wayland.c lib/renderers/wayland/wayland.h lib/renderers/wayland/registry.c lib/renderers/wayland/window.c xdg-shell.a wlr-layer-shell.a fractional-scale.a viewporter.a util.a
++bemenu-renderer-wayland.so: lib/renderers/cairo_renderer.h lib/renderers/wayland/wayland.c lib/renderers/wayland/wayland.h lib/renderers/wayland/registry.c lib/renderers/wayland/window.c xdg-shell.a wlr-layer-shell.a fractional-scale.a viewporter.a pills.a util.a
+ 
+ common.a: client/common/common.c client/common/common.h
+ bemenu: common.a client/bemenu.c
 diff --git a/lib/bemenu.h b/lib/bemenu.h
-index cc5f07d..c61f50f 100644
+index cc5f07d..0a1c6f9 100644
 --- a/lib/bemenu.h
 +++ b/lib/bemenu.h
-@@ -666,6 +666,32 @@ BM_PUBLIC void bm_menu_set_search_height(struct bm_menu *menu, uint32_t search_h
+@@ -666,6 +666,43 @@ BM_PUBLIC void bm_menu_set_search_height(struct bm_menu *menu, uint32_t search_h
   */
  BM_PUBLIC uint32_t bm_menu_get_search_height(struct bm_menu *menu);
  
++/**
++ * Passed to bm_menu_set_pills() as `active` to mark no pill active.
++ *
++ * The bar still draws, but no capsule takes the active fill, which leaves the
++ * capsule naming the highlighted row's section free to take it instead. A
++ * launcher wants this while a search spans every section: the bar reports
++ * where the highlight is rather than what is filtering. Tab from here moves to
++ * the first pill and Shift+Tab to the last.
++ */
++#define BM_PILL_NONE UINT32_MAX
++
 +/**
 + * Set the filter pill bar, drawn between the search row and the list in the
 + * rich layout.
@@ -74,8 +172,8 @@ index cc5f07d..c61f50f 100644
 + * @param menu bm_menu instance where to set the pill bar.
 + * @param spec `\x1f`-separated `label:count` entries, UTF-8 label plus ASCII
 + * digit count; empty or NULL clears the bar. Replaces any previous set.
-+ * @param active index of the pill to mark active; clamped to the last entry
-+ * when out of range.
++ * @param active index of the pill to mark active, clamped to the last entry
++ * when out of range, or BM_PILL_NONE to mark none of them active.
 + */
 +BM_PUBLIC void bm_menu_set_pills(struct bm_menu *menu, const char *spec, uint32_t active);
 +
@@ -88,8 +186,8 @@ index cc5f07d..c61f50f 100644
 + * long as a pill bar is set.
 + *
 + * @param menu bm_menu instance to query.
-+ * @return uint32_t index into the last bm_menu_set_pills() spec, 0 when no
-+ * pill bar is set.
++ * @return uint32_t index into the last bm_menu_set_pills() spec, BM_PILL_NONE
++ * when a bar is set but nothing is active, 0 when no pill bar is set.
 + */
 +BM_PUBLIC uint32_t bm_menu_get_active_pill(struct bm_menu *menu);
 +
@@ -148,7 +246,7 @@ index f4b196f..051f076 100644
       * Is menu grabbed?
       */
 diff --git a/lib/menu.c b/lib/menu.c
-index 093dec8..bd83a08 100644
+index 093dec8..f854871 100644
 --- a/lib/menu.c
 +++ b/lib/menu.c
 @@ -111,6 +111,10 @@ fail:
@@ -171,7 +269,7 @@ index 093dec8..bd83a08 100644
      free(menu);
  }
  
-@@ -373,6 +379,85 @@ bm_menu_get_search_height(struct bm_menu *menu)
+@@ -373,6 +379,92 @@ bm_menu_get_search_height(struct bm_menu *menu)
      return menu->search_height;
  }
  
@@ -242,7 +340,14 @@ index 093dec8..bd83a08 100644
 +
 +    menu->pills = pills;
 +    menu->pill_count = n;
-+    menu->pill_active = (n > 0 ? (active < n ? active : n - 1) : 0);
++    /* BM_PILL_NONE has to survive the clamp: it is a deliberate "nothing is
++     * active", not an index that ran off the end. */
++    if (n == 0)
++        menu->pill_active = 0;
++    else if (active == BM_PILL_NONE)
++        menu->pill_active = BM_PILL_NONE;
++    else
++        menu->pill_active = (active < n ? active : n - 1);
 +    menu->dirty = true;
 +}
 +
@@ -257,7 +362,7 @@ index 093dec8..bd83a08 100644
  void
  bm_menu_set_cursor_height(struct bm_menu *menu, uint32_t cursor_height)
  {
-@@ -1088,6 +1173,20 @@ bm_menu_run_with_key(struct bm_menu *menu, enum bm_key key, uint32_t unicode)
+@@ -1088,6 +1180,26 @@ bm_menu_run_with_key(struct bm_menu *menu, enum bm_key key, uint32_t unicode)
  {
      assert(menu);
  
@@ -267,7 +372,13 @@ index 093dec8..bd83a08 100644
 +     * bindings, so neither stock action nor bm_menu_filter below ever sees
 +     * these keys while a pill bar is set. */
 +    if (menu->rich_rows && menu->pill_count > 0 && (key == BM_KEY_TAB || key == BM_KEY_SHIFT_TAB)) {
-+        if (key == BM_KEY_TAB)
++        /* Stepping off BM_PILL_NONE is spelled out rather than left to
++         * unsigned wraparound: forwards happens to land on 0 by accident, but
++         * backwards would give UINT32_MAX - 1, an index that is neither the
++         * sentinel nor a real pill, and every later Tab would walk from there. */
++        if (menu->pill_active == BM_PILL_NONE)
++            menu->pill_active = (key == BM_KEY_TAB ? 0 : menu->pill_count - 1);
++        else if (key == BM_KEY_TAB)
 +            menu->pill_active = (menu->pill_active + 1) % menu->pill_count;
 +        else
 +            menu->pill_active = (menu->pill_active == 0 ? menu->pill_count - 1 : menu->pill_active - 1);
@@ -279,10 +390,21 @@ index 093dec8..bd83a08 100644
      bm_menu_get_filtered_items(menu, &count);
  
 diff --git a/lib/renderers/cairo_renderer.h b/lib/renderers/cairo_renderer.h
-index 158f2c7..1f5877f 100644
+index 158f2c7..f3d9825 100644
 --- a/lib/renderers/cairo_renderer.h
 +++ b/lib/renderers/cairo_renderer.h
-@@ -573,6 +573,203 @@ bm_cairo_paint_rich_rows(struct cairo *cairo, struct cairo_paint *paint, struct
+@@ -2,8 +2,10 @@
+ #define _BM_CAIRO_H_
+ 
+ #include "internal.h"
++#include "renderers/pills.h"
+ #include <string.h>
+ #include <strings.h>
++#include <stdlib.h>
+ #include <assert.h>
+ #include <math.h>
+ #include <cairo.h>
+@@ -573,6 +575,276 @@ bm_cairo_paint_rich_rows(struct cairo *cairo, struct cairo_paint *paint, struct
      }
  }
  
@@ -378,23 +500,52 @@ index 158f2c7..1f5877f 100644
 +}
 +
 +/**
-+ * Draw the filter pill bar between the search row and the list: `All
-+ * <total>` plus one capsule per bm_menu_set_pills() entry, each a leading
-+ * dot, the label, and the count in a smaller, dimmer run.
++ * Width of one capsule: symmetric padding around the dot, the label and the
++ * count, with a gap before each run.
 + *
-+ * Three states, matching what a keyboard-only launcher can actually reach:
-+ * the active (filtering) pill (menu->pill_active) is a filled capsule in
++ * Measured on its own because the scroll offset needs every capsule's width
++ * before the first one can be placed.
++ */
++static inline uint32_t
++bm_cairo_pill_width(struct cairo *cairo, struct cairo_paint *paint, const struct bm_pill *pill)
++{
++    char count_text[16];
++    snprintf(count_text, sizeof(count_text), "%u", pill->count);
++
++    const uint32_t label_w = bm_cairo_run_width(cairo, paint, pill->label);
++    const uint32_t count_w = bm_cairo_run_width_sized(cairo, paint, count_text, BM_PILL_COUNT_PT);
++    return BM_PILL_PAD_X * 2 + BM_PILL_DOT + BM_PILL_RUN_GAP + label_w + BM_PILL_RUN_GAP + count_w;
++}
++
++/**
++ * Draw the filter pill bar between the search row and the list: one capsule
++ * per bm_menu_set_pills() entry, each a leading dot, the label, and the count
++ * in a smaller, dimmer run.
++ *
++ * Three states, matching what a keyboard-only launcher can actually reach.
++ * The active (filtering) capsule, menu->pill_active, is filled in
 + * BM_COLOR_HIGHLIGHTED_BG/_FG with its dot darkened to 45% alpha of the text
-+ * colour; the pill whose label names the highlighted list row's section (see
-+ * bm_item_get_section) but is not itself active is "current" — a plain
-+ * outline pill, but stroked in BM_COLOR_HIGHLIGHTED_BG instead of
-+ * BM_COLOR_BORDER, with a second, ~2px-wider concentric stroke at 20% of
-+ * that colour's alpha as a focus ring, and BM_COLOR_ITEM_FG text instead of
-+ * the muted default; every other pill is a plain BM_COLOR_BORDER outline
-+ * over BM_COLOR_ALTERNATE_FG text with the dot at full colour. Active wins
-+ * over current when a pill is both (no double treatment): the label match is
-+ * only consulted for pills that are not menu->pill_active. The count run is
-+ * always at 55% alpha of whichever text colour the pill is using.
++ * colour. The capsule whose label names the highlighted row's section (see
++ * bm_item_get_section) but is not itself active is "current": a plain outline,
++ * stroked in BM_COLOR_HIGHLIGHTED_BG instead of BM_COLOR_BORDER, with a
++ * second, ~2px-wider concentric stroke at 20% of that colour's alpha as a
++ * focus ring, and BM_COLOR_ITEM_FG text instead of the muted default. Every
++ * other capsule is a plain BM_COLOR_BORDER outline over BM_COLOR_ALTERNATE_FG
++ * text with the dot at full colour. The count run is always at 55% alpha of
++ * whichever text colour the capsule is using.
++ *
++ * Active wins over current when a capsule is both, so neither gets a double
++ * treatment. With menu->pill_active set to BM_PILL_NONE nothing is filtering,
++ * and the current capsule takes the active fill instead of the outline: there
++ * is no chosen capsule left for it to be confused with. That is what a
++ * launcher wants while a search spans every section.
++ *
++ * The run scrolls rather than clipping. Capsules that did not fit used to be
++ * dropped without a trace, which hid whichever sections sorted last. The run
++ * is now offset so the focus capsule stays on screen (the active one, else the
++ * current one, else the first), and drawing is clipped to the row so a
++ * partly-visible capsule is cut cleanly at the edge. See
++ * bm_pills_scroll_offset().
 + */
 +static inline void
 +bm_cairo_paint_pills_row(struct cairo *cairo, struct cairo_paint *paint, struct bm_menu *menu,
@@ -418,13 +569,59 @@ index 158f2c7..1f5877f 100644
 +    const struct bm_item *highlighted_item = bm_menu_get_highlighted_item(menu);
 +    const char *current_section = (highlighted_item ? bm_item_get_section(highlighted_item) : NULL);
 +
-+    uint32_t x = BM_PILLS_ROW_PAD_X;
-+    const int32_t baseline = (int32_t)(pill_y + pill_h / 2 + paint->baseline / 2);
++    uint32_t *widths = calloc(menu->pill_count, sizeof(uint32_t));
++    if (!widths)
++        return;
 +
-+    for (uint32_t i = 0; i < menu->pill_count && x < width; ++i) {
++    for (uint32_t i = 0; i < menu->pill_count; ++i)
++        widths[i] = bm_cairo_pill_width(cairo, paint, &menu->pills[i]);
++
++    /* The capsule that must stay on screen: whichever one is filtering, else
++     * the one naming the highlighted row, else the first. */
++    uint32_t focus = 0;
++    if (menu->pill_active != BM_PILL_NONE && menu->pill_active < menu->pill_count) {
++        focus = menu->pill_active;
++    } else if (current_section) {
++        for (uint32_t i = 0; i < menu->pill_count; ++i) {
++            if (!strcmp(menu->pills[i].label, current_section)) {
++                focus = i;
++                break;
++            }
++        }
++    }
++
++    const uint32_t viewport = (width > BM_PILLS_ROW_PAD_X * 2 ? width - BM_PILLS_ROW_PAD_X * 2 : 0);
++    const uint32_t offset = bm_pills_scroll_offset(widths, menu->pill_count, focus, BM_PILLS_GAP, viewport);
++
++    const int32_t baseline = (int32_t)(pill_y + pill_h / 2 + paint->baseline / 2);
++    const int32_t left_edge = (int32_t)BM_PILLS_ROW_PAD_X;
++    const int32_t right_edge = left_edge + (int32_t)viewport;
++
++    /* The current capsule's focus ring sits ~2px outside its outline, so the
++     * clip has to leave room for it or the ring is shaved off at the edges. */
++    cairo_save(cairo->cr);
++    cairo_rectangle(cairo->cr, left_edge - BM_PILL_CURRENT_RING_OFFSET, pill_y - BM_PILL_CURRENT_RING_OFFSET,
++                    viewport + BM_PILL_CURRENT_RING_OFFSET * 2, pill_h + BM_PILL_CURRENT_RING_OFFSET * 2);
++    cairo_clip(cairo->cr);
++
++    int32_t x = left_edge - (int32_t)offset;
++
++    for (uint32_t i = 0; i < menu->pill_count; ++i) {
 +        const struct bm_pill *pill = &menu->pills[i];
-+        const bool active = (i == menu->pill_active);
-+        const bool current = (!active && current_section && !strcmp(pill->label, current_section));
++        const uint32_t pill_w = widths[i];
++
++        if (x > right_edge)
++            break;
++
++        if (x + (int32_t)pill_w < left_edge) {
++            x += (int32_t)(pill_w + BM_PILLS_GAP);
++            continue;
++        }
++
++        const bool chosen = (i == menu->pill_active);
++        const bool names_row = (current_section && !strcmp(pill->label, current_section));
++        const bool active = chosen || (menu->pill_active == BM_PILL_NONE && names_row);
++        const bool current = (!active && names_row);
 +        const struct cairo_color *fg = (active ? &active_fg : (current ? &item_fg : &default_fg));
 +
 +        char count_text[16];
@@ -432,11 +629,6 @@ index 158f2c7..1f5877f 100644
 +
 +        const uint32_t label_w = bm_cairo_run_width(cairo, paint, pill->label);
 +        const uint32_t count_w = bm_cairo_run_width_sized(cairo, paint, count_text, BM_PILL_COUNT_PT);
-+        const uint32_t content_w = BM_PILL_DOT + BM_PILL_RUN_GAP + label_w + BM_PILL_RUN_GAP + count_w;
-+        const uint32_t pill_w = BM_PILL_PAD_X * 2 + content_w;
-+
-+        if (x + pill_w > width)
-+            break;
 +
 +        if (active) {
 +            bm_cairo_rounded_path(cairo->cr, x, pill_y, pill_w, pill_h, radius);
@@ -461,7 +653,7 @@ index 158f2c7..1f5877f 100644
 +            }
 +        }
 +
-+        uint32_t cx = x + BM_PILL_PAD_X;
++        int32_t cx = x + BM_PILL_PAD_X;
 +
 +        struct cairo_color dot_color = *fg;
 +        if (active)
@@ -471,22 +663,25 @@ index 158f2c7..1f5877f 100644
 +        cairo_fill(cairo->cr);
 +        cx += BM_PILL_DOT + BM_PILL_RUN_GAP;
 +
-+        bm_cairo_draw_run(cairo, paint, fg, pill->label, (int32_t)cx, baseline, (int32_t)label_w + 1, false);
-+        cx += label_w + BM_PILL_RUN_GAP;
++        bm_cairo_draw_run(cairo, paint, fg, pill->label, cx, baseline, (int32_t)label_w + 1, false);
++        cx += (int32_t)(label_w + BM_PILL_RUN_GAP);
 +
 +        struct cairo_color count_color = *fg;
 +        count_color.a *= BM_PILL_COUNT_ALPHA;
-+        bm_cairo_draw_run_sized(cairo, paint, &count_color, count_text, (int32_t)cx, baseline,
++        bm_cairo_draw_run_sized(cairo, paint, &count_color, count_text, cx, baseline,
 +                                (int32_t)count_w + 1, BM_PILL_COUNT_PT);
 +
-+        x += pill_w + BM_PILLS_GAP;
++        x += (int32_t)(pill_w + BM_PILLS_GAP);
 +    }
++
++    cairo_restore(cairo->cr);
++    free(widths);
 +}
 +
  static inline void
  bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct bm_menu *menu, struct cairo_paint_result *out_result)
  {
-@@ -605,6 +802,11 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+@@ -605,6 +877,11 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
      uint32_t search_h = (rich_search ? fmin(menu->search_height, max_height) : height);
      uint32_t search_vpadding = (search_h > ascii_height ? (search_h - ascii_height) / 2 : 0);
  
@@ -498,7 +693,7 @@ index 158f2c7..1f5877f 100644
      double border_radius = menu->border_radius;
  
      uint32_t total_item_count = menu->items.count;
-@@ -637,7 +839,7 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+@@ -637,7 +914,7 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
          uint32_t rows = menu->lines;
          if (!menu->fixed_height)
              rows = MIN(count, rows);
@@ -507,7 +702,7 @@ index 158f2c7..1f5877f 100644
                       + border_size * 2;
          total_height = MIN(total_height, max_height);
      } else {
-@@ -727,7 +929,14 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+@@ -727,7 +1004,14 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
          cairo_fill(cairo->cr);
      }
  
@@ -523,3 +718,119 @@ index 158f2c7..1f5877f 100644
      uint32_t spacing_x = menu->spacing ? title_x : 0, spacing_y = 0; // 0 == variable width spacing
  
      if (menu->lines > 0 && menu->rich_rows) {
+diff --git a/lib/renderers/pills.cpp b/lib/renderers/pills.cpp
+new file mode 100644
+index 0000000..c4cbb28
+--- /dev/null
++++ b/lib/renderers/pills.cpp
+@@ -0,0 +1,66 @@
++/**
++ * Pill bar scroll geometry.
++ *
++ * Split out of cairo_renderer.h because it is the one part of the bar that is
++ * pure arithmetic: no cairo context, no pango measurement, no menu state. That
++ * makes it the part worth testing on its own, and it is why this is C++ while
++ * the drawing around it stays C. Nothing here touches the STL, exceptions or
++ * RTTI, so the archive links into the C renderers without pulling libstdc++.
++ */
++
++#include "renderers/pills.h"
++
++#include <cstdint>
++
++namespace {
++
++/// Total width of `count` capsules laid end to end with `gap` between them.
++constexpr std::uint32_t run_width(const std::uint32_t *widths, std::uint32_t count, std::uint32_t gap)
++{
++    std::uint32_t total = 0;
++    for (std::uint32_t i = 0; i < count; ++i) {
++        total += widths[i];
++        if (i + 1 < count)
++            total += gap;
++    }
++    return total;
++}
++
++/// Left edge of capsule `index` within the run.
++constexpr std::uint32_t left_edge(const std::uint32_t *widths, std::uint32_t index, std::uint32_t gap)
++{
++    std::uint32_t x = 0;
++    for (std::uint32_t i = 0; i < index; ++i)
++        x += widths[i] + gap;
++    return x;
++}
++
++} // namespace
++
++extern "C" std::uint32_t
++bm_pills_scroll_offset(const std::uint32_t *widths, std::uint32_t count, std::uint32_t focus,
++                       std::uint32_t gap, std::uint32_t viewport)
++{
++    if (!widths || count == 0 || focus >= count)
++        return 0;
++
++    const std::uint32_t total = run_width(widths, count, gap);
++    if (total <= viewport)
++        return 0;
++
++    const std::uint32_t furthest = total - viewport;
++    const std::uint32_t left = left_edge(widths, focus, gap);
++    const std::uint32_t centre = left + widths[focus] / 2;
++    const std::uint32_t half = viewport / 2;
++
++    std::uint32_t offset = (centre > half ? centre - half : 0);
++    if (offset > furthest)
++        offset = furthest;
++
++    /* Only fires when the capsule is wider than the viewport: centring it
++     * would then push its own left edge off screen. */
++    if (offset > left)
++        offset = left;
++
++    return offset;
++}
+diff --git a/lib/renderers/pills.h b/lib/renderers/pills.h
+new file mode 100644
+index 0000000..d514370
+--- /dev/null
++++ b/lib/renderers/pills.h
+@@ -0,0 +1,38 @@
++#ifndef _BM_PILLS_H_
++#define _BM_PILLS_H_
++
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/**
++ * How far left to shift the pill run so capsule `focus` stays on screen.
++ *
++ * The capsules are laid end to end with `gap` between them. When the whole run
++ * fits in `viewport` the answer is 0 and the bar does not move at all.
++ * Otherwise the focus capsule is centred, clamped so the run never scrolls
++ * past either end, and clamped again so a capsule wider than the viewport
++ * shows its left edge rather than its middle.
++ *
++ * Centring rather than scrolling by the minimum amount is deliberate. The
++ * minimum shift pins the focus capsule against the right edge on the way out
++ * and then jumps the whole bar back to 0 as soon as Shift+Tab brings it back
++ * inside, which reads as a glitch. Centring moves about one capsule per Tab in
++ * either direction.
++ *
++ * @param widths width in pixels of each capsule, in draw order.
++ * @param count number of entries in `widths`.
++ * @param focus index of the capsule that must stay visible.
++ * @param gap pixels between adjacent capsules.
++ * @param viewport width in pixels available to the run.
++ * @return uint32_t pixels to subtract from every capsule's x position.
++ */
++uint32_t bm_pills_scroll_offset(const uint32_t *widths, uint32_t count, uint32_t focus, uint32_t gap, uint32_t viewport);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _BM_PILLS_H_ */

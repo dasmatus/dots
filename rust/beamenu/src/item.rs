@@ -59,6 +59,15 @@ pub struct Item {
     pub icon: Option<PathBuf>,
     /// Heading this row is grouped under.
     pub section: Option<String>,
+    /// Id of the provider that produced this row, stamped by
+    /// `providers::decorate`.
+    ///
+    /// Distinct from [`Item::section`], which is only a display heading. Two
+    /// providers may share a heading, since nothing stops two plugin manifests
+    /// carrying the same `title`, but their ids are unique. The filter pill bar
+    /// keys on this, so every provider owns exactly one pill that filters to
+    /// its own rows. That includes every plugin.
+    pub provider: Option<String>,
     /// Ranking score, filled in by `crate::rank`. Higher sorts first.
     pub score: i64,
     /// What Enter does.
@@ -77,6 +86,7 @@ impl Item {
             accessory: None,
             icon: None,
             section: None,
+            provider: None,
             score: 0,
             action,
             alt_actions: Vec::new(),
@@ -104,6 +114,12 @@ impl Item {
     #[must_use]
     pub fn section(mut self, section: impl Into<String>) -> Self {
         self.section = Some(section.into());
+        self
+    }
+
+    #[must_use]
+    pub fn provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider = Some(provider.into());
         self
     }
 
