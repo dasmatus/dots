@@ -355,6 +355,27 @@ fn select_icon_theme(ctx: &TintCtx) -> bool {
         .is_ok()
 }
 
+/// Spawn each border command with the instance signature pinned into the
+/// child's environment (so tests can target a nonexistent instance without
+/// touching the live session). The first failure short-circuits into an
+/// `error:` status; success is `"ok"`.
+fn run_border_commands(his: &str, cmds: &[Vec<String>]) -> String {
+    for c in cmds {
+        let run = Command::new(&c[0])
+            .args(&c[1..])
+            .env("HYPRLAND_INSTANCE_SIGNATURE", his)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        match run {
+            Ok(st) if st.success() => {}
+            Ok(st) => return format!("error: {} exited {}", c[0], st.code().unwrap_or(-1)),
+            Err(e) => return format!("error: spawn {}: {e}", c[0]),
+        }
+    }
+    "ok".into()
+}
+
 /// The orchestrator. Returns `None` for the no-tint / missing-path no-op
 /// (Python's empty dict); `Some(Status)` when it ran. Each target is isolated.
 #[must_use]
@@ -409,20 +430,14 @@ pub fn apply_tint_ctx(
         (Err(e), _) | (_, Err(e)) => s.gtk = format!("error: {e}"),
     }
 
-    // Hyprland borders — runtime hyprctl keyword, always re-apply.
-    match hyprland_border_commands_for(ctx.his.as_deref(), &accent, &accent_dark) {
-        None => s.borders = "skipped".into(),
-        Some(cmds) => {
-            for c in &cmds {
-                let _ = Command::new(&c[0])
-                    .args(&c[1..])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-            s.borders = "ok".into();
-        }
-    }
+    // Hyprland borders — spawned per apply; the first failure surfaces.
+    s.borders = match ctx.his.as_deref() {
+        None => "skipped".into(),
+        Some(his) => match hyprland_border_commands_for(Some(his), &accent, &accent_dark) {
+            None => "skipped".into(),
+            Some(cmds) => run_border_commands(his, &cmds),
+        },
+    };
 
     // Kvantum (Qt) — expensive SVG copy, only regen on accent change.
     if let Some(base) = &ctx.kvantum_base {

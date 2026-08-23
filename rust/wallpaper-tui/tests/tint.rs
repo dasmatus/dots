@@ -210,6 +210,20 @@ fn apply_tint_generates_all_targets() {
 }
 
 #[test]
+fn apply_tint_surfaces_border_failure() {
+    let d = tempdir().unwrap();
+    let mut ctx = tint_ctx(d.path(), None, None);
+    ctx.his = Some("wallpaper-tui-test-no-such-instance".into());
+    let wp = wallpaper(d.path());
+    let s = apply_tint_ctx(&ctx, wp.to_str().unwrap(), false, TintBackend::Internal).unwrap();
+    assert!(
+        s.borders.starts_with("error:"),
+        "hyprctl against a nonexistent instance must surface into borders, got {:?}",
+        s.borders
+    );
+}
+
+#[test]
 fn apply_tint_caches_svg_trees_on_same_accent() {
     let d = tempdir().unwrap();
     let ctx = ctx_with_bases(d.path());
