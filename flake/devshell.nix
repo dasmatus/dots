@@ -20,7 +20,6 @@
 # `nix develop -c <cmd>` working under bash instead of being hijacked.
 {
   pkgs,
-  haskellPackages,
   abstracttui,
 }:
 let
