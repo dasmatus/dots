@@ -6,6 +6,7 @@
 mod common;
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use tempfile::tempdir;
@@ -14,7 +15,7 @@ use wallpaper_tui::accent::{hex_to_hls, hls_to_hex};
 use wallpaper_tui::config::TintState;
 use wallpaper_tui::tint::{
     apply_tint_ctx, gtk_css, hyprland_border_commands_for, recolor_icon_text, recolor_kvantum_text,
-    rofi_rasi_text, tint_icon_tree, tint_kvantum_tree,
+    rofi_rasi_text, run_border_commands, tint_icon_tree, tint_kvantum_tree,
 };
 
 use common::{make_icon_base, make_kvantum_base, tint_ctx, wallpaper};
@@ -218,6 +219,41 @@ fn apply_tint_surfaces_border_failure() {
         s.borders.starts_with("error:"),
         "hyprctl against a nonexistent instance must surface into borders, got {:?}",
         s.borders
+    );
+}
+
+/// Binds the non-success-exit path of `run_border_commands` directly against
+/// a stub executable, so the assertion holds even in a sandbox without
+/// `hyprctl` on PATH (`flake/packages.nix` does not list it as a build
+/// input, so under `nix build .#wallpaper-tui` `apply_tint_surfaces_border_failure`
+/// above always takes the spawn-error path instead — this test exists so
+/// that path stays covered too).
+#[test]
+fn run_border_commands_surfaces_nonzero_exit_with_stderr_detail() {
+    let d = tempdir().unwrap();
+    let stub = d.path().join("fake-hyprctl.sh");
+    fs::write(
+        &stub,
+        "#!/bin/sh\necho \"unknown config key 'general.col.active_border'\" >&2\nexit 7\n",
+    )
+    .unwrap();
+    let mut perms = fs::metadata(&stub).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&stub, perms).unwrap();
+
+    let cmds = vec![vec![
+        stub.to_str().unwrap().to_string(),
+        "eval".into(),
+        "hl.config({})".into(),
+    ]];
+    let status = run_border_commands("wallpaper-tui-test-stub-instance", &cmds);
+    assert!(
+        status.starts_with("error:") && status.contains("exited 7"),
+        "expected a nonzero-exit error, got {status:?}"
+    );
+    assert!(
+        status.contains("unknown config key"),
+        "expected the stub's stderr detail to surface, got {status:?}"
     );
 }
 

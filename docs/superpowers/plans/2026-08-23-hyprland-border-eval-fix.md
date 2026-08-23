@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Phase 2 of the spec, self-contained: touches only `rust/wallpaper-tui/src/tint.rs` and `rust/wallpaper-tui/tests/tint.rs`. No Nix changes, no palette.json.
-- The correct call form is `hyprctl eval 'hl.config({ ["general.col.active_border"] = "rgba(RRGGBBff)" })'` — flat dotted string keys per Hyprland's own `hl.meta.lua` stub (line 1078). Never a nested `{general={col={...}}}` table, never the `keyword` subcommand.
+- The correct call form is `hyprctl eval 'hl.config({ ["general.col.active_border"] = "rgba(RRGGBBff)" })'` — flat dotted string keys, the `HL.ConfigKey` vocabulary `hl.get_config` reads back per Hyprland's own `hl.meta.lua` stub (line 1078). `hl.config`'s declared parameter type, `HL.ConfigOpt`, is actually nested (`general? -> col? -> active_border?`, line 1314); both forms have been verified to work at runtime on Hyprland 0.56.2, and the flat form is used here for simplicity. Never the `keyword` subcommand.
 - `rgba()` takes bare hex: strip the leading `#` from the extracted accent (`extract_accent` returns `#RRGGBB`).
 - `hyprland_border_commands_for` stays pure: `his` is an explicit parameter; tests never mutate process env.
 - Never run hyprctl against the live session from tests: every spawned border command gets `HYPRLAND_INSTANCE_SIGNATURE` set from `ctx.his`, and tests use a bogus signature, which cannot reach any real compositor. The exact failure mode (hyprctl absent from PATH → spawn error; hyprctl present + bogus signature → nonzero exit) was NOT executed while planning, but the assertion is `starts_with("error:")`, which holds for both, so the test is robust either way.
@@ -206,7 +206,7 @@
   cd /home/matus/Dokumente/codeberg/personal/dots/.claude/worktrees/swirling-plotting-yao/rust/wallpaper-tui && cargo test --test tint && nix shell nixpkgs#rustfmt -c cargo fmt --all && cargo clippy --fix --allow-dirty -- -W clippy::all -W clippy::perf -W clippy::pedantic
   ```
 
-  Expected: full tint suite green — including Task 1's `apply_tint_surfaces_border_failure`, which now exercises the eval form against the bogus pinned signature (exit 4, never the live session). fmt, clippy and nix-lint clean.
+  Expected: full tint suite green — including Task 1's `apply_tint_surfaces_border_failure`, which now exercises the eval form against the bogus pinned signature (exit 4, never the live session). fmt and clippy clean.
 
 - [ ] **Step 5: Commit**
 

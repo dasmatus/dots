@@ -174,7 +174,10 @@ fn run_tui(
                         apply_wallpaper(&LiveAwww, &groups, &transition);
                         let status = tint::apply_tint(&group.path, no_tint, backend);
                         let msg = match status {
-                            Some(s) => format!("applied {} (tint {})", group.path, s.qt),
+                            Some(s) => format!(
+                                "applied {} (tint {}, borders {})",
+                                group.path, s.qt, s.borders
+                            ),
                             None => format!("applied {}", group.path),
                         };
                         let _ = tx.send(Event::ApplyDone { msg });
@@ -196,7 +199,12 @@ fn run_tui(
                             tint::apply_tint(tint_path, no_tint, backend)
                         };
                         let msg = match status {
-                            Some(s) => format!("restored {} (tint {})", groups.len(), s.qt),
+                            Some(s) => format!(
+                                "restored {} (tint {}, borders {})",
+                                groups.len(),
+                                s.qt,
+                                s.borders
+                            ),
                             None => format!("restored {} output(s)", groups.len()),
                         };
                         let _ = tx.send(Event::ApplyDone { msg });

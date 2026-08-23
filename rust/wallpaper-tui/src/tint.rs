@@ -146,14 +146,19 @@ pub fn gtk_css(accent: &str, accent_dark: &str, _accent_light: &str, version: u8
 }
 
 /// `hyprctl eval` argv setting both border colors through one
-/// `hl.config({...})` call with flat dotted string keys, the shape
-/// Hyprland's own `hl.meta.lua` stub declares for `HL.ConfigOpt`. The
-/// hyprlang `keyword` IPC was retired for the Lua parser in 0.55+ (exits 0,
-/// changes nothing), same as the `hyprctl keyword monitor` case hyprmon
-/// already migrated off. `rgba()` takes bare hex, so the accents' leading
-/// `#` is stripped. Returns `None` when Hyprland is not running (`his` is
-/// `None`). Pure: takes the Hyprland instance signature explicitly so
-/// tests don't mutate process-global env.
+/// `hl.config({...})` call with flat dotted string keys — e.g.
+/// `["general.col.active_border"]`. This is the `HL.ConfigKey` vocabulary
+/// `hl.get_config` reads back (`hl.meta.lua` line 1078); `hl.config`'s own
+/// declared parameter type, `HL.ConfigOpt`, is actually nested
+/// (`general? -> col? -> active_border?`, line 1314). Both the flat and the
+/// nested form have been verified to work against `hl.config` at runtime on
+/// Hyprland 0.56.2 — the flat form is used here because it needs no
+/// intermediate table construction. The hyprlang `keyword` IPC was retired
+/// for the Lua parser in 0.55+ (exits 0, changes nothing), same as the
+/// `hyprctl keyword monitor` case hyprmon already migrated off. `rgba()`
+/// takes bare hex, so the accents' leading `#` is stripped. Returns `None`
+/// when Hyprland is not running (`his` is `None`). Pure: takes the Hyprland
+/// instance signature explicitly so tests don't mutate process-global env.
 #[must_use]
 pub fn hyprland_border_commands_for(
     his: Option<&str>,
@@ -360,18 +365,31 @@ fn select_icon_theme(ctx: &TintCtx) -> bool {
 /// Spawn each border command with the instance signature pinned into the
 /// child's environment (so tests can target a nonexistent instance without
 /// touching the live session). The first failure short-circuits into an
-/// `error:` status; success is `"ok"`.
-fn run_border_commands(his: &str, cmds: &[Vec<String>]) -> String {
+/// `error:` status carrying hyprctl's first stderr line (e.g. `unknown
+/// config key '…'`), so a bad config key is distinguishable from any other
+/// nonzero exit; success is `"ok"`. Stdout is captured but never read,
+/// i.e. suppressed. `pub` so `tests/` can drive it directly against a stub
+/// executable, since `hyprctl` itself is not a build input under
+/// `nix build .#wallpaper-tui`'s sandbox.
+#[must_use]
+pub fn run_border_commands(his: &str, cmds: &[Vec<String>]) -> String {
     for c in cmds {
         let run = Command::new(&c[0])
             .args(&c[1..])
             .env("HYPRLAND_INSTANCE_SIGNATURE", his)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+            .output();
         match run {
-            Ok(st) if st.success() => {}
-            Ok(st) => return format!("error: {} exited {}", c[0], st.code().unwrap_or(-1)),
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                let code = out.status.code().unwrap_or(-1);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let detail = stderr.lines().next().unwrap_or("").trim();
+                return if detail.is_empty() {
+                    format!("error: {} exited {code}", c[0])
+                } else {
+                    format!("error: {} exited {code}: {detail}", c[0])
+                };
+            }
             Err(e) => return format!("error: spawn {}: {e}", c[0]),
         }
     }
@@ -435,10 +453,15 @@ pub fn apply_tint_ctx(
     // Hyprland borders — spawned per apply; the first failure surfaces.
     s.borders = match ctx.his.as_deref() {
         None => "skipped".into(),
-        Some(his) => match hyprland_border_commands_for(Some(his), &accent, &accent_dark) {
-            None => "skipped".into(),
-            Some(cmds) => run_border_commands(his, &cmds),
-        },
+        Some(his) => {
+            // `his` is `Some` here, so `hyprland_border_commands_for` cannot
+            // return `None` via its `his?` early return; unwrap so a future
+            // failure mode added to the builder can't be mistaken for
+            // "no Hyprland" here.
+            let cmds = hyprland_border_commands_for(Some(his), &accent, &accent_dark)
+                .expect("his is Some, so the builder's only None path can't trigger");
+            run_border_commands(his, &cmds)
+        }
     };
 
     // Kvantum (Qt) — expensive SVG copy, only regen on accent change.
