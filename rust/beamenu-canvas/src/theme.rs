@@ -1,13 +1,15 @@
 //! Design tokens for the canvas's one host-enforced stylesheet.
 //!
 //! `CanvasTheme` reads `theme.canvas` in `beamenu/config.json`
-//! (`crate::config::Config`); every field is serde-defaulted to the binding
-//! design values from the task brief, so a missing or partial `canvas`
+//! (`crate::config::Config`); every field is serde-defaulted from
+//! `rust/palette.json` (Tokyo Night), so a missing or partial `canvas`
 //! object still gives the intended look. [`stylesheet`] is the ONLY place
 //! CSS text gets built — workers never supply CSS or HTML, only the typed
 //! [`crate::component::Component`] trees this stylesheet then dresses.
 
 use serde::{Deserialize, Serialize};
+
+use crate::palette::PALETTE;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CanvasTheme {
@@ -34,39 +36,43 @@ pub struct CanvasTheme {
 }
 
 fn default_font_ui() -> String {
-    "Manrope".into()
+    PALETTE.fonts.canvas_ui.clone()
 }
 fn default_font_mono() -> String {
-    "JetBrains Mono".into()
+    PALETTE.fonts.canvas_mono.clone()
 }
 fn default_bg() -> String {
-    "#0d1013".into()
+    PALETTE.colors.bg.clone()
 }
 fn default_panel_start() -> String {
-    "#171c22".into()
+    PALETTE.colors.bg_dark.clone()
 }
 fn default_panel_end() -> String {
-    "#0d1013".into()
+    PALETTE.colors.bg.clone()
 }
+/// Hairline border: Tokyo Night's `selection`, the dimmer of its pair —
+/// `border_strong` below takes the brighter `border` slot.
 fn default_border() -> String {
-    "#1e252c".into()
+    PALETTE.colors.selection.clone()
 }
 fn default_border_strong() -> String {
-    "#262e36".into()
+    PALETTE.colors.border.clone()
 }
 fn default_text() -> String {
-    "#e6ebef".into()
+    PALETTE.colors.fg.clone()
 }
 fn default_muted() -> String {
-    "#5b6672".into()
+    PALETTE.colors.muted.clone()
 }
 fn default_accent() -> String {
-    "#7fd6c2".into()
+    PALETTE.accent_fallback.clone()
 }
 
 /// Primary button text colour — fixed, not derived from `accent`, so the
-/// button stays high-contrast whatever `accent` is configured to.
-pub const PRIMARY_BUTTON_TEXT: &str = "#08110e";
+/// button stays high-contrast whatever `accent` is configured to. Mirrors
+/// the palette file's `colors.bgDarker`; a const cannot read the `LazyLock`,
+/// so `tests/theme.rs` pins the two together instead.
+pub const PRIMARY_BUTTON_TEXT: &str = "#15161e";
 
 /// Alpha of the 3px focus ring around a focused form control.
 const FOCUS_RING_ALPHA: f32 = 0.2;

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::palette::PALETTE;
 use crate::theme::CanvasTheme;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -27,10 +28,10 @@ pub struct Config {
     pub width_factor: f32,
 }
 
-/// Kept in step with `rust/beamenu/src/config.rs::default_width_factor` and
-/// `nix/home/beamenu.nix`'s `widthFactor` option default.
+/// The same `beamenu.widthFactor` slot of `rust/palette.json` that
+/// `rust/beamenu/src/config.rs` and `nix/home/beamenu.nix` read.
 fn default_width_factor() -> f32 {
-    0.375
+    PALETTE.beamenu.width_factor
 }
 
 impl Default for Config {

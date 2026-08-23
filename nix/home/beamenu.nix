@@ -28,20 +28,46 @@
 let
   cfg = config.programs.beamenu;
 
-  # The binding design palette: a near-black panel, a barely-lighter border,
-  # off-white text, a desaturated muted tone, and a single teal accent whose
-  # own on-fill text is near-black rather than white. bemenu wants
-  # #RRGGBBAA; the alpha on the background is the only opacity knob it has.
+  # The system palette — rust/palette.json is the single source of truth for
+  # neutrals, fonts and the beamenu metrics. The Rust side compiles the same
+  # file in (rust/beamenu/src/palette.rs, rust/beamenu-canvas/src/palette.rs);
+  # this module is the configured path, the Rust Default impls the fallback.
+  palette = builtins.fromJSON (builtins.readFile ../../rust/palette.json);
+  inherit (palette) colors alpha;
+
+  # bemenu wants #RRGGBBAA, so alpha is applied here at the seam; base values
+  # stay 6-digit in the palette file. selected_background and heading derive
+  # from cfg.accent, so programs.beamenu.accent moves every accent surface —
+  # highlighted row, heading tint and the canvas accent — not just the
+  # highlighted row. Text drawn on the accent fill is bgDarker (dark on
+  # light-accent, as the launcher always had).
   theme = {
-    background = "#0d1013f2"; # panel
-    foreground = "#e6ebefff"; # text
-    muted = "#5b6672ff";
-    selected_background = "#7fd6c2ff"; # matches accent: pairs with the near-black selected_foreground below
-    selected_foreground = "#08110eff"; # on-accent text
-    border = "#1e252cff";
-    heading = "#7fd6c2ee"; # accent-tinted, like the section heading always was
-    font = "Lilex Nerd Font 12";
+    background = colors.bg + alpha.panel;
+    foreground = colors.fg + alpha.opaque;
+    muted = colors.muted + alpha.opaque;
+    selected_background = cfg.accent + alpha.opaque;
+    selected_foreground = colors.bgDarker + alpha.opaque;
+    border = colors.border + alpha.opaque;
+    heading = cfg.accent + alpha.heading;
+    font = "${palette.fonts.ui} ${toString palette.fonts.size}";
     accent = cfg.accent;
+    # beamenu-canvas reads theme.canvas (rust/beamenu-canvas/src/config.rs);
+    # this key was never emitted before, so the sidecar always rendered its
+    # compiled-in defaults. Field names are CanvasTheme's serde names; values
+    # stay 6-digit because the canvas applies alpha in CSS itself. border is
+    # the hairline (selection slot), border_strong the brighter border slot.
+    canvas = {
+      font_ui = palette.fonts.canvasUi;
+      font_mono = palette.fonts.canvasMono;
+      bg = colors.bg;
+      panel_gradient_start = colors.bgDark;
+      panel_gradient_end = colors.bg;
+      border = colors.selection;
+      border_strong = colors.border;
+      text = colors.fg;
+      muted = colors.muted;
+      accent = cfg.accent;
+    };
   };
 
   # The Rust side reads snake_case; the Nix options are camelCase to match the
@@ -90,13 +116,13 @@ in
 
     lines = lib.mkOption {
       type = lib.types.ints.positive;
-      default = 9;
+      default = palette.beamenu.lines;
       description = "Result rows shown at once; the panel height follows from this.";
     };
 
     widthFactor = lib.mkOption {
       type = lib.types.float;
-      default = 0.375;
+      default = palette.beamenu.widthFactor;
       description = ''
         Fraction of the output width the panel occupies. bemenu has no
         absolute width, only this factor, so the default is rofi's 720px
@@ -106,39 +132,39 @@ in
 
     iconSize = lib.mkOption {
       type = lib.types.ints.positive;
-      default = 24;
+      default = palette.beamenu.iconSize;
       description = "Row icon edge length in pixels.";
     };
 
     lineHeight = lib.mkOption {
       type = lib.types.ints.positive;
-      default = 52;
+      default = palette.beamenu.lineHeight;
       description = "Result row height in pixels.";
     };
 
     searchHeight = lib.mkOption {
       type = lib.types.ints.positive;
-      default = 56;
+      default = palette.beamenu.searchHeight;
       description = "Search row height in pixels; taller than a result row, Raycast-style.";
     };
 
     radius = lib.mkOption {
       type = lib.types.ints.unsigned;
-      default = 16;
+      default = palette.beamenu.radius;
       description = "Panel corner radius in pixels; 16 matches the old rofi theme.";
     };
 
     accent = lib.mkOption {
       type = lib.types.str;
-      default = "#7fd6c2";
-      example = "#8fb8f0";
+      default = palette.accentFallback;
+      example = "#7dcfff";
       description = ''
-        Accent colour for the currently-active element: the highlighted
-        result row and the active filter pill. Its own text is always
-        near-black (`selected_foreground`/`selected_background` in the
-        theme option), so alternates should stay light, like the panel
-        background above is dark: `#8fb8f0` (blue), `#e0b083` (amber),
-        `#c9a8f0` (violet).
+        Accent colour for every accent surface: the highlighted result row,
+        the active filter pill, the heading tint and the canvas accent —
+        `selected_background`, `heading` and `theme.canvas.accent` all
+        derive from it. Its own text is always the palette's darkest
+        neutral, so alternates should stay light: `#7dcfff` (cyan),
+        `#9ece6a` (green), `#bb9af7` (magenta).
       '';
     };
 

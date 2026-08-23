@@ -145,9 +145,20 @@ pub fn gtk_css(accent: &str, accent_dark: &str, _accent_light: &str, version: u8
     }
 }
 
-/// `hyprctl keyword` argv for the border colors, or `None` when Hyprland is
-/// not running (`his` is `None`). Pure: takes the Hyprland instance signature
-/// explicitly so tests don't mutate process-global env.
+/// `hyprctl eval` argv setting both border colors through one
+/// `hl.config({...})` call with flat dotted string keys — e.g.
+/// `["general.col.active_border"]`. This is the `HL.ConfigKey` vocabulary
+/// `hl.get_config` reads back (`hl.meta.lua` line 1078); `hl.config`'s own
+/// declared parameter type, `HL.ConfigOpt`, is actually nested
+/// (`general? -> col? -> active_border?`, line 1314). Both the flat and the
+/// nested form have been verified to work against `hl.config` at runtime on
+/// Hyprland 0.56.2 — the flat form is used here because it needs no
+/// intermediate table construction. The hyprlang `keyword` IPC was retired
+/// for the Lua parser in 0.55+ (exits 0, changes nothing), same as the
+/// `hyprctl keyword monitor` case hyprmon already migrated off. `rgba()`
+/// takes bare hex, so the accents' leading `#` is stripped. Returns `None`
+/// when Hyprland is not running (`his` is `None`). Pure: takes the Hyprland
+/// instance signature explicitly so tests don't mutate process-global env.
 #[must_use]
 pub fn hyprland_border_commands_for(
     his: Option<&str>,
@@ -155,20 +166,16 @@ pub fn hyprland_border_commands_for(
     accent_dark: &str,
 ) -> Option<Vec<Vec<String>>> {
     his?;
-    Some(vec![
-        vec![
-            "hyprctl".into(),
-            "keyword".into(),
-            "general:col.active_border".into(),
-            format!("rgba({accent}ff)"),
-        ],
-        vec![
-            "hyprctl".into(),
-            "keyword".into(),
-            "general:col.inactive_border".into(),
-            format!("rgba({accent_dark}ff)"),
-        ],
-    ])
+    let active = accent.trim_start_matches('#');
+    let inactive = accent_dark.trim_start_matches('#');
+    Some(vec![vec![
+        "hyprctl".into(),
+        "eval".into(),
+        format!(
+            "hl.config({{ [\"general.col.active_border\"] = \"rgba({active}ff)\", \
+             [\"general.col.inactive_border\"] = \"rgba({inactive}ff)\" }})"
+        ),
+    ]])
 }
 
 /// Env-driven wrapper around [`hyprland_border_commands_for`].
@@ -355,8 +362,85 @@ fn select_icon_theme(ctx: &TintCtx) -> bool {
         .is_ok()
 }
 
+/// Spawn each border command with the instance signature pinned into the
+/// child's environment (so tests can target a nonexistent instance without
+/// touching the live session). The first failure short-circuits into an
+/// `error:` status carrying hyprctl's first non-empty stdout line (e.g.
+/// `unknown config key '…'`, or `Couldn't connect to …/.socket.sock. (4)`),
+/// so a bad config key is distinguishable from any other nonzero exit;
+/// success is `"ok"`. hyprctl's `log()` is an unconditional `std::println`
+/// (`hyprctl/src/main.cpp`) — both its connect diagnostics and the
+/// compositor's reply body go to stdout, never stderr — so stdout is the
+/// stream that carries the failure detail; stderr is consulted only as a
+/// fallback, for stub executables under test that don't share that
+/// convention.
+///
+/// A zero exit is *not* on its own proof of success: `hyprctl eval` maps a
+/// compositor-side failure to a nonzero exit only when the reply starts
+/// with `error:` (`HyprCtl.cpp`'s `request()`), but the legacy hyprlang
+/// config manager's `evalRequest` returns the bare, unprefixed string
+/// `"eval is only supported with the lua config manager"`, and the Lua
+/// manager's `eval()` can return a body prefixed `warning:`/`info:` for
+/// non-fatal issues — both exit 0 with nothing changed. So a zero exit is
+/// only trusted when the trimmed stdout is exactly `ok`, which is the only
+/// string `evalRequest` returns on an actual success; anything else on a
+/// zero exit is folded into the same `error:` status, carrying the reply.
+/// `pub` so `tests/` can drive it directly against a stub executable, since
+/// `hyprctl` itself is not a build input under `nix build .#wallpaper-tui`'s
+/// sandbox.
+#[must_use]
+pub fn run_border_commands(his: &str, cmds: &[Vec<String>]) -> String {
+    for c in cmds {
+        let run = Command::new(&c[0])
+            .args(&c[1..])
+            .env("HYPRLAND_INSTANCE_SIGNATURE", his)
+            .output();
+        match run {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if out.status.success() && stdout.trim() == "ok" {
+                    continue;
+                }
+                if out.status.success() {
+                    let reply = stdout.trim();
+                    return if reply.is_empty() {
+                        format!("error: {} exited 0 without an \"ok\" reply", c[0])
+                    } else {
+                        format!("error: {} exited 0 without an \"ok\" reply: {reply}", c[0])
+                    };
+                }
+                let code = out.status.code().unwrap_or(-1);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let first_non_empty_line = |s: &str| {
+                    s.lines()
+                        .map(str::trim)
+                        .find(|l| !l.is_empty())
+                        .map(str::to_owned)
+                };
+                let detail = first_non_empty_line(&stdout)
+                    .or_else(|| first_non_empty_line(&stderr))
+                    .unwrap_or_default();
+                return if detail.is_empty() {
+                    format!("error: {} exited {code}", c[0])
+                } else {
+                    format!("error: {} exited {code}: {detail}", c[0])
+                };
+            }
+            Err(e) => return format!("error: spawn {}: {e}", c[0]),
+        }
+    }
+    "ok".into()
+}
+
 /// The orchestrator. Returns `None` for the no-tint / missing-path no-op
 /// (Python's empty dict); `Some(Status)` when it ran. Each target is isolated.
+///
+/// # Panics
+/// Never in practice: the Hyprland-borders step calls
+/// `hyprland_border_commands_for` with `Some(his)` and `.expect()`s the
+/// result, but that function's only `None` path is `his.is_none()`, so the
+/// `expect` cannot fire here — it exists to catch a future change to the
+/// builder's `None` conditions rather than a reachable runtime state.
 #[must_use]
 pub fn apply_tint_ctx(
     ctx: &TintCtx,
@@ -409,20 +493,19 @@ pub fn apply_tint_ctx(
         (Err(e), _) | (_, Err(e)) => s.gtk = format!("error: {e}"),
     }
 
-    // Hyprland borders — runtime hyprctl keyword, always re-apply.
-    match hyprland_border_commands_for(ctx.his.as_deref(), &accent, &accent_dark) {
-        None => s.borders = "skipped".into(),
-        Some(cmds) => {
-            for c in &cmds {
-                let _ = Command::new(&c[0])
-                    .args(&c[1..])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-            s.borders = "ok".into();
+    // Hyprland borders — spawned per apply; the first failure surfaces.
+    s.borders = match ctx.his.as_deref() {
+        None => "skipped".into(),
+        Some(his) => {
+            // `his` is `Some` here, so `hyprland_border_commands_for` cannot
+            // return `None` via its `his?` early return; unwrap so a future
+            // failure mode added to the builder can't be mistaken for
+            // "no Hyprland" here.
+            let cmds = hyprland_border_commands_for(Some(his), &accent, &accent_dark)
+                .expect("his is Some, so the builder's only None path can't trigger");
+            run_border_commands(his, &cmds)
         }
-    }
+    };
 
     // Kvantum (Qt) — expensive SVG copy, only regen on accent change.
     if let Some(base) = &ctx.kvantum_base {

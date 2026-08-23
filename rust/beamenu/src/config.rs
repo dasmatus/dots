@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::palette::{accent_slots, PALETTE};
+
 /// Colours are bemenu hex strings, `#RRGGBB` or `#RRGGBBAA`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theme {
@@ -33,28 +35,32 @@ pub struct Theme {
 }
 
 fn default_accent() -> String {
-    "#7fd6c2".into()
+    PALETTE.accent_fallback.clone()
 }
 
 impl Default for Theme {
-    /// The binding design palette: panel `#0d1013`, border `#1e252c`, text
-    /// `#e6ebef`, muted `#5b6672`, accent `#7fd6c2`, and near-black
-    /// `#08110e` for text drawn on the accent fill (the highlighted row,
-    /// and the selection colours that share its foreground slot).
+    /// Every slot resolved from `rust/palette.json` (Tokyo Night):
+    /// panel `bg` + panel alpha, text `fg`, `muted`, `border`, and the two
+    /// accent-derived slots from [`accent_slots`] over `accentFallback`.
+    /// Text drawn on the accent fill uses `bgDarker`, keeping the
+    /// dark-on-accent contrast the launcher always had.
     ///
-    /// Kept in step with `nix/home/beamenu.nix`, which writes these same
-    /// values into config.json. This is the fallback for a missing or
-    /// unparseable file, not the configured path.
+    /// This is the fallback for a missing or unparseable config.json, not
+    /// the configured path — `nix/home/beamenu.nix` renders the same file
+    /// into config.json, so the two can only drift if the palette schema
+    /// itself changes.
     fn default() -> Self {
+        let p = &*PALETTE;
+        let (selected_background, heading) = accent_slots(&p.accent_fallback);
         Self {
-            background: "#0d1013f2".into(),
-            foreground: "#e6ebefff".into(),
-            muted: "#5b6672ff".into(),
-            selected_background: "#7fd6c2ff".into(),
-            selected_foreground: "#08110eff".into(),
-            border: "#1e252cff".into(),
-            heading: "#7fd6c2ee".into(),
-            font: "Lilex Nerd Font 12".into(),
+            background: format!("{}{}", p.colors.bg, p.alpha.panel),
+            foreground: format!("{}{}", p.colors.fg, p.alpha.opaque),
+            muted: format!("{}{}", p.colors.muted, p.alpha.opaque),
+            selected_background,
+            selected_foreground: format!("{}{}", p.colors.bg_darker, p.alpha.opaque),
+            border: format!("{}{}", p.colors.border, p.alpha.opaque),
+            heading,
+            font: format!("{} {}", p.fonts.ui, p.fonts.size),
             accent: default_accent(),
         }
     }
@@ -94,22 +100,22 @@ pub struct Config {
 }
 
 fn default_lines() -> u32 {
-    9
+    PALETTE.beamenu.lines
 }
 fn default_width_factor() -> f32 {
-    0.375
+    PALETTE.beamenu.width_factor
 }
 fn default_icon_size() -> u32 {
-    24
+    PALETTE.beamenu.icon_size
 }
 fn default_line_height() -> u32 {
-    52
+    PALETTE.beamenu.line_height
 }
 fn default_search_height() -> u32 {
-    56
+    PALETTE.beamenu.search_height
 }
 fn default_radius() -> u32 {
-    16
+    PALETTE.beamenu.radius
 }
 /// Terminal used for desktop entries marked `Terminal=true`.
 ///

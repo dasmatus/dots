@@ -6,7 +6,8 @@
 mod common;
 
 use std::fs;
-use std::path::Path;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 use tempfile::tempdir;
 use wallpaper_tui::accent::TintBackend;
@@ -14,7 +15,7 @@ use wallpaper_tui::accent::{hex_to_hls, hls_to_hex};
 use wallpaper_tui::config::TintState;
 use wallpaper_tui::tint::{
     apply_tint_ctx, gtk_css, hyprland_border_commands_for, recolor_icon_text, recolor_kvantum_text,
-    rofi_rasi_text, tint_icon_tree, tint_kvantum_tree,
+    rofi_rasi_text, run_border_commands, tint_icon_tree, tint_kvantum_tree,
 };
 
 use common::{make_icon_base, make_kvantum_base, tint_ctx, wallpaper};
@@ -66,32 +67,30 @@ fn hyprland_borders_skip_without_hyprland() {
 }
 
 #[test]
-fn hyprland_borders_emit_two_keywords() {
+fn hyprland_borders_emit_single_hl_config_eval() {
     let cmds = hyprland_border_commands_for(Some("deadbeef"), ACCENT, ACCENT_DARK).unwrap();
-    assert_eq!(cmds.len(), 2);
-    assert_eq!(
-        cmds[0],
-        [
-            "hyprctl",
-            "keyword",
-            "general:col.active_border",
-            "rgba(#ff00aaff)"
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
+    assert_eq!(cmds.len(), 1, "one eval call sets both borders");
+    assert_eq!(cmds[0][0], "hyprctl");
+    assert_eq!(cmds[0][1], "eval");
+    let lua = &cmds[0][2];
+    assert!(
+        lua.starts_with("hl.config({"),
+        "flat-dotted hl.config call, got {lua}"
     );
-    assert_eq!(
-        cmds[1],
-        [
-            "hyprctl",
-            "keyword",
-            "general:col.inactive_border",
-            "rgba(#330044ff)"
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
+    assert!(lua.contains(r#"["general.col.active_border"] = "rgba(ff00aaff)""#));
+    assert!(lua.contains(r#"["general.col.inactive_border"] = "rgba(330044ff)""#));
+    assert!(
+        !lua.contains('#'),
+        "rgba() takes bare hex, no leading '#': {lua}"
+    );
+}
+
+#[test]
+fn hyprland_borders_never_use_retired_keyword_ipc() {
+    let cmds = hyprland_border_commands_for(Some("deadbeef"), ACCENT, ACCENT_DARK).unwrap();
+    assert!(
+        cmds.iter().flatten().all(|arg| arg != "keyword"),
+        "hyprctl keyword is a silent no-op under the Lua parser (0.55+)"
     );
 }
 
@@ -207,6 +206,128 @@ fn apply_tint_generates_all_targets() {
     // tint state recorded.
     let state = TintState::load_from(ctx.tint_state_file());
     assert_eq!(state.accent, Some(s.accent.clone()));
+}
+
+#[test]
+fn apply_tint_surfaces_border_failure() {
+    let d = tempdir().unwrap();
+    let mut ctx = tint_ctx(d.path(), None, None);
+    ctx.his = Some("wallpaper-tui-test-no-such-instance".into());
+    let wp = wallpaper(d.path());
+    let s = apply_tint_ctx(&ctx, wp.to_str().unwrap(), false, TintBackend::Internal).unwrap();
+    assert!(
+        s.borders.starts_with("error:"),
+        "hyprctl against a nonexistent instance must surface into borders, got {:?}",
+        s.borders
+    );
+}
+
+/// Writes an executable shell stub at `dir/name` running `body`, standing
+/// in for `hyprctl` so `run_border_commands` can be driven deterministically
+/// without a real compositor connection.
+fn write_stub(dir: &Path, name: &str, body: &str) -> PathBuf {
+    let stub = dir.join(name);
+    fs::write(&stub, body).unwrap();
+    let mut perms = fs::metadata(&stub).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&stub, perms).unwrap();
+    stub
+}
+
+/// Binds the non-success-exit path of `run_border_commands` directly against
+/// a stub executable, so the assertion holds even in a sandbox without
+/// `hyprctl` on PATH (`flake/packages.nix` does not list it as a build
+/// input, so under `nix build .#wallpaper-tui` `apply_tint_surfaces_border_failure`
+/// above always takes the spawn-error path instead — this test exists so
+/// that path stays covered too). The stub writes to *stdout*, matching real
+/// hyprctl: `log()` in `hyprctl/src/main.cpp` is an unconditional
+/// `std::println`, so both the connect diagnostic and the compositor's
+/// reply body land on stdout, never stderr.
+#[test]
+fn run_border_commands_surfaces_nonzero_exit_with_stdout_detail() {
+    let d = tempdir().unwrap();
+    let stub = write_stub(
+        d.path(),
+        "fake-hyprctl.sh",
+        "#!/bin/sh\necho \"unknown config key 'general.col.active_border'\"\nexit 7\n",
+    );
+
+    let cmds = vec![vec![
+        stub.to_str().unwrap().to_string(),
+        "eval".into(),
+        "hl.config({})".into(),
+    ]];
+    let status = run_border_commands("wallpaper-tui-test-stub-instance", &cmds);
+    assert!(
+        status.starts_with("error:") && status.contains("exited 7"),
+        "expected a nonzero-exit error, got {status:?}"
+    );
+    assert!(
+        status.contains("unknown config key"),
+        "expected the stub's stdout detail to surface, got {status:?}"
+    );
+}
+
+/// Covers the fallback half of the same read: when a nonzero-exit stub has
+/// nothing on stdout, `run_border_commands` still surfaces stderr rather
+/// than reporting a bare exit code. Real hyprctl never takes this path
+/// (everything it prints goes to stdout), but a foreign or misbehaving
+/// executable on the command line might, so the fallback stays covered.
+#[test]
+fn run_border_commands_falls_back_to_stderr_when_stdout_is_empty() {
+    let d = tempdir().unwrap();
+    let stub = write_stub(
+        d.path(),
+        "fake-hyprctl-stderr-only.sh",
+        "#!/bin/sh\necho \"unknown config key 'general.col.active_border'\" >&2\nexit 7\n",
+    );
+
+    let cmds = vec![vec![
+        stub.to_str().unwrap().to_string(),
+        "eval".into(),
+        "hl.config({})".into(),
+    ]];
+    let status = run_border_commands("wallpaper-tui-test-stub-instance", &cmds);
+    assert!(
+        status.starts_with("error:") && status.contains("exited 7"),
+        "expected a nonzero-exit error, got {status:?}"
+    );
+    assert!(
+        status.contains("unknown config key"),
+        "expected the stub's stderr detail to surface as a fallback, got {status:?}"
+    );
+}
+
+/// Binds the fix for the "exit 0 but nothing happened" bug shape: hyprctl's
+/// own `request()` (`HyprCtl.cpp`) only turns a compositor-side failure into
+/// a nonzero exit when the reply starts with `error:` — the legacy
+/// hyprlang config manager's `evalRequest` returns the unprefixed string
+/// `"eval is only supported with the lua config manager"` on exit 0, and the
+/// Lua manager can reply `warning: …`/`info: …` on exit 0 too. A stub
+/// mimics that: exit 0, stdout not equal to `ok`.
+#[test]
+fn run_border_commands_surfaces_zero_exit_without_ok_reply() {
+    let d = tempdir().unwrap();
+    let stub = write_stub(
+        d.path(),
+        "fake-hyprctl-legacy.sh",
+        "#!/bin/sh\necho \"eval is only supported with the lua config manager\"\nexit 0\n",
+    );
+
+    let cmds = vec![vec![
+        stub.to_str().unwrap().to_string(),
+        "eval".into(),
+        "hl.config({})".into(),
+    ]];
+    let status = run_border_commands("wallpaper-tui-test-stub-instance", &cmds);
+    assert!(
+        status.starts_with("error:"),
+        "a zero exit without an \"ok\" reply must not be reported as success, got {status:?}"
+    );
+    assert!(
+        status.contains("eval is only supported with the lua config manager"),
+        "expected the stub's reply to surface, got {status:?}"
+    );
 }
 
 #[test]
