@@ -24,7 +24,18 @@ self: {
   # librsvg is a new buildInput: the row renderer decodes SVG icons through it
   # and PNG through cairo, covering what XDG icon themes ship without taking on
   # gdk-pixbuf's runtime loader-module discovery.
-  beamenu-view = pkgs.bemenu.overrideAttrs (old: {
+  #
+  # Built with clang rather than the stdenv default, and hardened with
+  # Control-Flow Integrity over ThinLTO. CFI only works with LTO and hidden
+  # visibility, so those three flags travel together, and the LTO flags have to
+  # reach the link step as well as the compile step. lld is the linker because
+  # ThinLTO needs an LTO-capable one and lld works without a plugin.
+  #
+  # 06-filter-pills.patch adds one C++ translation unit
+  # (lib/renderers/pills.cpp, the bar's scroll geometry), which is why CXXFLAGS
+  # matter here at all; bemenu's GNUmakefile pins it to -std=c++23, the newest
+  # standard clang 21 implements in full rather than in part.
+  beamenu-view = (pkgs.bemenu.override { stdenv = pkgs.clangStdenv; }).overrideAttrs (old: {
     pname = "beamenu-view";
     patches = (old.patches or [ ]) ++ [
       ../nix/patches/beamenu/01-item-richtext.patch
@@ -34,7 +45,22 @@ self: {
       ../nix/patches/beamenu/05-rich-panel-body.patch
       ../nix/patches/beamenu/06-filter-pills.patch
     ];
+    nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.lld ];
     buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
+    # LDFLAGS goes through makeFlags, not NIX_LDFLAGS: -fuse-ld=lld is a
+    # compiler-driver flag, and NIX_LDFLAGS is handed straight to the linker,
+    # which never sees it. Getting that wrong is not cosmetic. CFI emits
+    # __typeid__ symbols that ld.bfd cannot relocate in a shared object
+    # ("relocation R_X86_64_8 against hidden symbol"), so the link fails
+    # outright until lld is actually the linker.
+    # makeFlagsArray, not makeFlags: the value contains spaces, and makeFlags
+    # entries are word-split before they reach make.
+    preBuild = (old.preBuild or "") + ''
+      makeFlagsArray+=("LDFLAGS=-flto=thin -fuse-ld=lld -fsanitize=cfi -fvisibility=hidden")
+    '';
+    env = (old.env or { }) // {
+      NIX_CFLAGS_COMPILE = "-fsanitize=cfi -flto=thin -fvisibility=hidden";
+    };
     meta = old.meta // {
       description = "bemenu patched into the beamenu launcher's view layer";
       mainProgram = "bemenu";
