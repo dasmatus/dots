@@ -156,14 +156,14 @@ in
     accent = lib.mkOption {
       type = lib.types.str;
       default = palette.accentFallback;
-      example = "#7fd6c2";
+      example = "#7dcfff";
       description = ''
         Accent colour for every accent surface: the highlighted result row,
         the active filter pill, the heading tint and the canvas accent —
         `selected_background`, `heading` and `theme.canvas.accent` all
         derive from it. Its own text is always the palette's darkest
-        neutral, so alternates should stay light: `#7fd6c2` (teal),
-        `#e0b083` (amber), `#c9a8f0` (violet).
+        neutral, so alternates should stay light: `#7dcfff` (cyan),
+        `#9ece6a` (green), `#bb9af7` (magenta).
       '';
     };
 
