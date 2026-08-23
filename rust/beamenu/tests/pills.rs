@@ -3,7 +3,7 @@
 
 use beamenu::item::{Action, Item};
 use beamenu::providers::{self, Provider};
-use beamenu::Pills;
+use beamenu::{PillState, Pills};
 
 /// A row as `providers::decorate` hands it over: carrying both the id of the
 /// provider that produced it and the heading it is grouped under.
@@ -237,4 +237,110 @@ fn a_plugin_manifest_earns_a_pill_that_filters_to_its_own_rows() {
         row("system", "System"),
     ];
     assert_eq!(pills.filter(&ambient, 2), vec![row("notes", "Notes")]);
+}
+
+// --- PillState: the active pill across frames ---
+
+#[test]
+fn a_polled_index_is_resolved_against_the_ids_last_sent() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![
+        row("apps", "Applications"),
+        row("quicklinks", "Quicklinks"),
+        row("system", "System"),
+    ];
+    assert_eq!(state.to_send(&pills.visible(&ambient)), 0);
+
+    // Two Tab presses land the C side on index 2, which against the ids this
+    // frame sent is system.
+    assert!(state.on_poll(2));
+    assert_eq!(state.chosen(), Some("system"));
+}
+
+#[test]
+fn an_index_echoed_back_unchanged_is_not_a_tab_press() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    let sent = state.to_send(&pills.visible(&ambient));
+
+    assert!(!state.on_poll(sent));
+    assert_eq!(state.chosen(), None);
+}
+
+#[test]
+fn the_remembered_provider_survives_a_query_that_drops_other_pills() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let wide = vec![
+        row("apps", "Applications"),
+        row("quicklinks", "Quicklinks"),
+        row("system", "System"),
+    ];
+    state.to_send(&pills.visible(&wide));
+    assert!(state.on_poll(2));
+    assert_eq!(state.chosen(), Some("system"));
+
+    // The next keystroke leaves quicklinks with no rows, so system is index 1
+    // now. The stale 2 would have filtered to the wrong provider.
+    let narrow = vec![row("apps", "Applications"), row("system", "System")];
+    let visible = pills.visible(&narrow);
+    assert_eq!(state.to_send(&visible), 1);
+    assert_eq!(
+        Pills::filter_of(&narrow, &visible, 1),
+        vec![row("system", "System")]
+    );
+}
+
+#[test]
+fn a_remembered_provider_with_no_rows_falls_back_without_being_forgotten() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    state.to_send(&pills.visible(&ambient));
+    assert!(state.on_poll(1));
+    assert_eq!(state.chosen(), Some("system"));
+
+    // A query no system row matches falls back to the first visible pill.
+    let apps_only = vec![row("apps", "Applications")];
+    assert_eq!(state.to_send(&pills.visible(&apps_only)), 0);
+    assert_eq!(state.chosen(), Some("system"));
+
+    // Clearing it lands back on system rather than on the fallback.
+    assert_eq!(state.to_send(&pills.visible(&ambient)), 1);
+}
+
+#[test]
+fn a_cleared_bar_ignores_the_polled_zero_index() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    state.to_send(&pills.visible(&ambient));
+    assert!(state.on_poll(1));
+
+    // The action panel clears the bar, and bm_pills_free resets pill_active to
+    // 0. Reading that back as a choice would silently reset the filter.
+    state.cleared();
+    assert!(!state.on_poll(0));
+    assert_eq!(state.chosen(), Some("system"));
+}
+
+#[test]
+fn an_action_panel_round_trip_keeps_the_remembered_provider() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    state.to_send(&pills.visible(&ambient));
+    assert!(state.on_poll(1));
+
+    state.cleared();
+    assert_eq!(state.to_send(&pills.visible(&ambient)), 1);
+    assert_eq!(state.chosen(), Some("system"));
 }

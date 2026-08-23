@@ -217,8 +217,17 @@ impl Pills {
     /// reclaims the row's height rather than drawing an empty strip.
     #[must_use]
     pub fn spec(&self, ambient: &[Item]) -> String {
+        Self::spec_of(&self.visible(ambient))
+    }
+
+    /// The same spec, for a caller that already computed the visible set.
+    ///
+    /// `sync` needs the visible set anyway, to resolve the active pill, and
+    /// recomputing it here would walk every row a second time.
+    #[must_use]
+    pub fn spec_of(visible: &[VisiblePill<'_>]) -> String {
         let mut spec = String::new();
-        for pill in self.visible(ambient) {
+        for pill in visible {
             if !spec.is_empty() {
                 spec.push('\u{1f}');
             }
@@ -243,7 +252,12 @@ impl Pills {
     /// [`App::results`] already computed.
     #[must_use]
     pub fn filter(&self, ambient: &[Item], active: u32) -> Vec<Item> {
-        let visible = self.visible(ambient);
+        Self::filter_of(ambient, &self.visible(ambient), active)
+    }
+
+    /// The same filter, for a caller that already computed the visible set.
+    #[must_use]
+    pub fn filter_of(ambient: &[Item], visible: &[VisiblePill<'_>], active: u32) -> Vec<Item> {
         let Some(pill) = visible.get(active as usize).or_else(|| visible.first()) else {
             return ambient.to_vec();
         };
@@ -253,6 +267,83 @@ impl Pills {
             .filter(|item| item.provider.as_deref() == Some(pill.id))
             .cloned()
             .collect()
+    }
+}
+
+/// Which pill is active, remembered by the provider that owns it rather than
+/// by its index.
+///
+/// `bm_menu_set_pills` takes an index into the array it is handed, and
+/// Tab/Shift+Tab move that index inside the C library. The array is rebuilt
+/// whenever the visible set changes, so an index means nothing across frames.
+/// The same 2 can be System on one keystroke and Snippets on the next. Only
+/// the provider id survives, so that is what this keeps.
+#[derive(Debug, Default)]
+pub struct PillState {
+    /// The provider the user last chose. Kept across query changes, so that
+    /// clearing the query lands back where they were.
+    chosen: Option<String>,
+    /// The provider ids last handed to `bm_menu_set_pills`, in the order they
+    /// went over. A polled index only means anything against this list.
+    sent: Vec<String>,
+    /// The index last handed over, so that a poll echoing it back is not
+    /// mistaken for the user pressing Tab.
+    sent_index: u32,
+}
+
+impl PillState {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The provider the bar is currently filtered to, if any.
+    #[must_use]
+    pub fn chosen(&self) -> Option<&str> {
+        self.chosen.as_deref()
+    }
+
+    /// Resolve the chosen provider to an index into `visible`, recording what
+    /// was sent so the next poll can be read back.
+    ///
+    /// A chosen provider with no rows this frame falls back to the first
+    /// visible pill without being forgotten, so it returns as soon as it has
+    /// rows again.
+    pub fn to_send(&mut self, visible: &[VisiblePill<'_>]) -> u32 {
+        self.sent = visible.iter().map(|pill| pill.id.to_string()).collect();
+        self.sent_index = self
+            .chosen
+            .as_deref()
+            .and_then(|id| visible.iter().position(|pill| pill.id == id))
+            .and_then(|index| u32::try_from(index).ok())
+            .unwrap_or(0);
+        self.sent_index
+    }
+
+    /// Adopt the index the C side reports, resolved against the ids last sent.
+    ///
+    /// Returns whether the choice actually moved. An echo of the index just
+    /// sent is not a Tab press. A cleared bar reports 0 because `bm_pills_free`
+    /// reset it, not because anyone picked the first pill, so a frame with
+    /// nothing sent is ignored outright.
+    pub fn on_poll(&mut self, polled: u32) -> bool {
+        if self.sent.is_empty() || polled == self.sent_index {
+            return false;
+        }
+
+        let Some(id) = self.sent.get(polled as usize) else {
+            return false;
+        };
+
+        self.chosen = Some(id.clone());
+        self.sent_index = polled;
+        true
+    }
+
+    /// Forget what was sent, for the frames that clear the bar.
+    pub fn cleared(&mut self) {
+        self.sent.clear();
+        self.sent_index = 0;
     }
 }
 
@@ -271,18 +362,21 @@ fn sync(
     app: &App,
     query: &str,
     pills: &Pills,
-    active_pill: u32,
+    state: &mut PillState,
 ) -> Vec<Item> {
     let ambient = app.results(query);
 
     if !app.stack.is_empty() {
         menu.set_pills("", 0);
+        state.cleared();
         menu.set_items(&ambient);
         return ambient;
     }
 
-    menu.set_pills(&pills.spec(&ambient), active_pill);
-    let shown = pills.filter(&ambient, active_pill);
+    let visible = pills.visible(&ambient);
+    let active = state.to_send(&visible);
+    menu.set_pills(&Pills::spec_of(&visible), active);
+    let shown = Pills::filter_of(&ambient, &visible, active);
     menu.set_items(&shown);
     shown
 }
@@ -296,8 +390,8 @@ pub fn run(app: &mut App) -> Result<()> {
     let pills = Pills::new(&app.providers);
 
     let mut last_query = String::new();
-    let mut active_pill: u32 = 0;
-    let mut shown = sync(&mut menu, app, &last_query, &pills, active_pill);
+    let mut state = PillState::new();
+    let mut shown = sync(&mut menu, app, &last_query, &pills, &mut state);
 
     loop {
         match menu.pump() {
@@ -314,16 +408,12 @@ pub fn run(app: &mut App) -> Result<()> {
                 // the pill bar is cleared there, so the C side never
                 // intercepts Tab in the first place, but this still avoids
                 // reading back a stale index while it's inert.
-                if app.stack.is_empty() {
-                    let polled = menu.active_pill();
-                    if polled != active_pill {
-                        active_pill = polled;
-                        dirty = true;
-                    }
+                if app.stack.is_empty() && state.on_poll(menu.active_pill()) {
+                    dirty = true;
                 }
 
                 if dirty {
-                    shown = sync(&mut menu, app, &last_query, &pills, active_pill);
+                    shown = sync(&mut menu, app, &last_query, &pills, &mut state);
                 }
             }
             view::Outcome::Selected { index } => {
@@ -339,7 +429,7 @@ pub fn run(app: &mut App) -> Result<()> {
                     let _ = provider;
                     menu.set_query(query);
                     last_query.clone_from(query);
-                    shown = sync(&mut menu, app, query, &pills, active_pill);
+                    shown = sync(&mut menu, app, query, &pills, &mut state);
                     continue;
                 }
                 app.activate(&item)?;
@@ -350,7 +440,7 @@ pub fn run(app: &mut App) -> Result<()> {
                     continue;
                 };
                 if app.open_actions(&item) {
-                    shown = sync(&mut menu, app, "", &pills, active_pill);
+                    shown = sync(&mut menu, app, "", &pills, &mut state);
                 }
             }
             view::Outcome::Cancelled => {
@@ -361,7 +451,7 @@ pub fn run(app: &mut App) -> Result<()> {
                     Some(query) => {
                         menu.set_query(&query);
                         last_query.clone_from(&query);
-                        shown = sync(&mut menu, app, &last_query, &pills, active_pill);
+                        shown = sync(&mut menu, app, &last_query, &pills, &mut state);
                     }
                     None => return Ok(()),
                 }
