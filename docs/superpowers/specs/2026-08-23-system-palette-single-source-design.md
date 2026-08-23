@@ -220,7 +220,19 @@ Phase 2 is independent of the architecture and lands first as its own commit.
 | **2** | `hyprctl keyword` → `hyprctl eval 'hl.config({...})'`; check the result instead of `let _ =` |
 | **3** | Extend `apply_tint`: waybar (`SIGUSR2`), eww (`eww reload`), dunst (`dunstctl reload`); add `pkgs.glib` to the wrapper PATH; write dconf `accent-color` |
 | **4** | `@import` seam for kitty, zellij, hyprlock, dunst |
-| **5** | Wire `rofi.rasi` to dunst's `rofi -dmenu`; de-duplicate the font string; pull TUI palettes from the file; give `hyprmon` a theme; reseed Kvantum from a Tokyo Night base |
+| **5** | Wire `rofi.rasi` to dunst's `rofi -dmenu`; de-duplicate the font string; pull TUI palettes from the file; give `hyprmon` a theme; reseed Kvantum from a Tokyo Night base; repair the build gate (below) |
+
+### The build gate needs repair, and phase 5 owns it
+
+Two pre-existing faults make `nix run .#nix-lint` unusable as a gate for this
+work, so every phase gates on explicit per-crate `cargo test` and per-package
+`nix build --impure` instead:
+
+- `flake/apps.nix:81` runs `nix build .#abstracttui`, but `flake/packages.nix`
+  defines no such package — the gate dies before reaching any Rust crate.
+- `flake/apps.nix:82-85` lints only `installer-tui`, `wallpaper-tui`, `hyprmon`
+  and `settings-global`. **`beamenu` and `beamenu-canvas` are absent**, so the
+  two crates this work centres on have no fmt/clippy/test gate at all.
 
 **Each phase gets its own implementation plan.** The five together are too large
 for one plan to stay useful — phase 1 alone spans three crates, a Nix module and
