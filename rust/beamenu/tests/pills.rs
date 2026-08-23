@@ -239,7 +239,10 @@ fn a_plugin_manifest_earns_a_pill_that_filters_to_its_own_rows() {
     assert_eq!(pills.filter(&ambient, 2), vec![row("notes", "Notes")]);
 }
 
-// --- PillState: the active pill across frames ---
+// --- PillState: browsing ---
+
+const BROWSING: bool = false;
+const SEARCHING: bool = true;
 
 #[test]
 fn a_polled_index_is_resolved_against_the_ids_last_sent() {
@@ -251,11 +254,11 @@ fn a_polled_index_is_resolved_against_the_ids_last_sent() {
         row("quicklinks", "Quicklinks"),
         row("system", "System"),
     ];
-    assert_eq!(state.to_send(&pills.visible(&ambient)), 0);
+    assert_eq!(state.to_send(&pills.visible(&ambient), BROWSING), 0);
 
     // Two Tab presses land the C side on index 2, which against the ids this
     // frame sent is system.
-    assert!(state.on_poll(2));
+    assert!(state.on_poll(2, BROWSING));
     assert_eq!(state.chosen(), Some("system"));
 }
 
@@ -265,9 +268,9 @@ fn an_index_echoed_back_unchanged_is_not_a_tab_press() {
     let mut state = PillState::new();
 
     let ambient = vec![row("apps", "Applications"), row("system", "System")];
-    let sent = state.to_send(&pills.visible(&ambient));
+    let sent = state.to_send(&pills.visible(&ambient), BROWSING);
 
-    assert!(!state.on_poll(sent));
+    assert!(!state.on_poll(sent, BROWSING));
     assert_eq!(state.chosen(), None);
 }
 
@@ -281,15 +284,15 @@ fn the_remembered_provider_survives_a_query_that_drops_other_pills() {
         row("quicklinks", "Quicklinks"),
         row("system", "System"),
     ];
-    state.to_send(&pills.visible(&wide));
-    assert!(state.on_poll(2));
+    state.to_send(&pills.visible(&wide), BROWSING);
+    assert!(state.on_poll(2, BROWSING));
     assert_eq!(state.chosen(), Some("system"));
 
     // The next keystroke leaves quicklinks with no rows, so system is index 1
     // now. The stale 2 would have filtered to the wrong provider.
     let narrow = vec![row("apps", "Applications"), row("system", "System")];
     let visible = pills.visible(&narrow);
-    assert_eq!(state.to_send(&visible), 1);
+    assert_eq!(state.to_send(&visible, BROWSING), 1);
     assert_eq!(
         Pills::filter_of(&narrow, &visible, 1),
         vec![row("system", "System")]
@@ -302,17 +305,17 @@ fn a_remembered_provider_with_no_rows_falls_back_without_being_forgotten() {
     let mut state = PillState::new();
 
     let ambient = vec![row("apps", "Applications"), row("system", "System")];
-    state.to_send(&pills.visible(&ambient));
-    assert!(state.on_poll(1));
+    state.to_send(&pills.visible(&ambient), BROWSING);
+    assert!(state.on_poll(1, BROWSING));
     assert_eq!(state.chosen(), Some("system"));
 
-    // A query no system row matches falls back to the first visible pill.
+    // A frame with no system rows falls back to the first visible pill.
     let apps_only = vec![row("apps", "Applications")];
-    assert_eq!(state.to_send(&pills.visible(&apps_only)), 0);
+    assert_eq!(state.to_send(&pills.visible(&apps_only), BROWSING), 0);
     assert_eq!(state.chosen(), Some("system"));
 
-    // Clearing it lands back on system rather than on the fallback.
-    assert_eq!(state.to_send(&pills.visible(&ambient)), 1);
+    // And system comes back as soon as it has rows again.
+    assert_eq!(state.to_send(&pills.visible(&ambient), BROWSING), 1);
 }
 
 #[test]
@@ -321,13 +324,13 @@ fn a_cleared_bar_ignores_the_polled_zero_index() {
     let mut state = PillState::new();
 
     let ambient = vec![row("apps", "Applications"), row("system", "System")];
-    state.to_send(&pills.visible(&ambient));
-    assert!(state.on_poll(1));
+    state.to_send(&pills.visible(&ambient), BROWSING);
+    assert!(state.on_poll(1, BROWSING));
 
     // The action panel clears the bar, and bm_pills_free resets pill_active to
     // 0. Reading that back as a choice would silently reset the filter.
     state.cleared();
-    assert!(!state.on_poll(0));
+    assert!(!state.on_poll(0, BROWSING));
     assert_eq!(state.chosen(), Some("system"));
 }
 
@@ -337,10 +340,109 @@ fn an_action_panel_round_trip_keeps_the_remembered_provider() {
     let mut state = PillState::new();
 
     let ambient = vec![row("apps", "Applications"), row("system", "System")];
-    state.to_send(&pills.visible(&ambient));
-    assert!(state.on_poll(1));
+    state.to_send(&pills.visible(&ambient), BROWSING);
+    assert!(state.on_poll(1, BROWSING));
 
     state.cleared();
-    assert_eq!(state.to_send(&pills.visible(&ambient)), 1);
+    assert_eq!(state.to_send(&pills.visible(&ambient), BROWSING), 1);
     assert_eq!(state.chosen(), Some("system"));
+}
+
+// --- PillState: searching ---
+
+#[test]
+fn a_search_marks_no_pill_active_until_one_is_engaged() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    assert_eq!(
+        state.to_send(&pills.visible(&ambient), SEARCHING),
+        beamenu::view::BM_PILL_NONE
+    );
+    assert_eq!(state.engaged(), None);
+}
+
+#[test]
+fn a_search_reports_no_pill_even_when_one_was_chosen_while_browsing() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    state.to_send(&pills.visible(&ambient), BROWSING);
+    assert!(state.on_poll(1, BROWSING));
+    assert_eq!(state.chosen(), Some("system"));
+
+    // The browsing choice must not leak into the search and quietly hide rows
+    // the query matched in other providers.
+    assert_eq!(
+        state.to_send(&pills.visible(&ambient), SEARCHING),
+        beamenu::view::BM_PILL_NONE
+    );
+}
+
+#[test]
+fn tab_during_a_search_engages_the_provider_it_lands_on() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    state.to_send(&pills.visible(&ambient), SEARCHING);
+
+    assert!(state.on_poll(1, SEARCHING));
+    assert_eq!(state.engaged(), Some("system"));
+
+    // Now the search intersects with that provider instead of spanning all.
+    assert_eq!(state.to_send(&pills.visible(&ambient), SEARCHING), 1);
+}
+
+#[test]
+fn editing_the_query_releases_the_engaged_provider() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    state.to_send(&pills.visible(&ambient), SEARCHING);
+    assert!(state.on_poll(1, SEARCHING));
+    assert_eq!(state.engaged(), Some("system"));
+
+    state.on_query_change();
+    assert_eq!(state.engaged(), None);
+    assert_eq!(
+        state.to_send(&pills.visible(&ambient), SEARCHING),
+        beamenu::view::BM_PILL_NONE
+    );
+}
+
+#[test]
+fn clearing_the_query_returns_to_the_provider_tab_landed_on() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    state.to_send(&pills.visible(&ambient), SEARCHING);
+    assert!(state.on_poll(1, SEARCHING));
+
+    // Tab during a search updates the browsing choice too, so deleting the
+    // query lands where the user tabbed rather than back at the first pill.
+    state.on_query_change();
+    assert_eq!(state.to_send(&pills.visible(&ambient), BROWSING), 1);
+}
+
+#[test]
+fn an_engaged_provider_with_no_rows_reports_no_pill_rather_than_the_first() {
+    let pills = Pills::new(&providers());
+    let mut state = PillState::new();
+
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    state.to_send(&pills.visible(&ambient), SEARCHING);
+    assert!(state.on_poll(1, SEARCHING));
+
+    // Falling back to pill 0 here would filter the search to a provider the
+    // user never asked for; reporting nothing keeps every match visible.
+    let apps_only = vec![row("apps", "Applications")];
+    assert_eq!(
+        state.to_send(&pills.visible(&apps_only), SEARCHING),
+        beamenu::view::BM_PILL_NONE
+    );
 }

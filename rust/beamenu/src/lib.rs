@@ -278,11 +278,22 @@ impl Pills {
 /// whenever the visible set changes, so an index means nothing across frames.
 /// The same 2 can be System on one keystroke and Snippets on the next. Only
 /// the provider id survives, so that is what this keeps.
+/// The bar has two modes, and they are not the same thing.
+///
+/// With an empty query the launcher is browsing: the list is filtered to one
+/// provider and Tab walks between them. Once something is typed the query
+/// searches every provider instead, and the bar stops filtering and starts
+/// reporting, marking whichever capsule names the highlighted row. Tab during
+/// a search engages a provider again, intersecting it with the query, and the
+/// next edit to the query releases that.
 #[derive(Debug, Default)]
 pub struct PillState {
-    /// The provider the user last chose. Kept across query changes, so that
-    /// clearing the query lands back where they were.
+    /// The provider chosen while browsing. Kept across query changes, so that
+    /// clearing the query lands back where the user was.
     chosen: Option<String>,
+    /// The provider Tab engaged during a search, intersected with the query.
+    /// Cleared the moment the query changes.
+    engaged: Option<String>,
     /// The provider ids last handed to `bm_menu_set_pills`, in the order they
     /// went over. A polled index only means anything against this list.
     sent: Vec<String>,
@@ -303,20 +314,38 @@ impl PillState {
         self.chosen.as_deref()
     }
 
-    /// Resolve the chosen provider to an index into `visible`, recording what
+    /// The provider Tab engaged during a search, if any.
+    #[must_use]
+    pub fn engaged(&self) -> Option<&str> {
+        self.engaged.as_deref()
+    }
+
+    /// Resolve the wanted provider to an index into `visible`, recording what
     /// was sent so the next poll can be read back.
     ///
-    /// A chosen provider with no rows this frame falls back to the first
-    /// visible pill without being forgotten, so it returns as soon as it has
-    /// rows again.
-    pub fn to_send(&mut self, visible: &[VisiblePill<'_>]) -> u32 {
+    /// Browsing resolves the chosen provider, falling back to the first
+    /// visible pill when it has no rows this frame. The fallback does not
+    /// overwrite the choice, so it returns as soon as it has rows again.
+    /// Searching resolves the engaged provider instead, and answers
+    /// [`view::BM_PILL_NONE`] when nothing is engaged, which is what tells the
+    /// bar to report rather than filter.
+    pub fn to_send(&mut self, visible: &[VisiblePill<'_>], searching: bool) -> u32 {
         self.sent = visible.iter().map(|pill| pill.id.to_string()).collect();
-        self.sent_index = self
-            .chosen
-            .as_deref()
+
+        let wanted = if searching {
+            self.engaged.as_deref()
+        } else {
+            self.chosen.as_deref()
+        };
+
+        self.sent_index = match wanted
             .and_then(|id| visible.iter().position(|pill| pill.id == id))
             .and_then(|index| u32::try_from(index).ok())
-            .unwrap_or(0);
+        {
+            Some(index) => index,
+            None if searching => view::BM_PILL_NONE,
+            None => 0,
+        };
         self.sent_index
     }
 
@@ -326,7 +355,11 @@ impl PillState {
     /// sent is not a Tab press. A cleared bar reports 0 because `bm_pills_free`
     /// reset it, not because anyone picked the first pill, so a frame with
     /// nothing sent is ignored outright.
-    pub fn on_poll(&mut self, polled: u32) -> bool {
+    ///
+    /// A Tab during a search engages that provider on top of the query, and
+    /// also updates the browsing choice, so clearing the query lands on the
+    /// provider the user last tabbed to rather than somewhere else.
+    pub fn on_poll(&mut self, polled: u32, searching: bool) -> bool {
         if self.sent.is_empty() || polled == self.sent_index {
             return false;
         }
@@ -336,8 +369,16 @@ impl PillState {
         };
 
         self.chosen = Some(id.clone());
+        if searching {
+            self.engaged = Some(id.clone());
+        }
         self.sent_index = polled;
         true
+    }
+
+    /// Release the engaged provider, for when the query changes.
+    pub fn on_query_change(&mut self) {
+        self.engaged = None;
     }
 
     /// Forget what was sent, for the frames that clear the bar.
@@ -374,9 +415,15 @@ fn sync(
     }
 
     let visible = pills.visible(&ambient);
-    let active = state.to_send(&visible);
+    let active = state.to_send(&visible, !query.is_empty());
     menu.set_pills(&Pills::spec_of(&visible), active);
-    let shown = Pills::filter_of(&ambient, &visible, active);
+
+    let shown = if active == view::BM_PILL_NONE {
+        ambient
+    } else {
+        Pills::filter_of(&ambient, &visible, active)
+    };
+
     menu.set_items(&shown);
     shown
 }
@@ -401,6 +448,7 @@ pub fn run(app: &mut App) -> Result<()> {
                 let mut dirty = query != last_query;
                 if dirty {
                     last_query.clone_from(&query);
+                    state.on_query_change();
                 }
 
                 // Polling only at the root keeps a Tab press inside the
@@ -408,7 +456,8 @@ pub fn run(app: &mut App) -> Result<()> {
                 // the pill bar is cleared there, so the C side never
                 // intercepts Tab in the first place, but this still avoids
                 // reading back a stale index while it's inert.
-                if app.stack.is_empty() && state.on_poll(menu.active_pill()) {
+                if app.stack.is_empty() && state.on_poll(menu.active_pill(), !last_query.is_empty())
+                {
                     dirty = true;
                 }
 
