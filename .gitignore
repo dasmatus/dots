@@ -43,3 +43,4 @@ nix/secrets.nix
 
 # crash core dumps (core.<pid> — Brave GTK4/Wayland segfault artifacts)
 /core.[0-9]*
+.superpowers/
