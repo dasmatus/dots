@@ -115,66 +115,127 @@ impl Default for App {
     }
 }
 
-/// The filter pill bar's ordered model: `All` plus one pill per ambient
-/// provider, in registry order.
+/// The filter pill bar's ordered model: one pill per ambient provider, in
+/// registry order.
 ///
 /// Built once from [`providers::all`]'s registry order rather than naming
 /// any provider, so a later plugin provider earns a pill with zero changes
 /// here. Keyworded providers (`=`, `:`, `c `, `f `, `w `) are prefix-triggered
 /// modes rather than list-and-filter sources and are left out.
+///
+/// This is the registry of every pill that could appear. [`Pills::visible`]
+/// decides which ones actually do on a given frame, since a provider with no
+/// rows earns no pill.
 pub struct Pills {
-    labels: Vec<String>,
+    pills: Vec<Pill>,
+}
+
+/// One registered pill: the provider that owns it, and the text it shows.
+struct Pill {
+    id: String,
+    label: String,
+}
+
+/// A pill that has rows on the frame being drawn.
+///
+/// `id` is what [`Pills::filter`] matches rows against. `label` is what the
+/// capsule shows. They differ whenever two providers share a heading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VisiblePill<'a> {
+    pub id: &'a str,
+    pub label: &'a str,
+    pub count: usize,
 }
 
 impl Pills {
-    /// Collect the ambient providers' section labels, in registry order.
+    /// Register one pill per ambient provider, in registry order.
     ///
-    /// Owned rather than borrowed: a plugin provider's section is its
-    /// manifest's `title`, read from disk, so it has no `'static` lifetime to
-    /// borrow.
+    /// Owned rather than borrowed: a plugin provider's id and section are its
+    /// manifest's `name` and `title`, read from disk, so neither has a
+    /// `'static` lifetime to borrow.
+    ///
+    /// Every provider gets its own pill, including every plugin. Nothing here
+    /// names one. The set is whatever [`providers::all`] registered, so a
+    /// manifest dropped into `plugins/` earns a pill with no code change.
+    /// Keying on id rather than on heading is what lets two plugins that chose
+    /// the same `title` still get one pill each.
     #[must_use]
     pub fn new(providers: &[Box<dyn Provider>]) -> Self {
         Self {
-            labels: providers
+            pills: providers
                 .iter()
                 .filter(|p| p.trigger() == Trigger::Ambient)
-                .map(|p| p.section().to_string())
+                .map(|p| Pill {
+                    id: p.id().to_string(),
+                    label: p.section().to_string(),
+                })
                 .collect(),
         }
     }
 
-    /// Section labels, in the same order as pill indices 1.. (index 0 is
-    /// always `All`, which has no section of its own).
+    /// Every registered pill's label, in registry order, whether or not it
+    /// currently has rows.
     #[must_use]
-    pub fn labels(&self) -> &[String] {
-        &self.labels
+    pub fn labels(&self) -> Vec<&str> {
+        self.pills.iter().map(|pill| pill.label.as_str()).collect()
     }
 
-    /// The `bm_menu_set_pills` spec for `ambient`: `All:<total>` followed by
-    /// one `\x1f`-separated `label:count` entry per pill, in registry order.
+    /// Every registered pill's owning provider id, in registry order.
+    #[must_use]
+    pub fn ids(&self) -> Vec<&str> {
+        self.pills.iter().map(|pill| pill.id.as_str()).collect()
+    }
+
+    /// The pills that have at least one row in `ambient`, in registry order.
+    ///
+    /// [`Pills::spec`] renders this list and [`Pills::filter`] indexes it, so
+    /// pill N names the same provider on both sides of the FFI. Nothing else
+    /// may decide what an index means.
+    #[must_use]
+    pub fn visible<'a>(&'a self, ambient: &[Item]) -> Vec<VisiblePill<'a>> {
+        self.pills
+            .iter()
+            .filter_map(|pill| {
+                let count = ambient
+                    .iter()
+                    .filter(|item| item.provider.as_deref() == Some(pill.id.as_str()))
+                    .count();
+                (count > 0).then_some(VisiblePill {
+                    id: &pill.id,
+                    label: &pill.label,
+                    count,
+                })
+            })
+            .collect()
+    }
+
+    /// The `bm_menu_set_pills` spec for `ambient`: one `\x1f`-separated
+    /// `label:count` entry per visible pill, in registry order.
+    ///
+    /// Empty when nothing is visible, which happens on a keyword query or on a
+    /// query no ambient row matched. The C side reads that as "no bar" and
+    /// reclaims the row's height rather than drawing an empty strip.
     #[must_use]
     pub fn spec(&self, ambient: &[Item]) -> String {
-        let mut counts = vec![0usize; self.labels.len()];
-        for item in ambient {
-            if let Some(section) = item.section.as_deref() {
-                if let Some(i) = self.labels.iter().position(|label| *label == section) {
-                    counts[i] += 1;
-                }
+        let mut spec = String::new();
+        for pill in self.visible(ambient) {
+            if !spec.is_empty() {
+                spec.push('\u{1f}');
             }
-        }
-
-        let mut spec = format!("All:{}", ambient.len());
-        for (label, count) in self.labels.iter().zip(&counts) {
-            spec.push('\u{1f}');
-            spec.push_str(label);
+            spec.push_str(pill.label);
             spec.push(':');
-            spec.push_str(&count.to_string());
+            spec.push_str(&pill.count.to_string());
         }
         spec
     }
 
-    /// Rows to display for pill `active`: every ambient row for pill 0
-    /// (`All`), or only the rows whose section is that pill's provider.
+    /// Rows to display for pill `active`: only the rows whose section is that
+    /// pill's, indexing [`Pills::visible`].
+    ///
+    /// An index past the end falls back to the first visible pill rather than
+    /// to the whole mix, so a stale index narrows to something real instead of
+    /// silently dropping the filter. With nothing visible at all there is no
+    /// pill to honour, so `ambient` passes through untouched.
     ///
     /// Filtering `ambient` rather than re-querying the provider directly
     /// gives the same rows either way — `rank::rank` only drops non-matches,
@@ -182,17 +243,14 @@ impl Pills {
     /// [`App::results`] already computed.
     #[must_use]
     pub fn filter(&self, ambient: &[Item], active: u32) -> Vec<Item> {
-        let label = active
-            .checked_sub(1)
-            .and_then(|i| self.labels.get(i as usize));
-
-        let Some(label) = label else {
+        let visible = self.visible(ambient);
+        let Some(pill) = visible.get(active as usize).or_else(|| visible.first()) else {
             return ambient.to_vec();
         };
 
         ambient
             .iter()
-            .filter(|item| item.section.as_deref() == Some(label.as_str()))
+            .filter(|item| item.provider.as_deref() == Some(pill.id))
             .cloned()
             .collect()
     }

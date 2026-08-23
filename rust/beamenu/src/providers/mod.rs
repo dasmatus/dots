@@ -137,18 +137,25 @@ pub fn collect(providers: &[Box<dyn Provider>], ctx: &Ctx, query: &str) -> (Vec<
     (items, query.to_string())
 }
 
-/// Run a provider and stamp its section onto every row it returned, so a
+/// Run a provider and stamp its identity onto every row it returned, so a
 /// provider never has to repeat its own heading.
+///
+/// The section is only filled in when the provider did not choose one itself,
+/// since some rows want their own heading (`window`'s management actions, the
+/// action panel's). The id is stamped unconditionally. Which provider produced
+/// a row is a fact about it rather than a display choice, and the filter pill
+/// bar needs every row to carry it.
 fn decorate(provider: &dyn Provider, ctx: &Ctx, query: &str) -> Vec<Item> {
     provider
         .query(ctx, query)
         .into_iter()
         .map(|item| {
-            if item.section.is_some() {
+            let item = if item.section.is_some() {
                 item
             } else {
                 item.section(provider.section())
-            }
+            };
+            item.provider(provider.id())
         })
         .collect()
 }
