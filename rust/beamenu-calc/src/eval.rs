@@ -65,11 +65,17 @@ fn unary(f: impl Fn(f64) -> f64 + Send + Sync + Clone + 'static) -> CalcFunction
 /// asked for, and an error for anything else rather than a silently wrong
 /// number.
 fn factorial(value: f64) -> std::result::Result<f64, String> {
-    if value < 0.0 || (value - value.round()).abs() > f64::EPSILON {
+    // The same 1e-9 tolerance format_value prints by, deliberately, so that
+    // anything the calculator SHOWS as a whole number is a whole number here
+    // too. f64::EPSILON is ~2.2e-16 and absolute, which made ordinary
+    // arithmetic noise fail: (0.1+0.2)*10 is 3.0000000000000004, displays as
+    // 3, and was then refused by `3!`.
+    if value < 0.0 || (value - value.round()).abs() > 1e-9 {
         return Err(format!(
             "factorial needs a non-negative whole number, got {value}"
         ));
     }
+    let value = value.round();
     if value > 170.0 {
         return Err(format!("{value}! overflows a double"));
     }

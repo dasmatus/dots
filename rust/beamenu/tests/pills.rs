@@ -446,3 +446,18 @@ fn an_engaged_provider_with_no_rows_reports_no_pill_rather_than_the_first() {
         beamenu::view::BM_PILL_NONE
     );
 }
+
+#[test]
+fn the_no_pill_sentinel_never_narrows_to_the_first_pill() {
+    let pills = Pills::new(&providers());
+    let ambient = vec![row("apps", "Applications"), row("system", "System")];
+    let visible = pills.visible(&ambient);
+
+    // BM_PILL_NONE means "nothing is filtering". Falling into the
+    // out-of-range fallback would silently narrow a search to whichever
+    // provider happened to sort first.
+    assert_eq!(
+        Pills::filter_of(&ambient, &visible, beamenu::view::BM_PILL_NONE),
+        ambient
+    );
+}

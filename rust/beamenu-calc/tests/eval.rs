@@ -228,3 +228,21 @@ fn existing_decimals_and_exponents_are_untouched() {
     assert_eq!(normalise_literals("1.5e-3"), "1.5e-3");
     close(rad("1e3"), 1000.0);
 }
+
+// --- regressions ---
+
+#[test]
+fn a_value_shown_as_whole_is_whole_enough_for_factorial() {
+    // (0.1+0.2)*10 is 3.0000000000000004. format_value prints it as "3", so
+    // refusing 3! on it made the calculator contradict itself. f64::EPSILON is
+    // absolute and far too tight for arithmetic that has been through a few
+    // operations.
+    assert_eq!(format_value(rad("(0.1+0.2)*10"), Radix::Decimal), "3");
+    close(rad("((0.1+0.2)*10)!"), 6.0);
+}
+
+#[test]
+fn factorial_still_refuses_genuine_fractions() {
+    assert!(evaluate("2.5!", AngleMode::Radians).is_err());
+    assert!(evaluate("(-1)!", AngleMode::Radians).is_err());
+}

@@ -23,7 +23,12 @@ struct Cli {
     degrees: bool,
 
     /// The expression to evaluate; in --serve mode it seeds the form.
-    #[arg(value_name = "EXPRESSION")]
+    ///
+    /// `allow_hyphen_values`, because a calculator is asked for negative numbers
+    /// constantly and the plugin manifest passes the launcher query straight
+    /// through as a bare argument. Without it, `-3 + 5` is read as an unknown
+    /// flag and the plugin dies before it evaluates anything.
+    #[arg(value_name = "EXPRESSION", allow_hyphen_values = true)]
     expr: Vec<String>,
 }
 

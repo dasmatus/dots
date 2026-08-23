@@ -258,6 +258,15 @@ impl Pills {
     /// The same filter, for a caller that already computed the visible set.
     #[must_use]
     pub fn filter_of(ambient: &[Item], visible: &[VisiblePill<'_>], active: u32) -> Vec<Item> {
+        // The sentinel means "nothing is filtering", which is the opposite of
+        // an index that ran off the end, so it must not reach the fallback
+        // below and narrow to the first pill. `sync` already routes around
+        // this; honouring it here as well means a future caller of the public
+        // filter/filter_of cannot silently reintroduce the bug.
+        if active == view::BM_PILL_NONE {
+            return ambient.to_vec();
+        }
+
         let Some(pill) = visible.get(active as usize).or_else(|| visible.first()) else {
             return ambient.to_vec();
         };

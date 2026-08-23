@@ -193,3 +193,28 @@ fn an_unknown_dropdown_value_falls_back_rather_than_failing() {
     );
     assert_eq!(Radix::from_str_or_default("roman"), Radix::Decimal);
 }
+
+// --- regressions ---
+
+#[test]
+// The expression is deliberately ONE argument: the plugin manifest hands the
+// whole launcher query over as a single argv element, which is exactly the
+// shape that used to break.
+#[allow(clippy::suspicious_command_arg_space)]
+fn an_expression_opening_with_a_minus_is_not_read_as_a_flag() {
+    // The plugin manifest hands the launcher query through as a bare argument,
+    // so a leading '-' used to make clap reject it before anything evaluated.
+    // A calculator is asked for negative numbers constantly.
+    let exe = env!("CARGO_BIN_EXE_beamenu-calc");
+    let out = std::process::Command::new(exe)
+        .arg("-3 + 5")
+        .output()
+        .expect("the binary runs");
+
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2");
+}
