@@ -25,17 +25,45 @@ self: {
   # and PNG through cairo, covering what XDG icon themes ship without taking on
   # gdk-pixbuf's runtime loader-module discovery.
   #
-  # Built with clang rather than the stdenv default, and hardened with
-  # Control-Flow Integrity over ThinLTO. CFI only works with LTO and hidden
-  # visibility, so those three flags travel together, and the LTO flags have to
-  # reach the link step as well as the compile step. lld is the linker because
-  # ThinLTO needs an LTO-capable one and lld works without a plugin.
+  # Built with clang rather than the stdenv default, over ThinLTO with hidden
+  # visibility, linked by lld. lld arrives as the stdenv's *wrapped* bintools,
+  # never through -fuse-ld=lld; see the note on preBuild below for why that
+  # distinction is load-bearing.
+  #
+  # Control-Flow Integrity is deliberately NOT enabled, after trying three
+  # ways. bemenu's renderers are dlopen()ed plugins called through dlsym'd
+  # function pointers, which is precisely what cfi-icall forbids:
+  #
+  #   -fsanitize=cfi                  builds clean, then every single run dies
+  #                                   on SIGILL from CFI's ud2 trap. Even
+  #                                   `bemenu --version`. Stock nixpkgs bemenu
+  #                                   prints its version and exits 0, so this
+  #                                   was ours, not upstream's.
+  #   + -fsanitize-cfi-cross-dso      runs correctly (each DSO exports
+  #                                   __cfi_check), but leaves __cfi_slowpath
+  #                                   undefined in libbemenu.so. Every consumer
+  #                                   then has to supply compiler-rt, and the
+  #                                   Rust `beamenu` crate links through gcc's
+  #                                   cc, so `nix build .#beamenu` fails at
+  #                                   link with "undefined reference to
+  #                                   __cfi_slowpath".
+  #   + -shared-libsan                does not help; the symbol stays U and no
+  #                                   clang_rt DT_NEEDED is added.
+  #
+  # Shipping a launcher that traps on startup, or one whose own client cannot
+  # link, is worse than shipping one without CFI. Anyone reopening this needs a
+  # plan for the runtime symbol reaching a gcc-linked Rust consumer, and should
+  # verify by RUNNING the binary, not by watching the build go green.
   #
   # 06-filter-pills.patch adds one C++ translation unit
   # (lib/renderers/pills.cpp, the bar's scroll geometry), which is why CXXFLAGS
   # matter here at all; bemenu's GNUmakefile pins it to -std=c++23, the newest
   # standard clang 21 implements in full rather than in part.
-  beamenu-view = (pkgs.bemenu.override { stdenv = pkgs.clangStdenv; }).overrideAttrs (old: {
+  beamenu-view = (pkgs.bemenu.override {
+    stdenv = pkgs.overrideCC pkgs.clangStdenv (
+      pkgs.clangStdenv.cc.override { bintools = pkgs.llvmPackages.bintools; }
+    );
+  }).overrideAttrs (old: {
     pname = "beamenu-view";
     patches = (old.patches or [ ]) ++ [
       ../nix/patches/beamenu/01-item-richtext.patch
@@ -45,21 +73,23 @@ self: {
       ../nix/patches/beamenu/05-rich-panel-body.patch
       ../nix/patches/beamenu/06-filter-pills.patch
     ];
-    nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.lld ];
     buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
-    # LDFLAGS goes through makeFlags, not NIX_LDFLAGS: -fuse-ld=lld is a
-    # compiler-driver flag, and NIX_LDFLAGS is handed straight to the linker,
-    # which never sees it. Getting that wrong is not cosmetic. CFI emits
-    # __typeid__ symbols that ld.bfd cannot relocate in a shared object
-    # ("relocation R_X86_64_8 against hidden symbol"), so the link fails
-    # outright until lld is actually the linker.
+    # lld arrives as the stdenv's *wrapped* bintools (above), never as
+    # -fuse-ld=lld. That flag makes clang invoke ld.lld directly and step around
+    # nixpkgs' bintools-wrapper, which is what injects a -rpath per buildInput.
+    # The package still builds and installs; the renderer plugins then carry a
+    # RUNPATH holding only bemenu's own lib dir, so every dlopen() fails at
+    # runtime with "libcairo.so.2: cannot open shared object file" and the
+    # launcher comes up with no renderer at all. Nothing in the build catches
+    # it; compare `readelf -d` on a renderer .so against stock nixpkgs bemenu.
+    #
     # makeFlagsArray, not makeFlags: the value contains spaces, and makeFlags
     # entries are word-split before they reach make.
     preBuild = (old.preBuild or "") + ''
-      makeFlagsArray+=("LDFLAGS=-flto=thin -fuse-ld=lld -fsanitize=cfi -fvisibility=hidden")
+      makeFlagsArray+=("LDFLAGS=-flto=thin -fvisibility=hidden")
     '';
     env = (old.env or { }) // {
-      NIX_CFLAGS_COMPILE = "-fsanitize=cfi -flto=thin -fvisibility=hidden";
+      NIX_CFLAGS_COMPILE = "-flto=thin -fvisibility=hidden";
     };
     meta = old.meta // {
       description = "bemenu patched into the beamenu launcher's view layer";
@@ -81,11 +111,6 @@ self: {
     meta.mainProgram = "beamenu";
   };
 
-  # beamenu-canvas — the WebKitGTK sidecar beamenu spawns for a plugin's
-  # `view` command: a layer-shell window that renders the command's output
-  # (streamed log text, or a JSON-RPC-driven component tree) under one
-  # host-enforced design system. Workers never supply CSS or HTML, only
-  # typed component trees; see rust/beamenu-canvas for the protocol.
   # beamenu-calc — the scientific calculator plugin's worker.
   #
   # This is what exercises the plugin system end to end: a manifest with a
@@ -105,6 +130,11 @@ self: {
     meta.mainProgram = "beamenu-calc";
   };
 
+  # beamenu-canvas — the WebKitGTK sidecar beamenu spawns for a plugin's
+  # `view` command: a layer-shell window that renders the command's output
+  # (streamed log text, or a JSON-RPC-driven component tree) under one
+  # host-enforced design system. Workers never supply CSS or HTML, only
+  # typed component trees; see rust/beamenu-canvas for the protocol.
   beamenu-canvas = pkgs.rustPlatform.buildRustPackage {
     pname = "beamenu-canvas";
     version = "0.1.0";
