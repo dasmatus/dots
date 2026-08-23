@@ -87,15 +87,34 @@ impl Canvas {
         }
 
         // The canvas loads exactly one document, ever. Anything that would
-        // navigate away from it — a link, a redirect, a form GET/POST to a
-        // real URL — is the network fetch this crate promises never
+        // navigate *away* from it — a link, a redirect, a form GET/POST to
+        // a real URL — is the network fetch this crate promises never
         // happens, so it gets refused rather than followed.
+        //
+        // Critically, `decide-policy` also fires for the canvas's own
+        // initial `load_html` call below (as `NavigationAction` with
+        // `NavigationType::Other` — WebKit reports every main-frame
+        // navigation here, not just user-triggered ones). Ignoring every
+        // `NavigationAction` unconditionally, as an earlier version of this
+        // handler did, cancels that first-party load before it ever starts:
+        // `load-changed` then never fires (not even `Started`), so the pane
+        // stays permanently blank. Only navigations WebKit attributes to
+        // something other than the app's own load are refused.
         webview.connect_decide_policy(|_webview, decision, decision_type| {
-            if matches!(
-                decision_type,
-                webkit6::PolicyDecisionType::NavigationAction
-                    | webkit6::PolicyDecisionType::NewWindowAction
-            ) {
+            if decision_type == webkit6::PolicyDecisionType::NavigationAction {
+                let is_own_load = decision
+                    .downcast_ref::<webkit6::NavigationPolicyDecision>()
+                    .and_then(webkit6::NavigationPolicyDecision::navigation_action)
+                    .is_some_and(|action| {
+                        action.navigation_type() == webkit6::NavigationType::Other
+                    });
+                if is_own_load {
+                    return false;
+                }
+                decision.ignore();
+                return true;
+            }
+            if decision_type == webkit6::PolicyDecisionType::NewWindowAction {
                 decision.ignore();
                 return true;
             }
