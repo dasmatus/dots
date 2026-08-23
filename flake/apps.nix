@@ -94,6 +94,7 @@ in
       LD_LIBRARY_PATH="${beamenuView}/lib" \
         sh -c 'cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test'
       cd ../beamenu-canvas && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd ../beamenu-calc && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
     '';
   };
 
