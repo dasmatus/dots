@@ -20,7 +20,6 @@
 # `nix develop -c <cmd>` working under bash instead of being hijacked.
 {
   pkgs,
-  abstracttui,
 }:
 let
   fishInit = pkgs.writeText "devshell-fish-init.fish" ''

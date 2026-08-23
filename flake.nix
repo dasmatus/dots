@@ -132,7 +132,6 @@
       # Rust dev shell
       devShells.${system} = import ./flake/devshell.nix {
         inherit pkgs;
-        abstracttui = self.packages.${system}.abstracttui;
       };
 
       # The cheap eval-only checks (settings, facter, fido-2fa, aipage) +
