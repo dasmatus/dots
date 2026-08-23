@@ -72,6 +72,19 @@ in
 {
   home.packages = [ wallhavenRandom ];
 
+  # Wallpaper plugin identity lives in beamenu.nix (shared with
+  # wallpaper-tui.nix's contribution); the script name must match the
+  # writeShellScriptBin name above.
+  programs.beamenu.plugins.wallpaper.commands = [
+    {
+      id = "random";
+      title = "Random Wallpaper";
+      description = "Fetch a random Wallhaven wallpaper and apply it";
+      mode = "exec";
+      exec = [ "wallhaven-random-wallpaper" ];
+    }
+  ];
+
   systemd.user.services.wallhaven-wallpaper = {
     Unit = {
       Description = "Set random Wallhaven wallpaper";

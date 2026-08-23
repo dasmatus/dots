@@ -66,6 +66,35 @@
     };
   };
 
+  # `net` plugin identity lives in beamenu.nix, which waybar.nix also
+  # contributes to; these are the VPN and mail-bridge commands.
+  programs.beamenu.plugins.net.commands = [
+    {
+      id = "vpn-status";
+      title = "VPN Status";
+      description = "Every active connection, VPN included";
+      mode = "view";
+      exec = [
+        "nmcli"
+        "connection"
+        "show"
+        "--active"
+      ];
+    }
+    {
+      id = "bridge-restart";
+      title = "Restart Mail Bridge";
+      description = "Bounce the ProtonMail bridge user service";
+      mode = "exec";
+      exec = [
+        "systemctl"
+        "--user"
+        "restart"
+        "protonmail-bridge.service"
+      ];
+    }
+  ];
+
   programs.thunderbird = {
     enable = true;
     profiles.default.isDefault = true;

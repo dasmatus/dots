@@ -109,4 +109,34 @@ in
   # `hyprmon apply` is on $PATH for ad-hoc one-shot runs without restarting
   # the daemon.
   home.packages = [ hyprmon ];
+
+  # The monitors plugin: single-owner (only this module touches it), so the
+  # identity lives here rather than in beamenu.nix's shared-identity block
+  # (mirrors settings-menu.nix's whole-plugin-in-owning-module pattern).
+  programs.beamenu.plugins.monitors = {
+    title = "Monitors";
+    keyword = "mon";
+    commands = [
+      {
+        id = "apply";
+        title = "Apply Monitor Layout";
+        description = "Re-run hyprmon's auto-detection";
+        mode = "exec";
+        exec = [
+          "hyprmon"
+          "apply"
+        ];
+      }
+      {
+        id = "override";
+        title = "Monitor Override Editor";
+        description = "Edit per-monitor overrides (terminal)";
+        mode = "terminal";
+        exec = [
+          "hyprmon"
+          "override"
+        ];
+      }
+    ];
+  };
 }

@@ -111,9 +111,16 @@ impl Provider for Scripts {
                 let mut item = Item::new(
                     format!("script:{}", path.display()),
                     title,
-                    Action::Shell(quoted),
+                    Action::Shell(quoted.clone()),
                 )
-                .icon(meta.icon.map(PathBuf::from));
+                .icon(meta.icon.map(PathBuf::from))
+                .alt(
+                    "Run in terminal",
+                    Action::Launch {
+                        exec: quoted,
+                        terminal: true,
+                    },
+                );
                 if let Some(subtitle) = meta.subtitle {
                     item = item.subtitle(subtitle);
                 }

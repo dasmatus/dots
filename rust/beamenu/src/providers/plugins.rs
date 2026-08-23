@@ -58,6 +58,12 @@ pub struct Command {
     /// Argv. `{query}` in any element is replaced with the launcher query
     /// remainder before the command runs; see [`expand`].
     pub exec: Vec<String>,
+    /// Extra rows for the Ctrl+K panel. One level deep: an action's own
+    /// `actions` are ignored, since the panel is a flat list. Reusing
+    /// [`Command`] rather than a trimmed twin keeps this parser and the
+    /// canvas's deliberate duplicate from drifting apart field-by-field.
+    #[serde(default)]
+    pub actions: Vec<Command>,
 }
 
 /// A plugin manifest: `$XDG_CONFIG_HOME/beamenu/plugins/<name>.json`.
@@ -167,24 +173,32 @@ pub fn load_all(plugins_dir: &Path) -> Vec<PluginProvider> {
 }
 
 impl PluginProvider {
-    /// Build the row for one command, given the already-stripped query text.
-    fn item(&self, command: &Command, query: &str) -> Item {
-        let action = match command.mode {
+    /// Translate one command's (or action's) mode into an [`Action`], with
+    /// `{query}` already expanded. `id` matters for `Mode::View`: the canvas
+    /// looks the id up in the manifest itself, so an action's row must carry
+    /// the action's id, not its parent command's.
+    fn resolve(&self, id: &str, mode: Mode, exec: &[String], query: &str) -> Action {
+        match mode {
             Mode::Exec => Action::Launch {
-                exec: shell_join(&expand(&command.exec, query)),
+                exec: shell_join(&expand(exec, query)),
                 terminal: false,
             },
             Mode::Terminal => Action::Launch {
-                exec: shell_join(&expand(&command.exec, query)),
+                exec: shell_join(&expand(exec, query)),
                 terminal: true,
             },
-            Mode::Copy => Action::Copy(shell_join(&expand(&command.exec, query))),
+            Mode::Copy => Action::Copy(shell_join(&expand(exec, query))),
             Mode::View => Action::View {
                 manifest: self.path.clone(),
-                command: command.id.clone(),
+                command: id.to_string(),
                 query: query.to_string(),
             },
-        };
+        }
+    }
+
+    /// Build the row for one command, given the already-stripped query text.
+    fn item(&self, command: &Command, query: &str) -> Item {
+        let action = self.resolve(&command.id, command.mode, &command.exec, query);
 
         let mut item = Item::new(
             format!("plugin:{}:{}", self.manifest.name, command.id),
@@ -195,6 +209,13 @@ impl PluginProvider {
 
         if let Some(description) = &command.description {
             item = item.subtitle(description.clone());
+        }
+
+        for sub in &command.actions {
+            item = item.alt(
+                sub.title.clone(),
+                self.resolve(&sub.id, sub.mode, &sub.exec, query),
+            );
         }
 
         item

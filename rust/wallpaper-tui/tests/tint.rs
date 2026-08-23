@@ -6,8 +6,7 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tempfile::tempdir;
 use wallpaper_tui::accent::TintBackend;
@@ -222,20 +221,35 @@ fn apply_tint_surfaces_border_failure() {
     );
 }
 
-/// Writes an executable shell stub at `dir/name` running `body`, standing
-/// in for `hyprctl` so `run_border_commands` can be driven deterministically
-/// without a real compositor connection.
-fn write_stub(dir: &Path, name: &str, body: &str) -> PathBuf {
-    let stub = dir.join(name);
-    fs::write(&stub, body).unwrap();
-    let mut perms = fs::metadata(&stub).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&stub, perms).unwrap();
-    stub
+/// Builds the command list for one `hyprctl eval` call served by a stub:
+/// `/bin/sh` running `body`, with `fake-hyprctl`, `eval` and the Lua argument
+/// passed through as `$0`, `$1`, `$2` so the argv keeps the shape
+/// `hyprland_border_commands_for` produces. Lets `run_border_commands` be
+/// driven deterministically without a real compositor connection.
+///
+/// The obvious shape — write a script into the test's tempdir, `chmod +x`,
+/// exec it — is a race in disguise. Linux refuses `execve` with `ETXTBSY`
+/// while any descriptor anywhere holds the target inode open for writing, and
+/// the descriptor `fs::write` opens gets inherited by any child a *sibling*
+/// test thread forks before that descriptor closes. Four tests in this file
+/// spawn processes and libtest runs them in parallel, so roughly one run in
+/// sixty died on `spawn …/fake-hyprctl.sh: Text file busy (os error 26)` —
+/// including under `nix build`, where one flake fails the whole system
+/// rebuild. `/bin/sh` is an inode nothing here ever opens for writing, which
+/// closes the window instead of narrowing it.
+fn hyprctl_stub(body: &str) -> Vec<Vec<String>> {
+    vec![vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        body.into(),
+        "fake-hyprctl".into(),
+        "eval".into(),
+        "hl.config({})".into(),
+    ]]
 }
 
 /// Binds the non-success-exit path of `run_border_commands` directly against
-/// a stub executable, so the assertion holds even in a sandbox without
+/// a stub command, so the assertion holds even in a sandbox without
 /// `hyprctl` on PATH (`flake/packages.nix` does not list it as a build
 /// input, so under `nix build .#wallpaper-tui` `apply_tint_surfaces_border_failure`
 /// above always takes the spawn-error path instead — this test exists so
@@ -245,18 +259,7 @@ fn write_stub(dir: &Path, name: &str, body: &str) -> PathBuf {
 /// reply body land on stdout, never stderr.
 #[test]
 fn run_border_commands_surfaces_nonzero_exit_with_stdout_detail() {
-    let d = tempdir().unwrap();
-    let stub = write_stub(
-        d.path(),
-        "fake-hyprctl.sh",
-        "#!/bin/sh\necho \"unknown config key 'general.col.active_border'\"\nexit 7\n",
-    );
-
-    let cmds = vec![vec![
-        stub.to_str().unwrap().to_string(),
-        "eval".into(),
-        "hl.config({})".into(),
-    ]];
+    let cmds = hyprctl_stub("echo \"unknown config key 'general.col.active_border'\"\nexit 7\n");
     let status = run_border_commands("wallpaper-tui-test-stub-instance", &cmds);
     assert!(
         status.starts_with("error:") && status.contains("exited 7"),
@@ -275,18 +278,8 @@ fn run_border_commands_surfaces_nonzero_exit_with_stdout_detail() {
 /// executable on the command line might, so the fallback stays covered.
 #[test]
 fn run_border_commands_falls_back_to_stderr_when_stdout_is_empty() {
-    let d = tempdir().unwrap();
-    let stub = write_stub(
-        d.path(),
-        "fake-hyprctl-stderr-only.sh",
-        "#!/bin/sh\necho \"unknown config key 'general.col.active_border'\" >&2\nexit 7\n",
-    );
-
-    let cmds = vec![vec![
-        stub.to_str().unwrap().to_string(),
-        "eval".into(),
-        "hl.config({})".into(),
-    ]];
+    let cmds =
+        hyprctl_stub("echo \"unknown config key 'general.col.active_border'\" >&2\nexit 7\n");
     let status = run_border_commands("wallpaper-tui-test-stub-instance", &cmds);
     assert!(
         status.starts_with("error:") && status.contains("exited 7"),
@@ -307,18 +300,8 @@ fn run_border_commands_falls_back_to_stderr_when_stdout_is_empty() {
 /// mimics that: exit 0, stdout not equal to `ok`.
 #[test]
 fn run_border_commands_surfaces_zero_exit_without_ok_reply() {
-    let d = tempdir().unwrap();
-    let stub = write_stub(
-        d.path(),
-        "fake-hyprctl-legacy.sh",
-        "#!/bin/sh\necho \"eval is only supported with the lua config manager\"\nexit 0\n",
-    );
-
-    let cmds = vec![vec![
-        stub.to_str().unwrap().to_string(),
-        "eval".into(),
-        "hl.config({})".into(),
-    ]];
+    let cmds =
+        hyprctl_stub("echo \"eval is only supported with the lua config manager\"\nexit 0\n");
     let status = run_border_commands("wallpaper-tui-test-stub-instance", &cmds);
     assert!(
         status.starts_with("error:"),

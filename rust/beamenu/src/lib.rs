@@ -15,6 +15,8 @@ pub mod daemon;
 pub mod dispatch;
 pub mod frame;
 pub mod frecency;
+pub mod index;
+pub mod ipc;
 pub mod item;
 pub mod palette;
 pub mod providers;
@@ -37,9 +39,14 @@ pub struct App {
 }
 
 impl App {
-    /// Assemble from the on-disk configuration.
-    #[must_use]
-    pub fn new() -> Self {
+    /// Assemble from the on-disk configuration, reusing an already-warm app
+    /// cache.
+    ///
+    /// The cache is the one piece of an `App` worth carrying across a rebuild:
+    /// everything else is a small file re-read in microseconds, while the
+    /// desktop-entry scan is the expensive part the daemon exists to avoid
+    /// repeating.
+    fn with_cache(apps: index::AppCache) -> Self {
         let config_dir = config::config_dir();
         let state_dir = config::state_dir();
         let config = Config::load(&config_dir.join("config.json"));
@@ -55,11 +62,33 @@ impl App {
                 config,
                 config_dir,
                 state_dir,
+                apps,
             },
             providers,
             frecency: frecency::Frecency::load(&frecency::default_path()),
             stack: Stack::new(),
         }
+    }
+
+    /// Assemble from the on-disk configuration.
+    #[must_use]
+    pub fn new() -> Self {
+        let app = Self::with_cache(index::AppCache::default());
+        app.ctx.apps.revalidate();
+        app
+    }
+
+    /// Re-read everything that lives on disk before showing the launcher again.
+    ///
+    /// A one-shot process got this for free by dying. A resident one has to
+    /// ask: `config.json` and the plugin manifests are rewritten by a Home
+    /// Manager switch, the frecency store may have been written by a
+    /// `--command` invocation, and the navigation stack must not survive from
+    /// whatever the last show was left in.
+    pub fn refresh(&mut self) {
+        let apps = std::mem::take(&mut self.ctx.apps);
+        *self = Self::with_cache(apps);
+        self.ctx.apps.revalidate();
     }
 
     /// Rows for the current query, ranked.
@@ -438,12 +467,27 @@ fn sync(
     shown
 }
 
-/// Drive the launcher until it is dismissed or an item is activated.
+/// Open a panel and drive it until it is dismissed or an item is activated.
 ///
 /// # Errors
 /// Fails when no renderer can be opened, or when an activated action fails.
 pub fn run(app: &mut App) -> Result<()> {
-    let mut menu = view::Menu::new(&app.ctx.config)?;
+    let menu = view::Menu::new(&app.ctx.config)?;
+    run_with(menu, app)
+}
+
+/// Drive an already-open panel until it is dismissed or an item is activated.
+///
+/// Split from [`run`] for the daemon's sake. A one-shot process can treat
+/// both failures alike, since either way it is about to exit. A resident one
+/// cannot: an action that failed is somebody's missing `wl-copy` and the
+/// daemon should keep serving, while a panel that would not open means the
+/// display is gone and every later show would fail the same way. Handing the
+/// caller the [`view::Menu`] is what lets it tell those apart.
+///
+/// # Errors
+/// Fails when an activated action fails.
+pub fn run_with(mut menu: view::Menu, app: &mut App) -> Result<()> {
     let pills = Pills::new(&app.providers);
 
     let mut last_query = String::new();

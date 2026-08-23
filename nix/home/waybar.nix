@@ -385,4 +385,38 @@ in
       }
     '';
   };
+
+  # `net` plugin identity lives in beamenu.nix, which proton.nix also
+  # contributes to; these mirror the network pill's NetworkManager queries.
+  #
+  # Scanning hangs off the status row as a Ctrl+K action rather than standing
+  # as its own row: you reach for a Wi-Fi list because you just looked at the
+  # network state and did not like it, which is the relationship an action
+  # panel exists to express.
+  programs.beamenu.plugins.net.commands = [
+    {
+      id = "status";
+      title = "Network Status";
+      description = "NetworkManager device overview";
+      mode = "view";
+      exec = [
+        "nmcli"
+        "device"
+        "status"
+      ];
+      actions = [
+        {
+          id = "wifi-list";
+          title = "Scan Wi-Fi Networks";
+          mode = "view";
+          exec = [
+            "nmcli"
+            "device"
+            "wifi"
+            "list"
+          ];
+        }
+      ];
+    }
+  ];
 }
