@@ -92,23 +92,25 @@ let
         mcp.run()
       '';
 
-  # The pstack plugin (github.com/cursor/plugins) — poteto's rigorous
-  # agent-workflow skills + subagents. The upstream repo is a Cursor
-  # `.cursor-plugin/` marketplace, which Claude Code does not read; but a
-  # plugin manifest is optional in Claude Code — it auto-discovers a
-  # `skills/` and `agents/` subdir at the plugin root and derives the name
-  # from the directory — so pointing `programs.claude-code.plugins.pstack`
-  # straight at the fetched `pstack/` dir works with no third-party
-  # `.claude-plugin/` shim fork. fetchFromGitHub (not builtins.fetchGit) so
-  # the output path is hash-determined and the offline installer can
-  # substitute it without the fetcher cache — the same reason nix/aipage.nix
-  # uses a derivation. rev pinned to the cursor/plugins main HEAD at adoption
-  # time; bump deliberately with `nix flake update`-style intent.
-  cursorPlugins = pkgs.fetchFromGitHub {
-    owner = "cursor";
-    repo = "plugins";
-    rev = "60c641e4fad674784b30abcf9f8915dea39df38d";
-    sha256 = "1983c5ivszcbrxyg35hv6zsrv99s42144vrpfk8qrsaaalpzy0n6";
+  # The pstack plugin, fetched from its canonical upstream
+  # (github.com/backnotprop/pstack) rather than the cursor/plugins
+  # marketplace mirror it used to ride in. The repo keeps `skills/` and
+  # `agents/` at its root with only a `.cursor-plugin/` manifest, which
+  # Claude Code does not read; a plugin manifest is optional though, so the
+  # HM module auto-discovers both subdirs and synthesizes the
+  # `.claude-plugin/plugin.json`. Among the skills is
+  # typescript-best-practices, which skills/writing-good-code routes web
+  # work to, so this pin is load-bearing for that umbrella skill.
+  # fetchFromGitHub (not builtins.fetchGit) so the output path is
+  # hash-determined and the offline installer can substitute it without the
+  # fetcher cache, the same reason nix/aipage.nix uses a derivation. rev
+  # pinned to backnotprop/pstack main HEAD at adoption time; bump
+  # deliberately.
+  pstackSrc = pkgs.fetchFromGitHub {
+    owner = "backnotprop";
+    repo = "pstack";
+    rev = "18e0e908a13553b0e58d065ab26dbc9a972ec8ba";
+    sha256 = "1nj8hrvakcpvbi89gvpcj1szr2yr6531w86npyx56msj6683c61m";
   };
 in
 {
@@ -123,13 +125,22 @@ in
       command = "${searxng-mcp}/bin/searxng-mcp";
     };
 
-    # pstack — see `cursorPlugins` above. A personal plugin: the HM module
+    # pstack — see `pstackSrc` above. A personal plugin: the HM module
     # symlinks it into ~/.claude/skills/pstack and synthesizes a
     # .claude-plugin/plugin.json (pstack ships only a .cursor-plugin/ one,
     # which Claude Code ignores), exposing its skills + subagents. Distinct
     # from the marketplace plugins in settings.enabledPlugins below; the two
     # mechanisms coexist.
-    plugins.pstack = "${cursorPlugins}/pstack";
+    plugins.pstack = "${pstackSrc}";
+
+    # Personal skills from this repo's skills/ tree (one folder per skill,
+    # each holding a SKILL.md). The module symlinks the whole directory into
+    # ~/.claude/skills/, so dropping a new skill folder into skills/ needs no
+    # Nix change. Each skill self-triggers off its frontmatter description;
+    # dodging-cdb is additionally injected at session start via the
+    # SessionStart hook in settings below, because Claude Code has no native
+    # "run this skill at startup" mechanism.
+    skills = ../../skills;
 
     # ~/.claude/CLAUDE.md — global memory, loaded in every project: this is
     # what makes the MCP tool the *default* rather than merely available.
@@ -179,6 +190,24 @@ in
         ];
         defaultMode = "auto";
       };
+
+      # Claude Code lifecycle hooks (settings.json "hooks", distinct from
+      # the HM module's hooks/ script directory). A SessionStart hook's
+      # stdout is added to the session context, so cat-ing dodging-cdb's
+      # SKILL.md from its store path primes every fresh session with it
+      # before any git push happens. That is the closest thing to "run this
+      # skill at startup". The path interpolation pins the file into the
+      # store, so the hook can never dangle even if the repo checkout moves.
+      hooks.SessionStart = [
+        {
+          hooks = [
+            {
+              type = "command";
+              command = "cat ${../../skills/dodging-cdb/SKILL.md}";
+            }
+          ];
+        }
+      ];
 
       disableClaudeAiConnectors = true;
 
