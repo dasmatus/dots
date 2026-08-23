@@ -127,3 +127,44 @@ fn substitute_query_is_noop_without_placeholder() {
     let out = substitute_query(&argv, Some("ignored"));
     assert_eq!(out, argv);
 }
+
+#[test]
+fn command_actions_default_to_empty_when_absent() {
+    let manifest = Manifest::parse(
+        r#"{ "name": "p", "title": "P",
+             "commands": [ { "id": "a", "title": "A", "mode": "exec", "exec": ["true"] } ] }"#,
+    )
+    .expect("old manifests still parse");
+    assert!(manifest.commands[0].actions.is_empty());
+}
+
+#[test]
+fn find_command_falls_back_to_action_ids() {
+    let manifest = Manifest::parse(
+        r#"{ "name": "p", "title": "P",
+             "commands": [ { "id": "a", "title": "A", "mode": "exec", "exec": ["true"],
+                             "actions": [ { "id": "b", "title": "B", "mode": "view",
+                                            "exec": ["worker"] } ] } ] }"#,
+    )
+    .unwrap();
+    assert_eq!(
+        manifest
+            .find_command("b")
+            .expect("action id resolves")
+            .title,
+        "B"
+    );
+}
+
+#[test]
+fn top_level_commands_win_over_same_named_actions() {
+    let manifest = Manifest::parse(
+        r#"{ "name": "p", "title": "P",
+             "commands": [
+               { "id": "a", "title": "A", "mode": "exec", "exec": ["true"],
+                 "actions": [ { "id": "dup", "title": "Nested", "mode": "exec", "exec": ["false"] } ] },
+               { "id": "dup", "title": "Top", "mode": "exec", "exec": ["true"] } ] }"#,
+    )
+    .unwrap();
+    assert_eq!(manifest.find_command("dup").unwrap().title, "Top");
+}

@@ -65,6 +65,10 @@ fn optional_fields_default_when_absent() {
     // `ui` defaults to log, the auto-scrolling plain-text renderer, when a
     // command does not name one.
     assert_eq!(manifest.commands[0].ui, Ui::Log);
+    assert!(
+        manifest.commands[0].actions.is_empty(),
+        "a manifest written before actions existed must still parse"
+    );
 }
 
 #[test]
@@ -368,4 +372,156 @@ fn each_manifest_becomes_its_own_provider_with_its_own_section_and_id() {
     let sections: Vec<&str> = providers.iter().map(Provider::section).collect();
     assert_eq!(ids, vec!["a", "b"]);
     assert_eq!(sections, vec!["Section A", "Section B"]);
+}
+
+// --- command actions ---
+
+#[test]
+fn actions_become_alt_actions_with_the_same_query_expansion() {
+    let dir = tempfile::tempdir().unwrap();
+    write_manifest(
+        dir.path(),
+        "wp.json",
+        r#"{
+            "name": "wp", "title": "Wallpaper", "keyword": "wp",
+            "commands": [{
+                "id": "pick", "title": "Pick", "mode": "terminal",
+                "exec": ["wallpaper-tui"],
+                "actions": [
+                    { "id": "restore", "title": "Restore", "mode": "exec",
+                      "exec": ["wallpaper-tui", "--restore", "{query}"] }
+                ]
+            }]
+        }"#,
+    );
+    let providers = load_all(dir.path());
+    let items = providers[0].query(&ctx(dir.path()), "monet");
+
+    assert_eq!(
+        items[0].alt_actions,
+        vec![(
+            "Restore".to_string(),
+            Action::Launch {
+                exec: "'wallpaper-tui' '--restore' 'monet'".to_string(),
+                terminal: false,
+            },
+        )]
+    );
+}
+
+#[test]
+fn view_mode_actions_carry_the_action_id_not_the_command_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_manifest(
+        dir.path(),
+        "docs.json",
+        r#"{
+            "name": "docs", "title": "Docs",
+            "commands": [{
+                "id": "open", "title": "Open", "mode": "exec", "exec": ["true"],
+                "actions": [
+                    { "id": "help", "title": "Help", "mode": "view",
+                      "ui": "log", "exec": ["man", "beamenu"] }
+                ]
+            }]
+        }"#,
+    );
+    let providers = load_all(dir.path());
+    let items = providers[0].query(&ctx(dir.path()), "x");
+
+    assert_eq!(
+        items[0].alt_actions[0].1,
+        Action::View {
+            manifest: path,
+            command: "help".to_string(),
+            query: "x".to_string()
+        }
+    );
+}
+
+#[test]
+fn every_mode_maps_the_same_way_for_an_action_as_for_a_command() {
+    let dir = tempfile::tempdir().unwrap();
+    write_manifest(
+        dir.path(),
+        "modes.json",
+        r#"{
+            "name": "modes", "title": "Modes",
+            "commands": [{
+                "id": "root", "title": "Root", "mode": "exec", "exec": ["true"],
+                "actions": [
+                    { "id": "term", "title": "Term", "mode": "terminal",
+                      "exec": ["htop", "{query}"] },
+                    { "id": "clip", "title": "Clip", "mode": "copy",
+                      "exec": ["echo", "{query}"] }
+                ]
+            }]
+        }"#,
+    );
+    let providers = load_all(dir.path());
+    let items = providers[0].query(&ctx(dir.path()), "load");
+
+    assert_eq!(
+        items[0].alt_actions[0].1,
+        Action::Launch {
+            exec: "'htop' 'load'".to_string(),
+            terminal: true,
+        },
+        "a terminal action wraps in the configured terminal, like a terminal command"
+    );
+    assert_eq!(
+        items[0].alt_actions[1].1,
+        Action::Copy("'echo' 'load'".to_string()),
+        "a copy action copies the command text rather than running it"
+    );
+}
+
+#[test]
+fn a_command_without_actions_gets_no_alternates() {
+    let dir = tempfile::tempdir().unwrap();
+    write_manifest(
+        dir.path(),
+        "plain.json",
+        r#"{
+            "name": "plain", "title": "Plain",
+            "commands": [ { "id": "run", "title": "Run", "mode": "exec", "exec": ["true"] } ]
+        }"#,
+    );
+    let providers = load_all(dir.path());
+    let items = providers[0].query(&ctx(dir.path()), "");
+
+    assert!(
+        items[0].alt_actions.is_empty(),
+        "a manifest that declares no actions must behave exactly as it did before actions existed"
+    );
+}
+
+#[test]
+fn a_hostile_query_stays_one_shell_word_inside_an_action() {
+    let dir = tempfile::tempdir().unwrap();
+    write_manifest(
+        dir.path(),
+        "hostile.json",
+        r#"{
+            "name": "hostile", "title": "Hostile", "keyword": "h",
+            "commands": [{
+                "id": "root", "title": "Root", "mode": "exec", "exec": ["true"],
+                "actions": [
+                    { "id": "sub", "title": "Sub", "mode": "exec",
+                      "exec": ["echo", "{query}"] }
+                ]
+            }]
+        }"#,
+    );
+    let providers = load_all(dir.path());
+    let items = providers[0].query(&ctx(dir.path()), "it's; rm -rf $(pwd) `id`");
+
+    assert_eq!(
+        items[0].alt_actions[0].1,
+        Action::Launch {
+            exec: r"'echo' 'it'\''s; rm -rf $(pwd) `id`'".to_string(),
+            terminal: false,
+        },
+        "the query is one quoted word, so no metacharacter in it can reach the shell"
+    );
 }
