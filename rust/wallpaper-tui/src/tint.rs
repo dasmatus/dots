@@ -365,12 +365,29 @@ fn select_icon_theme(ctx: &TintCtx) -> bool {
 /// Spawn each border command with the instance signature pinned into the
 /// child's environment (so tests can target a nonexistent instance without
 /// touching the live session). The first failure short-circuits into an
-/// `error:` status carrying hyprctl's first stderr line (e.g. `unknown
-/// config key '…'`), so a bad config key is distinguishable from any other
-/// nonzero exit; success is `"ok"`. Stdout is captured but never read,
-/// i.e. suppressed. `pub` so `tests/` can drive it directly against a stub
-/// executable, since `hyprctl` itself is not a build input under
-/// `nix build .#wallpaper-tui`'s sandbox.
+/// `error:` status carrying hyprctl's first non-empty stdout line (e.g.
+/// `unknown config key '…'`, or `Couldn't connect to …/.socket.sock. (4)`),
+/// so a bad config key is distinguishable from any other nonzero exit;
+/// success is `"ok"`. hyprctl's `log()` is an unconditional `std::println`
+/// (`hyprctl/src/main.cpp`) — both its connect diagnostics and the
+/// compositor's reply body go to stdout, never stderr — so stdout is the
+/// stream that carries the failure detail; stderr is consulted only as a
+/// fallback, for stub executables under test that don't share that
+/// convention.
+///
+/// A zero exit is *not* on its own proof of success: `hyprctl eval` maps a
+/// compositor-side failure to a nonzero exit only when the reply starts
+/// with `error:` (`HyprCtl.cpp`'s `request()`), but the legacy hyprlang
+/// config manager's `evalRequest` returns the bare, unprefixed string
+/// `"eval is only supported with the lua config manager"`, and the Lua
+/// manager's `eval()` can return a body prefixed `warning:`/`info:` for
+/// non-fatal issues — both exit 0 with nothing changed. So a zero exit is
+/// only trusted when the trimmed stdout is exactly `ok`, which is the only
+/// string `evalRequest` returns on an actual success; anything else on a
+/// zero exit is folded into the same `error:` status, carrying the reply.
+/// `pub` so `tests/` can drive it directly against a stub executable, since
+/// `hyprctl` itself is not a build input under `nix build .#wallpaper-tui`'s
+/// sandbox.
 #[must_use]
 pub fn run_border_commands(his: &str, cmds: &[Vec<String>]) -> String {
     for c in cmds {
@@ -379,11 +396,30 @@ pub fn run_border_commands(his: &str, cmds: &[Vec<String>]) -> String {
             .env("HYPRLAND_INSTANCE_SIGNATURE", his)
             .output();
         match run {
-            Ok(out) if out.status.success() => {}
             Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if out.status.success() && stdout.trim() == "ok" {
+                    continue;
+                }
+                if out.status.success() {
+                    let reply = stdout.trim();
+                    return if reply.is_empty() {
+                        format!("error: {} exited 0 without an \"ok\" reply", c[0])
+                    } else {
+                        format!("error: {} exited 0 without an \"ok\" reply: {reply}", c[0])
+                    };
+                }
                 let code = out.status.code().unwrap_or(-1);
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                let detail = stderr.lines().next().unwrap_or("").trim();
+                let first_non_empty_line = |s: &str| {
+                    s.lines()
+                        .map(str::trim)
+                        .find(|l| !l.is_empty())
+                        .map(str::to_owned)
+                };
+                let detail = first_non_empty_line(&stdout)
+                    .or_else(|| first_non_empty_line(&stderr))
+                    .unwrap_or_default();
                 return if detail.is_empty() {
                     format!("error: {} exited {code}", c[0])
                 } else {
@@ -398,6 +434,13 @@ pub fn run_border_commands(his: &str, cmds: &[Vec<String>]) -> String {
 
 /// The orchestrator. Returns `None` for the no-tint / missing-path no-op
 /// (Python's empty dict); `Some(Status)` when it ran. Each target is isolated.
+///
+/// # Panics
+/// Never in practice: the Hyprland-borders step calls
+/// `hyprland_border_commands_for` with `Some(his)` and `.expect()`s the
+/// result, but that function's only `None` path is `his.is_none()`, so the
+/// `expect` cannot fire here — it exists to catch a future change to the
+/// builder's `None` conditions rather than a reachable runtime state.
 #[must_use]
 pub fn apply_tint_ctx(
     ctx: &TintCtx,

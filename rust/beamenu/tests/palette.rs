@@ -47,8 +47,16 @@ fn a_non_default_accent_moves_both_derived_slots() {
     assert_ne!(heading, stock.heading);
 }
 
+/// `Config::default()`'s metric fields (`default_lines` et al., in
+/// `src/config.rs`) currently read `PALETTE.beamenu.*` directly, so this
+/// comparison is a tautology today — it cannot be made to fail in-crate,
+/// since `include_str!` embeds `palette.json` at compile time and there is
+/// no fixture to vary it against. What it guards is *drift*: if a later
+/// change hardcodes one of these defaults as a literal instead of deriving
+/// it from `PALETTE`, editing `rust/palette.json`'s `beamenu.*` values would
+/// then move only one side of this assertion, and the test would fail.
 #[test]
-fn config_metric_defaults_come_from_the_palette() {
+fn config_metric_defaults_do_not_drift_from_the_compiled_in_palette() {
     let config = Config::default();
     assert_eq!(config.lines, PALETTE.beamenu.lines);
     assert_eq!(config.icon_size, PALETTE.beamenu.icon_size);

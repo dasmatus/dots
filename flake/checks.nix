@@ -264,12 +264,9 @@ in
     assert palette.colors.bg == "#1a1b26";
     assert palette.colors.bgDarker == "#15161e";
     assert palette.accentFallback == "#7aa2f7";
-    assert
-      palette.alpha == {
-        panel = "f2";
-        heading = "ee";
-        opaque = "ff";
-      };
+    assert palette.alpha.panel == "f2";
+    assert palette.alpha.heading == "ee";
+    assert palette.alpha.opaque == "ff";
     assert palette.fonts.canvasUi == "Manrope";
     assert palette.beamenu.lines == 9;
     pkgs.writeText "palette-eval-ok" palette.accentFallback;
