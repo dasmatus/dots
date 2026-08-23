@@ -16,6 +16,7 @@
   beamenuPkg,
   beamenuCanvasPkg,
   beamenuCalcPkg,
+  beamenuStatusPkg,
   claudeDesktop,
   ...
 }:
@@ -125,6 +126,7 @@ in
         beamenuPkg
         beamenuCanvasPkg
         beamenuCalcPkg
+        beamenuStatusPkg
         claudeDesktop
         ;
       dots = config.dots;

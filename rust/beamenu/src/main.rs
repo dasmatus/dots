@@ -1,8 +1,9 @@
 //! beamenu's entry point.
 //!
-//! Three modes. With no arguments it opens the launcher. `--command` runs one
+//! Four modes. With no arguments it opens the launcher. `--command` runs one
 //! system command directly, which is how a Hyprland keybind reaches a single
-//! action without going through the UI. `--daemon` runs the clipboard watcher.
+//! action without going through the UI. `--daemon` runs the clipboard watcher,
+//! and `--status-daemon` the system-status poller.
 //!
 //! Exit codes matter here because a keybind is the usual caller and has no
 //! terminal to read a message from: 0 for done, 1 for a real failure, 2 for a
@@ -37,6 +38,13 @@ struct Cli {
     /// Run the clipboard-history watcher in the foreground.
     #[arg(long)]
     daemon: bool,
+
+    /// Run the system-status poller in the foreground.
+    ///
+    /// Refreshes the readings the launcher cannot afford to take itself, into
+    /// a snapshot file the status provider reads.
+    #[arg(long)]
+    status_daemon: bool,
 }
 
 fn main() -> ExitCode {
@@ -69,6 +77,13 @@ fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
         let state = config::state_dir();
         std::fs::create_dir_all(&state)?;
         daemon::watch(&daemon::log_path(&state))?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if cli.status_daemon {
+        let state = config::state_dir();
+        std::fs::create_dir_all(&state)?;
+        daemon::poll_status(&state)?;
         return Ok(ExitCode::SUCCESS);
     }
 

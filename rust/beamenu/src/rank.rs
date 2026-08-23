@@ -123,12 +123,39 @@ fn walk(hay: &[char], needle: &str, prefer_word_start: bool) -> Option<i64> {
     Some(total)
 }
 
+/// Subtracted from a keyword match, so a row whose *title* matches always
+/// outranks one that only matched a hidden alias.
+///
+/// Large enough to clear any score `walk` can produce for a realistic row, so
+/// this is a strict tier rather than a thumb on the scale.
+const KEYWORD_PENALTY: i64 = 10_000;
+
+/// Score `query` against a row's title and its hidden keywords.
+///
+/// Keywords are scored individually and the best one wins, then drops a tier.
+/// See [`crate::item::Item::keywords`] for why they are not one joined string.
+#[must_use]
+pub fn match_score(item: &crate::item::Item, query: &str) -> Option<i64> {
+    let title = score(&item.title, query);
+    let keyword = item
+        .keywords
+        .iter()
+        .filter_map(|keyword| score(keyword, query))
+        .max()
+        .map(|best| best - KEYWORD_PENALTY);
+
+    match (title, keyword) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (found, None) | (None, found) => found,
+    }
+}
+
 /// Rank `items` against `query`, dropping non-matches and sorting best-first.
 ///
 /// Ties break on title so ordering is stable across runs rather than
 /// dependent on whatever order the providers happened to answer in.
 pub fn rank(items: &mut Vec<crate::item::Item>, query: &str, boost: impl Fn(&str) -> i64) {
-    items.retain_mut(|item| match score(&item.title, query) {
+    items.retain_mut(|item| match match_score(item, query) {
         Some(s) => {
             item.score = s + boost(&item.id);
             true

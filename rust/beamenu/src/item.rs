@@ -38,6 +38,15 @@ pub enum Action {
     },
     /// Descend into another provider's list instead of closing the launcher.
     Push { provider: String, query: String },
+    /// Replace the list with rows only `provider` can produce, computed once
+    /// at activation.
+    ///
+    /// Distinct from [`Action::Push`] in where the work happens. A provider's
+    /// `query` runs on every keystroke and must stay inside the frame budget;
+    /// this runs once, because the user asked for it. That is what lets a row
+    /// cost a network round trip or a subprocess without that cost landing on
+    /// every character typed. See [`crate::providers::Provider::present`].
+    Present { provider: String, query: String },
     /// Do nothing. Used by informational rows such as a calculator result
     /// that has already been copied.
     None,
@@ -49,8 +58,20 @@ pub struct Item {
     /// Stable identity, used by the frecency store. Providers must keep this
     /// constant across runs for the same logical entry.
     pub id: String,
-    /// Primary text. The only field the filter matches against.
+    /// Primary text, and the first thing the filter matches against.
     pub title: String,
+    /// Extra words the filter matches but the row never shows.
+    ///
+    /// For rows whose name is not what anyone types. A status row titled
+    /// "Network" has to answer to "wifi" and "ssid", and folding those into the
+    /// title would put them on screen forever to serve a search that lasts a
+    /// keystroke.
+    ///
+    /// Scored one at a time rather than as one joined string, because
+    /// `rank::score` matches subsequences: a long haystack accidentally
+    /// contains far more needles than a short one, so a joined blob would
+    /// match queries none of its words do.
+    pub keywords: Vec<String>,
     /// Muted text drawn after the title.
     pub subtitle: Option<String>,
     /// Right-aligned trailing text.
@@ -82,6 +103,7 @@ impl Item {
         Self {
             id: id.into(),
             title: title.into(),
+            keywords: Vec::new(),
             subtitle: None,
             accessory: None,
             icon: None,
@@ -96,6 +118,17 @@ impl Item {
     #[must_use]
     pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
         self.subtitle = Some(subtitle.into());
+        self
+    }
+
+    /// Add search words the row answers to but never displays.
+    #[must_use]
+    pub fn keywords<I, S>(mut self, keywords: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.keywords.extend(keywords.into_iter().map(Into::into));
         self
     }
 

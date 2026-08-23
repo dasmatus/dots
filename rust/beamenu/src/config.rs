@@ -94,6 +94,24 @@ pub struct Config {
     /// File manager used by the "Reveal in file manager" action.
     #[serde(default = "default_file_manager")]
     pub file_manager: String,
+    /// Base URL of the SearXNG instance the `s ` provider queries.
+    ///
+    /// Configurable rather than compiled in because the URL is already
+    /// copy-pasted across six Nix modules; making this the one *declared* copy
+    /// is better than making it the seventh hardcoded one.
+    #[serde(default = "default_search_url")]
+    pub search_url: String,
+    /// Most result rows to show for one search.
+    #[serde(default = "default_search_results")]
+    pub search_results: usize,
+    /// How long to wait on SearXNG before giving up and showing a failure row.
+    ///
+    /// Generous, because it is only ever paid once, on an explicit Enter, never
+    /// per keystroke. A cold metasearch query measured at three seconds on this
+    /// instance while it fanned out to upstream engines, so a tight timeout
+    /// would trade a slow search for no search at all.
+    #[serde(default = "default_search_timeout_ms")]
+    pub search_timeout_ms: u64,
     /// Provider ids to leave out entirely.
     #[serde(default)]
     pub disabled: Vec<String>,
@@ -135,6 +153,16 @@ fn default_terminal() -> String {
 /// particular file manager.
 fn default_file_manager() -> String {
     std::env::var("FILE_MANAGER").unwrap_or_else(|_| "xdg-open".into())
+}
+/// Where `nix/modules/searxng.nix` binds the instance.
+fn default_search_url() -> String {
+    "http://127.0.0.1:8888".into()
+}
+fn default_search_results() -> usize {
+    12
+}
+fn default_search_timeout_ms() -> u64 {
+    8_000
 }
 
 impl Default for Config {

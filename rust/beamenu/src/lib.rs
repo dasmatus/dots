@@ -15,6 +15,7 @@ pub mod daemon;
 pub mod dispatch;
 pub mod frame;
 pub mod frecency;
+pub mod http;
 pub mod item;
 pub mod palette;
 pub mod providers;
@@ -77,6 +78,25 @@ impl App {
         let (mut items, rank_query) = providers::collect(&self.providers, &self.ctx, query);
         rank::rank(&mut items, &rank_query, |id| self.frecency.boost(id));
         items
+    }
+
+    /// Rows for an [`Action::Present`], in exactly the order the provider
+    /// returned them.
+    ///
+    /// Neither ranked nor regrouped, and that is the point. A provider reached
+    /// this way has already decided what the answer is and what order it goes
+    /// in — search results arrive in relevance order — so re-sorting here would
+    /// only destroy it. `rank::group_by_section` in particular tie-breaks on
+    /// title, which would alphabetise a result list whose rows all score zero.
+    /// This mirrors `providers::collect` handing back an empty rank query for a
+    /// keyworded provider, for the same reason. A provider returning more than
+    /// one section is responsible for emitting them contiguously.
+    ///
+    /// Blocks for as long as the provider needs. Activating the row is what
+    /// decided that was acceptable.
+    #[must_use]
+    pub fn present(&self, provider: &str, query: &str) -> Vec<Item> {
+        providers::present(&self.providers, &self.ctx, provider, query)
     }
 
     /// Run an item's action, recording the launch for future ranking.
@@ -489,6 +509,28 @@ pub fn run(app: &mut App) -> Result<()> {
                     menu.set_query(query);
                     last_query.clone_from(query);
                     shown = sync(&mut menu, app, query, &pills, &mut state);
+                    continue;
+                }
+                if let Action::Present { provider, query } = &item.action {
+                    // The expensive call, made exactly once. Everything it
+                    // returns is fixed from here, so the frame is static and
+                    // `App::results` short-circuits to it without re-querying
+                    // any provider.
+                    let items = app.present(provider, query);
+                    app.frecency.record(&item.id);
+                    let _ = app.frecency.save(&frecency::default_path());
+                    app.stack.push(Frame {
+                        items,
+                        query: last_query.clone(),
+                        static_items: true,
+                    });
+                    // The search line keeps the terms that produced the list,
+                    // so the frame says what it is an answer to. Safe because
+                    // the C side runs in BM_FILTER_MODE_NONE and never filters
+                    // on its own.
+                    menu.set_query(query);
+                    last_query.clone_from(query);
+                    shown = sync(&mut menu, app, &last_query, &pills, &mut state);
                     continue;
                 }
                 app.activate(&item)?;

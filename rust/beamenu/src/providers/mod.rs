@@ -2,16 +2,22 @@
 //!
 //! A provider answers one question: given the current query, what rows do you
 //! contribute? Everything Raycast calls a "core feature" is one of these, and
-//! because a provider is a pure function of the query string plus a
-//! [`Ctx`], the whole feature set is testable without a compositor.
+//! because a provider sees nothing but the query string and a [`Ctx`], the
+//! whole feature set is testable without a compositor.
 //!
-//! Providers fall into two kinds:
+//! Providers fall into two kinds by how they are *reached*:
 //!
 //! * **Ambient.** Always contribute to the root list (apps, system commands,
-//!   quicklinks, snippets). These are what you see before typing.
+//!   quicklinks, snippets, status). These are what you see before typing.
 //! * **Keyworded.** Contribute only behind a prefix, because their results
 //!   would otherwise drown the list (`=` calculator, `:` emoji, `c ` clipboard,
-//!   `f ` files, `w ` windows).
+//!   `f ` files, `w ` windows, `s ` web search).
+//!
+//! And into two kinds again by what they *cost*. [`Provider::query`] runs on
+//! every keystroke and must stay inside the frame budget — reading `/proc` or
+//! walking a directory is fine, a network round trip is not.
+//! [`Provider::present`] runs once, when the user activated a row that asked
+//! for it, and may block for as long as the answer takes.
 //!
 //! [`Ctx`]: Ctx
 
@@ -24,7 +30,9 @@ pub mod plugins;
 pub mod quicklinks;
 pub mod scripts;
 pub mod snippets;
+pub mod status;
 pub mod system;
+pub mod websearch;
 pub mod window;
 
 use std::path::{Path, PathBuf};
@@ -75,7 +83,27 @@ pub trait Provider {
     }
 
     /// Rows contributed for `query`, unranked and in any order.
+    ///
+    /// Runs on every keystroke, so it must stay inside the frame budget. The
+    /// launcher renders before it blocks for the next key, which means a slow
+    /// provider does not merely lag the list — it delays the character just
+    /// typed from appearing at all.
     fn query(&self, ctx: &Ctx, query: &str) -> Vec<Item>;
+
+    /// Rows for an explicit activation rather than a keystroke.
+    ///
+    /// Reached only through [`Action::Present`], so it runs once, when the
+    /// user pressed Enter on a row that asked for it. That is the whole point:
+    /// this one may block on the network or on a subprocess, where
+    /// [`Provider::query`] may not.
+    ///
+    /// Defaults to [`Provider::query`], so a provider with nothing expensive
+    /// to offer needs no opinion about this.
+    ///
+    /// [`Action::Present`]: crate::item::Action::Present
+    fn present(&self, ctx: &Ctx, query: &str) -> Vec<Item> {
+        self.query(ctx, query)
+    }
 }
 
 /// Every provider, in the order their sections should appear.
@@ -96,7 +124,9 @@ pub fn all(config_dir: &Path) -> Vec<Box<dyn Provider>> {
         Box::new(clipboard::Clipboard),
         Box::new(files::Files),
         Box::new(emoji::Emoji),
+        Box::new(websearch::WebSearch),
         Box::new(system::System),
+        Box::new(status::Status),
     ];
     providers.extend(
         plugins::load_all(&config_dir.join("plugins"))
@@ -104,6 +134,24 @@ pub fn all(config_dir: &Path) -> Vec<Box<dyn Provider>> {
             .map(|provider| Box::new(provider) as Box<dyn Provider>),
     );
     providers
+}
+
+/// Rows from one named provider's [`Provider::present`], stamped the same way
+/// [`collect`] stamps its own.
+///
+/// An id naming no registered provider yields no rows rather than an error:
+/// the id travels inside an [`Action::Present`] that a provider built, so a
+/// miss means a provider named itself wrongly or was disabled between building
+/// the row and activating it. Neither is worth failing the launcher over.
+///
+/// [`Action::Present`]: crate::item::Action::Present
+#[must_use]
+pub fn present(providers: &[Box<dyn Provider>], ctx: &Ctx, id: &str, query: &str) -> Vec<Item> {
+    providers
+        .iter()
+        .find(|provider| provider.id() == id)
+        .map(|provider| stamp(provider.as_ref(), provider.present(ctx, query)))
+        .unwrap_or_default()
 }
 
 /// Rows for `query`, plus the text the caller should rank them against.
@@ -137,17 +185,20 @@ pub fn collect(providers: &[Box<dyn Provider>], ctx: &Ctx, query: &str) -> (Vec<
     (items, query.to_string())
 }
 
-/// Run a provider and stamp its identity onto every row it returned, so a
-/// provider never has to repeat its own heading.
+/// Stamp a provider's identity onto every row it returned, so a provider never
+/// has to repeat its own heading.
 ///
 /// The section is only filled in when the provider did not choose one itself,
 /// since some rows want their own heading (`window`'s management actions, the
 /// action panel's). The id is stamped unconditionally. Which provider produced
 /// a row is a fact about it rather than a display choice, and the filter pill
 /// bar needs every row to carry it.
-fn decorate(provider: &dyn Provider, ctx: &Ctx, query: &str) -> Vec<Item> {
-    provider
-        .query(ctx, query)
+///
+/// Takes rows rather than calling the provider, because the two callers differ
+/// in which method produced them: [`collect`] runs [`Provider::query`] and
+/// [`present`] runs [`Provider::present`], and both must stamp identically.
+fn stamp(provider: &dyn Provider, items: Vec<Item>) -> Vec<Item> {
+    items
         .into_iter()
         .map(|item| {
             let item = if item.section.is_some() {
@@ -158,4 +209,9 @@ fn decorate(provider: &dyn Provider, ctx: &Ctx, query: &str) -> Vec<Item> {
             item.provider(provider.id())
         })
         .collect()
+}
+
+/// Run a provider's per-keystroke [`Provider::query`] and stamp the result.
+fn decorate(provider: &dyn Provider, ctx: &Ctx, query: &str) -> Vec<Item> {
+    stamp(provider, provider.query(ctx, query))
 }

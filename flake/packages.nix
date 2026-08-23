@@ -59,58 +59,66 @@ self: {
   # (lib/renderers/pills.cpp, the bar's scroll geometry), which is why CXXFLAGS
   # matter here at all; bemenu's GNUmakefile pins it to -std=c++23, the newest
   # standard clang 21 implements in full rather than in part.
-  beamenu-view = (pkgs.bemenu.override {
-    stdenv = pkgs.overrideCC pkgs.clangStdenv (
-      pkgs.clangStdenv.cc.override { bintools = pkgs.llvmPackages.bintools; }
-    );
-  }).overrideAttrs (old: {
-    pname = "beamenu-view";
-    patches = (old.patches or [ ]) ++ [
-      ../nix/patches/beamenu/01-item-richtext.patch
-      ../nix/patches/beamenu/02-cairo-raycast-rows.patch
-      ../nix/patches/beamenu/03-panel-chrome.patch
-      ../nix/patches/beamenu/04-client-ranking.patch
-      ../nix/patches/beamenu/05-rich-panel-body.patch
-      ../nix/patches/beamenu/06-filter-pills.patch
-    ];
-    buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
-    # lld arrives as the stdenv's *wrapped* bintools (above), never as
-    # -fuse-ld=lld. That flag makes clang invoke ld.lld directly and step around
-    # nixpkgs' bintools-wrapper, which is what injects a -rpath per buildInput.
-    # The package still builds and installs; the renderer plugins then carry a
-    # RUNPATH holding only bemenu's own lib dir, so every dlopen() fails at
-    # runtime with "libcairo.so.2: cannot open shared object file" and the
-    # launcher comes up with no renderer at all. Nothing in the build catches
-    # it; compare `readelf -d` on a renderer .so against stock nixpkgs bemenu.
-    #
-    # makeFlagsArray, not makeFlags: the value contains spaces, and makeFlags
-    # entries are word-split before they reach make.
-    preBuild = (old.preBuild or "") + ''
-      makeFlagsArray+=("LDFLAGS=-flto=thin -fvisibility=hidden")
-    '';
-    env = (old.env or { }) // {
-      NIX_CFLAGS_COMPILE = "-flto=thin -fvisibility=hidden";
-    };
-    meta = old.meta // {
-      description = "bemenu patched into the beamenu launcher's view layer";
-      mainProgram = "bemenu";
-    };
-  });
+  beamenu-view =
+    (pkgs.bemenu.override {
+      stdenv = pkgs.overrideCC pkgs.clangStdenv (
+        pkgs.clangStdenv.cc.override { bintools = pkgs.llvmPackages.bintools; }
+      );
+    }).overrideAttrs
+      (old: {
+        pname = "beamenu-view";
+        patches = (old.patches or [ ]) ++ [
+          ../nix/patches/beamenu/01-item-richtext.patch
+          ../nix/patches/beamenu/02-cairo-raycast-rows.patch
+          ../nix/patches/beamenu/03-panel-chrome.patch
+          ../nix/patches/beamenu/04-client-ranking.patch
+          ../nix/patches/beamenu/05-rich-panel-body.patch
+          ../nix/patches/beamenu/06-filter-pills.patch
+        ];
+        buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
+        # lld arrives as the stdenv's *wrapped* bintools (above), never as
+        # -fuse-ld=lld. That flag makes clang invoke ld.lld directly and step around
+        # nixpkgs' bintools-wrapper, which is what injects a -rpath per buildInput.
+        # The package still builds and installs; the renderer plugins then carry a
+        # RUNPATH holding only bemenu's own lib dir, so every dlopen() fails at
+        # runtime with "libcairo.so.2: cannot open shared object file" and the
+        # launcher comes up with no renderer at all. Nothing in the build catches
+        # it; compare `readelf -d` on a renderer .so against stock nixpkgs bemenu.
+        #
+        # makeFlagsArray, not makeFlags: the value contains spaces, and makeFlags
+        # entries are word-split before they reach make.
+        preBuild = (old.preBuild or "") + ''
+          makeFlagsArray+=("LDFLAGS=-flto=thin -fvisibility=hidden")
+        '';
+        env = (old.env or { }) // {
+          NIX_CFLAGS_COMPILE = "-flto=thin -fvisibility=hidden";
+        };
+        meta = old.meta // {
+          description = "bemenu patched into the beamenu launcher's view layer";
+          mainProgram = "bemenu";
+        };
+      });
 
   # beamenu — the launcher itself: links beamenu-view's libbemenu, owns the
-  # event loop, and implements the provider set (apps, system, calculator,
-  # emoji, clipboard, snippets, quicklinks, windows, files, script commands).
+  # event loop, and implements the provider set (apps, system, status,
+  # calculator, emoji, clipboard, snippets, quicklinks, windows, files, script
+  # commands, web search).
   # nix/home/beamenu.nix wraps the store path and wires the keybinds.
   beamenu = pkgs.rustPlatform.buildRustPackage {
     pname = "beamenu";
     version = "0.1.0";
-    # Widened to rust/ (not the crate dir) so rust/palette.json — the single
-    # source of truth for the system palette — lands in the store src too:
-    # src/palette.rs pulls it in via include_str!("../../palette.json").
+    # Widened to rust/ (not the crate dir) for two reasons. rust/palette.json —
+    # the single source of truth for the system palette — must land in the
+    # store src because src/palette.rs pulls it in via
+    # include_str!("../../palette.json"). And rust/beamenu-status must too,
+    # because the launcher takes it as a path dependency: the status provider
+    # and `--status-daemon` share their probes with the dashboard worker rather
+    # than each carrying a copy.
     src = pkgs.lib.fileset.toSource {
       root = ../rust;
       fileset = pkgs.lib.fileset.unions [
         ../rust/beamenu
+        ../rust/beamenu-status
         ../rust/palette.json
       ];
     };
@@ -138,6 +146,25 @@ self: {
     src = ../rust/beamenu-calc;
     cargoLock.lockFile = ../rust/beamenu-calc/Cargo.lock;
     meta.mainProgram = "beamenu-calc";
+  };
+
+  # beamenu-status — the system-status readouts, and the live dashboard worker
+  # that renders them.
+  #
+  # A library and a binary in one crate on purpose. `beamenu` depends on the
+  # library for its status provider and for `--status-daemon`, and the
+  # `beamenu-dashboard` binary here is the plugin worker beamenu-canvas spawns.
+  # Splitting them would mean two crates parsing `wpctl` and `nmcli` output, and
+  # the two disagreeing is exactly the bug that would never be noticed.
+  #
+  # No pkg-config and no GTK: the probes read /proc, /sys and four subprocesses,
+  # and the worker only writes component trees for the canvas to render.
+  beamenu-status = pkgs.rustPlatform.buildRustPackage {
+    pname = "beamenu-status";
+    version = "0.1.0";
+    src = ../rust/beamenu-status;
+    cargoLock.lockFile = ../rust/beamenu-status/Cargo.lock;
+    meta.mainProgram = "beamenu-dashboard";
   };
 
   # beamenu-canvas — the WebKitGTK sidecar beamenu spawns for a plugin's
