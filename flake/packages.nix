@@ -86,6 +86,25 @@ self: {
   # (streamed log text, or a JSON-RPC-driven component tree) under one
   # host-enforced design system. Workers never supply CSS or HTML, only
   # typed component trees; see rust/beamenu-canvas for the protocol.
+  # beamenu-calc — the scientific calculator plugin's worker.
+  #
+  # This is what exercises the plugin system end to end: a manifest with a
+  # `view` command and `ui: "rpc"`, spawned through beamenu-canvas, talking
+  # newline-delimited JSON-RPC over stdio. The launcher's built-in `=` provider
+  # stays as it is; that one answers inline as you type, which the plugin
+  # protocol cannot do, since the only message the canvas sends back is
+  # form.submit.
+  #
+  # No GTK or pkg-config here: the worker never draws anything itself, it only
+  # writes component trees for the canvas to render.
+  beamenu-calc = pkgs.rustPlatform.buildRustPackage {
+    pname = "beamenu-calc";
+    version = "0.1.0";
+    src = ../rust/beamenu-calc;
+    cargoLock.lockFile = ../rust/beamenu-calc/Cargo.lock;
+    meta.mainProgram = "beamenu-calc";
+  };
+
   beamenu-canvas = pkgs.rustPlatform.buildRustPackage {
     pname = "beamenu-canvas";
     version = "0.1.0";
