@@ -393,9 +393,16 @@ in
         # parking — layer-shell plus cairo starts fast enough to just run the
         # binary, which is what retired HyprTile's whole resident-instance
         # apparatus.
+        #
+        # One bind, not three. SUPER+D and SUPER+SHIFT+E both ran plain
+        # `beamenu` (the second one's comment claimed a pre-seeded query, which
+        # nothing ever seeded), and SUPER+comma skipped the launcher to open the
+        # settings plugin's canvas view directly. Everything they reached is
+        # inside the panel: session commands under the System pill, settings
+        # under the Settings plugin and its `set ` keyword.
         {
           _args = [
-            (lua ''mod .. " + D"'')
+            (lua ''mod .. " + Space"'')
             (lua ''hl.dsp.exec_cmd("beamenu")'')
           ];
         }
@@ -431,20 +438,13 @@ in
             (lua ''hl.dsp.exec_cmd("~/.config/eww/scripts/keybinds.sh --force")'')
           ];
         }
-        # Settings menu (nix/home/settings-menu.nix): opens the "settings"
-        # beamenu plugin's view directly in beamenu-canvas rather than going
-        # through the launcher's search UI first — `global-settings serve`
-        # is the RPC worker behind it; the file write goes through pkexec.
-        # The launcher has no direct-open flag yet, so this binds straight
-        # to the canvas sidecar with the plugin's manifest/command (argv
-        # contract from task-C/task-B: `beamenu-canvas --manifest <path>
-        # --command <id>`).
-        {
-          _args = [
-            (lua ''mod .. " + comma"'')
-            (lua ''hl.dsp.exec_cmd("beamenu-canvas --manifest ~/.config/beamenu/plugins/settings.json --command edit")'')
-          ];
-        }
+        # The settings menu (nix/home/settings-menu.nix) had its own SUPER+comma
+        # bind, straight into beamenu-canvas with the plugin's manifest, because
+        # the launcher has no direct-open flag. It now goes through SUPER+Space
+        # like everything else: the Settings plugin answers the `set ` keyword.
+        # Costs one step versus deep-linking, which is the trade for one door
+        # into the launcher rather than three.
+        #
         # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved
         # for the magic special workspace (was double-bound in hyprlang).
 
@@ -747,16 +747,10 @@ in
             (lua ''hl.dsp.exec_cmd("hyprlock")'')
           ];
         }
-        {
-          # Power menu → beamenu's System provider (lock, logout, suspend,
-          # hibernate, reboot, shutdown, plus screenshot and recording). Same
-          # binary as SUPER+D; the query is pre-seeded so the session commands
-          # are already the list rather than a page-flip away.
-          _args = [
-            (lua ''mod .. " + SHIFT + E"'')
-            (lua ''hl.dsp.exec_cmd("beamenu")'')
-          ];
-        }
+        # The power menu had its own SUPER+SHIFT+E bind running plain `beamenu`,
+        # the identical command SUPER+D ran, on the claim that the query was
+        # pre-seeded to the session commands. Nothing seeded it. Those commands
+        # live under the System pill, one Tab from opening SUPER+Space.
         {
           _args = [
             (lua ''mod .. " + SHIFT + C"'')

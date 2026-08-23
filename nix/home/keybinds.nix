@@ -18,8 +18,8 @@ let
         desc = "Terminal (kitty)";
       }
       {
-        key = "SUPER + D";
-        desc = "App launcher (beamenu)";
+        key = "SUPER + Space";
+        desc = "Launcher (beamenu) — apps, settings, system, plugins";
       }
       {
         key = "SUPER + Shift + F";
@@ -36,10 +36,6 @@ let
       {
         key = "SUPER + /";
         desc = "Show this keybind cheatsheet";
-      }
-      {
-        key = "SUPER + ,";
-        desc = "Settings menu (beamenu)";
       }
     ];
     window = [
@@ -118,10 +114,6 @@ let
       {
         key = "SUPER + Alt + L";
         desc = "Lock screen (hyprlock)";
-      }
-      {
-        key = "SUPER + Shift + E";
-        desc = "System commands (beamenu)";
       }
       {
         key = "SUPER + Shift + C";
