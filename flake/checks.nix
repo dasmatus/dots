@@ -245,4 +245,27 @@ in
       && lib.strings.hasSuffix " balance_performance" r
     ) laptop.config.systemd.tmpfiles.rules;
     pkgs.writeText "formfactor-eval-ok" "desktop+laptop+server+vm";
+  # rust/palette.json is the single source of truth for the system palette
+  # (see docs/superpowers/specs/2026-08-23-system-palette-single-source-design.md).
+  # It must parse with the schema both sides read, and it must reach BOTH
+  # Rust builds' store src: each crate compiles it in via
+  # include_str!("../../palette.json"), which resolves to <src root>/palette.json
+  # only when the src fileset is rooted at rust/ rather than the crate dir.
+  palette-eval =
+    let
+      palette = builtins.fromJSON (builtins.readFile ../rust/palette.json);
+      beamenuSrc = self.packages.${system}.beamenu.src;
+      canvasSrc = self.packages.${system}.beamenu-canvas.src;
+    in
+    assert builtins.pathExists "${beamenuSrc}/palette.json";
+    assert builtins.pathExists "${canvasSrc}/palette.json";
+    assert builtins.pathExists "${beamenuSrc}/beamenu/Cargo.lock";
+    assert builtins.pathExists "${canvasSrc}/beamenu-canvas/Cargo.lock";
+    assert palette.colors.bg == "#1a1b26";
+    assert palette.colors.bgDarker == "#15161e";
+    assert palette.accentFallback == "#7aa2f7";
+    assert palette.alpha == { panel = "f2"; heading = "ee"; opaque = "ff"; };
+    assert palette.fonts.canvasUi == "Manrope";
+    assert palette.beamenu.lines == 9;
+    pkgs.writeText "palette-eval-ok" palette.accentFallback;
 }

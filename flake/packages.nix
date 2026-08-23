@@ -48,7 +48,17 @@ self: {
   beamenu = pkgs.rustPlatform.buildRustPackage {
     pname = "beamenu";
     version = "0.1.0";
-    src = ../rust/beamenu;
+    # Widened to rust/ (not the crate dir) so rust/palette.json — the single
+    # source of truth for the system palette — lands in the store src too:
+    # src/palette.rs pulls it in via include_str!("../../palette.json").
+    src = pkgs.lib.fileset.toSource {
+      root = ../rust;
+      fileset = pkgs.lib.fileset.unions [
+        ../rust/beamenu
+        ../rust/palette.json
+      ];
+    };
+    sourceRoot = "source/beamenu";
     cargoLock.lockFile = ../rust/beamenu/Cargo.lock;
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildInputs = [ self.packages.${pkgs.stdenv.hostPlatform.system}.beamenu-view ];
@@ -63,7 +73,17 @@ self: {
   beamenu-canvas = pkgs.rustPlatform.buildRustPackage {
     pname = "beamenu-canvas";
     version = "0.1.0";
-    src = ../rust/beamenu-canvas;
+    # Same widening as beamenu above, and for the same reason: the canvas
+    # sidecar's include_str!("../../palette.json") needs rust/palette.json
+    # sitting next to the crate dir in the store src.
+    src = pkgs.lib.fileset.toSource {
+      root = ../rust;
+      fileset = pkgs.lib.fileset.unions [
+        ../rust/beamenu-canvas
+        ../rust/palette.json
+      ];
+    };
+    sourceRoot = "source/beamenu-canvas";
     cargoLock.lockFile = ../rust/beamenu-canvas/Cargo.lock;
     nativeBuildInputs = [
       pkgs.pkg-config
