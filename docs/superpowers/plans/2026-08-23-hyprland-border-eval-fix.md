@@ -107,7 +107,7 @@
 - [ ] **Step 4: Run test to verify it passes**
 
   ```
-  cd /home/matus/Dokumente/codeberg/personal/dots/.claude/worktrees/swirling-plotting-yao/rust/wallpaper-tui && cargo test --test tint && cargo fmt --all && cargo clippy --fix --allow-dirty -- -W clippy::all -W clippy::perf -W clippy::pedantic
+  cd /home/matus/Dokumente/codeberg/personal/dots/.claude/worktrees/swirling-plotting-yao/rust/wallpaper-tui && cargo test --test tint && nix shell nixpkgs#rustfmt -c cargo fmt --all && cargo clippy --fix --allow-dirty -- -W clippy::all -W clippy::perf -W clippy::pedantic
   ```
 
   Expected: all tint tests pass, including the existing `apply_tint_generates_all_targets` (`his: None` → `borders == "skipped"`, unchanged) and the new failure test (bogus signature → exit 4 → `error: hyprctl exited 4`, or a spawn error in a PATH-less sandbox — both start with `error:`). fmt and clippy clean.
@@ -203,7 +203,7 @@
 - [ ] **Step 4: Run test to verify it passes**
 
   ```
-  cd /home/matus/Dokumente/codeberg/personal/dots/.claude/worktrees/swirling-plotting-yao/rust/wallpaper-tui && cargo test --test tint && cargo fmt --all && cargo clippy --fix --allow-dirty -- -W clippy::all -W clippy::perf -W clippy::pedantic && cd /home/matus/Dokumente/codeberg/personal/dots/.claude/worktrees/swirling-plotting-yao && nix run .#nix-lint
+  cd /home/matus/Dokumente/codeberg/personal/dots/.claude/worktrees/swirling-plotting-yao/rust/wallpaper-tui && cargo test --test tint && nix shell nixpkgs#rustfmt -c cargo fmt --all && cargo clippy --fix --allow-dirty -- -W clippy::all -W clippy::perf -W clippy::pedantic
   ```
 
   Expected: full tint suite green — including Task 1's `apply_tint_surfaces_border_failure`, which now exercises the eval form against the bogus pinned signature (exit 4, never the live session). fmt, clippy and nix-lint clean.
