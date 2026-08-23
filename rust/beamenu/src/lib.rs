@@ -16,6 +16,7 @@ pub mod dispatch;
 pub mod frame;
 pub mod frecency;
 pub mod item;
+pub mod palette;
 pub mod providers;
 pub mod rank;
 pub mod view;
