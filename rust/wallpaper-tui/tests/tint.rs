@@ -66,32 +66,30 @@ fn hyprland_borders_skip_without_hyprland() {
 }
 
 #[test]
-fn hyprland_borders_emit_two_keywords() {
+fn hyprland_borders_emit_single_hl_config_eval() {
     let cmds = hyprland_border_commands_for(Some("deadbeef"), ACCENT, ACCENT_DARK).unwrap();
-    assert_eq!(cmds.len(), 2);
-    assert_eq!(
-        cmds[0],
-        [
-            "hyprctl",
-            "keyword",
-            "general:col.active_border",
-            "rgba(#ff00aaff)"
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
+    assert_eq!(cmds.len(), 1, "one eval call sets both borders");
+    assert_eq!(cmds[0][0], "hyprctl");
+    assert_eq!(cmds[0][1], "eval");
+    let lua = &cmds[0][2];
+    assert!(
+        lua.starts_with("hl.config({"),
+        "flat-dotted hl.config call, got {lua}"
     );
-    assert_eq!(
-        cmds[1],
-        [
-            "hyprctl",
-            "keyword",
-            "general:col.inactive_border",
-            "rgba(#330044ff)"
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
+    assert!(lua.contains(r#"["general.col.active_border"] = "rgba(ff00aaff)""#));
+    assert!(lua.contains(r#"["general.col.inactive_border"] = "rgba(330044ff)""#));
+    assert!(
+        !lua.contains('#'),
+        "rgba() takes bare hex, no leading '#': {lua}"
+    );
+}
+
+#[test]
+fn hyprland_borders_never_use_retired_keyword_ipc() {
+    let cmds = hyprland_border_commands_for(Some("deadbeef"), ACCENT, ACCENT_DARK).unwrap();
+    assert!(
+        cmds.iter().flatten().all(|arg| arg != "keyword"),
+        "hyprctl keyword is a silent no-op under the Lua parser (0.55+)"
     );
 }
 

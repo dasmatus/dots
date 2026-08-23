@@ -145,9 +145,15 @@ pub fn gtk_css(accent: &str, accent_dark: &str, _accent_light: &str, version: u8
     }
 }
 
-/// `hyprctl keyword` argv for the border colors, or `None` when Hyprland is
-/// not running (`his` is `None`). Pure: takes the Hyprland instance signature
-/// explicitly so tests don't mutate process-global env.
+/// `hyprctl eval` argv setting both border colors through one
+/// `hl.config({...})` call with flat dotted string keys, the shape
+/// Hyprland's own `hl.meta.lua` stub declares for `HL.ConfigOpt`. The
+/// hyprlang `keyword` IPC was retired for the Lua parser in 0.55+ (exits 0,
+/// changes nothing), same as the `hyprctl keyword monitor` case hyprmon
+/// already migrated off. `rgba()` takes bare hex, so the accents' leading
+/// `#` is stripped. Returns `None` when Hyprland is not running (`his` is
+/// `None`). Pure: takes the Hyprland instance signature explicitly so
+/// tests don't mutate process-global env.
 #[must_use]
 pub fn hyprland_border_commands_for(
     his: Option<&str>,
@@ -155,20 +161,16 @@ pub fn hyprland_border_commands_for(
     accent_dark: &str,
 ) -> Option<Vec<Vec<String>>> {
     his?;
-    Some(vec![
-        vec![
-            "hyprctl".into(),
-            "keyword".into(),
-            "general:col.active_border".into(),
-            format!("rgba({accent}ff)"),
-        ],
-        vec![
-            "hyprctl".into(),
-            "keyword".into(),
-            "general:col.inactive_border".into(),
-            format!("rgba({accent_dark}ff)"),
-        ],
-    ])
+    let active = accent.trim_start_matches('#');
+    let inactive = accent_dark.trim_start_matches('#');
+    Some(vec![vec![
+        "hyprctl".into(),
+        "eval".into(),
+        format!(
+            "hl.config({{ [\"general.col.active_border\"] = \"rgba({active}ff)\", \
+             [\"general.col.inactive_border\"] = \"rgba({inactive}ff)\" }})"
+        ),
+    ]])
 }
 
 /// Env-driven wrapper around [`hyprland_border_commands_for`].
