@@ -55,6 +55,9 @@ fn effective_output_merge() {
         current_output: "eDP-1".to_string(),
         outputs,
         tint_backend: "pywal".to_string(),
+        transition: "fade".to_string(),
+        transition_duration: "1".to_string(),
+        transition_fps: "60".to_string(),
     };
     let state = State::default();
     let eff = effective_output(&config, &state, "eDP-1");

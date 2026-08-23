@@ -1,6 +1,6 @@
 # Random Wallhaven wallpaper on login + hourly (user service/timer).
-# Sets the wallpaper via wallpaper-tui (which drives hyprtile-wallpaperd)
-# under Hyprland and gsettings under GNOME; customize the query with WH_*
+# Sets the wallpaper via wallpaper-tui (which drives awww) under Hyprland
+# and gsettings under GNOME; customize the query with WH_*
 # environment variables on the service.
 { pkgs, lib, ... }:
 
@@ -47,11 +47,10 @@ let
 
     if [ -n "''${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v wallpaper-tui > /dev/null 2>&1; then
       # Route through wallpaper-tui so the hourly random pick also re-tints
-      # borders/GTK/Qt/icons from the new wallpaper, and the
-      # hyprtile-wallpaperd restart logic lives in one place. The '*' output
-      # is accepted for compatibility (wallpaperd always covers all
-      # outputs); --restore on login re-applies the declarative eDP-1
-      # default, so random picks stay session-only by design.
+      # borders/GTK/Qt/icons from the new wallpaper, and so the awww call
+      # lives in one place. The '*' output means every output; --restore on
+      # login re-applies the declarative eDP-1 default, so random picks stay
+      # session-only by design.
       wallpaper-tui --output '*' "$img_path"
       echo "Set wallpaper via wallpaper-tui (Hyprland): $img_path"
       exit 0

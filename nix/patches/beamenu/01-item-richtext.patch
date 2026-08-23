@@ -1,0 +1,232 @@
+Rich item model for the beamenu launcher.
+
+bemenu items carry one string, which is all a dmenu row needs. A Raycast-style
+row needs four more: a muted subtitle after the title, right-aligned accessory
+text, an icon path, and the heading of the group the item belongs to. Only the
+primary text stays matchable, so none of these widen what the filter accepts.
+
+diff --git a/lib/bemenu.h b/lib/bemenu.h
+index 740783a..0f3a33c 100644
+--- a/lib/bemenu.h
++++ b/lib/bemenu.h
+@@ -1238,6 +1238,86 @@ BM_PUBLIC bool bm_item_set_text(struct bm_item *item, const char *text);
+  */
+ BM_PUBLIC const char* bm_item_get_text(const struct bm_item *item);
+ 
++/**
++ * Set secondary text drawn after the title in the muted colour.
++ *
++ * Unlike the primary text this is never matched against, so it can carry
++ * description or path context without widening what the filter accepts.
++ *
++ * @param item bm_item instance where to set the subtitle.
++ * @param subtitle C "string" to set as subtitle, **NULL** to draw none.
++ * @return true if set was succesful, false if out of memory.
++ */
++BM_PUBLIC bool bm_item_set_subtitle(struct bm_item *item, const char *subtitle);
++
++/**
++ * Get secondary text from bm_item instance.
++ *
++ * @param item bm_item instance where to get the subtitle from.
++ * @return Pointer to null terminated C "string", **NULL** if unset.
++ */
++BM_PUBLIC const char* bm_item_get_subtitle(const struct bm_item *item);
++
++/**
++ * Set right-aligned trailing text (a command type, a shortcut hint).
++ *
++ * @param item bm_item instance where to set the accessory.
++ * @param accessory C "string" to set as accessory, **NULL** to draw none.
++ * @return true if set was succesful, false if out of memory.
++ */
++BM_PUBLIC bool bm_item_set_accessory(struct bm_item *item, const char *accessory);
++
++/**
++ * Get right-aligned trailing text from bm_item instance.
++ *
++ * @param item bm_item instance where to get the accessory from.
++ * @return Pointer to null terminated C "string", **NULL** if unset.
++ */
++BM_PUBLIC const char* bm_item_get_accessory(const struct bm_item *item);
++
++/**
++ * Set path to an image drawn at the left edge of the row.
++ *
++ * Any format gdk-pixbuf can load is accepted, which with librsvg's loader
++ * present covers the SVG and PNG that XDG icon themes ship. A path that
++ * fails to load is drawn as an empty gutter, never as an error.
++ *
++ * @param item bm_item instance where to set the icon.
++ * @param icon Filesystem path to the image, **NULL** to draw none.
++ * @return true if set was succesful, false if out of memory.
++ */
++BM_PUBLIC bool bm_item_set_icon(struct bm_item *item, const char *icon);
++
++/**
++ * Get icon path from bm_item instance.
++ *
++ * @param item bm_item instance where to get the icon path from.
++ * @return Pointer to null terminated C "string", **NULL** if unset.
++ */
++BM_PUBLIC const char* bm_item_get_icon(const struct bm_item *item);
++
++/**
++ * Set the group heading this item belongs to.
++ *
++ * Consecutive filtered items sharing a section are drawn under one heading;
++ * the heading is emitted above the first item whose section differs from the
++ * previous item's. Ordering is the caller's job. The renderer only detects
++ * the change, it does not sort.
++ *
++ * @param item bm_item instance where to set the section.
++ * @param section C "string" to set as section, **NULL** for no grouping.
++ * @return true if set was succesful, false if out of memory.
++ */
++BM_PUBLIC bool bm_item_set_section(struct bm_item *item, const char *section);
++
++/**
++ * Get the group heading from bm_item instance.
++ *
++ * @param item bm_item instance where to get the section from.
++ * @return Pointer to null terminated C "string", **NULL** if unset.
++ */
++BM_PUBLIC const char* bm_item_get_section(const struct bm_item *item);
++
+ /**  @} Item Properties */
+ 
+ /**  @} Item */
+diff --git a/lib/internal.h b/lib/internal.h
+index 056f16a..c0a9205 100644
+--- a/lib/internal.h
++++ b/lib/internal.h
+@@ -200,6 +200,33 @@ struct bm_item {
+      * Matching will be done against this text as well.
+      */
+     char *text;
++
++    /**
++     * Secondary text drawn after the title in the muted colour.
++     * Not matched against. **NULL** to draw nothing.
++     */
++    char *subtitle;
++
++    /**
++     * Right-aligned trailing text (a command type, a shortcut hint, a
++     * timestamp). Not matched against. **NULL** to draw nothing.
++     */
++    char *accessory;
++
++    /**
++     * Path to an image drawn at the left edge of the row. Any format
++     * gdk-pixbuf can load, which with librsvg's loader present covers the
++     * SVG and PNG that XDG icon themes ship. **NULL** to draw nothing.
++     */
++    char *icon;
++
++    /**
++     * Group heading this item belongs to. Consecutive items sharing a
++     * section are drawn under one heading; the heading is drawn above the
++     * first item whose section differs from the previous item's.
++     * **NULL** for an ungrouped item.
++     */
++    char *section;
+ };
+ 
+ /**
+diff --git a/lib/item.c b/lib/item.c
+index 1d12357..ce3e476 100644
+--- a/lib/item.c
++++ b/lib/item.c
+@@ -19,9 +19,30 @@ bm_item_free(struct bm_item *item)
+ {
+     assert(item);
+     free(item->text);
++    free(item->subtitle);
++    free(item->accessory);
++    free(item->icon);
++    free(item->section);
+     free(item);
+ }
+ 
++/**
++ * Replace one owned string field with a copy of *value*.
++ * Shared by every rich-row setter below; on allocation failure the old
++ * value is left intact so a failed set never blanks the row.
++ */
++static bool
++bm_item_set_field(char **field, const char *value)
++{
++    char *copy = NULL;
++    if (value && !(copy = bm_strdup(value)))
++        return false;
++
++    free(*field);
++    *field = copy;
++    return true;
++}
++
+ void
+ bm_item_set_userdata(struct bm_item *item, void *userdata)
+ {
+@@ -57,4 +78,60 @@ bm_item_get_text(const struct bm_item *item)
+     return item->text;
+ }
+ 
++bool
++bm_item_set_subtitle(struct bm_item *item, const char *subtitle)
++{
++    assert(item);
++    return bm_item_set_field(&item->subtitle, subtitle);
++}
++
++const char*
++bm_item_get_subtitle(const struct bm_item *item)
++{
++    assert(item);
++    return item->subtitle;
++}
++
++bool
++bm_item_set_accessory(struct bm_item *item, const char *accessory)
++{
++    assert(item);
++    return bm_item_set_field(&item->accessory, accessory);
++}
++
++const char*
++bm_item_get_accessory(const struct bm_item *item)
++{
++    assert(item);
++    return item->accessory;
++}
++
++bool
++bm_item_set_icon(struct bm_item *item, const char *icon)
++{
++    assert(item);
++    return bm_item_set_field(&item->icon, icon);
++}
++
++const char*
++bm_item_get_icon(const struct bm_item *item)
++{
++    assert(item);
++    return item->icon;
++}
++
++bool
++bm_item_set_section(struct bm_item *item, const char *section)
++{
++    assert(item);
++    return bm_item_set_field(&item->section, section);
++}
++
++const char*
++bm_item_get_section(const struct bm_item *item)
++{
++    assert(item);
++    return item->section;
++}
++
+ /* vim: set ts=8 sw=4 tw=0 :*/

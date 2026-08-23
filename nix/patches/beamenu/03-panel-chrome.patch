@@ -1,0 +1,145 @@
+Panel chrome for the beamenu launcher.
+
+Adds bm_menu_set_search_height(): in rich mode the query line gets a height of
+its own rather than sharing the list row height, and a hairline in the border
+colour separates it from the results. Together with bemenu's existing --center,
+--radius, --fixed-height and --width-factor this is the whole Raycast panel
+shape; nothing here changes classic (non-rich) rendering.
+
+diff --git a/lib/bemenu.h b/lib/bemenu.h
+index 623f36c..b766c0a 100644
+--- a/lib/bemenu.h
++++ b/lib/bemenu.h
+@@ -635,6 +635,27 @@ BM_PUBLIC void bm_menu_set_icon_size(struct bm_menu *menu, uint32_t icon_size);
+  */
+ BM_PUBLIC uint32_t bm_menu_get_icon_size(struct bm_menu *menu);
+ 
++/**
++ * Set the height of the search row in the rich layout.
++ *
++ * A launcher panel reads better when the query line is taller than the rows
++ * under it. Only honoured when the rich layout is enabled; 0 keeps the search
++ * row the same height as a list row. A hairline in the border colour is drawn
++ * between the search row and the list whenever this is non-zero.
++ *
++ * @param menu bm_menu instance where to set the search row height.
++ * @param search_height 0 to match the list row height, > 0 for that many pixels.
++ */
++BM_PUBLIC void bm_menu_set_search_height(struct bm_menu *menu, uint32_t search_height);
++
++/**
++ * Get the height of the search row in the rich layout.
++ *
++ * @param menu bm_menu instance to query.
++ * @return uint32_t search row height in pixels, 0 when matching list rows.
++ */
++BM_PUBLIC uint32_t bm_menu_get_search_height(struct bm_menu *menu);
++
+ /**
+  * Set height of cursor in pixels.
+  * Some renderers such as ncurses may ignore this when it does not make sense.
+diff --git a/lib/internal.h b/lib/internal.h
+index 131a690..cf69854 100644
+--- a/lib/internal.h
++++ b/lib/internal.h
+@@ -457,6 +457,12 @@ struct bm_menu {
+      */
+     uint32_t icon_size;
+ 
++    /**
++     * Height of the search row in the rich layout, in pixels. 0 keeps it
++     * the same height as a list row. Only honoured when rich_rows is set.
++     */
++    uint32_t search_height;
++
+     /**
+      * Is menu grabbed?
+      */
+diff --git a/lib/menu.c b/lib/menu.c
+index c01a6ef..cb31d75 100644
+--- a/lib/menu.c
++++ b/lib/menu.c
+@@ -348,6 +348,21 @@ bm_menu_get_icon_size(struct bm_menu *menu)
+     return menu->icon_size;
+ }
+ 
++void
++bm_menu_set_search_height(struct bm_menu *menu, uint32_t search_height)
++{
++    assert(menu);
++    menu->search_height = search_height;
++}
++
++uint32_t
++bm_menu_get_search_height(struct bm_menu *menu)
++{
++    assert(menu);
++
++    return menu->search_height;
++}
++
+ void
+ bm_menu_set_cursor_height(struct bm_menu *menu, uint32_t cursor_height)
+ {
+diff --git a/lib/renderers/cairo_renderer.h b/lib/renderers/cairo_renderer.h
+index ca6cf83..abec624 100644
+--- a/lib/renderers/cairo_renderer.h
++++ b/lib/renderers/cairo_renderer.h
+@@ -560,6 +560,13 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+     uint32_t height = fmin(fmax(menu->line_height, ascii_height), max_height);
+     uint32_t vpadding = (height - ascii_height)/2;
+ 
++    /* Rich mode gives the search row a height of its own, so it can stand
++     * taller than the list rows beneath it the way a Raycast panel does.
++     * Everything else keeps using the single shared row height. */
++    const bool rich_search = (menu->rich_rows && menu->search_height > 0);
++    uint32_t search_h = (rich_search ? fmin(menu->search_height, max_height) : height);
++    uint32_t search_vpadding = (search_h > ascii_height ? (search_h - ascii_height) / 2 : 0);
++
+     double border_radius = menu->border_radius;
+ 
+     uint32_t total_item_count = menu->items.count;
+@@ -601,8 +608,8 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+         enum bm_color title_bg = (menu->lines_mode == BM_LINES_UP ? BM_COLOR_ITEM_BG : BM_COLOR_TITLE_BG);
+         bm_cairo_color_from_menu_color(menu, title_fg, &paint.fg);
+         bm_cairo_color_from_menu_color(menu, title_bg, &paint.bg);
+-        paint.pos = (struct pos){ border_size + 4, vpadding + border_size };
+-        paint.box = (struct box){ 4, 16, vpadding, -vpadding, 0, height };
++        paint.pos = (struct pos){ border_size + 4, search_vpadding + border_size };
++        paint.box = (struct box){ 4, 16, search_vpadding, -(int32_t)search_vpadding, 0, search_h };
+         bm_cairo_draw_line(cairo, &paint, &result, "%s", menu->title);
+         title_x = result.x_advance;
+     }
+@@ -619,8 +626,8 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+     paint.cursor = menu->cursor;
+     paint.cursor_height = menu->cursor_height;
+     paint.cursor_width = menu->cursor_width;
+-    paint.pos = (struct pos){ (menu->title ? 6 : 0) + result.x_advance + border_size, vpadding + border_size };
+-    paint.box = (struct box){ (menu->title ? 2 : 4), 0, vpadding, -vpadding, width - paint.pos.x, height };
++    paint.pos = (struct pos){ (menu->title ? 6 : 0) + result.x_advance + border_size, search_vpadding + border_size };
++    paint.box = (struct box){ (menu->title ? 2 : 4), 0, search_vpadding, -(int32_t)search_vpadding, width - paint.pos.x, search_h };
+ 
+     if (menu->lines == 0 || menu->lines_mode == BM_LINES_DOWN) {
+         const char *filter_text = (menu->filter ? menu->filter : "");
+@@ -636,9 +643,20 @@ bm_cairo_paint(struct cairo *cairo, uint32_t width, uint32_t max_height, struct
+     }
+ 
+     paint.draw_cursor = false;
+-    uint32_t titleh = (result.height > 0 ? result.height : height);
++    uint32_t titleh = (rich_search ? search_h : (result.height > 0 ? result.height : height));
+     out_result->height = titleh;
+ 
++    /* Hairline between the search row and the list, in the border colour.
++     * Drawn at device scale 1 so it stays one physical pixel on HiDPI. */
++    if (rich_search) {
++        struct cairo_color sep;
++        bm_cairo_color_from_menu_color(menu, BM_COLOR_BORDER, &sep);
++        cairo_set_source_rgba(cairo->cr, sep.r, sep.b, sep.g, sep.a);
++        cairo_rectangle(cairo->cr, border_size, titleh + border_size,
++                        width / cairo->scale, 1.0 / cairo->scale);
++        cairo_fill(cairo->cr);
++    }
++
+     uint32_t posy = (menu->lines_mode == BM_LINES_UP ? 0 : titleh);
+     uint32_t spacing_x = menu->spacing ? title_x : 0, spacing_y = 0; // 0 == variable width spacing
+ 

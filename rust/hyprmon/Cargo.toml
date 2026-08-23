@@ -3,7 +3,7 @@ name = "hyprmon"
 version = "0.1.0"
 edition = "2021"
 description = "declarative multi-monitor auto-detection + setup for Hyprland"
-license = "MIT"
+license = "AGPL-3.0-only"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

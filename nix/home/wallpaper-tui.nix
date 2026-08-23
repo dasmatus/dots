@@ -1,7 +1,8 @@
-# hyprtile-wallpaperd-based TUI wallpaper changer — terminal replacement for
-# waytrogen (the awww daemon it previously drove retired with the HyprTile
-# conversion; wallpaper applies restart the shared daemon via
-# ~/.hyprtile/wallpaperd.pid and sync ~/.hyprtile/config.json).
+# awww-based TUI wallpaper changer — terminal replacement for waytrogen.
+# Applies talk to awww-daemon over its socket, which is what let the pidfile,
+# the SIGTERM-and-respawn dance and the ~/.hyprtile/config.json sync all go
+# when HyprTile was removed. It also restored two things that had regressed:
+# per-output wallpapers, since awww takes --outputs, and transitions.
 # Declarative Nix options own the settings; the Rust crate in ../../rust/wallpaper-tui
 # (built once at the flake level as packages.${system}.wallpaper-tui, then
 # wrapped here so it can inject the read-only Nix-store base paths for the SVG
@@ -57,6 +58,9 @@ let
     recursive = cfg.recursive;
     current_output = cfg.currentOutput;
     tint_backend = cfg.tintBackend;
+    transition = cfg.transition;
+    transition_duration = cfg.transitionDuration;
+    transition_fps = toString cfg.transitionFps;
     outputs = lib.mapAttrs (_: o: {
       path = o.path;
       mode = o.mode;
@@ -66,7 +70,7 @@ let
 in
 {
   options.programs.wallpaper-tui = {
-    enable = lib.mkEnableOption "hyprtile-wallpaperd-based TUI wallpaper changer";
+    enable = lib.mkEnableOption "awww-based TUI wallpaper changer";
 
     wallpaperFolder = lib.mkOption {
       type = lib.types.str;
@@ -86,9 +90,39 @@ in
       description = "Output focused by default in the TUI.";
     };
 
-    # No transition options: hyprtile-wallpaperd swaps the wallpaper on
-    # daemon restart with no transition effects (the awww transition
-    # enum/duration retired with it).
+    # Transitions came back with awww. The enum is awww's own
+    # --transition-type vocabulary; the TUI passes these straight through.
+    transition = lib.mkOption {
+      type = lib.types.enum [
+        "none"
+        "simple"
+        "fade"
+        "left"
+        "right"
+        "top"
+        "bottom"
+        "wipe"
+        "wave"
+        "grow"
+        "center"
+        "outer"
+        "random"
+      ];
+      default = "fade";
+      description = "Animation used when the wallpaper changes.";
+    };
+
+    transitionDuration = lib.mkOption {
+      type = lib.types.str;
+      default = "1";
+      description = "Transition length in seconds (awww --transition-duration).";
+    };
+
+    transitionFps = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 60;
+      description = "Transition frame rate (awww --transition-fps).";
+    };
 
     tintBackend = lib.mkOption {
       type = lib.types.enum [
@@ -117,7 +151,7 @@ in
             mode = lib.mkOption {
               type = lib.types.enum modes;
               default = "fill";
-              description = "Scaling mode (swaybg vocabulary, mapped to hyprtile-wallpaperd --mode).";
+              description = "Scaling mode (swaybg vocabulary, mapped to awww img --resize).";
             };
             fillColor = lib.mkOption {
               type = lib.types.str;
@@ -134,7 +168,13 @@ in
 
   config = lib.mkIf cfg.enable {
     xdg.configFile."wallpaper-tui/config.json".text = declarativeConfig;
-    home.packages = [ wallpaper-tui ];
+    home.packages = [
+      wallpaper-tui
+      # awww (formerly swww; nixpkgs renamed it, and so did the binaries) is the
+      # wallpaper daemon. hyprland.start launches awww-daemon and
+      # the TUI shells out to `awww img`. Both binaries come from this package.
+      pkgs.awww
+    ];
 
     # Periodically regenerate the wallpaper thumbnail cache the TUI reads for
     # instant half-block previews. oneshot + daily timer (cadence via

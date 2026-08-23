@@ -13,7 +13,9 @@
   wallpaperTui,
   hyprmon,
   settingsMenu,
-  hyprtilePkg,
+  beamenuPkg,
+  beamenuCanvasPkg,
+  claudeDesktop,
   ...
 }:
 let
@@ -119,7 +121,9 @@ in
         wallpaperTui
         hyprmon
         settingsMenu
-        hyprtilePkg
+        beamenuPkg
+        beamenuCanvasPkg
+        claudeDesktop
         ;
       dots = config.dots;
     };

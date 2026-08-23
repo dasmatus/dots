@@ -1,7 +1,6 @@
 # eww widget configuration — only the first-login keybind cheatsheet window
-# (nix/home/keybinds.nix data, SUPER+/ to re-open). The app launcher, power
-# menu and file browser are HyprTile / Nautilus since the HyprTile
-# conversion (nix/home/hyprtile.nix).
+# (nix/home/keybinds.nix data, SUPER+/ to re-open). The app launcher and power
+# menu are beamenu (nix/home/beamenu.nix); the file browser is Nautilus.
 { pkgs, ... }:
 {
   home.packages = [

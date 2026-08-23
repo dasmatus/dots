@@ -12,6 +12,8 @@ rust/**/target/
 rust/installer-tui/target/
 rust/wallpaper-tui/target/
 rust/hyprmon/target/
+rust/beamenu/target/
+rust/beamenu-canvas/target/
 result
 result-*
 
@@ -41,3 +43,4 @@ nix/secrets.nix
 
 # crash core dumps (core.<pid> — Brave GTK4/Wayland segfault artifacts)
 /core.[0-9]*
+.superpowers/

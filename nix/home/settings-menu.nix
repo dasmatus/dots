@@ -1,11 +1,13 @@
 # Settings menu (rust/settings-global, built at the flake level as
 # packages.${system}.settings and handed in via extraSpecialArgs like
 # wallpaperTui/hyprmon): edits the installer answers in
-# /var/lib/dots/settings.nix. Launched by name (`global-settings`) from the
-# SUPER+comma bind in hyprland.nix and the HyprTile Settings tile
-# (nix/home/hyprtile.nix); cheatsheet entry in keybinds.nix. Renders via
-# rofi -dmenu — the last rofi consumer since the HyprTile conversion
-# (see nix/home/rofi/default.nix).
+# /var/lib/dots/settings.nix. `global-settings serve` speaks JSON-RPC over
+# stdio to beamenu-canvas (rust/beamenu-canvas), which renders the form —
+# reached via the "settings" beamenu plugin manifest below, and from the
+# SUPER+comma bind in hyprland.nix; cheatsheet entry in keybinds.nix.
+# `dump`/`set` are the scripting-facing headless modes. This module no
+# longer touches rofi at all — see nix/home/rofi/default.nix for what still
+# keeps the `rofi` binary around (dunst's context menu, unrelated to this).
 #
 # The menu runs as the user; only the root-owned file write re-execs the
 # binary under pkexec. pkexec needs a polkit *authentication agent* in the
@@ -17,21 +19,31 @@
 {
   settingsMenu,
   pkgs,
-  lib,
   ...
 }:
-let
-  # Thin wrapper (same pattern as wallpaper-tui.nix): point the binary at
-  # the dedicated rasi (nix/home/rofi/settings.rasi, installed to
-  # ~/.config/rofi/themes by rofi/default.nix — rofi resolves the bare name
-  # against that dir). Overridable via env for dev/tests.
-  settings-menu = pkgs.writeShellScriptBin "global-settings" ''
-    export GLOBAL_SETTINGS_ROFI_THEME="''${GLOBAL_SETTINGS_ROFI_THEME:-settings}"
-    exec ${lib.getExe settingsMenu} "$@"
-  '';
-in
 {
-  home.packages = [ settings-menu ];
+  home.packages = [ settingsMenu ];
+
+  # programs.beamenu.plugins: the attribute name (`settings`, below) doubles
+  # as the manifest's `name` field — the module injects it at render time,
+  # so it is not a settable option here.
+  programs.beamenu.plugins.settings = {
+    title = "Settings";
+    keyword = "set";
+    commands = [
+      {
+        id = "edit";
+        title = "System Settings";
+        description = "Edit installer answers";
+        mode = "view";
+        ui = "rpc";
+        exec = [
+          "global-settings"
+          "serve"
+        ];
+      }
+    ];
+  };
 
   systemd.user.services.hyprpolkitagent = {
     Unit = {

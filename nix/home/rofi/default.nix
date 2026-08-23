@@ -1,23 +1,23 @@
-# Rofi is no longer a user-facing launcher — the app launcher, power menu
-# and file browser all moved to HyprTile (nix/home/hyprtile.nix, SUPER+D /
-# SUPER+SHIFT+E) or Nautilus (SUPER+SHIFT+F) in the HyprTile conversion.
-# What remains here is rofi as a RENDERING DEPENDENCY of the settings menu:
-# rust/settings-global shells out to `rofi -dmenu` (nix/home/settings-menu.nix
-# points it at settings.rasi via GLOBAL_SETTINGS_ROFI_THEME), so the binary
-# must stay on PATH. nixpkgs' rofi is 2.x, which merged the rofi-wayland fork
-# upstream, so no override is needed for Wayland support.
+# Rofi is retired as a UI beamenu built for: the app launcher, power menu,
+# file browser and (as of the beamenu-canvas migration) the settings menu
+# are all beamenu (nix/home/beamenu.nix, SUPER+D / SUPER+SHIFT+E /
+# SUPER+comma) or Nautilus (SUPER+SHIFT+F). `settings.rasi` (the old
+# settings-menu theme) is gone along with the rofi UI it themed.
 #
-# tokyonight.rasi is kept only as the TEMPLATE wallpaper-tui's tint engine
-# reads (rust/wallpaper-tui/src/tint.rs substitutes accent vars into it to
-# write ~/.local/state/wallpaper-tui/tint/rofi.rasi).
-{ pkgs, ... }:
+# `programs.rofi.enable` stays regardless: grepping before dropping it turned
+# up nix/home/dunst.nix:65 (`dmenu = "rofi -dmenu -p dunst"`, dunst's
+# right-click context menu), an independent runtime consumer of the `rofi`
+# binary that has nothing to do with settings-global. Dropping this would
+# silently break that dunst action.
+#
+# tokyonight.rasi is kept installed for a second, unrelated reason:
+# wallpaper-tui's tint engine reads it at runtime as a source template —
+# TintCtx::rofi_base points at $XDG_CONFIG_HOME/rofi/themes/tokyonight.rasi
+# (rust/wallpaper-tui/src/tint.rs) and substitutes the live accent/
+# selected-bg into it to write ~/.local/state/wallpaper-tui/tint/rofi.rasi.
+{ ... }:
 {
   programs.rofi.enable = true;
 
-  xdg.configFile = {
-    "rofi/themes/tokyonight.rasi".source = ./tokyonight.rasi;
-    # Settings-menu list theme — resolved by name via the
-    # GLOBAL_SETTINGS_ROFI_THEME=settings wrapper env in settings-menu.nix.
-    "rofi/themes/settings.rasi".source = ./settings.rasi;
-  };
+  xdg.configFile."rofi/themes/tokyonight.rasi".source = ./tokyonight.rasi;
 }
