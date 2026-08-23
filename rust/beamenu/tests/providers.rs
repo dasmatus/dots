@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use beamenu::config::Config;
+use beamenu::index::AppCache;
 use beamenu::item::Action;
 use beamenu::providers::apps::{clean_exec, parse_entry, scan};
 use beamenu::providers::clipboard::{load, parse_log, preview, relative_age, Entry};
@@ -18,6 +19,7 @@ fn ctx(dir: &Path) -> Ctx {
         config: Config::default(),
         config_dir: dir.to_path_buf(),
         state_dir: dir.to_path_buf(),
+        apps: AppCache::default(),
     }
 }
 
@@ -317,6 +319,7 @@ fn system_commands_carry_no_category_accessory() {
         config: Config::default(),
         config_dir: PathBuf::new(),
         state_dir: PathBuf::new(),
+        apps: AppCache::default(),
     };
     let items = System.query(&ctx, "");
     assert!(!items.is_empty(), "the command list is never empty");

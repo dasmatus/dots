@@ -216,15 +216,12 @@ impl Provider for Apps {
     }
 
     fn query(&self, ctx: &Ctx, _query: &str) -> Vec<Item> {
-        let dirs = data_dirs();
-        scan(&dirs)
+        ctx.apps
+            .entries()
             .into_iter()
             .map(|(id, entry)| {
                 let exec = clean_exec(&entry.exec);
-                let icon = entry
-                    .icon
-                    .as_deref()
-                    .and_then(|name| resolve_icon(name, &dirs));
+                let icon = entry.icon.as_deref().and_then(|name| ctx.apps.icon(name));
                 let mut item = Item::new(
                     format!("apps:{id}"),
                     entry.name,

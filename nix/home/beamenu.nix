@@ -83,6 +83,7 @@ let
     terminal = cfg.terminal;
     file_manager = cfg.fileManager;
     disabled = cfg.disabledProviders;
+    clipboard_history = cfg.clipboardHistory;
   };
 
   # Screen recording, replacing hyprtile-screener. wl-screenrec has no daemon
@@ -205,6 +206,10 @@ in
         Run the clipboard-history watcher. Wayland offers no way to poll the
         clipboard, so history needs a long-lived process holding a data offer;
         without this the `c ` provider has nothing to show.
+
+        This is now a thread of the launcher daemon rather than a unit of its
+        own, so the switch travels in `config.json` — turning it off no longer
+        removes a service, it stops the daemon from starting that thread.
       '';
     };
 
@@ -578,16 +583,38 @@ in
     home.file.".config/beamenu/scripts/.keep".text = "";
     home.file.".config/beamenu/plugins/.keep".text = "";
 
-    systemd.user.services.beamenu-clipboard = lib.mkIf cfg.clipboardHistory {
+    # One resident process now, not one per keypress. It holds the desktop
+    # entry index warm, owns the launcher's Wayland connection, exports
+    # dev.dots.Beamenu1 on the session bus, and runs the clipboard watcher
+    # that used to be a unit of its own.
+    #
+    # Unconditional where the watcher unit was gated on clipboardHistory: the
+    # daemon is wanted whether or not history is on, so that switch moved into
+    # config.json where the daemon reads it.
+    #
+    # Type=dbus rather than simple, because the well-known name appearing IS
+    # the readiness signal. Anything ordered after this unit can then rely on
+    # the launcher actually answering rather than merely having been exec'd,
+    # which no private socket could tell systemd.
+    systemd.user.services.beamenu = {
       Unit = {
-        Description = "beamenu clipboard history watcher";
+        Description = "beamenu launcher daemon";
         PartOf = [ "graphical-session.target" ];
         After = [ "graphical-session.target" ];
-        # wl-paste needs a Wayland display; without one the unit would
-        # restart-loop for the whole session.
+        # Both the panel and wl-paste need a Wayland display; without one the
+        # unit would restart-loop for the whole session.
         ConditionEnvironment = [ "WAYLAND_DISPLAY" ];
+        # Most of config.json is re-read before every show, so the daemon
+        # picks up a switch on its own. clipboardHistory is the exception:
+        # it decides whether a thread gets spawned at startup, and a running
+        # daemon can no more grow that thread than drop it. Naming the file
+        # here puts its hash in the unit, so a switch that changes it
+        # restarts the daemon instead of leaving the toggle half-applied.
+        X-Restart-Triggers = [ config.xdg.configFile."beamenu/config.json".source ];
       };
       Service = {
+        Type = "dbus";
+        BusName = "dev.dots.Beamenu";
         ExecStart = "${lib.getExe beamenuPkg} --daemon";
         Restart = "on-failure";
         RestartSec = 3;

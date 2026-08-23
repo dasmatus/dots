@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use beamenu::config::Config;
+use beamenu::index::AppCache;
 use beamenu::item::Action;
 use beamenu::providers::plugins::{expand, load_all, Manifest, Mode, Ui};
 use beamenu::providers::{collect, Ctx, Provider, Trigger};
@@ -13,6 +14,7 @@ fn ctx(dir: &Path) -> Ctx {
         config: Config::default(),
         config_dir: dir.to_path_buf(),
         state_dir: dir.to_path_buf(),
+        apps: AppCache::default(),
     }
 }
 

@@ -164,11 +164,28 @@ readiness signal a private socket could not give us.
 
 Known risk, spiked first: repeated `bm_menu_new`/free cycles in one
 process (renderer registry + Wayland globals in patched bemenu were only
-ever exercised once per process). Verification is an open/close soak under
-nested headless Hyprland (per the established headless-testing practice —
-never on the live session). If the C side leaks or wedges across cycles,
-the fix is patch 07 in `nix/patches/beamenu/`, with a driver test beside
-`pills_scroll_test.cpp`.
+ever exercised once per process). Verified by soak under nested headless
+Hyprland, per the established headless-testing practice — never on the
+live session.
+
+Outcome: the create/free path itself is clean (300 cycles, 1500
+`set_items` calls, RSS flat). But the soak could not call
+`bm_menu_render`, because `pump` reaches it only on the far side of a
+blocking key poll — so it proved lifecycle safety and nothing about
+drawing. The end-to-end run found what it had missed: **3444 kB leaked
+per rendered show**, dead flat and linear across twelve cycles.
+
+Cause: `create_buffer` mmaps the shm region and hands the pointer to
+cairo, but `struct buffer` never recorded it, so `destroy_buffer` could
+not `munmap` and did not. Upstream never had to care — bemenu draws one
+window and exits. Fixed by `nix/patches/beamenu/07-unmap-shm-buffers.patch`,
+which stores the pointer and length and unmaps after the cairo surface is
+gone. Re-measured: 26640 kB after the first show, 26656 kB after twelve.
+
+The lesson generalises past this bug. A soak that cannot exercise the
+work the daemon actually does is not evidence about the daemon; when a
+spike has to skip the expensive path, its verdict covers only what it
+ran, and the real check is the end-to-end one.
 
 Tests: `rust/beamenu/tests/` for mtime revalidation decision logic and for
 request handling driven directly against the interface type, no bus
