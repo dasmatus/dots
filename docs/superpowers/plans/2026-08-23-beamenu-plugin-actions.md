@@ -472,7 +472,7 @@ after `exec`:
 - [ ] **Step 2: Eval-check the module.** From the repo root:
 
 ```bash
-host=$(nix eval --impure .#nixosConfigurations --apply 'c: builtins.head (builtins.attrNames c)' --raw)
+host=tokyonight   # named, not discovered: the first attr is live-iso, which has no Home Manager
 nix eval --impure ".#nixosConfigurations.$host.config.system.build.toplevel.drvPath" > /dev/null
 ```
 
@@ -595,7 +595,7 @@ In `random_wp.nix`'s config block (the script name must match the
 render-check the merged manifest:
 
 ```bash
-user=$(nix eval --impure ".#nixosConfigurations.$host.config.home-manager.users" --apply 'u: builtins.head (builtins.attrNames u)' --raw)
+user=matus
 nix eval --impure --raw ".#nixosConfigurations.$host.config.home-manager.users.$user.xdg.configFile.\"beamenu/plugins/wallpaper.json\".text" | nix run nixpkgs#jq -- .
 ```
 

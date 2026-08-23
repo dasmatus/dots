@@ -1322,9 +1322,9 @@ provider, say so in your report so its description can be revisited.
 
 ```bash
 cd /home/matus/Dokumente/codeberg/personal/dots
-host=$(nix eval --impure .#nixosConfigurations --apply 'c: builtins.head (builtins.attrNames c)' --raw)
+host=tokyonight   # named, not discovered: the first attr is live-iso, which has no Home Manager
 nix eval --impure ".#nixosConfigurations.$host.config.system.build.toplevel.drvPath"
-user=$(nix eval --impure ".#nixosConfigurations.$host.config.home-manager.users" --apply 'u: builtins.head (builtins.attrNames u)' --raw)
+user=matus
 nix eval --impure ".#nixosConfigurations.$host.config.home-manager.users.$user.systemd.user.services" --apply 'builtins.attrNames'
 ```
 
