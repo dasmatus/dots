@@ -29,6 +29,7 @@ let
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
         beamenuPkg = inputs.self.packages.x86_64-linux.beamenu;
         beamenuCanvasPkg = inputs.self.packages.x86_64-linux.beamenu-canvas;
+        beamenuCalcPkg = inputs.self.packages.x86_64-linux.beamenu-calc;
         claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;
       };
       modules = [

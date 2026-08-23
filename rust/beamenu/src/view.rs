@@ -43,6 +43,15 @@ pub struct BmItem {
 //
 // Verified against bemenu 0.6.23 plus nix/patches/beamenu.
 
+/// Passed to [`Menu::set_pills`] as the active index to mean no pill is
+/// filtering; mirrors `BM_PILL_NONE` in `lib/bemenu.h`.
+///
+/// The bar still draws. The capsule naming the highlighted row's section takes
+/// the active fill instead of its outline, since no chosen capsule is left to
+/// confuse it with, which is what the bar should say while a search spans
+/// every section.
+pub const BM_PILL_NONE: u32 = u32::MAX;
+
 // enum bm_filter_mode
 const BM_FILTER_MODE_NONE: c_int = 2;
 

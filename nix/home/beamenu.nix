@@ -19,6 +19,7 @@
 {
   beamenuPkg,
   beamenuCanvasPkg,
+  beamenuCalcPkg,
   config,
   lib,
   pkgs,
@@ -378,12 +379,49 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # The scientific calculator, shipped as a plugin rather than as another
+    # built-in provider, so the plugin system has something real running
+    # through it: a manifest with a `view` command and `ui = "rpc"`, spawned
+    # into beamenu-canvas and driven over JSON-RPC.
+    #
+    # Titled "Scientific Calculator", not "Calculator": the built-in calc
+    # provider already answers to the latter, and two providers sharing a
+    # heading would put two identically-labelled capsules in the pill bar.
+    # They would still filter correctly, since pills are keyed by provider id,
+    # but nobody could tell them apart.
+    #
+    # `sci ` rather than `=`, which stays with the built-in provider. That one
+    # answers inline as you type; this one evaluates on submit, because
+    # form.submit is the only message the canvas ever sends back.
+    programs.beamenu.plugins.calc = {
+      title = "Scientific Calculator";
+      keyword = "sci";
+      commands = [
+        {
+          id = "eval";
+          title = "Scientific Calculator";
+          description = "Trigonometry, logarithms, constants, factorial, hex and binary";
+          mode = "view";
+          ui = "rpc";
+          exec = [
+            "beamenu-calc"
+            "--serve"
+            "{query}"
+          ];
+        }
+      ];
+    };
+
     home.packages = [
       beamenuPkg
       # The WebKitGTK sidecar `beamenu` spawns for a plugin's `view`
       # command (rust/beamenu-canvas) — a separate binary/process, so it
       # needs its own store path on PATH the same way beamenuPkg does.
       beamenuCanvasPkg
+      # The scientific calculator plugin's worker (rust/beamenu-calc). The
+      # manifest below names it by bare command, so it has to be on PATH for
+      # beamenu-canvas to spawn it.
+      beamenuCalcPkg
       recordToggle
       # Runtime dependencies of the providers and of dispatch. Each is reached
       # by name from Rust rather than by store path, because they are all

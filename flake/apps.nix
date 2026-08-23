@@ -19,6 +19,9 @@ let
     cd "$__dots_root"
   '';
 
+  # The patched libbemenu, for the crates and gates that link against it.
+  beamenuView = self.packages.${pkgs.stdenv.hostPlatform.system}.beamenu-view;
+
   # Build a LiveISO closure into result-iso. Plain (unsigned) — Secure Boot
   # was removed; the ISO boots through plain OVMF / firmware defaults. The
   # installed system uses systemd-boot + TPM2 auto-unlock (no UKI signing).
@@ -83,6 +86,55 @@ in
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../settings-global && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      # beamenu links the patched libbemenu, so its build.rs needs beamenu-view
+      # on PKG_CONFIG_PATH; without it build.rs falls back to a bare -lbemenu
+      # and the test binaries fail to link.
+      cd ../beamenu
+      PKG_CONFIG_PATH="${beamenuView}/lib/pkgconfig" \
+      LD_LIBRARY_PATH="${beamenuView}/lib" \
+        sh -c 'cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test'
+      cd ../beamenu-canvas && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd ../beamenu-calc && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+    '';
+  };
+
+  # Sanitizer gate for the one C++ translation unit 06-filter-pills.patch adds
+  # to bemenu: lib/renderers/pills.cpp, the pill bar's scroll geometry. It is
+  # pure arithmetic over a width array, which is what makes it worth testing on
+  # its own and what lets this run with no compositor.
+  #
+  # The driver lives in nix/patches/beamenu/tests/ rather than inside the patch
+  # so the series keeps one less hunk to rebase onto upstream bemenu. Applying
+  # the series here rather than reusing the beamenu-view derivation is
+  # deliberate too: this has to fail loudly when a patch stops applying.
+  beamenu-patch-test = mkShellApp "beamenu-patch-test" {
+    runtimeInputs = [
+      pkgs.clang
+      pkgs.patch
+    ];
+    text = ''
+      ${cdRepoRoot}
+      work="$(mktemp -d)"
+      trap 'rm -rf "$work"' EXIT
+
+      cp -r ${pkgs.bemenu.src} "$work/src"
+      chmod -R u+w "$work/src"
+      for p in nix/patches/beamenu/0*.patch; do
+        echo "applying $(basename "$p")"
+        patch -d "$work/src" -p1 -s < "$p"
+      done
+
+      clang++ -std=c++23 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+        -I"$work/src/lib" \
+        nix/patches/beamenu/tests/pills_scroll_test.cpp \
+        "$work/src/lib/renderers/pills.cpp" \
+        -o "$work/pills_scroll_test"
+
+      # The unit under test allocates nothing, so leak detection buys nothing
+      # here, and LeakSanitizer needs ptrace, which sandboxes tend to refuse.
+      ASAN_OPTIONS=detect_leaks=0 \
+      UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+        "$work/pills_scroll_test"
     '';
   };
 
