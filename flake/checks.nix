@@ -308,6 +308,9 @@ in
         "radius"
         "terminal"
         "file_manager"
+        "search_url"
+        "search_results"
+        "search_timeout_ms"
         "disabled"
       ];
       launcherTheme = [

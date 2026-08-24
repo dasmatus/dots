@@ -1,12 +1,16 @@
 //! beamenu's entry point.
 //!
-//! Four modes, and one rule that shapes them: whatever the daemon can do,
-//! this binary must still do on its own. A machine where the user never
-//! enabled the service, a session where it crashed, a login before the unit
-//! started — the keybind has to open a launcher in all of them. So
-//! `--command` and the no-argument launcher try the session bus first and
-//! fall back to doing the work in-process, and nothing here treats a missing
-//! daemon as an error.
+//! Four modes. With no arguments it opens the launcher, `--command` runs one
+//! system command directly, `--daemon` runs the resident daemon (launcher
+//! host, D-Bus interface and clipboard watcher), and `--status-daemon` runs
+//! the system-status poller in the foreground.
+//!
+//! One rule shapes the first two: whatever the daemon can do, this binary
+//! must still do on its own. A machine where the user never enabled the
+//! service, a session where it crashed, a login before the unit started —
+//! the keybind has to open a launcher in all of them. So `--command` and the
+//! no-argument launcher try the session bus first and fall back to doing the
+//! work in-process, and nothing here treats a missing daemon as an error.
 //!
 //! Exit codes matter because a keybind is the usual caller and has no
 //! terminal to read a message from: 0 for done, 1 for a real failure, 2 for a
@@ -42,6 +46,13 @@ struct Cli {
     /// watcher.
     #[arg(long)]
     daemon: bool,
+
+    /// Run the system-status poller in the foreground.
+    ///
+    /// Refreshes the readings the launcher cannot afford to take itself, into
+    /// a snapshot file the status provider reads.
+    #[arg(long)]
+    status_daemon: bool,
 }
 
 fn main() -> ExitCode {
@@ -72,6 +83,13 @@ fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
 
     if cli.daemon {
         daemon::serve()?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if cli.status_daemon {
+        let state = config::state_dir();
+        std::fs::create_dir_all(&state)?;
+        daemon::poll_status(&state)?;
         return Ok(ExitCode::SUCCESS);
     }
 

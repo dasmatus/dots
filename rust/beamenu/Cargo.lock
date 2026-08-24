@@ -206,12 +206,23 @@ name = "beamenu"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "beamenu-status",
  "clap",
  "pkg-config",
  "serde",
  "serde_json",
  "tempfile",
  "zbus",
+]
+
+[[package]]
+name = "beamenu-status"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

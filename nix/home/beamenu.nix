@@ -20,6 +20,7 @@
   beamenuPkg,
   beamenuCanvasPkg,
   beamenuCalcPkg,
+  beamenuStatusPkg,
   config,
   lib,
   pkgs,
@@ -82,6 +83,9 @@ let
     radius = cfg.radius;
     terminal = cfg.terminal;
     file_manager = cfg.fileManager;
+    search_url = cfg.searchUrl;
+    search_results = cfg.searchResults;
+    search_timeout_ms = cfg.searchTimeoutMs;
     disabled = cfg.disabledProviders;
     clipboard_history = cfg.clipboardHistory;
   };
@@ -189,6 +193,44 @@ in
         `xdg-open` resolves through the desktop's own `inode/directory`
         association, which is why it is the default rather than a specific
         file manager.
+      '';
+    };
+
+    searchUrl = lib.mkOption {
+      type = lib.types.str;
+      default = "http://127.0.0.1:8888";
+      description = ''
+        Base URL of the SearXNG instance the `s ` provider queries, matching
+        `services.searx.settings.server` in `nix/modules/searxng.nix`.
+
+        That module's own comment records why the URL is repeated at each
+        consumer rather than read from one place: the Home Manager side would
+        need `osConfig` coupling to reach it. This is one more repetition, but a
+        declared one — the launcher reads it from `config.json` instead of
+        compiling it in.
+      '';
+    };
+
+    searchResults = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 12;
+      description = ''
+        Most result rows shown for one web search. SearXNG returns far more
+        than fit on a panel, and scrolling past the first dozen is not what a
+        launcher is for.
+      '';
+    };
+
+    searchTimeoutMs = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 8000;
+      description = ''
+        How long to wait on SearXNG before showing a failure row instead.
+
+        Deliberately generous. This is paid once per search, on an explicit
+        Enter, never while typing — and a cold metasearch query measured around
+        three seconds while fanning out to upstream engines, so a tight timeout
+        would trade a slow search for no search.
       '';
     };
 
@@ -479,6 +521,35 @@ in
       ];
     };
 
+    # The live status dashboard. Every row the built-in status provider emits
+    # carries an "Open live dashboard" action pointing at this manifest, so it
+    # is reachable without ever typing the keyword.
+    #
+    # Keyworded anyway, and deliberately: an ambient plugin earns its own pill,
+    # and a second "Status" capsule beside the built-in provider's would be
+    # indistinguishable from it. The keyword keeps it out of the root list while
+    # leaving it addressable.
+    #
+    # `{query}` is the metric id the dashboard was opened from — the row it
+    # emphasises — not a search term.
+    programs.beamenu.plugins.status-dashboard = {
+      title = "System Dashboard";
+      keyword = "dash";
+      commands = [
+        {
+          id = "dashboard";
+          title = "System Dashboard";
+          description = "Live battery, memory, network, volume, disk and thermals";
+          mode = "view";
+          ui = "rpc";
+          exec = [
+            "beamenu-dashboard"
+            "{query}"
+          ];
+        }
+      ];
+    };
+
     # Within one plugin, command ids and action ids share a single namespace:
     # a `view` row hands beamenu-canvas an id, and the canvas resolves it by
     # searching the manifest's commands and then their actions, first match
@@ -551,6 +622,9 @@ in
       # manifest below names it by bare command, so it has to be on PATH for
       # beamenu-canvas to spawn it.
       beamenuCalcPkg
+      # The live status dashboard's worker (rust/beamenu-status), spawned the
+      # same way and named by bare command for the same reason.
+      beamenuStatusPkg
       recordToggle
       # Runtime dependencies of the providers and of dispatch. Each is reached
       # by name from Rust rather than by store path, because they are all
@@ -560,6 +634,13 @@ in
       pkgs.fd # the `f ` file provider
       pkgs.hyprshot # Screenshot commands, replacing hyprtile-shotter
       pkgs.wl-screenrec # screen recording, replacing hyprtile-screener
+      # What the status poller shells out to, taking over the readings waybar
+      # used to make. wireplumber and networkmanager are already in the system
+      # closure; naming them here is what puts `wpctl` and `nmcli` on the
+      # launcher's own PATH rather than relying on the session's.
+      pkgs.wireplumber # volume and microphone (wpctl)
+      pkgs.networkmanager # network and VPN (nmcli)
+      pkgs.coreutils # filesystem occupancy (df)
     ];
 
     xdg.configFile = {
@@ -616,6 +697,36 @@ in
         Type = "dbus";
         BusName = "dev.dots.Beamenu";
         ExecStart = "${lib.getExe beamenuPkg} --daemon";
+        Restart = "on-failure";
+        RestartSec = 3;
+      };
+      Install = {
+        WantedBy = [ "graphical-session.target" ];
+      };
+    };
+
+    # The readings the launcher cannot afford to take between keystrokes:
+    # volume, microphone, network, VPN, mail bridge and filesystem occupancy.
+    # Each costs a fork of around 20 ms, and five of those per typed character
+    # would be felt — so they are taken here on a timer and left in a snapshot
+    # the status provider reads for the price of one small file read.
+    #
+    # This is where waybar's `custom/network`, `custom/vpn` and
+    # `custom/protonmail-bridge` pills went. They polled at the same five
+    # seconds, so nothing got less current in the move; the shell scripts became
+    # Rust probes and the bar stopped being the only place to see the answer.
+    #
+    # No ConditionEnvironment, unlike the clipboard watcher above: none of these
+    # probes needs a Wayland display, and a snapshot that keeps refreshing
+    # outside a graphical session costs nothing.
+    systemd.user.services.beamenu-status = {
+      Unit = {
+        Description = "beamenu system status poller";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" ];
+      };
+      Service = {
+        ExecStart = "${lib.getExe beamenuPkg} --status-daemon";
         Restart = "on-failure";
         RestartSec = 3;
       };

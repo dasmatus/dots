@@ -1,4 +1,5 @@
-//! The resident daemon: bus name, UI host and clipboard watcher.
+//! The resident daemon: bus name, UI host and clipboard watcher, plus the
+//! system-status poller run as a systemd user service of its own.
 //!
 //! Wayland gives no way to poll the clipboard. A selection belongs to the
 //! client that owns it, and reading it needs an active data offer, so history
@@ -9,7 +10,14 @@
 //! process that hosts the launcher and the D-Bus interface — see `serve`'s
 //! own docs for why the split falls where it does.
 //!
-//! Run as a systemd user service by `nix/home/beamenu.nix`.
+//! [`poll_status`] is the status snapshot. Its reason is the opposite: the
+//! readings are perfectly pollable, but each costs a fork, and the launcher
+//! cannot afford five of those between keystrokes. Doing it here on a timer
+//! moves the cost off the typing path without making the reading any less
+//! current than the bar it replaces. It stays its own service rather than a
+//! fourth thread of `serve`, because unlike the clipboard watcher it needs no
+//! Wayland display and nothing about it depends on the launcher being
+//! resident.
 
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -221,4 +229,49 @@ pub fn serve() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// How often the fork-requiring readings are refreshed.
+///
+/// Five seconds, which is exactly what waybar's `custom/network`,
+/// `custom/vpn` and `custom/protonmail-bridge` modules polled at. Moving those
+/// readings into the launcher should not make them any less current than the
+/// bar they came from.
+const STATUS_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Ticks between disk probes.
+///
+/// waybar polled its two `disk` modules every 30 seconds; a filesystem does not
+/// fill fast enough to justify a `df` fork every five.
+const DISK_EVERY: u32 = 6;
+
+/// Refresh the status snapshot until the service is stopped.
+///
+/// Never returns in normal operation. A probe that fails contributes an absent
+/// reading rather than ending the loop, since `wpctl` being briefly unavailable
+/// during a PipeWire restart is not a reason to stop reporting the network.
+///
+/// # Errors
+/// Fails only when the snapshot cannot be written at all — an unwritable state
+/// directory, which will not fix itself by looping.
+pub fn poll_status(state_dir: &Path) -> Result<()> {
+    let path = beamenu_status::cache::path(state_dir);
+    let mut tick: u32 = 0;
+    // Carried across ticks so the disk rows do not blink out on the five ticks
+    // in six that skip the `df` fork.
+    let mut disks = Vec::new();
+
+    loop {
+        let mut snapshot = beamenu_status::probe::snapshot_without_disks();
+        if tick.is_multiple_of(DISK_EVERY) {
+            disks = beamenu_status::probe::disks();
+        }
+        snapshot.disks.clone_from(&disks);
+
+        beamenu_status::cache::store(&path, &snapshot)
+            .with_context(|| format!("could not write {}", path.display()))?;
+
+        tick = tick.wrapping_add(1);
+        std::thread::sleep(STATUS_INTERVAL);
+    }
 }

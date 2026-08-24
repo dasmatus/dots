@@ -43,7 +43,28 @@ jobs:
     runs-on: codeberg-medium
     steps:
       - uses: actions/checkout@v4
-      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      # nix/settings.nix is a tracked symlink to /var/lib/dots/settings.nix
+      # (cb4fe5e), written by the first-login dots-clone service on an
+      # installed target. A bare CI checkout has no such target, so pure
+      # eval dies importing it ("access to absolute path ... is forbidden
+      # in pure evaluation mode") for every flake output that touches
+      # nixosConfigurations. Materialize the same install-answer defaults
+      # the pre-cb4fe5e committed file used to carry, so this stays a real
+      # in-tree file for the run — same fix `--impure` gives locally on an
+      # installed machine, without weakening the pure-eval check here.
+      - name: Materialize nix/settings.nix defaults for a bare checkout
+        run: |
+          rm -f nix/settings.nix
+          cat > nix/settings.nix <<'EOF'
+          {
+            username = "ci";
+            hostname = "tokyonight";
+            disks = [ "/dev/nvme0n1" ];
+            swapSize = "32G";
+            gitName = "CI Runner";
+            gitEmail = "ci@localhost.invalid";
+          }
+          EOF
       # Determinate Nix's determinate-nixd runs automatic background GC by
       # default (targets 30 GB / 5-20% free disk, "urgent" mode below 5%), and
       # its deletion loop never re-checks GC temp roots added while a
@@ -54,19 +75,61 @@ jobs:
       # — a racing GC pass deletes those freshly instantiated .drv files and
       # the check dies with "error: path '…-aipage-944064e.drv' is not valid",
       # cascading to every dependent check. On the hosted runner's small disk
-      # that race fires on ~every run. Disable the collector for the job; the
-      # df/pgrep lines keep the step useful as a diagnostic if it ever stops
-      # being effective. try-restart is a no-op where determinate-nixd isn't
-      # systemd-managed.
-      - name: Disable determinate-nixd background GC (nix-src#395 race)
+      # that race fires on ~every run.
+      #
+      # A post-install "stop the daemon" step (tried 2026-08-24, three runs)
+      # still lost the race every time: determinate-nixd's very first boot,
+      # during nix-installer-action below, can kick off its initial GC pass
+      # before any later step gets a chance to intervene. Writing this config
+      # *before* Nix is even installed means the daemon never starts with GC
+      # enabled in the first place — no window for an initial pass to exist.
+      - name: Pre-seed determinate-nixd config with GC disabled
         run: |
-          df -h /nix
-          pgrep -a -f determinate-nixd || true
           sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
           echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
-          sudo systemctl try-restart determinate-nixd 2>/dev/null || true
+      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      # Second line of defense in case the pre-seeded config above doesn't
+      # stick — confirmed 2026-08-24 that config.json correctly reads
+      # {"garbageCollector":{"strategy":"disabled"}} both right after
+      # install and after a manual re-apply, so a wrong/reset config was
+      # never the problem. The systemd-based stop+mask from three earlier
+      # attempts was chasing a daemon that was never systemd-managed at
+      # all: `systemctl stop` on codeberg-medium fails outright with
+      # "System has not been booted with systemd as init system (PID 1).
+      # Can't operate." — determinate-nixd runs as a bare background
+      # process. A plain `pkill` (SIGTERM, the default) also didn't stick:
+      # the same PID was still alive 2s later, which points at it ignoring
+      # or deferring SIGTERM — plausible if it was already mid-GC-sweep at
+      # that point, the same sweep this whole step exists to prevent. Kill
+      # it with SIGKILL, which cannot be deferred or ignored, and loop
+      # until `pgrep` actually confirms it's gone rather than trusting a
+      # single attempt plus a fixed sleep. The pattern matches
+      # `determinate-nixd daemon` specifically, not the bare substring
+      # "determinate-nixd": nix-daemon's own cmdline embeds that string via
+      # its `--option json-log-path .../determinate-nixd-logger.socket`
+      # argument.
+      - name: Stop determinate-nixd (nix-src#395 race)
+        run: |
+          df -h /nix
+          echo "--- config.json after install ---"
+          cat /etc/determinate/config.json 2>&1 || echo "(missing)"
+          echo "--- re-applying GC-disabled config in case the installer reset it ---"
+          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
+            || cp /tmp/determinate-config.json /etc/determinate/config.json
+          cat /etc/determinate/config.json
+          echo "--- SIGKILL retry loop, verified ---"
+          for attempt in 1 2 3 4 5; do
+            if ! pgrep -f 'determinate-nixd daemon' >/dev/null; then
+              echo "determinate-nixd confirmed down after $((attempt - 1)) SIGKILL attempts"
+              break
+            fi
+            pgrep -a -f 'determinate-nixd daemon'
+            sudo pkill -9 -f 'determinate-nixd daemon' 2>&1 || true
+            sleep 2
+          done
+          pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
       # The cheap non-VM checks are worth actually building. Build ALL the
@@ -121,20 +184,40 @@ jobs:
         check: [iso-boot, limine-install-boot]
     steps:
       - uses: actions/checkout@v4
-      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
       # Same determinate-nixd background-GC race as in the nix-eval lane
       # (DeterminateSystems/nix-src#395) — this job realises the same IFD
       # drvs plus a far larger closure, so its exposure window is worse.
-      # See the nix-eval step for the full rationale.
-      - name: Disable determinate-nixd background GC (nix-src#395 race)
+      # See the nix-eval job for the full rationale, incl. why this is
+      # pre-seeded *before* nix-installer-action rather than stopped after.
+      - name: Pre-seed determinate-nixd config with GC disabled
         run: |
-          df -h /nix
-          pgrep -a -f determinate-nixd || true
           sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
           echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
-          sudo systemctl try-restart determinate-nixd 2>/dev/null || true
+      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      # See the nix-eval job for the full rationale: no systemd, and a
+      # single SIGTERM pkill didn't stick either — SIGKILL in a loop, verified.
+      - name: Stop determinate-nixd (nix-src#395 race)
+        run: |
+          df -h /nix
+          echo "--- config.json after install ---"
+          cat /etc/determinate/config.json 2>&1 || echo "(missing)"
+          echo "--- re-applying GC-disabled config in case the installer reset it ---"
+          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
+            || cp /tmp/determinate-config.json /etc/determinate/config.json
+          cat /etc/determinate/config.json
+          echo "--- SIGKILL retry loop, verified ---"
+          for attempt in 1 2 3 4 5; do
+            if ! pgrep -f 'determinate-nixd daemon' >/dev/null; then
+              echo "determinate-nixd confirmed down after $((attempt - 1)) SIGKILL attempts"
+              break
+            fi
+            pgrep -a -f 'determinate-nixd daemon'
+            sudo pkill -9 -f 'determinate-nixd daemon' 2>&1 || true
+            sleep 2
+          done
+          pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
       # --option system-features is still needed: even with /dev/kvm present,
       # Nix won't schedule nixos-test derivations unless kvm/nixos-test are
       # declared on the (per-invocation) system-features.

@@ -144,6 +144,6 @@ pub fn dispatch(action: &Action, terminal: &str) -> Result<()> {
         }
         // Frame pushes are handled by the loop, which owns the stack; reaching
         // here would mean the loop failed to intercept one.
-        Action::Push { .. } | Action::None => Ok(()),
+        Action::Push { .. } | Action::Present { .. } | Action::None => Ok(()),
     }
 }

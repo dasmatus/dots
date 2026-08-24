@@ -219,6 +219,10 @@ pub fn apply_wallpaper<B: AwwwBackend>(
         return false;
     }
 
+    // `.all()` short-circuits and would skip `backend.run` for groups after
+    // the first failure, contradicting the "partial failure still leaves the
+    // successful outputs changed" contract above.
+    #[allow(clippy::unnecessary_fold)]
     groups
         .iter()
         .map(|group| backend.run(&awww_args(group, transition)))

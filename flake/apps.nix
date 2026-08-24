@@ -55,7 +55,7 @@ in
       ${cdRepoRoot}
       echo "tokyonight-dots — nix run .#<app>"
       echo
-      echo "  nix-lint               flake eval + abstracttui build+test + cargo fmt/clippy/test"
+      echo "  nix-lint               flake eval + cargo fmt/clippy/test for every crate"
       echo "  iso                    build the LiveISO (plain, unsigned)"
       echo "  iso-full               same, with intel+amd system closures embedded"
       echo "  nix-smoke              NixOS VM test: boot the LiveISO under OVMF+TPM2"
@@ -65,12 +65,9 @@ in
     '';
   };
 
-  # Static gate: flake eval (--no-build), the Haskell compat-layer build+test
-  # (nix build .#abstracttui — callCabal2nix defaults doCheck=true, so the
-  # checkPhase runs all 8 abstracttui test suites purely off the nix-provided
-  # deps; no Haskell toolchain needs to be in runtimeInputs), then
-  # fmt/clippy/test for every Rust crate in the repo. Cargo is pinned in
-  # runtimeInputs so the dev shell need not be on.
+  # Static gate: flake eval (--no-build), then fmt/clippy/test for every Rust
+  # crate in the repo. Cargo is pinned in runtimeInputs so the dev shell need
+  # not be on.
   nix-lint = mkShellApp "nix-lint" {
     runtimeInputs = [
       pkgs.cargo
@@ -81,7 +78,6 @@ in
     text = ''
       ${cdRepoRoot}
       nix flake check --no-build
-      nix build .#abstracttui
       cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
@@ -95,6 +91,7 @@ in
         sh -c 'cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test'
       cd ../beamenu-canvas && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../beamenu-calc && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd ../beamenu-status && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
     '';
   };
 

@@ -1,0 +1,24 @@
+[package]
+name = "beamenu-status"
+version = "0.1.0"
+edition = "2021"
+description = "System status readouts for the beamenu launcher, and the live dashboard worker"
+license = "AGPL-3.0-only"
+
+[lib]
+name = "beamenu_status"
+path = "src/lib.rs"
+
+[[bin]]
+name = "beamenu-dashboard"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+strip = true

@@ -99,19 +99,25 @@ self: {
   });
 
   # beamenu — the launcher itself: links beamenu-view's libbemenu, owns the
-  # event loop, and implements the provider set (apps, system, calculator,
-  # emoji, clipboard, snippets, quicklinks, windows, files, script commands).
+  # event loop, and implements the provider set (apps, system, status,
+  # calculator, emoji, clipboard, snippets, quicklinks, windows, files, script
+  # commands, web search).
   # nix/home/beamenu.nix wraps the store path and wires the keybinds.
   beamenu = pkgs.rustPlatform.buildRustPackage {
     pname = "beamenu";
     version = "0.1.0";
-    # Widened to rust/ (not the crate dir) so rust/palette.json — the single
-    # source of truth for the system palette — lands in the store src too:
-    # src/palette.rs pulls it in via include_str!("../../palette.json").
+    # Widened to rust/ (not the crate dir) for two reasons. rust/palette.json —
+    # the single source of truth for the system palette — must land in the
+    # store src because src/palette.rs pulls it in via
+    # include_str!("../../palette.json"). And rust/beamenu-status must too,
+    # because the launcher takes it as a path dependency: the status provider
+    # and `--status-daemon` share their probes with the dashboard worker rather
+    # than each carrying a copy.
     src = pkgs.lib.fileset.toSource {
       root = ../rust;
       fileset = pkgs.lib.fileset.unions [
         ../rust/beamenu
+        ../rust/beamenu-status
         ../rust/palette.json
       ];
     };
@@ -139,6 +145,25 @@ self: {
     src = ../rust/beamenu-calc;
     cargoLock.lockFile = ../rust/beamenu-calc/Cargo.lock;
     meta.mainProgram = "beamenu-calc";
+  };
+
+  # beamenu-status — the system-status readouts, and the live dashboard worker
+  # that renders them.
+  #
+  # A library and a binary in one crate on purpose. `beamenu` depends on the
+  # library for its status provider and for `--status-daemon`, and the
+  # `beamenu-dashboard` binary here is the plugin worker beamenu-canvas spawns.
+  # Splitting them would mean two crates parsing `wpctl` and `nmcli` output, and
+  # the two disagreeing is exactly the bug that would never be noticed.
+  #
+  # No pkg-config and no GTK: the probes read /proc, /sys and four subprocesses,
+  # and the worker only writes component trees for the canvas to render.
+  beamenu-status = pkgs.rustPlatform.buildRustPackage {
+    pname = "beamenu-status";
+    version = "0.1.0";
+    src = ../rust/beamenu-status;
+    cargoLock.lockFile = ../rust/beamenu-status/Cargo.lock;
+    meta.mainProgram = "beamenu-dashboard";
   };
 
   # beamenu-canvas — the WebKitGTK sidecar beamenu spawns for a plugin's

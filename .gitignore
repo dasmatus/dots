@@ -45,3 +45,4 @@ nix/secrets.nix
 /core.[0-9]*
 .superpowers/
 rust/beamenu-calc/target/
+rust/beamenu-status/target/
