@@ -172,14 +172,64 @@ in
     # Wallpaper plugin identity lives in beamenu.nix, which random_wp.nix
     # also contributes to; this is the interactive-picker command plus its
     # Ctrl+K alternates.
+    # No desktop entry ships with the crate, so the picker was previously
+    # reachable only through the launcher plugin below or a shell. This puts
+    # it in the app list and the app grid, and its `actions` become the row's
+    # indented children and its Ctrl+K entries — see the same reasoning in
+    # nix/home/hyprmon.nix, including why `terminal` stays false here.
+    xdg.desktopEntries.wallpaper-tui = {
+      name = "Wallpapers";
+      genericName = "Wallpaper Picker";
+      comment = "Pick a wallpaper and re-tint the desktop from it";
+      icon = "${wallpaper-tui-bin}/share/icons/hicolor/scalable/apps/wallpaper-tui.svg";
+      exec = "${lib.getExe config.programs.kitty.package} -e ${lib.getExe wallpaper-tui}";
+      terminal = false;
+      categories = [
+        "Settings"
+        "DesktopSettings"
+      ];
+      settings.Keywords = "wallpaper;background;theme;accent;tint;";
+      # `Actions=` is emitted in attribute-name order, and that order is what
+      # the launcher draws, so the ids are named to sort the way the menu
+      # should read: restore is the everyday one, rebuilding thumbnails is
+      # housekeeping.
+      actions = {
+        restore = {
+          name = "Restore Last Wallpaper";
+          exec = "${lib.getExe wallpaper-tui} --restore";
+        };
+        thumbnails = {
+          name = "Rebuild Preview Cache";
+          exec = "${lib.getExe wallpaper-tui} --cache-previews";
+        };
+      };
+    };
+
+    # What the desktop entry cannot do: render the live state. `awww query`
+    # prints the image currently on each output, which is exactly the thing
+    # you open a wallpaper tool to check.
+    #
+    # The picker stays `terminal` and stays an action: it is a full-screen
+    # ratatui program, and the canvas gives its child three pipes rather than
+    # a pty, so a TUI cannot run inside the pane at all (its alt-screen escape
+    # would even leak `1049h` into the log as literal text).
     programs.beamenu.plugins.wallpaper.commands = [
       {
-        id = "pick";
-        title = "Pick Wallpaper";
-        description = "Interactive picker (terminal)";
-        mode = "terminal";
-        exec = [ "wallpaper-tui" ];
+        id = "status";
+        title = "Wallpaper Status";
+        description = "The image on each output right now";
+        mode = "view";
+        exec = [
+          "awww"
+          "query"
+        ];
         actions = [
+          {
+            id = "pick";
+            title = "Pick Wallpaper";
+            mode = "terminal";
+            exec = [ "wallpaper-tui" ];
+          }
           {
             id = "restore";
             title = "Restore Last Wallpaper";
@@ -187,15 +237,6 @@ in
             exec = [
               "wallpaper-tui"
               "--restore"
-            ];
-          }
-          {
-            id = "cache-previews";
-            title = "Rebuild Preview Cache";
-            mode = "exec";
-            exec = [
-              "wallpaper-tui"
-              "--cache-previews"
             ];
           }
         ];

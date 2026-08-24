@@ -110,31 +110,86 @@ in
   # the daemon.
   home.packages = [ hyprmon ];
 
+  # hyprmon ships no desktop entry of its own, so without this it is reachable
+  # only by typing its name in a shell — the launcher's `apps` provider scans
+  # share/applications and nothing else. Declaring one here puts it in the
+  # launcher and the app grid alike, and its `actions` become the row's
+  # Ctrl+K entries and its indented child rows (rust/beamenu/src/providers/
+  # apps.rs reads `[Desktop Action …]` groups).
+  #
+  # `terminal = false` with the terminal spelled into `exec` rather than
+  # `terminal = true`: Terminal is an entry-level key, so it would apply to
+  # the actions too, and `apply` would flash a terminal it has no use for.
+  xdg.desktopEntries.hyprmon = {
+    name = "Monitors";
+    genericName = "Display Configuration";
+    comment = "Arrange outputs and apply the monitor layout";
+    # Named by store path rather than by the bare `hyprmon` theme name: the
+    # installed icon themes here ship nothing under `apps/` for a launcher to
+    # resolve a name against, and an absolute path is what both beamenu's
+    # `resolve_icon` and the app grid accept without a lookup.
+    icon = "${hyprmon}/share/icons/hicolor/scalable/apps/hyprmon.svg";
+    exec = "${lib.getExe config.programs.kitty.package} -e hyprmon override";
+    terminal = false;
+    categories = [
+      "Settings"
+      "HardwareSettings"
+    ];
+    settings.Keywords = "monitor;display;screen;output;resolution;";
+    actions = {
+      apply = {
+        name = "Apply Layout";
+        exec = "hyprmon apply";
+      };
+      restart-watcher = {
+        name = "Restart Hotplug Watcher";
+        exec = "systemctl --user restart hyprmon.service";
+      };
+    };
+  };
+
   # The monitors plugin: single-owner (only this module touches it), so the
   # identity lives here rather than in beamenu.nix's shared-identity block
   # (mirrors settings-menu.nix's whole-plugin-in-owning-module pattern).
+  #
+  # Ambient rather than keyworded now. The one-shot operations moved to the
+  # desktop entry's actions above, which leaves this plugin doing the one
+  # thing an entry cannot: rendering the live layout in the canvas. A row
+  # that takes no argument belongs in the root list, where it is found by
+  # typing its name — a keyword would only be one more prefix to remember.
   programs.beamenu.plugins.monitors = {
     title = "Monitors";
-    keyword = "mon";
     commands = [
       {
-        id = "apply";
-        title = "Apply Monitor Layout";
-        description = "Re-run hyprmon's auto-detection";
-        mode = "exec";
+        id = "layout";
+        title = "Monitor Layout";
+        description = "What Hyprland currently drives, per output";
+        # Read-only: `hyprctl monitors` reports, `hyprmon apply` is what
+        # changes anything, and that is an action rather than the default.
+        mode = "view";
         exec = [
-          "hyprmon"
-          "apply"
+          "hyprctl"
+          "monitors"
         ];
-      }
-      {
-        id = "override";
-        title = "Monitor Override Editor";
-        description = "Edit per-monitor overrides (terminal)";
-        mode = "terminal";
-        exec = [
-          "hyprmon"
-          "override"
+        actions = [
+          {
+            id = "apply";
+            title = "Apply Monitor Layout";
+            mode = "exec";
+            exec = [
+              "hyprmon"
+              "apply"
+            ];
+          }
+          {
+            id = "override";
+            title = "Monitor Override Editor";
+            mode = "terminal";
+            exec = [
+              "hyprmon"
+              "override"
+            ];
+          }
         ];
       }
     ];

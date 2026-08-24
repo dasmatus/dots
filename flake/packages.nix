@@ -59,44 +59,46 @@ self: {
   # (lib/renderers/pills.cpp, the bar's scroll geometry), which is why CXXFLAGS
   # matter here at all; bemenu's GNUmakefile pins it to -std=c++23, the newest
   # standard clang 21 implements in full rather than in part.
-  beamenu-view = (pkgs.bemenu.override {
-    stdenv = pkgs.overrideCC pkgs.clangStdenv (
-      pkgs.clangStdenv.cc.override { bintools = pkgs.llvmPackages.bintools; }
-    );
-  }).overrideAttrs (old: {
-    pname = "beamenu-view";
-    patches = (old.patches or [ ]) ++ [
-      ../nix/patches/beamenu/01-item-richtext.patch
-      ../nix/patches/beamenu/02-cairo-raycast-rows.patch
-      ../nix/patches/beamenu/03-panel-chrome.patch
-      ../nix/patches/beamenu/04-client-ranking.patch
-      ../nix/patches/beamenu/05-rich-panel-body.patch
-      ../nix/patches/beamenu/06-filter-pills.patch
-      ../nix/patches/beamenu/07-unmap-shm-buffers.patch
-    ];
-    buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
-    # lld arrives as the stdenv's *wrapped* bintools (above), never as
-    # -fuse-ld=lld. That flag makes clang invoke ld.lld directly and step around
-    # nixpkgs' bintools-wrapper, which is what injects a -rpath per buildInput.
-    # The package still builds and installs; the renderer plugins then carry a
-    # RUNPATH holding only bemenu's own lib dir, so every dlopen() fails at
-    # runtime with "libcairo.so.2: cannot open shared object file" and the
-    # launcher comes up with no renderer at all. Nothing in the build catches
-    # it; compare `readelf -d` on a renderer .so against stock nixpkgs bemenu.
-    #
-    # makeFlagsArray, not makeFlags: the value contains spaces, and makeFlags
-    # entries are word-split before they reach make.
-    preBuild = (old.preBuild or "") + ''
-      makeFlagsArray+=("LDFLAGS=-flto=thin -fvisibility=hidden")
-    '';
-    env = (old.env or { }) // {
-      NIX_CFLAGS_COMPILE = "-flto=thin -fvisibility=hidden";
-    };
-    meta = old.meta // {
-      description = "bemenu patched into the beamenu launcher's view layer";
-      mainProgram = "bemenu";
-    };
-  });
+  beamenu-view =
+    (pkgs.bemenu.override {
+      stdenv = pkgs.overrideCC pkgs.clangStdenv (
+        pkgs.clangStdenv.cc.override { bintools = pkgs.llvmPackages.bintools; }
+      );
+    }).overrideAttrs
+      (old: {
+        pname = "beamenu-view";
+        patches = (old.patches or [ ]) ++ [
+          ../nix/patches/beamenu/01-item-richtext.patch
+          ../nix/patches/beamenu/02-cairo-raycast-rows.patch
+          ../nix/patches/beamenu/03-panel-chrome.patch
+          ../nix/patches/beamenu/04-client-ranking.patch
+          ../nix/patches/beamenu/05-rich-panel-body.patch
+          ../nix/patches/beamenu/06-filter-pills.patch
+          ../nix/patches/beamenu/07-unmap-shm-buffers.patch
+        ];
+        buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
+        # lld arrives as the stdenv's *wrapped* bintools (above), never as
+        # -fuse-ld=lld. That flag makes clang invoke ld.lld directly and step around
+        # nixpkgs' bintools-wrapper, which is what injects a -rpath per buildInput.
+        # The package still builds and installs; the renderer plugins then carry a
+        # RUNPATH holding only bemenu's own lib dir, so every dlopen() fails at
+        # runtime with "libcairo.so.2: cannot open shared object file" and the
+        # launcher comes up with no renderer at all. Nothing in the build catches
+        # it; compare `readelf -d` on a renderer .so against stock nixpkgs bemenu.
+        #
+        # makeFlagsArray, not makeFlags: the value contains spaces, and makeFlags
+        # entries are word-split before they reach make.
+        preBuild = (old.preBuild or "") + ''
+          makeFlagsArray+=("LDFLAGS=-flto=thin -fvisibility=hidden")
+        '';
+        env = (old.env or { }) // {
+          NIX_CFLAGS_COMPILE = "-flto=thin -fvisibility=hidden";
+        };
+        meta = old.meta // {
+          description = "bemenu patched into the beamenu launcher's view layer";
+          mainProgram = "bemenu";
+        };
+      });
 
   # beamenu — the launcher itself: links beamenu-view's libbemenu, owns the
   # event loop, and implements the provider set (apps, system, status,
@@ -215,6 +217,15 @@ self: {
     version = "0.1.0";
     src = ../rust/wallpaper-tui;
     cargoLock.lockFile = ../rust/wallpaper-tui/Cargo.lock;
+    # The launcher entry's icon (nix/home/wallpaper-tui.nix names it
+    # `wallpaper-tui`, unqualified). It ships here rather than as a home file
+    # because beamenu resolves an `Icon=` name through the icon themes on
+    # XDG_DATA_DIRS, and hicolor in the profile is what puts it there — the
+    # same lookup the GNOME app grid makes.
+    postInstall = ''
+      install -Dm444 ${../rust/wallpaper-tui/wallpaper-tui.svg} \
+        "$out/share/icons/hicolor/scalable/apps/wallpaper-tui.svg"
+    '';
     meta.mainProgram = "wallpaper-tui";
   };
   settings = pkgs.rustPlatform.buildRustPackage {
@@ -235,6 +246,13 @@ self: {
     version = "0.1.0";
     src = ../rust/hyprmon;
     cargoLock.lockFile = ../rust/hyprmon/Cargo.lock;
+    # See wallpaper-tui above for why the icon ships with the package. Named
+    # as a Nix path rather than a relative one: cargoInstallHook does not run
+    # with the unpacked source as its cwd.
+    postInstall = ''
+      install -Dm444 ${../rust/hyprmon/hyprmon.svg} \
+        "$out/share/icons/hicolor/scalable/apps/hyprmon.svg"
+    '';
     meta.mainProgram = "hyprmon";
   };
   # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned fetchGit

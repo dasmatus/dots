@@ -583,9 +583,12 @@ in
     # proton.nix, waybar.nix, bitwarden.nix). Only presentation: `title`
     # defaults to the attribute name, so a plugin stays valid even when this
     # module is disabled and a contributing one is not.
+    # Ambient, unlike its neighbours below: every command it carries takes no
+    # argument, so there is nothing for a keyword prefix to strip, and a row
+    # that answers to its own name needs no prefix to be found. Keywords are
+    # reserved here for providers that consume what you type after them.
     programs.beamenu.plugins.wallpaper = {
       title = "Wallpaper";
-      keyword = "wp";
     };
     programs.beamenu.plugins.dots = {
       title = "Dots";
