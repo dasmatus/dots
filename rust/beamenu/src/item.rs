@@ -89,6 +89,19 @@ pub struct Item {
     /// keys on this, so every provider owns exactly one pill that filters to
     /// its own rows. That includes every plugin.
     pub provider: Option<String>,
+    /// [`Item::id`] of the row this one hangs beneath, for rows that are a
+    /// detail of another rather than a peer of it.
+    ///
+    /// An application's `[Desktop Action …]` groups are the case this exists
+    /// for: "New Private Window" is a way of opening LibreWolf, not a
+    /// separate application, and the list should say so. `crate::rank` pulls
+    /// a child up to sit directly under its parent after scoring, and `view`
+    /// draws it indented.
+    ///
+    /// A child whose parent did not survive the filter is still shown — if
+    /// the query only matched the action, the action is what was meant — so
+    /// this is a layout hint, never a lifetime dependency.
+    pub parent: Option<String>,
     /// Ranking score, filled in by `crate::rank`. Higher sorts first.
     pub score: i64,
     /// What Enter does.
@@ -109,6 +122,7 @@ impl Item {
             icon: None,
             section: None,
             provider: None,
+            parent: None,
             score: 0,
             action,
             alt_actions: Vec::new(),
@@ -153,6 +167,13 @@ impl Item {
     #[must_use]
     pub fn provider(mut self, provider: impl Into<String>) -> Self {
         self.provider = Some(provider.into());
+        self
+    }
+
+    /// Hang this row beneath `parent`, the [`Item::id`] of another row.
+    #[must_use]
+    pub fn parent(mut self, parent: impl Into<String>) -> Self {
+        self.parent = Some(parent.into());
         self
     }
 

@@ -19,16 +19,55 @@
   ...
 }:
 let
+  # The AppImage's own contents, unpacked. `wrapType2` uses this internally to
+  # build the FHS root but discards everything outside the entrypoint, so the
+  # desktop entry and icon it ships are otherwise thrown away — see
+  # extraInstallCommands below.
+  havenoSrc = pkgs.fetchurl {
+    url = "https://github.com/retoaccess1/haveno-reto/releases/download/v1.8.0-reto/haveno-v1.8.0-linux-x86_64.AppImage";
+    hash = "sha256-znLY75hNv2C6HMlxoB+65e0UfJvHK7opVl0pEYmhbUw=";
+  };
+  havenoContents = pkgs.appimageTools.extract {
+    pname = "haveno";
+    version = "1.8.0-reto";
+    src = havenoSrc;
+  };
+
   # Haveno ships no nixpkgs package; wrap the release AppImage (type 2).
   # The sha256 is cross-checked against the release's 1.8.0-reto.hashes
   # file, exactly like the retired flatpak bundle pin was.
   haveno = pkgs.appimageTools.wrapType2 {
     pname = "haveno";
     version = "1.8.0-reto";
-    src = pkgs.fetchurl {
-      url = "https://github.com/retoaccess1/haveno-reto/releases/download/v1.8.0-reto/haveno-v1.8.0-linux-x86_64.AppImage";
-      hash = "sha256-znLY75hNv2C6HMlxoB+65e0UfJvHK7opVl0pEYmhbUw=";
-    };
+    src = havenoSrc;
+
+    # `wrapType2` on its own installs a binary and nothing else — its output
+    # is exactly bin/haveno — so Haveno was invisible to anything that finds
+    # applications by scanning share/applications: the app grid, xdg-open,
+    # and beamenu's `apps` provider alike. Lifting the AppImage's own entry
+    # and icon out fixes all three at once, which is why this is a packaging
+    # fix rather than a launcher entry.
+    #
+    # The shipped Exec is
+    #   Exec=sh -c "PATH=\"\$HOME/.local/bin:\$PATH\"; bin/Haveno %u"
+    # — a path relative to the AppImage root, which means nothing once the
+    # entry is read from the profile. The whole line is replaced rather than
+    # patched piecewise, since none of it survives: the wrapper on PATH
+    # already sets up the FHS environment that prelude was standing in for.
+    #
+    # `Icon=exchange.haveno.Haveno` is a bare name, so the icon goes to
+    # hicolor where a theme lookup will find it. Both copies are unconditional
+    # on purpose: if a version bump stops shipping either file, this should
+    # fail the build rather than quietly produce an entry that cannot launch
+    # or an app with no icon.
+    extraInstallCommands = ''
+      install -Dm444 ${havenoContents}/exchange.haveno.Haveno.desktop \
+        "$out/share/applications/exchange.haveno.Haveno.desktop"
+      sed -i 's|^Exec=.*|Exec=haveno %u|' \
+        "$out/share/applications/exchange.haveno.Haveno.desktop"
+      install -Dm444 ${havenoContents}/exchange.haveno.Haveno.svg \
+        "$out/share/icons/hicolor/scalable/apps/exchange.haveno.Haveno.svg"
+    '';
     # jpackage bundle: private JRE + JavaFX natives dlopen GTK/X11/audio libs
     extraPkgs =
       p: with p; [
@@ -119,6 +158,289 @@ in
   # Gated on dots.ai.ollama: the command needs the ollama client + cloud
   # account, so with ollama off Newelle keeps its upstream LLM defaults. No
   # longer touches claude-code, so the old finalPackage-eval guard is gone.
+  # ── Launcher entries for the packages above ────────────────────────────
+  #
+  # Two kinds of gap are closed here, and they need different answers.
+  #
+  # Eleven of these packages ship no `.desktop` file at all (om, magick, the
+  # rust and haskell and c toolchains, scrot), so beamenu's `apps` provider —
+  # which reads share/applications and nothing else — cannot see them. Their
+  # entries are the `toolchain` plugin below.
+  #
+  # The rest do ship desktop entries and already launch. What a launcher adds
+  # for those is not another way to start them, it is reaching *into* them
+  # through the interface they already expose: fwupd's CLI, Pika's on-disk
+  # config, mpv's IPC socket. Only surfaces verified present on this machine
+  # are wired; the notes say what was rejected and why, so the next person
+  # does not re-litigate it.
+  #
+  # Every command here is parameterless, hence every plugin here is ambient:
+  # a keyworded provider is handed the query with its prefix stripped, but an
+  # ambient one is handed the whole root query, so a `{query}` command in an
+  # ambient plugin would receive whatever the user typed to *find* the row.
+  # The two that do take an argument (`rs`, `mpv`) are keyworded for exactly
+  # that reason.
+
+  programs.beamenu.plugins.system-health = {
+    title = "System Health";
+    commands = [
+      {
+        id = "nix";
+        title = "Nix Health";
+        description = "omnix's read-only audit of this Nix install";
+        mode = "view";
+        exec = [
+          "om"
+          "health"
+        ];
+      }
+      {
+        id = "firmware";
+        title = "Firmware Updates";
+        description = "Pending device firmware, via fwupd";
+        mode = "view";
+        # LC_ALL=C is load-bearing: fwupdmgr honours the session locale and
+        # this one is German, which makes the output unsearchable from a
+        # launcher whose other rows are all English.
+        #
+        # Read verbs only. `fwupdmgr update`/`install`/`downgrade` flash the
+        # device and cannot be undone, which is not something a fuzzy match
+        # and one Enter should ever be able to reach.
+        exec = [
+          "env"
+          "LC_ALL=C"
+          "fwupdmgr"
+          "get-updates"
+        ];
+        actions = [
+          {
+            id = "devices";
+            title = "All Firmware Devices";
+            mode = "view";
+            exec = [
+              "env"
+              "LC_ALL=C"
+              "fwupdmgr"
+              "get-devices"
+            ];
+          }
+          {
+            id = "hsi";
+            title = "Host Security Attributes";
+            mode = "view";
+            exec = [
+              "env"
+              "LC_ALL=C"
+              "fwupdmgr"
+              "security"
+            ];
+          }
+          {
+            id = "gui";
+            title = "Open GNOME Firmware";
+            mode = "exec";
+            exec = [ "gnome-firmware" ];
+          }
+        ];
+      }
+    ];
+  };
+
+  # Pika Backup's own window answers "did it run?" only after it opens and
+  # mounts. The same answer is already sitting in two JSON files it writes,
+  # so the launcher can give it in a keystroke. Reading them found both
+  # repositories two months stale, which is the whole argument for the row.
+  #
+  # `start-backup` over its D-Bus GActions is deliberately absent: it kicks
+  # off a real borg run against removable media, and the marshalling for it
+  # is the one part of that interface this has not verified.
+  programs.beamenu.plugins.backups = {
+    title = "Backups";
+    commands = [
+      {
+        id = "status";
+        title = "Backup Status";
+        description = "Every Pika repository, and when it last completed";
+        mode = "view";
+        exec = [
+          "bash"
+          "-lc"
+          ''
+            set -euo pipefail
+            cfg="''${XDG_CONFIG_HOME:-$HOME/.config}/pika-backup"
+            ${lib.getExe pkgs.jq} -r --slurpfile h "$cfg/history.json" '
+              .[]
+              | . as $b
+              | ($h[0][$b.id].last_completed.end // "never") as $last
+              | "\(if ($b.title // "") == "" then $b.repo.path else $b.title end)\n    last completed: \($last)\n    \($b.repo.uri)\n"
+            ' "$cfg/backup.json"
+          ''
+        ];
+        actions = [
+          {
+            id = "open";
+            title = "Open Pika Backup";
+            mode = "exec";
+            exec = [ "pika-backup" ];
+          }
+        ];
+      }
+    ];
+  };
+
+  # The eleven packages with no desktop entry. A version readout is a thin
+  # thing on its own, which is why these are grouped one row per language
+  # rather than one row per binary: "what is my Rust toolchain" is a question
+  # someone actually asks, "what version is cargo-expand" is not.
+  #
+  # `exec` is execvp'd directly by the canvas — no shell — so anything with a
+  # `;` or a pipe goes through `bash -lc`, the same form nix/home/claude.nix
+  # uses. The pane renders stderr as well as stdout, so a tool that reports
+  # its version on the wrong stream still shows up.
+  programs.beamenu.plugins.toolchain = {
+    title = "Toolchain";
+    commands = [
+      {
+        id = "rust";
+        title = "Rust Toolchain";
+        description = "rustc, cargo, clippy, cargo-expand, rust-analyzer";
+        mode = "view";
+        exec = [
+          "bash"
+          "-lc"
+          ''
+            set -u
+            rustc -Vv
+            echo
+            cargo -V
+            cargo clippy -V
+            cargo expand -V
+            rust-analyzer --version
+          ''
+        ];
+      }
+      {
+        id = "haskell";
+        title = "Haskell Toolchain";
+        description = "ghc and stack";
+        mode = "view";
+        exec = [
+          "bash"
+          "-lc"
+          ''
+            set -u
+            ghc --version
+            stack --version
+          ''
+        ];
+      }
+      {
+        id = "c";
+        title = "C Toolchain";
+        description = "clang and the binutils it drives";
+        mode = "view";
+        exec = [
+          "bash"
+          "-lc"
+          ''
+            set -u
+            clang --version
+            echo
+            ld --version | head -1
+          ''
+        ];
+      }
+      {
+        id = "imagemagick";
+        title = "ImageMagick Formats";
+        description = "Every format this build can read and write";
+        mode = "view";
+        exec = [
+          "magick"
+          "-list"
+          "format"
+        ];
+      }
+    ];
+  };
+
+  # Keyworded, because unlike everything above it consumes what follows it.
+  # `rs E0382` renders the long-form explanation in the pane — the one piece
+  # of the Rust toolchain that is genuinely launcher-shaped.
+  programs.beamenu.plugins.rustdoc = {
+    title = "Rust Errors";
+    keyword = "rs";
+    commands = [
+      {
+        id = "explain";
+        title = "Explain Rust Error";
+        description = "rustc --explain, for an error code like E0382";
+        mode = "view";
+        exec = [
+          "rustc"
+          "--explain"
+          "{query}"
+        ];
+      }
+    ];
+  };
+
+  # Also keyworded, and the one entry here that beats its desktop file
+  # outright: `umpv` appends to the playlist of the player that is already
+  # running instead of starting a rival process, and mpv.desktop cannot.
+  # yt-dlp is on the wrapped mpv's PATH, so a pasted stream URL resolves.
+  # A cold start also creates the IPC socket the two actions talk to.
+  programs.beamenu.plugins.media = {
+    title = "Media";
+    keyword = "mpv";
+    commands = [
+      {
+        id = "queue";
+        title = "Queue in mpv";
+        description = "Append a file or URL to the running player";
+        mode = "exec";
+        exec = [
+          "umpv"
+          "{query}"
+        ];
+        actions = [
+          {
+            id = "pause";
+            title = "Play/Pause";
+            mode = "exec";
+            # socat is not on the launcher daemon's PATH — it reaches this
+            # module's own store closure instead, the same way claude.nix
+            # names jq. The socket only exists while an umpv-started player
+            # is alive, hence the guard rather than a bare pipe.
+            exec = [
+              "bash"
+              "-lc"
+              ''
+                s="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/.umpv"
+                [ -S "$s" ] || exit 0
+                printf '%s\n' 'cycle pause' | ${lib.getExe pkgs.socat} - "$s"
+              ''
+            ];
+          }
+          {
+            id = "next";
+            title = "Next in Playlist";
+            mode = "exec";
+            exec = [
+              "bash"
+              "-lc"
+              ''
+                s="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/.umpv"
+                [ -S "$s" ] || exit 0
+                printf '%s\n' 'playlist-next' | ${lib.getExe pkgs.socat} - "$s"
+              ''
+            ];
+          }
+        ];
+      }
+    ];
+  };
+
   dconf.settings."io/github/qwersyk/Newelle" = lib.mkIf dots.ai.ollama {
     language-model = "custom_command";
     welcome-screen-shown = true;
