@@ -96,13 +96,19 @@ impl Provider for Quicklinks {
                 } else {
                     Action::OpenUrl(target.clone())
                 };
+                let label = if link.command {
+                    "Copy command"
+                } else {
+                    "Copy URL"
+                };
                 Item::new(
                     format!("quicklink:{}", link.name),
                     link.name.clone(),
                     action,
                 )
-                .subtitle(target)
+                .subtitle(target.clone())
                 .icon(link.icon.map(std::path::PathBuf::from))
+                .alt(label, Action::Copy(target))
             })
             .collect()
     }

@@ -46,7 +46,7 @@ fn recognises_bold() {
 fn combines_bold_and_colour_from_one_sgr_sequence() {
     let spans = parse("\u{1b}[1;34mbold blue\u{1b}[0m");
     assert_eq!(spans[0].fg, Some(AnsiColor::Blue));
-    assert_eq!(spans[0].bold, true);
+    assert!(spans[0].bold);
 }
 
 #[test]

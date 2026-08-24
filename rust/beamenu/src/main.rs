@@ -1,11 +1,18 @@
 //! beamenu's entry point.
 //!
-//! Four modes. With no arguments it opens the launcher. `--command` runs one
-//! system command directly, which is how a Hyprland keybind reaches a single
-//! action without going through the UI. `--daemon` runs the clipboard watcher,
-//! and `--status-daemon` the system-status poller.
+//! Four modes. With no arguments it opens the launcher, `--command` runs one
+//! system command directly, `--daemon` runs the resident daemon (launcher
+//! host, D-Bus interface and clipboard watcher), and `--status-daemon` runs
+//! the system-status poller in the foreground.
 //!
-//! Exit codes matter here because a keybind is the usual caller and has no
+//! One rule shapes the first two: whatever the daemon can do, this binary
+//! must still do on its own. A machine where the user never enabled the
+//! service, a session where it crashed, a login before the unit started —
+//! the keybind has to open a launcher in all of them. So `--command` and the
+//! no-argument launcher try the session bus first and fall back to doing the
+//! work in-process, and nothing here treats a missing daemon as an error.
+//!
+//! Exit codes matter because a keybind is the usual caller and has no
 //! terminal to read a message from: 0 for done, 1 for a real failure, 2 for a
 //! usage error. Diagnostics go to stderr so `--list-commands` stays pipeable.
 
@@ -13,7 +20,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use beamenu::{config, daemon, dispatch, item::Action, providers::system, App};
+use beamenu::{config, daemon, dispatch, ipc, item::Action, providers::system, App};
 
 /// Something went wrong at run time.
 const EXIT_FAILURE: u8 = 1;
@@ -35,7 +42,8 @@ struct Cli {
     #[arg(long)]
     list_commands: bool,
 
-    /// Run the clipboard-history watcher in the foreground.
+    /// Run the resident daemon: launcher host, D-Bus interface and clipboard
+    /// watcher.
     #[arg(long)]
     daemon: bool,
 
@@ -74,9 +82,7 @@ fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
     }
 
     if cli.daemon {
-        let state = config::state_dir();
-        std::fs::create_dir_all(&state)?;
-        daemon::watch(&daemon::log_path(&state))?;
+        daemon::serve()?;
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -88,6 +94,10 @@ fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
     }
 
     if let Some(id) = &cli.command {
+        if ipc::call("RunCommand", Some(id)).is_ok() {
+            return Ok(ExitCode::SUCCESS);
+        }
+
         let Some(command) = system::command_for(id) else {
             eprintln!("beamenu: unknown command '{id}'");
             eprintln!("beamenu: run --list-commands to see the available ids");
@@ -98,6 +108,10 @@ fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
         // it here keeps the emulator out of this file.
         let config = config::Config::load(&config::config_dir().join("config.json"));
         dispatch::dispatch(&Action::Shell(command.to_string()), &config.terminal)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if ipc::call("Show", None).is_ok() {
         return Ok(ExitCode::SUCCESS);
     }
 

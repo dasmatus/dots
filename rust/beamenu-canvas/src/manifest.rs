@@ -27,6 +27,12 @@ pub struct Command {
     #[serde(default)]
     pub ui: Ui,
     pub exec: Vec<String>,
+    /// Extra rows for the Ctrl+K panel. One level deep: an action's own
+    /// `actions` are ignored, since the panel is a flat list. Reusing
+    /// [`Command`] rather than a trimmed twin keeps this parser and the
+    /// launcher's deliberate duplicate from drifting apart field-by-field.
+    #[serde(default)]
+    pub actions: Vec<Command>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,17 +44,14 @@ pub enum Mode {
     View,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Ui {
+    /// Plain streamed text. The default, since a command that says nothing
+    /// about its renderer is a command that just prints.
+    #[default]
     Log,
     Rpc,
-}
-
-impl Default for Ui {
-    fn default() -> Self {
-        Self::Log
-    }
 }
 
 /// Something went wrong loading or reading a manifest.
@@ -95,10 +98,20 @@ impl Manifest {
         Self::parse(&raw).with_context(|| format!("parsing manifest {}", path.display()))
     }
 
-    /// Find a command by id.
+    /// Find `id` among the top-level commands, then among every command's
+    /// one-level `actions`. Top level wins so an action can never shadow a
+    /// command; within a level, first match wins (loading stays tolerant).
     #[must_use]
     pub fn find_command(&self, id: &str) -> Option<&Command> {
-        self.commands.iter().find(|command| command.id == id)
+        self.commands
+            .iter()
+            .find(|command| command.id == id)
+            .or_else(|| {
+                self.commands
+                    .iter()
+                    .flat_map(|command| command.actions.iter())
+                    .find(|action| action.id == id)
+            })
     }
 
     /// Find a command by id, or a descriptive error naming it.

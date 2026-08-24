@@ -168,6 +168,40 @@ in
 
   config = lib.mkIf cfg.enable {
     xdg.configFile."wallpaper-tui/config.json".text = declarativeConfig;
+
+    # Wallpaper plugin identity lives in beamenu.nix, which random_wp.nix
+    # also contributes to; this is the interactive-picker command plus its
+    # Ctrl+K alternates.
+    programs.beamenu.plugins.wallpaper.commands = [
+      {
+        id = "pick";
+        title = "Pick Wallpaper";
+        description = "Interactive picker (terminal)";
+        mode = "terminal";
+        exec = [ "wallpaper-tui" ];
+        actions = [
+          {
+            id = "restore";
+            title = "Restore Last Wallpaper";
+            mode = "exec";
+            exec = [
+              "wallpaper-tui"
+              "--restore"
+            ];
+          }
+          {
+            id = "cache-previews";
+            title = "Rebuild Preview Cache";
+            mode = "exec";
+            exec = [
+              "wallpaper-tui"
+              "--cache-previews"
+            ];
+          }
+        ];
+      }
+    ];
+
     home.packages = [
       wallpaper-tui
       # awww (formerly swww; nixpkgs renamed it, and so did the binaries) is the

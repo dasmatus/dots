@@ -115,6 +115,14 @@ pub struct Config {
     /// Provider ids to leave out entirely.
     #[serde(default)]
     pub disabled: Vec<String>,
+    /// Run the clipboard-history watcher inside the daemon.
+    ///
+    /// This used to be a separate systemd unit that Home Manager could simply
+    /// not emit. The watcher is a thread of the launcher daemon now, and the
+    /// daemon is wanted either way, so the switch has to travel in the config
+    /// the daemon reads rather than in whether a unit exists.
+    #[serde(default = "default_clipboard_history")]
+    pub clipboard_history: bool,
 }
 
 fn default_lines() -> u32 {
@@ -134,6 +142,11 @@ fn default_search_height() -> u32 {
 }
 fn default_radius() -> u32 {
     PALETTE.beamenu.radius
+}
+/// On by default: a launcher with no clipboard history is the surprising
+/// configuration, and the watcher costs one idle thread.
+fn default_clipboard_history() -> bool {
+    true
 }
 /// Terminal used for desktop entries marked `Terminal=true`.
 ///

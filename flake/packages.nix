@@ -59,45 +59,44 @@ self: {
   # (lib/renderers/pills.cpp, the bar's scroll geometry), which is why CXXFLAGS
   # matter here at all; bemenu's GNUmakefile pins it to -std=c++23, the newest
   # standard clang 21 implements in full rather than in part.
-  beamenu-view =
-    (pkgs.bemenu.override {
-      stdenv = pkgs.overrideCC pkgs.clangStdenv (
-        pkgs.clangStdenv.cc.override { bintools = pkgs.llvmPackages.bintools; }
-      );
-    }).overrideAttrs
-      (old: {
-        pname = "beamenu-view";
-        patches = (old.patches or [ ]) ++ [
-          ../nix/patches/beamenu/01-item-richtext.patch
-          ../nix/patches/beamenu/02-cairo-raycast-rows.patch
-          ../nix/patches/beamenu/03-panel-chrome.patch
-          ../nix/patches/beamenu/04-client-ranking.patch
-          ../nix/patches/beamenu/05-rich-panel-body.patch
-          ../nix/patches/beamenu/06-filter-pills.patch
-        ];
-        buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
-        # lld arrives as the stdenv's *wrapped* bintools (above), never as
-        # -fuse-ld=lld. That flag makes clang invoke ld.lld directly and step around
-        # nixpkgs' bintools-wrapper, which is what injects a -rpath per buildInput.
-        # The package still builds and installs; the renderer plugins then carry a
-        # RUNPATH holding only bemenu's own lib dir, so every dlopen() fails at
-        # runtime with "libcairo.so.2: cannot open shared object file" and the
-        # launcher comes up with no renderer at all. Nothing in the build catches
-        # it; compare `readelf -d` on a renderer .so against stock nixpkgs bemenu.
-        #
-        # makeFlagsArray, not makeFlags: the value contains spaces, and makeFlags
-        # entries are word-split before they reach make.
-        preBuild = (old.preBuild or "") + ''
-          makeFlagsArray+=("LDFLAGS=-flto=thin -fvisibility=hidden")
-        '';
-        env = (old.env or { }) // {
-          NIX_CFLAGS_COMPILE = "-flto=thin -fvisibility=hidden";
-        };
-        meta = old.meta // {
-          description = "bemenu patched into the beamenu launcher's view layer";
-          mainProgram = "bemenu";
-        };
-      });
+  beamenu-view = (pkgs.bemenu.override {
+    stdenv = pkgs.overrideCC pkgs.clangStdenv (
+      pkgs.clangStdenv.cc.override { bintools = pkgs.llvmPackages.bintools; }
+    );
+  }).overrideAttrs (old: {
+    pname = "beamenu-view";
+    patches = (old.patches or [ ]) ++ [
+      ../nix/patches/beamenu/01-item-richtext.patch
+      ../nix/patches/beamenu/02-cairo-raycast-rows.patch
+      ../nix/patches/beamenu/03-panel-chrome.patch
+      ../nix/patches/beamenu/04-client-ranking.patch
+      ../nix/patches/beamenu/05-rich-panel-body.patch
+      ../nix/patches/beamenu/06-filter-pills.patch
+      ../nix/patches/beamenu/07-unmap-shm-buffers.patch
+    ];
+    buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
+    # lld arrives as the stdenv's *wrapped* bintools (above), never as
+    # -fuse-ld=lld. That flag makes clang invoke ld.lld directly and step around
+    # nixpkgs' bintools-wrapper, which is what injects a -rpath per buildInput.
+    # The package still builds and installs; the renderer plugins then carry a
+    # RUNPATH holding only bemenu's own lib dir, so every dlopen() fails at
+    # runtime with "libcairo.so.2: cannot open shared object file" and the
+    # launcher comes up with no renderer at all. Nothing in the build catches
+    # it; compare `readelf -d` on a renderer .so against stock nixpkgs bemenu.
+    #
+    # makeFlagsArray, not makeFlags: the value contains spaces, and makeFlags
+    # entries are word-split before they reach make.
+    preBuild = (old.preBuild or "") + ''
+      makeFlagsArray+=("LDFLAGS=-flto=thin -fvisibility=hidden")
+    '';
+    env = (old.env or { }) // {
+      NIX_CFLAGS_COMPILE = "-flto=thin -fvisibility=hidden";
+    };
+    meta = old.meta // {
+      description = "bemenu patched into the beamenu launcher's view layer";
+      mainProgram = "bemenu";
+    };
+  });
 
   # beamenu — the launcher itself: links beamenu-view's libbemenu, owns the
   # event loop, and implements the provider set (apps, system, status,

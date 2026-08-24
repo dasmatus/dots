@@ -91,8 +91,10 @@ fn stylesheet_embeds_every_token() {
 
 #[test]
 fn stylesheet_reflects_a_custom_accent() {
-    let mut theme = CanvasTheme::default();
-    theme.accent = "#ff8800".to_string();
+    let theme = CanvasTheme {
+        accent: "#ff8800".to_string(),
+        ..CanvasTheme::default()
+    };
     let css = stylesheet(&theme);
     assert!(css.contains("#ff8800"));
     assert!(!css.contains("#7aa2f7"));

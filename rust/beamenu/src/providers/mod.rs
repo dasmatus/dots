@@ -47,6 +47,9 @@ pub struct Ctx {
     pub config_dir: PathBuf,
     /// `$XDG_STATE_HOME/beamenu`, where the clipboard store and frecency live.
     pub state_dir: PathBuf,
+    /// Desktop entries and icon paths, kept warm across shows. See
+    /// [`crate::index::AppCache`].
+    pub apps: crate::index::AppCache,
 }
 
 /// How a provider is reached from the query line.

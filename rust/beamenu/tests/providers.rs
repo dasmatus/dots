@@ -3,14 +3,25 @@
 use std::path::{Path, PathBuf};
 
 use beamenu::config::Config;
+use beamenu::index::AppCache;
+use beamenu::item::Action;
 use beamenu::providers::apps::{clean_exec, parse_entry, scan};
 use beamenu::providers::clipboard::{load, parse_log, preview, relative_age, Entry};
 use beamenu::providers::files::{display_path, parse_output};
-use beamenu::providers::quicklinks::{expand, percent_encode};
-use beamenu::providers::scripts::{executables, parse_metadata};
+use beamenu::providers::quicklinks::{expand, percent_encode, Quicklinks};
+use beamenu::providers::scripts::{executables, parse_metadata, Scripts};
 use beamenu::providers::system::System;
 use beamenu::providers::window::parse_clients;
 use beamenu::providers::{Ctx, Provider};
+
+fn ctx(dir: &Path) -> Ctx {
+    Ctx {
+        config: Config::default(),
+        config_dir: dir.to_path_buf(),
+        state_dir: dir.to_path_buf(),
+        apps: AppCache::default(),
+    }
+}
 
 // --- desktop entries ---
 
@@ -137,6 +148,44 @@ fn percent_encoding_leaves_the_unreserved_set_alone() {
     assert_eq!(percent_encode("&"), "%26");
 }
 
+#[test]
+fn quicklinks_offer_a_copy_alternate() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("quicklinks.json"),
+        r#"[{"name":"gh","target":"https://github.com/search?q={query}"}]"#,
+    )
+    .unwrap();
+
+    let items = Quicklinks.query(&ctx(tmp.path()), "gh nixpkgs");
+    assert_eq!(
+        items[0].alt_actions,
+        vec![(
+            "Copy URL".to_string(),
+            Action::Copy("https://github.com/search?q=nixpkgs".to_string()),
+        )]
+    );
+}
+
+#[test]
+fn command_quicklinks_label_the_copy_alternate_as_command() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("quicklinks.json"),
+        r#"[{"name":"run","target":"echo {query}","command":true}]"#,
+    )
+    .unwrap();
+
+    let items = Quicklinks.query(&ctx(tmp.path()), "run hello");
+    assert_eq!(
+        items[0].alt_actions,
+        vec![(
+            "Copy command".to_string(),
+            Action::Copy("echo 'hello'".to_string()),
+        )]
+    );
+}
+
 // --- clipboard ---
 
 #[test]
@@ -230,6 +279,35 @@ fn finds_only_executable_files() {
     assert_eq!(found, vec![runnable]);
 }
 
+#[test]
+fn scripts_offer_a_terminal_alternate() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let scripts_dir = tmp.path().join("scripts");
+    std::fs::create_dir_all(&scripts_dir).unwrap();
+    let script = scripts_dir.join("restart-waybar.sh");
+    std::fs::write(
+        &script,
+        "#!/usr/bin/env bash\n# @beamenu.title Restart Waybar\necho hi\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let items = Scripts.query(&ctx(tmp.path()), "");
+    let quoted = format!("'{}'", script.display());
+    assert_eq!(
+        items[0].alt_actions,
+        vec![(
+            "Run in terminal".to_string(),
+            Action::Launch {
+                exec: quoted,
+                terminal: true,
+            },
+        )]
+    );
+}
+
 // --- system ---
 
 #[test]
@@ -241,6 +319,7 @@ fn system_commands_carry_no_category_accessory() {
         config: Config::default(),
         config_dir: PathBuf::new(),
         state_dir: PathBuf::new(),
+        apps: AppCache::default(),
     };
     let items = System.query(&ctx, "");
     assert!(!items.is_empty(), "the command list is never empty");

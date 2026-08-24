@@ -10,6 +10,7 @@ fn ctx() -> Ctx {
         config: Config::default(),
         config_dir: std::path::PathBuf::from("/nonexistent/config"),
         state_dir: std::path::PathBuf::from("/nonexistent/state"),
+        apps: beamenu::index::AppCache::default(),
     }
 }
 
