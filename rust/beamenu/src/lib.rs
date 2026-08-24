@@ -189,7 +189,9 @@ struct Pill {
 /// A pill that has rows on the frame being drawn.
 ///
 /// `id` is what [`Pills::filter`] matches rows against. `label` is what the
-/// capsule shows. They differ whenever two providers share a heading.
+/// capsule shows. They differ whenever two providers share a heading. `count`
+/// is the number of root rows [`Pills::visible`] found for this provider, not
+/// every row it produced — see that function for why the two differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisiblePill<'a> {
     pub id: &'a str,
@@ -241,14 +243,37 @@ impl Pills {
     /// [`Pills::spec`] renders this list and [`Pills::filter`] indexes it, so
     /// pill N names the same provider on both sides of the FFI. Nothing else
     /// may decide what an index means.
+    ///
+    /// A pill counts the rows [`rank::nest`] leaves standing on their own,
+    /// not every row its provider handed back. An application's
+    /// `[Desktop Action …]` rows draw indented beneath it rather than as
+    /// entries of their own, and counting those too would report `LibreWolf`
+    /// as four applications. Asking [`rank::adopts`] — the rule `nest` itself
+    /// adopts by — is what stops the number under the bar from disagreeing
+    /// with the list above it. A child whose parent lost the query is counted,
+    /// for the same reason it is drawn: there is no row left to tuck it under.
+    ///
+    /// Only `providers::apps` sets [`Item::parent`] today, and only ever to a
+    /// sibling row it built alongside the child, so a provider with rows this
+    /// frame always has a root among them and the `count > 0` gate below still
+    /// means "this provider has rows". A provider that pointed `parent` at
+    /// another provider's row would break that, which is a convention this
+    /// leans on rather than one it enforces.
     #[must_use]
     pub fn visible<'a>(&'a self, ambient: &[Item]) -> Vec<VisiblePill<'a>> {
+        let sections = rank::section_index(ambient);
+
         self.pills
             .iter()
             .filter_map(|pill| {
                 let count = ambient
                     .iter()
                     .filter(|item| item.provider.as_deref() == Some(pill.id.as_str()))
+                    .filter(|item| {
+                        !item.parent.as_ref().is_some_and(|parent| {
+                            rank::adopts(&sections, parent, item.section.as_ref())
+                        })
+                    })
                     .count();
                 (count > 0).then_some(VisiblePill {
                     id: &pill.id,

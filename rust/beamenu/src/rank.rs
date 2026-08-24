@@ -168,6 +168,41 @@ pub fn rank(items: &mut Vec<crate::item::Item>, query: &str, boost: impl Fn(&str
     nest(items);
 }
 
+/// Every row's [`crate::item::Item::id`] paired with the section it is
+/// grouped under, built once so [`adopts`] can look a parent up without a
+/// second pass over `items`.
+///
+/// Shared by [`nest`] and [`crate::Pills::visible`], which both need the same
+/// answer to "is this row present on the frame, and under which heading" —
+/// building it in one place is what keeps a future edit to one of them from
+/// quietly disagreeing with the other about what "present" means.
+pub(crate) fn section_index(
+    items: &[crate::item::Item],
+) -> std::collections::HashMap<String, Option<String>> {
+    items
+        .iter()
+        .map(|item| (item.id.clone(), item.section.clone()))
+        .collect()
+}
+
+/// True when `parent` names a row recorded in `sections` whose own section
+/// equals `section`.
+///
+/// This is the adoption rule itself: a child is pulled beneath a row only
+/// when that row is both present on the frame and grouped under the same
+/// heading, so nesting can never cross a [`group_by_section`] boundary.
+/// [`crate::Pills::visible`] calls this too, to count exactly the rows
+/// [`nest`] leaves as roots rather than the wider set a provider handed
+/// back — the two must never disagree about what "adopted" means, which is
+/// why the check lives here instead of being copied into `Pills`.
+pub(crate) fn adopts(
+    sections: &std::collections::HashMap<String, Option<String>>,
+    parent: &str,
+    section: Option<&String>,
+) -> bool {
+    sections.get(parent).map(Option::as_ref) == Some(section)
+}
+
 /// Pull every child row up to sit directly beneath its parent.
 ///
 /// Runs last, after scoring and grouping, because it is the one ordering rule
@@ -188,10 +223,7 @@ fn nest(items: &mut Vec<crate::item::Item>) {
         return;
     }
 
-    let sections: HashMap<String, Option<String>> = items
-        .iter()
-        .map(|item| (item.id.clone(), item.section.clone()))
-        .collect();
+    let sections = section_index(items);
 
     let mut children: HashMap<String, Vec<crate::item::Item>> = HashMap::new();
     let mut roots: Vec<crate::item::Item> = Vec::with_capacity(items.len());
@@ -199,7 +231,7 @@ fn nest(items: &mut Vec<crate::item::Item>) {
         let adopter = item
             .parent
             .as_ref()
-            .filter(|parent| sections.get(*parent) == Some(&item.section))
+            .filter(|parent| adopts(&sections, parent, item.section.as_ref()))
             .cloned();
         match adopter {
             Some(parent) => children.entry(parent).or_default().push(item),

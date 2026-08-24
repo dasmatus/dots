@@ -13,6 +13,25 @@ fn row(provider: &str, section: &str) -> Item {
         .provider(provider)
 }
 
+/// An application row, built the way the apps provider builds one: its id is
+/// what a [`child`] of it names as its parent.
+fn app(name: &str) -> Item {
+    Item::new(format!("apps:{name}"), name, Action::None)
+        .section("Applications")
+        .provider("apps")
+}
+
+/// One of an application's `[Desktop Action …]` rows, under the same heading
+/// as the row it hangs beneath, since sharing a heading is what `rank::nest`
+/// requires before it adopts anything. A test that wants the adoption refused
+/// overrides the heading on the row this hands back.
+fn child(action: &str, app: &str) -> Item {
+    Item::new(format!("apps:{app}#{action}"), action, Action::None)
+        .parent(format!("apps:{app}"))
+        .section("Applications")
+        .provider("apps")
+}
+
 /// Every provider, scanned from an empty scratch directory so there are no
 /// plugin manifests to pick up: only the built-in registry order matters
 /// here.
@@ -158,6 +177,66 @@ fn a_keyword_providers_rows_claim_no_pill_and_so_clear_the_bar() {
     assert_eq!(pills.spec(&ambient), "");
 }
 
+// --- what a pill counts ---
+
+#[test]
+fn an_apps_desktop_actions_do_not_inflate_its_pill_count() {
+    let pills = Pills::new(&providers());
+    let ambient = vec![
+        app("librewolf"),
+        child("new-window", "librewolf"),
+        child("private", "librewolf"),
+        child("profile", "librewolf"),
+    ];
+
+    // LibreWolf and its three `[Desktop Action ...]` rows are one application,
+    // not four. All three actions are adopted beneath it, and the pill counts
+    // what `rank::nest` leaves standing on its own.
+    let visible = pills.visible(&ambient);
+    assert_eq!(visible.iter().map(|p| p.count).collect::<Vec<_>>(), [1]);
+}
+
+#[test]
+fn an_orphan_child_whose_parent_is_absent_counts_as_a_root() {
+    let pills = Pills::new(&providers());
+
+    // Only the action matched, so `rank::nest` promotes it to a row of its
+    // own. Counting it is what keeps the bar from dropping a pill whose rows
+    // are all promoted children.
+    let ambient = vec![child("private", "librewolf")];
+
+    let visible = pills.visible(&ambient);
+    assert_eq!(visible.iter().map(|p| p.count).collect::<Vec<_>>(), [1]);
+}
+
+#[test]
+fn a_child_whose_present_parent_sits_in_another_section_counts_as_a_root() {
+    let pills = Pills::new(&providers());
+
+    // The parent is on the frame, but the two disagree about the heading, so
+    // `rank::adopts` refuses the adoption exactly as `rank::nest` would and
+    // the child draws as a row in its own right — which is a row to count.
+    let ambient = vec![
+        app("librewolf"),
+        child("private", "librewolf").section("Other"),
+    ];
+
+    let visible = pills.visible(&ambient);
+    assert_eq!(visible.iter().map(|p| p.count).collect::<Vec<_>>(), [2]);
+}
+
+#[test]
+fn the_spec_string_carries_the_root_count_not_the_raw_row_count() {
+    let pills = Pills::new(&providers());
+    let ambient = vec![
+        app("librewolf"),
+        child("new-window", "librewolf"),
+        child("private", "librewolf"),
+    ];
+
+    assert_eq!(pills.spec(&ambient), "Applications:1");
+}
+
 // --- filtering ---
 
 #[test]
@@ -219,6 +298,22 @@ fn filtering_with_nothing_visible_passes_the_rows_through() {
     // keyword provider's own rows must survive.
     let ambient = vec![row("calc", "Calculator")];
     assert_eq!(pills.filter(&ambient, 0), ambient);
+}
+
+#[test]
+fn filtering_to_the_apps_pill_still_shows_the_children_under_their_parent() {
+    let pills = Pills::new(&providers());
+    let ambient = vec![
+        app("librewolf"),
+        child("new-window", "librewolf"),
+        child("private", "librewolf"),
+        row("system", "System"),
+    ];
+
+    // The pill counts one row and hands back three. `Pills::filter` narrows
+    // by provider, not by whether a row is a root, so the list underneath the
+    // pill keeps LibreWolf's actions nested beneath it.
+    assert_eq!(pills.filter(&ambient, 0), ambient[..3].to_vec());
 }
 
 #[test]
