@@ -130,6 +130,21 @@ jobs:
             sleep 2
           done
           pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
+      # Diagnostic only, not a fix: confirmed 2026-08-24 that killing
+      # determinate-nixd (previous step, verified dead before flake check
+      # even starts) does NOT stop the "aipage-944064e.drv is not valid"
+      # failure — same error, every run, dead daemon or not. That rules out
+      # the GC race entirely; every earlier step in this job chased the
+      # wrong cause. `nix flake check`'s cascading failure output swallows
+      # the real underlying error for whatever breaks first, so build the
+      # one IFD-requiring package flake check needs mid-eval in isolation
+      # here, with full logs, before flake check's own noisier failure.
+      - name: Diagnose the aipage fetch in isolation (not a fix)
+        run: |
+          echo "--- can this runner reach codeberg.org at all? ---"
+          time git ls-remote https://codeberg.org/dasmatus/aipage.git HEAD || echo "[ls-remote failed, see above]"
+          echo "--- building .#aipage-firefox alone, full logs ---"
+          nix build -L --no-link .#aipage-firefox || echo "[isolated aipage build failed, see above — this is the real error]"
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
       # The cheap non-VM checks are worth actually building. Build ALL the
