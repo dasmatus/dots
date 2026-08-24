@@ -61,8 +61,10 @@ sudo nixos-rebuild switch --flake .#tokyonight
   `fastfetch.nix` (ported from the old neofetch config), `fish.nix`,
   `hyprland.nix`, `hyprtile.nix` (the [HyprTile](https://hyprtile.org/)
   fullscreen tile launcher / power page / screenshot / wallpaper suite the
-  desktop stack converted to), `waybar.nix`, `dunst.nix`, `rofi/` (rofi is
-  only the settings-menu renderer now), `nixvim.nix`,
+  desktop stack converted to), `waybar.nix`, `dunst.nix`, `dots-osd.nix`
+  (the media-key OSDs and the watcher that notifies on a VPN drop or a
+  filling filesystem — what the bar used to be glanced at for),
+  `rofi/` (rofi is only the settings-menu renderer now), `nixvim.nix`,
   `librewolf.nix`, `claude.nix` (Claude Code + nix-built `ccbar` statusline),
   `pkgs.nix` (ex-flatpak GUI apps incl. the Haveno AppImage wrap and the
   Newelle→Claude Code wiring), `git.nix`, `random_wp.nix` (Wallhaven

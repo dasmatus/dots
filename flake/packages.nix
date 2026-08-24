@@ -166,6 +166,32 @@ self: {
     meta.mainProgram = "beamenu-dashboard";
   };
 
+  # dots-osd, the desktop's voice: the OSDs the media keys put on screen, and
+  # the watcher that notices a VPN dropping or a filesystem filling up.
+  #
+  # Exists because everything this machine knows about itself now lives inside
+  # beamenu, which answers questions beautifully and volunteers nothing. The
+  # launcher is where you go to ask; this is what comes to you.
+  #
+  # Widened to rust/ for the same reason beamenu is: it takes beamenu-status as
+  # a path dependency, so the readings it acts on and the readings the launcher
+  # shows come from one parser rather than two that can disagree. No
+  # palette.json here, since the notification daemon draws these, not us.
+  dots-osd = pkgs.rustPlatform.buildRustPackage {
+    pname = "dots-osd";
+    version = "0.1.0";
+    src = pkgs.lib.fileset.toSource {
+      root = ../rust;
+      fileset = pkgs.lib.fileset.unions [
+        ../rust/dots-osd
+        ../rust/beamenu-status
+      ];
+    };
+    sourceRoot = "source/dots-osd";
+    cargoLock.lockFile = ../rust/dots-osd/Cargo.lock;
+    meta.mainProgram = "dots-osd";
+  };
+
   # beamenu-canvas — the WebKitGTK sidecar beamenu spawns for a plugin's
   # `view` command: a layer-shell window that renders the command's output
   # (streamed log text, or a JSON-RPC-driven component tree) under one

@@ -37,6 +37,7 @@
     ./waybar.nix
     ./wallpaper-tui.nix
     ./dunst.nix
+    ./dots-osd.nix
     ./keybinds.nix
     ./random_wp.nix
     ./librewolf.nix

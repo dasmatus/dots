@@ -17,6 +17,7 @@
   beamenuCanvasPkg,
   beamenuCalcPkg,
   beamenuStatusPkg,
+  dotsOsd,
   claudeDesktop,
   ...
 }:
@@ -127,6 +128,7 @@ in
         beamenuCanvasPkg
         beamenuCalcPkg
         beamenuStatusPkg
+        dotsOsd
         claudeDesktop
         ;
       dots = config.dots;

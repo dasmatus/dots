@@ -149,15 +149,23 @@ let
     media = [
       {
         key = "Audio/Mic Mute";
-        desc = "Mute sink / source";
+        desc = "Mute sink / source (shows an OSD)";
       }
       {
         key = "Volume Up/Down";
-        desc = "Volume ±5%";
+        desc = "Volume ±5% (shows an OSD)";
       }
       {
         key = "Brightness Up/Down";
-        desc = "Brightness ±5%";
+        desc = "Brightness ±5% (shows an OSD)";
+      }
+      {
+        key = "SUPER + Shift + T";
+        desc = "Touchpad on / off";
+      }
+      {
+        key = "SUPER + Shift + P";
+        desc = "Privacy: mute mic, report camera use";
       }
     ];
     kitty = [

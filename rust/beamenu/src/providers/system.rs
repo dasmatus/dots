@@ -7,6 +7,11 @@
 //!
 //! Screenshot and screen recording live here too, because removing `HyprTile`
 //! also removed `hyprtile-shotter` and `hyprtile-screener`.
+//!
+//! The touchpad and privacy switches are here for a different reason: they have
+//! keybinds of their own, and a bind you have to remember is not a discovery
+//! surface. Both run the same `dots-osd` command the bind does, so activating a
+//! row and pressing the key are the same act and draw the same notification.
 
 use crate::item::{Action, Item};
 use crate::providers::{Ctx, Provider};
@@ -63,6 +68,18 @@ const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "Toggle Screen Recording",
         "Start or stop wl-screenrec",
         "beamenu-record toggle",
+    ),
+    (
+        "touchpad",
+        "Toggle Touchpad",
+        "Disable or re-enable the touchpad",
+        "dots-osd touchpad toggle",
+    ),
+    (
+        "privacy",
+        "Toggle Privacy Mode",
+        "Mute the microphone, and report anything using the camera",
+        "dots-osd privacy toggle",
     ),
 ];
 

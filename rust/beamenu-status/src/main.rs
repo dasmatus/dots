@@ -36,7 +36,7 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let metric = cli.metric.join(" ");
-    let state = state_dir();
+    let state = cache::state_dir();
 
     if cli.once {
         let markdown = frame(&state, &metric);
@@ -59,18 +59,4 @@ fn frame(state: &std::path::Path, metric: &str) -> String {
     let live = probe::live();
     let snapshot = cache::load(&cache::path(state));
     dashboard::render(&live, snapshot.as_ref(), metric)
-}
-
-/// `$XDG_STATE_HOME/beamenu`, matching what the launcher uses.
-///
-/// Duplicated from the launcher rather than shared, because the dependency runs
-/// the other way — the launcher depends on this crate, not the reverse.
-fn state_dir() -> std::path::PathBuf {
-    std::env::var_os("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/state"))
-        })
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("beamenu")
 }

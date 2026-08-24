@@ -777,16 +777,42 @@ in
         }
 
         # audio mute toggles (plain bind — not locked, not repeating)
+        #
+        # These call dots-osd rather than wpctl directly. It runs the same
+        # wpctl command and then reads the result back onto the screen, which
+        # is the whole point: with the bar gone, a mute toggle that draws
+        # nothing leaves you tapping the key to find out which way it went.
+        # See nix/home/dots-osd.nix.
         {
           _args = [
             "XF86AudioMute"
-            (lua ''hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle")'')
+            (lua ''hl.dsp.exec_cmd("dots-osd volume mute")'')
           ];
         }
         {
           _args = [
             "XF86AudioMicMute"
-            (lua ''hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle")'')
+            (lua ''hl.dsp.exec_cmd("dots-osd microphone")'')
+          ];
+        }
+
+        # Touchpad off and on, for typing on a laptop with the heel of a hand
+        # in the way. Hyprland cannot be asked whether a device is enabled, so
+        # dots-osd remembers in $XDG_RUNTIME_DIR — which clears at logout,
+        # exactly when Hyprland forgets the setting too.
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + T"'')
+            (lua ''hl.dsp.exec_cmd("dots-osd touchpad toggle")'')
+          ];
+        }
+
+        # Privacy switch: mute the microphone, and name anything holding the
+        # camera open so "privacy on" is never read as "the camera is off".
+        {
+          _args = [
+            (lua ''mod .. " + SHIFT + P"'')
+            (lua ''hl.dsp.exec_cmd("dots-osd privacy toggle")'')
           ];
         }
 
@@ -822,31 +848,36 @@ in
           ];
         }
 
+        # Volume and brightness, still ±5% and still repeating while held — but
+        # through dots-osd, which runs the same wpctl/brightnessctl command and
+        # then draws the resulting level as a progress bar. The 1.5 boost
+        # ceiling on the way up moved into the binary with the command
+        # (rust/dots-osd/src/control.rs); it is not lost here.
         {
           _args = [
             "XF86AudioRaiseVolume"
-            (lua ''hl.dsp.exec_cmd("wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+")'')
+            (lua ''hl.dsp.exec_cmd("dots-osd volume up")'')
             { repeating = true; }
           ];
         }
         {
           _args = [
             "XF86AudioLowerVolume"
-            (lua ''hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-")'')
+            (lua ''hl.dsp.exec_cmd("dots-osd volume down")'')
             { repeating = true; }
           ];
         }
         {
           _args = [
             "XF86MonBrightnessUp"
-            (lua ''hl.dsp.exec_cmd("brightnessctl set 5%+")'')
+            (lua ''hl.dsp.exec_cmd("dots-osd brightness up")'')
             { repeating = true; }
           ];
         }
         {
           _args = [
             "XF86MonBrightnessDown"
-            (lua ''hl.dsp.exec_cmd("brightnessctl set 5%-")'')
+            (lua ''hl.dsp.exec_cmd("dots-osd brightness down")'')
             { repeating = true; }
           ];
         }

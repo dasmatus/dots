@@ -92,6 +92,7 @@ in
       cd ../beamenu-canvas && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../beamenu-calc && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../beamenu-status && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd ../dots-osd && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
     '';
   };
 
