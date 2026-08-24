@@ -128,11 +128,21 @@ in
         "$work/src/lib/renderers/pills.cpp" \
         -o "$work/pills_scroll_test"
 
-      # The unit under test allocates nothing, so leak detection buys nothing
+      clang++ -std=c++23 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+        -I"$work/src/lib" \
+        nix/patches/beamenu/tests/rows_fit_test.cpp \
+        "$work/src/lib/renderers/rows.cpp" \
+        -o "$work/rows_fit_test"
+
+      # The units under test allocate nothing, so leak detection buys nothing
       # here, and LeakSanitizer needs ptrace, which sandboxes tend to refuse.
       ASAN_OPTIONS=detect_leaks=0 \
       UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
         "$work/pills_scroll_test"
+
+      ASAN_OPTIONS=detect_leaks=0 \
+      UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+        "$work/rows_fit_test"
     '';
   };
 

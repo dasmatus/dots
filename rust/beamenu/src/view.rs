@@ -7,11 +7,17 @@
 //! reimplements that loop in Rust and repopulates the item list between
 //! iterations, which is the whole mechanism behind dynamic results.
 //!
-//! Pointer and touch input are not wired. `bm_menu_run_with_events` takes
-//! `struct bm_pointer` and `struct bm_touch` by value, and reproducing their
-//! layouts across the FFI to support mouse input in a launcher driven entirely
-//! from the keyboard is not worth the fragility. [`Menu::pump`] calls
+//! Pointer and touch input are not wired *here*. `bm_menu_run_with_events`
+//! takes `struct bm_pointer` and `struct bm_touch` by value, and reproducing
+//! their layouts across the FFI to support mouse input in a launcher driven
+//! mostly from the keyboard is not worth the fragility. [`Menu::pump`] calls
 //! `bm_menu_run_with_key` instead, which is the same path minus those two.
+//!
+//! The filter pill bar is the exception, and it does not travel through this
+//! module: `09-pill-pointer.patch` consumes the pointer inside the renderer,
+//! turning a horizontal swipe into Tab and a click into a move of the active
+//! pill. Both reach this side through [`Menu::active_pill`], which is where
+//! Tab's own moves already arrived.
 
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::ptr;
@@ -125,6 +131,8 @@ extern "C" {
     fn bm_item_set_accessory(item: *mut BmItem, text: *const c_char) -> bool;
     fn bm_item_set_icon(item: *mut BmItem, text: *const c_char) -> bool;
     fn bm_item_set_section(item: *mut BmItem, text: *const c_char) -> bool;
+    fn bm_item_set_nest(item: *mut BmItem, nest: c_uint);
+    fn bm_item_set_has_actions(item: *mut BmItem, has_actions: bool);
     fn bm_item_set_userdata(item: *mut BmItem, userdata: *mut c_void);
     fn bm_item_get_userdata(item: *mut BmItem) -> *mut c_void;
 }
@@ -158,32 +166,21 @@ pub struct Menu {
     len: usize,
 }
 
-/// The title as drawn: a child row gets a tree elbow, everything else is
-/// itself.
+/// How deep a row hangs beneath the one above it, as the view layer draws it.
 ///
-/// The glyph is chosen from the *next* row rather than from the item alone,
-/// which is why this takes the slice: a child needs to know whether another
-/// child of the same parent follows it, so the last one closes the branch with
-/// `└` instead of continuing it with `├`. [`crate::rank::rank`] has already
-/// made an app's actions contiguous by this point, so looking one row ahead is
-/// enough — there is never a sibling further down that this would miss.
+/// `nesting` is off whenever a filter is active. A filtered list is not the
+/// resting list with rows removed: the parent a child hung under may not have
+/// matched at all, so indenting the child under whatever happens to precede it
+/// would point at the wrong row. Every row draws full size while searching,
+/// and a promoted child says what it belongs to through its subtitle.
 ///
-/// Indenting here rather than in the provider keeps the drawn shape out of
-/// [`Item::title`], which is what the filter matches against: a query would
-/// otherwise have to get past a box-drawing character to reach the text.
+/// The depth travels to the renderer as a number rather than as a prefix on
+/// the title. Spelling it into the text put a box-drawing character in front
+/// of what the filter matches against, and left the row the same height and
+/// weight as its parent besides.
 #[must_use]
-pub fn indented(items: &[Item], index: usize) -> String {
-    let Some(item) = items.get(index) else {
-        return String::new();
-    };
-    if item.parent.is_none() {
-        return item.title.clone();
-    }
-    let more_siblings = items
-        .get(index + 1)
-        .is_some_and(|next| next.parent == item.parent);
-    let elbow = if more_siblings { '├' } else { '└' };
-    format!("{elbow}─ {}", item.title)
+pub fn nest_depth(item: &Item, nesting: bool) -> u32 {
+    u32::from(nesting && item.parent.is_some())
 }
 
 fn cstr(value: &str) -> CString {
@@ -300,7 +297,9 @@ impl Menu {
     /// The index of each item is stashed in its userdata, so the highlighted
     /// row can be mapped back to `items` without keeping raw pointers around
     /// on the Rust side.
-    pub fn set_items(&mut self, items: &[Item]) {
+    /// `nesting` draws a row with a parent indented and smaller. Off while a
+    /// filter is active; see [`nest_depth`].
+    pub fn set_items(&mut self, items: &[Item], nesting: bool) {
         // SAFETY: free_items drops every item the menu owns. The patched
         // library no longer frees filter_item here, so this is safe to call
         // repeatedly; on stock bemenu it would dangle.
@@ -311,7 +310,7 @@ impl Menu {
             // SAFETY: bm_item_new copies the text; on success bm_menu_add_item
             // takes ownership and the menu frees it in free_items.
             unsafe {
-                let title = cstr(&indented(items, index));
+                let title = cstr(&item.title);
                 let raw = bm_item_new(title.as_ptr());
                 if raw.is_null() {
                     continue;
@@ -332,6 +331,8 @@ impl Menu {
                     let value = cstr(section);
                     bm_item_set_section(raw, value.as_ptr());
                 }
+                bm_item_set_nest(raw, nest_depth(item, nesting));
+                bm_item_set_has_actions(raw, !item.alt_actions.is_empty());
                 bm_item_set_userdata(raw, index as *mut c_void);
 
                 if bm_menu_add_item(self.ptr, raw) {
