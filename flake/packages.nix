@@ -55,10 +55,14 @@ self: {
   # plan for the runtime symbol reaching a gcc-linked Rust consumer, and should
   # verify by RUNNING the binary, not by watching the build go green.
   #
-  # 06-filter-pills.patch adds one C++ translation unit
-  # (lib/renderers/pills.cpp, the bar's scroll geometry), which is why CXXFLAGS
-  # matter here at all; bemenu's GNUmakefile pins it to -std=c++23, the newest
-  # standard clang 21 implements in full rather than in part.
+  # Two C++ translation units, which is why CXXFLAGS matter here at all:
+  # lib/renderers/pills.cpp (06-filter-pills.patch, the bar's scroll geometry
+  # and its hit test) and lib/renderers/rows.cpp (08-nested-rows.patch, laying
+  # variable-height rows into the panel). Both are pure arithmetic over plain
+  # arrays, which is what makes them worth splitting out and testing on their
+  # own under `nix run .#beamenu-patch-test`. bemenu's GNUmakefile pins them to
+  # -std=c++23, the newest standard clang 21 implements in full rather than in
+  # part.
   beamenu-view =
     (pkgs.bemenu.override {
       stdenv = pkgs.overrideCC pkgs.clangStdenv (
@@ -75,6 +79,8 @@ self: {
           ../nix/patches/beamenu/05-rich-panel-body.patch
           ../nix/patches/beamenu/06-filter-pills.patch
           ../nix/patches/beamenu/07-unmap-shm-buffers.patch
+          ../nix/patches/beamenu/08-nested-rows.patch
+          ../nix/patches/beamenu/09-pill-pointer.patch
         ];
         buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
         # lld arrives as the stdenv's *wrapped* bintools (above), never as

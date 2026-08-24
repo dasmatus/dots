@@ -469,7 +469,7 @@ fn sync(
     if !app.stack.is_empty() {
         menu.set_pills("", 0);
         state.cleared();
-        menu.set_items(&ambient);
+        menu.set_items(&ambient, query.is_empty());
         return ambient;
     }
 
@@ -483,7 +483,7 @@ fn sync(
         Pills::filter_of(&ambient, &visible, active)
     };
 
-    menu.set_items(&shown);
+    menu.set_items(&shown, query.is_empty());
     shown
 }
 

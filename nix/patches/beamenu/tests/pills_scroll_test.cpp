@@ -17,6 +17,10 @@ extern "C" std::uint32_t bm_pills_scroll_offset(const std::uint32_t *widths, std
                                                 std::uint32_t focus, std::uint32_t gap,
                                                 std::uint32_t viewport);
 
+#define BM_PILLS_NO_HIT UINT32_MAX
+extern "C" std::uint32_t bm_pills_hit(const std::int32_t *xs, const std::uint32_t *widths,
+                                     std::uint32_t count, std::int32_t px);
+
 namespace {
 
 constexpr std::uint32_t GAP = 8;
@@ -83,6 +87,44 @@ void a_single_capsule_narrower_than_the_viewport_stays_put()
 
 } // namespace
 
+void a_click_inside_a_capsule_finds_it()
+{
+    const std::int32_t xs[] = { 10, 130, 250 };
+    const std::uint32_t ws[] = { 100, 100, 100 };
+    assert(bm_pills_hit(xs, ws, 3, 10) == 0);
+    assert(bm_pills_hit(xs, ws, 3, 109) == 0);
+    assert(bm_pills_hit(xs, ws, 3, 130) == 1);
+    assert(bm_pills_hit(xs, ws, 3, 349) == 2);
+}
+
+void a_click_in_a_gap_or_off_the_run_hits_nothing()
+{
+    const std::int32_t xs[] = { 10, 130 };
+    const std::uint32_t ws[] = { 100, 100 };
+    /* The 20px between capsule 0's right edge and capsule 1's left. */
+    assert(bm_pills_hit(xs, ws, 2, 115) == BM_PILLS_NO_HIT);
+    assert(bm_pills_hit(xs, ws, 2, 9) == BM_PILLS_NO_HIT);
+    assert(bm_pills_hit(xs, ws, 2, 230) == BM_PILLS_NO_HIT);
+}
+
+void a_capsule_scrolled_out_of_sight_cannot_be_clicked()
+{
+    /* The painter leaves draw_x/draw_w at 0 for capsules it skipped, so a
+     * zero-width entry must never swallow a click at x = 0. */
+    const std::int32_t xs[] = { 0, 130 };
+    const std::uint32_t ws[] = { 0, 100 };
+    assert(bm_pills_hit(xs, ws, 2, 0) == BM_PILLS_NO_HIT);
+    assert(bm_pills_hit(xs, ws, 2, 130) == 1);
+}
+
+void a_hit_test_with_no_capsules_is_not_a_crash()
+{
+    const std::int32_t xs[] = { 0 };
+    const std::uint32_t ws[] = { 0 };
+    assert(bm_pills_hit(xs, ws, 0, 5) == BM_PILLS_NO_HIT);
+    assert(bm_pills_hit(nullptr, nullptr, 0, 5) == BM_PILLS_NO_HIT);
+}
+
 int main()
 {
     a_run_that_fits_never_scrolls();
@@ -94,6 +136,10 @@ int main()
     a_zero_viewport_pins_the_focus_capsule_to_its_left_edge();
     a_single_capsule_narrower_than_the_viewport_stays_put();
 
+    a_click_inside_a_capsule_finds_it();
+    a_click_in_a_gap_or_off_the_run_hits_nothing();
+    a_capsule_scrolled_out_of_sight_cannot_be_clicked();
+    a_hit_test_with_no_capsules_is_not_a_crash();
     std::puts("pills_scroll_test: all cases passed");
     return 0;
 }
