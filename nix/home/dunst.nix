@@ -54,7 +54,20 @@
         show_indicators = true;
 
         enable_recursive_icon_lookup = true;
-        icon_theme = "morewaita";
+        # "MoreWaita", not "morewaita". dunst matches this against the theme's
+        # directory name, which is capitalised; with the lowercase spelling it
+        # logs `WARNING: Could not find theme morewaita` and loads no theme at
+        # all.
+        #
+        # Worth knowing before trusting it: fixing the case makes the theme load
+        # and does *not* by itself make icons appear. Measured against dunst
+        # 1.13.2 on a throwaway bus, no icon passed by name resolves under this
+        # dunstrc. Not an Adwaita symbolic name, not a PNG-backed legacy name,
+        # not one MoreWaita ships itself, under any theme spelling. Only icons
+        # passed as a file path (hyprshot's screenshots) render today. That is a
+        # separate fault and was not tracked down; this line only removes the
+        # one cause that could be pinned on the configuration.
+        icon_theme = "MoreWaita";
         icon_position = "left";
         min_icon_size = 0;
         max_icon_size = 32;

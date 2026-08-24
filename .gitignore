@@ -46,3 +46,4 @@ nix/secrets.nix
 .superpowers/
 rust/beamenu-calc/target/
 rust/beamenu-status/target/
+rust/dots-osd/target/

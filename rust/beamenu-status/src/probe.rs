@@ -21,6 +21,15 @@ const VPN_INTERFACE: &str = "proton0";
 /// The filesystems worth a row. Mirrors waybar's two `disk#*` modules.
 const DISK_PATHS: &[&str] = &["/home", "/nix/store"];
 
+/// `wpctl`'s name for whichever sink is currently the default.
+///
+/// Named here rather than spelled out at each call site because `dots-osd`
+/// actuates the same two nodes this crate reads, and a typo in one of the four
+/// places would silently move the volume of a node nobody is listening to.
+pub const DEFAULT_SINK: &str = "@DEFAULT_AUDIO_SINK@";
+/// The same for the default source.
+pub const DEFAULT_SOURCE: &str = "@DEFAULT_AUDIO_SOURCE@";
+
 /// Read a file, trimming it, treating any failure as absent.
 fn slurp(path: impl AsRef<Path>) -> Option<String> {
     std::fs::read_to_string(path)
@@ -77,7 +86,12 @@ pub fn live() -> Live {
     }
 }
 
-fn battery() -> Option<crate::model::Battery> {
+/// The first battery, or `None` on a machine without one.
+///
+/// Public because `dots-osd` warns on low charge and wants this reading alone,
+/// not the seven [`live`] takes to build a dashboard row.
+#[must_use]
+pub fn battery() -> Option<crate::model::Battery> {
     let dir = first_entry("/sys/class/power_supply", "BAT")?;
     let name = dir.file_name()?.to_str()?.to_string();
     let read = |file: &str| slurp(dir.join(file));
@@ -98,7 +112,13 @@ fn battery() -> Option<crate::model::Battery> {
     })
 }
 
-fn backlight() -> Option<crate::model::Backlight> {
+/// Panel brightness, or `None` where no backlight is exposed.
+///
+/// Public for the same reason [`battery`] is: `dots-osd` reads it back
+/// immediately after `brightnessctl` moves it, to put the new percentage on
+/// screen.
+#[must_use]
+pub fn backlight() -> Option<crate::model::Backlight> {
     let dir = first_entry("/sys/class/backlight", "")?;
     parse::backlight(
         &slurp(dir.join("brightness"))?,
@@ -153,8 +173,8 @@ pub fn snapshot_without_disks() -> Snapshot {
 
     Snapshot {
         captured_at: now_secs(),
-        volume: audio("@DEFAULT_AUDIO_SINK@"),
-        microphone: audio("@DEFAULT_AUDIO_SOURCE@"),
+        volume: audio(DEFAULT_SINK),
+        microphone: audio(DEFAULT_SOURCE),
         network: nmcli.as_deref().and_then(parse::nmcli_active),
         vpn: Some(parse::vpn(
             Path::new("/sys/class/net").join(VPN_INTERFACE).exists(),
@@ -173,7 +193,14 @@ pub fn disks() -> Vec<crate::model::Disk> {
     DISK_PATHS.iter().filter_map(|path| disk(path)).collect()
 }
 
-fn audio(target: &str) -> Option<Volume> {
+/// One `wpctl` target's level and mute state.
+///
+/// `target` is a `wpctl` node name, in practice [`DEFAULT_SINK`] or
+/// [`DEFAULT_SOURCE`]. Public so `dots-osd` reads a volume keypress back
+/// through the same parser the dashboard uses, rather than growing a second
+/// reading of `wpctl`'s output that could disagree with this one.
+#[must_use]
+pub fn audio(target: &str) -> Option<Volume> {
     run("wpctl", &["get-volume", target])
         .as_deref()
         .and_then(parse::wpctl_volume)

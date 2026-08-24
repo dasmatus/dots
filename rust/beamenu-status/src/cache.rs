@@ -24,6 +24,22 @@ pub fn path(state_dir: &Path) -> PathBuf {
     state_dir.join("status.json")
 }
 
+/// `$XDG_STATE_HOME/beamenu`, where the snapshot lives.
+///
+/// The launcher computes this for itself, and deliberately so: the dependency
+/// runs from the launcher to this crate, not back. But every *reader* of the
+/// snapshot needs the same answer, and there are now two of them, the dashboard
+/// worker and `dots-osd`, so the readers share one copy here rather than each
+/// carrying their own and drifting.
+#[must_use]
+pub fn state_dir() -> PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("beamenu")
+}
+
 /// Read the snapshot, or `None` if it is missing or unparseable.
 ///
 /// Tolerant on purpose, matching how the launcher already treats quicklinks and

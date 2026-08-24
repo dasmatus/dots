@@ -1,0 +1,43 @@
+[package]
+name = "dots-osd"
+version = "0.1.0"
+edition = "2021"
+description = "On-screen feedback for the desktop: keybind OSDs and a watcher that notifies when system state changes"
+license = "AGPL-3.0-only"
+
+[lib]
+name = "dots_osd"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dots-osd"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+# miette for the diagnostics, thiserror only as the `Error` derive underneath
+# them — that pairing is miette's own documented recipe, not a fallback to
+# thiserror. `fancy` downgrades itself off a TTY, so the watcher's journal
+# entries stay plain text.
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+beamenu-status = { path = "../beamenu-status" }
+zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
+
+[dev-dependencies]
+divan = "0.1"
+
+# `observe::cameras` walks every process's open descriptors, and the watcher
+# rate-limits it on the strength of that being expensive. This is what checks
+# whether the rate-limiting is earning its complexity.
+[[bench]]
+name = "observe"
+harness = false
+
+[profile.release]
+lto = true
+strip = true
