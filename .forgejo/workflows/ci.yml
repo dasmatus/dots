@@ -91,17 +91,25 @@ jobs:
             || cp /tmp/determinate-config.json /etc/determinate/config.json
       - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
       # Second line of defense in case the pre-seeded config above doesn't
-      # stick — plus real diagnostics, unmasked, because three prior fix
-      # attempts (kill, stop+mask, pre-seed-before-install; 2026-08-24) all
-      # still lost the race and every earlier version of this step silenced
-      # its own command output, so none of them told us *why*. This dumps
-      # whether the installer reset config.json, what determinate-nixd's
-      # actual systemd unit is (never actually confirmed — the unit name
-      # used below is a guess), and whether stop/mask/kill visibly errors.
-      # The kill pattern matches `determinate-nixd daemon` specifically, not
-      # the bare substring "determinate-nixd": nix-daemon's own cmdline
-      # embeds that string via its `--option json-log-path
-      # .../determinate-nixd-logger.socket` argument.
+      # stick — confirmed 2026-08-24 that config.json correctly reads
+      # {"garbageCollector":{"strategy":"disabled"}} both right after
+      # install and after a manual re-apply, so a wrong/reset config was
+      # never the problem. The systemd-based stop+mask from three earlier
+      # attempts was chasing a daemon that was never systemd-managed at
+      # all: `systemctl stop` on codeberg-medium fails outright with
+      # "System has not been booted with systemd as init system (PID 1).
+      # Can't operate." — determinate-nixd runs as a bare background
+      # process. A plain `pkill` (SIGTERM, the default) also didn't stick:
+      # the same PID was still alive 2s later, which points at it ignoring
+      # or deferring SIGTERM — plausible if it was already mid-GC-sweep at
+      # that point, the same sweep this whole step exists to prevent. Kill
+      # it with SIGKILL, which cannot be deferred or ignored, and loop
+      # until `pgrep` actually confirms it's gone rather than trusting a
+      # single attempt plus a fixed sleep. The pattern matches
+      # `determinate-nixd daemon` specifically, not the bare substring
+      # "determinate-nixd": nix-daemon's own cmdline embeds that string via
+      # its `--option json-log-path .../determinate-nixd-logger.socket`
+      # argument.
       - name: Stop determinate-nixd (nix-src#395 race)
         run: |
           df -h /nix
@@ -111,17 +119,17 @@ jobs:
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
           cat /etc/determinate/config.json
-          echo "--- processes ---"
-          pgrep -a -f determinate-nixd || true
-          echo "--- systemd units matching determinate ---"
-          systemctl list-units --all --no-pager 2>&1 | grep -i determinate || echo "(no matching units)"
-          systemctl list-unit-files --no-pager 2>&1 | grep -i determinate || echo "(no matching unit files)"
-          echo "--- stop/mask/kill (unsilenced) ---"
-          sudo systemctl stop determinate-nixd.service determinate-nixd.socket 2>&1 || echo "[stop exited non-zero, see above]"
-          sudo systemctl mask determinate-nixd.service determinate-nixd.socket 2>&1 || echo "[mask exited non-zero, see above]"
-          sudo pkill -f 'determinate-nixd daemon' 2>&1 || echo "[pkill exited non-zero or matched nothing]"
-          sleep 2
-          pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived" || echo "determinate-nixd is not running"
+          echo "--- SIGKILL retry loop, verified ---"
+          for attempt in 1 2 3 4 5; do
+            if ! pgrep -f 'determinate-nixd daemon' >/dev/null; then
+              echo "determinate-nixd confirmed down after $((attempt - 1)) SIGKILL attempts"
+              break
+            fi
+            pgrep -a -f 'determinate-nixd daemon'
+            sudo pkill -9 -f 'determinate-nixd daemon' 2>&1 || true
+            sleep 2
+          done
+          pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
       # The cheap non-VM checks are worth actually building. Build ALL the
@@ -188,8 +196,8 @@ jobs:
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
       - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
-      # See the nix-eval job for the full rationale and why this dumps
-      # unsilenced diagnostics instead of trusting a silent stop+mask+kill.
+      # See the nix-eval job for the full rationale: no systemd, and a
+      # single SIGTERM pkill didn't stick either — SIGKILL in a loop, verified.
       - name: Stop determinate-nixd (nix-src#395 race)
         run: |
           df -h /nix
@@ -199,17 +207,17 @@ jobs:
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
           cat /etc/determinate/config.json
-          echo "--- processes ---"
-          pgrep -a -f determinate-nixd || true
-          echo "--- systemd units matching determinate ---"
-          systemctl list-units --all --no-pager 2>&1 | grep -i determinate || echo "(no matching units)"
-          systemctl list-unit-files --no-pager 2>&1 | grep -i determinate || echo "(no matching unit files)"
-          echo "--- stop/mask/kill (unsilenced) ---"
-          sudo systemctl stop determinate-nixd.service determinate-nixd.socket 2>&1 || echo "[stop exited non-zero, see above]"
-          sudo systemctl mask determinate-nixd.service determinate-nixd.socket 2>&1 || echo "[mask exited non-zero, see above]"
-          sudo pkill -f 'determinate-nixd daemon' 2>&1 || echo "[pkill exited non-zero or matched nothing]"
-          sleep 2
-          pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived" || echo "determinate-nixd is not running"
+          echo "--- SIGKILL retry loop, verified ---"
+          for attempt in 1 2 3 4 5; do
+            if ! pgrep -f 'determinate-nixd daemon' >/dev/null; then
+              echo "determinate-nixd confirmed down after $((attempt - 1)) SIGKILL attempts"
+              break
+            fi
+            pgrep -a -f 'determinate-nixd daemon'
+            sudo pkill -9 -f 'determinate-nixd daemon' 2>&1 || true
+            sleep 2
+          done
+          pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
       # --option system-features is still needed: even with /dev/kvm present,
       # Nix won't schedule nixos-test derivations unless kvm/nixos-test are
       # declared on the (per-invocation) system-features.
