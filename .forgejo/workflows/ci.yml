@@ -79,7 +79,10 @@ jobs:
       # that race fires on ~every run. Disable the collector for the job; the
       # df/pgrep lines keep the step useful as a diagnostic if it ever stops
       # being effective. try-restart is a no-op where determinate-nixd isn't
-      # systemd-managed.
+      # systemd-managed — confirmed on codeberg-medium 2026-08-24: the race
+      # still fired after this step alone, twice, so the config write below
+      # never reached a live daemon there. Kill the process outright instead
+      # of trusting a restart to pick up the new config.
       - name: Disable determinate-nixd background GC (nix-src#395 race)
         run: |
           df -h /nix
@@ -89,6 +92,9 @@ jobs:
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
           sudo systemctl try-restart determinate-nixd 2>/dev/null || true
+          sudo pkill -f determinate-nixd 2>/dev/null || pkill -f determinate-nixd 2>/dev/null || true
+          sleep 1
+          pgrep -a -f determinate-nixd && echo "::warning::determinate-nixd survived the kill" || echo "determinate-nixd is not running"
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
       # The cheap non-VM checks are worth actually building. Build ALL the
@@ -147,7 +153,8 @@ jobs:
       # Same determinate-nixd background-GC race as in the nix-eval lane
       # (DeterminateSystems/nix-src#395) — this job realises the same IFD
       # drvs plus a far larger closure, so its exposure window is worse.
-      # See the nix-eval step for the full rationale.
+      # See the nix-eval step for the full rationale, incl. why this kills
+      # the process outright rather than trusting try-restart alone.
       - name: Disable determinate-nixd background GC (nix-src#395 race)
         run: |
           df -h /nix
@@ -157,6 +164,9 @@ jobs:
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
           sudo systemctl try-restart determinate-nixd 2>/dev/null || true
+          sudo pkill -f determinate-nixd 2>/dev/null || pkill -f determinate-nixd 2>/dev/null || true
+          sleep 1
+          pgrep -a -f determinate-nixd && echo "::warning::determinate-nixd survived the kill" || echo "determinate-nixd is not running"
       # --option system-features is still needed: even with /dev/kvm present,
       # Nix won't schedule nixos-test derivations unless kvm/nixos-test are
       # declared on the (per-invocation) system-features.
