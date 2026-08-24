@@ -91,23 +91,36 @@ jobs:
             || cp /tmp/determinate-config.json /etc/determinate/config.json
       - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
       # Second line of defense in case the pre-seeded config above doesn't
-      # stick (e.g. the installer overwrites it) — stop *and* mask so
-      # nothing restarts it under systemd's auto-restart policy (confirmed
-      # 2026-08-24: a bare `pkill` alone got a fresh instance back within
-      # ~1s). The kill pattern matches `determinate-nixd daemon`
-      # specifically, not the bare substring "determinate-nixd": nix-daemon's
-      # own cmdline embeds that string via its `--option json-log-path
-      # .../determinate-nixd-logger.socket` argument, so a loose
-      # `-f determinate-nixd` pattern also targets the real build daemon
-      # these checks depend on.
+      # stick — plus real diagnostics, unmasked, because three prior fix
+      # attempts (kill, stop+mask, pre-seed-before-install; 2026-08-24) all
+      # still lost the race and every earlier version of this step silenced
+      # its own command output, so none of them told us *why*. This dumps
+      # whether the installer reset config.json, what determinate-nixd's
+      # actual systemd unit is (never actually confirmed — the unit name
+      # used below is a guess), and whether stop/mask/kill visibly errors.
+      # The kill pattern matches `determinate-nixd daemon` specifically, not
+      # the bare substring "determinate-nixd": nix-daemon's own cmdline
+      # embeds that string via its `--option json-log-path
+      # .../determinate-nixd-logger.socket` argument.
       - name: Stop determinate-nixd (nix-src#395 race)
         run: |
           df -h /nix
+          echo "--- config.json after install ---"
+          cat /etc/determinate/config.json 2>&1 || echo "(missing)"
+          echo "--- re-applying GC-disabled config in case the installer reset it ---"
+          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
+            || cp /tmp/determinate-config.json /etc/determinate/config.json
+          cat /etc/determinate/config.json
+          echo "--- processes ---"
           pgrep -a -f determinate-nixd || true
-          sudo systemctl stop determinate-nixd.service determinate-nixd.socket 2>/dev/null || true
-          sudo systemctl mask determinate-nixd.service determinate-nixd.socket 2>/dev/null || true
-          sudo pkill -f 'determinate-nixd daemon' 2>/dev/null || pkill -f 'determinate-nixd daemon' 2>/dev/null || true
-          sleep 1
+          echo "--- systemd units matching determinate ---"
+          systemctl list-units --all --no-pager 2>&1 | grep -i determinate || echo "(no matching units)"
+          systemctl list-unit-files --no-pager 2>&1 | grep -i determinate || echo "(no matching unit files)"
+          echo "--- stop/mask/kill (unsilenced) ---"
+          sudo systemctl stop determinate-nixd.service determinate-nixd.socket 2>&1 || echo "[stop exited non-zero, see above]"
+          sudo systemctl mask determinate-nixd.service determinate-nixd.socket 2>&1 || echo "[mask exited non-zero, see above]"
+          sudo pkill -f 'determinate-nixd daemon' 2>&1 || echo "[pkill exited non-zero or matched nothing]"
+          sleep 2
           pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived" || echo "determinate-nixd is not running"
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
@@ -175,14 +188,27 @@ jobs:
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
       - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      # See the nix-eval job for the full rationale and why this dumps
+      # unsilenced diagnostics instead of trusting a silent stop+mask+kill.
       - name: Stop determinate-nixd (nix-src#395 race)
         run: |
           df -h /nix
+          echo "--- config.json after install ---"
+          cat /etc/determinate/config.json 2>&1 || echo "(missing)"
+          echo "--- re-applying GC-disabled config in case the installer reset it ---"
+          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
+            || cp /tmp/determinate-config.json /etc/determinate/config.json
+          cat /etc/determinate/config.json
+          echo "--- processes ---"
           pgrep -a -f determinate-nixd || true
-          sudo systemctl stop determinate-nixd.service determinate-nixd.socket 2>/dev/null || true
-          sudo systemctl mask determinate-nixd.service determinate-nixd.socket 2>/dev/null || true
-          sudo pkill -f 'determinate-nixd daemon' 2>/dev/null || pkill -f 'determinate-nixd daemon' 2>/dev/null || true
-          sleep 1
+          echo "--- systemd units matching determinate ---"
+          systemctl list-units --all --no-pager 2>&1 | grep -i determinate || echo "(no matching units)"
+          systemctl list-unit-files --no-pager 2>&1 | grep -i determinate || echo "(no matching unit files)"
+          echo "--- stop/mask/kill (unsilenced) ---"
+          sudo systemctl stop determinate-nixd.service determinate-nixd.socket 2>&1 || echo "[stop exited non-zero, see above]"
+          sudo systemctl mask determinate-nixd.service determinate-nixd.socket 2>&1 || echo "[mask exited non-zero, see above]"
+          sudo pkill -f 'determinate-nixd daemon' 2>&1 || echo "[pkill exited non-zero or matched nothing]"
+          sleep 2
           pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived" || echo "determinate-nixd is not running"
       # --option system-features is still needed: even with /dev/kvm present,
       # Nix won't schedule nixos-test derivations unless kvm/nixos-test are
