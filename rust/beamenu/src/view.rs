@@ -158,6 +158,34 @@ pub struct Menu {
     len: usize,
 }
 
+/// The title as drawn: a child row gets a tree elbow, everything else is
+/// itself.
+///
+/// The glyph is chosen from the *next* row rather than from the item alone,
+/// which is why this takes the slice: a child needs to know whether another
+/// child of the same parent follows it, so the last one closes the branch with
+/// `└` instead of continuing it with `├`. [`crate::rank::rank`] has already
+/// made an app's actions contiguous by this point, so looking one row ahead is
+/// enough — there is never a sibling further down that this would miss.
+///
+/// Indenting here rather than in the provider keeps the drawn shape out of
+/// [`Item::title`], which is what the filter matches against: a query would
+/// otherwise have to get past a box-drawing character to reach the text.
+#[must_use]
+pub fn indented(items: &[Item], index: usize) -> String {
+    let Some(item) = items.get(index) else {
+        return String::new();
+    };
+    if item.parent.is_none() {
+        return item.title.clone();
+    }
+    let more_siblings = items
+        .get(index + 1)
+        .is_some_and(|next| next.parent == item.parent);
+    let elbow = if more_siblings { '├' } else { '└' };
+    format!("{elbow}─ {}", item.title)
+}
+
 fn cstr(value: &str) -> CString {
     // Interior NULs cannot reach C. Truncating at the first one keeps a
     // pathological title from taking the launcher down.
@@ -283,7 +311,7 @@ impl Menu {
             // SAFETY: bm_item_new copies the text; on success bm_menu_add_item
             // takes ownership and the menu frees it in free_items.
             unsafe {
-                let title = cstr(&item.title);
+                let title = cstr(&indented(items, index));
                 let raw = bm_item_new(title.as_ptr());
                 if raw.is_null() {
                     continue;

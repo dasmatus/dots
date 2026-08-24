@@ -151,3 +151,78 @@ fn a_strong_match_pulls_its_whole_section_up() {
     rank(&mut items, "files", |_| 0);
     assert_eq!(items[0].section.as_deref(), Some("Docs"));
 }
+
+// --- nesting: an app's actions sit under the app ---
+
+/// A child row of `parent`, matching only through the parent's name — which
+/// is how the apps provider builds them, and the case that would otherwise
+/// scatter an app's actions down the section.
+fn child(title: &str, parent: &str, app: &str) -> Item {
+    Item::new(format!("{parent}#{title}"), title, Action::None)
+        .parent(parent)
+        .keywords([app])
+}
+
+#[test]
+fn a_childs_keyword_match_still_leaves_it_under_its_parent() {
+    let mut items = vec![
+        item("LibreWolf"),
+        item("LibreOffice Calc"),
+        child("New Private Window", "librewolf", "LibreWolf"),
+        child("New Window", "librewolf", "LibreWolf"),
+    ];
+    rank(&mut items, "libre", |_| 0);
+
+    let order: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+    let parent = order.iter().position(|t| *t == "LibreWolf").unwrap();
+    assert_eq!(
+        &order[parent..=parent + 2],
+        ["LibreWolf", "New Private Window", "New Window"],
+        "the keyword tier must not strand the actions below LibreOffice Calc"
+    );
+}
+
+#[test]
+fn a_child_whose_parent_lost_the_filter_stands_on_its_own() {
+    let mut items = vec![
+        item("LibreWolf"),
+        child("New Private Window", "librewolf", "LibreWolf"),
+    ];
+    // Matches the action's own title, but not "LibreWolf".
+    rank(&mut items, "private", |_| 0);
+
+    let order: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+    assert_eq!(order, ["New Private Window"]);
+}
+
+#[test]
+fn nesting_never_pulls_a_child_across_a_section_heading() {
+    let mut items = vec![
+        item("LibreWolf").section("Applications"),
+        item("Something Else").section("Applications"),
+        child("Orphan", "librewolf", "LibreWolf").section("Plugins"),
+    ];
+    rank(&mut items, "", |_| 0);
+
+    let sections: Vec<Option<&str>> = items.iter().map(|i| i.section.as_deref()).collect();
+    let first_plugin = sections.iter().position(|s| *s == Some("Plugins")).unwrap();
+    assert!(
+        sections[..first_plugin]
+            .iter()
+            .all(|s| *s == Some("Applications")),
+        "a differently-sectioned child must not split the Applications group"
+    );
+}
+
+#[test]
+fn rows_without_parents_are_left_exactly_as_ranking_left_them() {
+    let mut plain = vec![item("Alpha"), item("Beta"), item("Gamma")];
+    let mut same = plain.clone();
+    rank(&mut plain, "a", |_| 0);
+    // Ranking the identical list twice must agree; nesting is a no-op here.
+    rank(&mut same, "a", |_| 0);
+    assert_eq!(
+        plain.iter().map(|i| i.title.clone()).collect::<Vec<_>>(),
+        same.iter().map(|i| i.title.clone()).collect::<Vec<_>>()
+    );
+}

@@ -165,6 +165,53 @@ pub fn rank(items: &mut Vec<crate::item::Item>, query: &str, boost: impl Fn(&str
 
     items.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
     group_by_section(items);
+    nest(items);
+}
+
+/// Pull every child row up to sit directly beneath its parent.
+///
+/// Runs last, after scoring and grouping, because it is the one ordering rule
+/// that is not about relevance. A child scores on its own merits — an app's
+/// action matches through the app's name as a keyword, which `match_score`
+/// deliberately drops a tier — and that would scatter an app's actions to the
+/// bottom of the section, far from the row they belong to. Scoring still
+/// decides *which* rows survive; this decides only where the survivors sit.
+///
+/// A child whose parent did not survive is promoted to a row in its own right
+/// rather than dropped: if the query matched only the action, the action is
+/// what was meant. A child is also only adopted by a parent in the same
+/// section, so this can never undo [`group_by_section`]'s headings.
+fn nest(items: &mut Vec<crate::item::Item>) {
+    use std::collections::HashMap;
+
+    if items.iter().all(|item| item.parent.is_none()) {
+        return;
+    }
+
+    let sections: HashMap<String, Option<String>> = items
+        .iter()
+        .map(|item| (item.id.clone(), item.section.clone()))
+        .collect();
+
+    let mut children: HashMap<String, Vec<crate::item::Item>> = HashMap::new();
+    let mut roots: Vec<crate::item::Item> = Vec::with_capacity(items.len());
+    for item in items.drain(..) {
+        let adopter = item
+            .parent
+            .as_ref()
+            .filter(|parent| sections.get(*parent) == Some(&item.section))
+            .cloned();
+        match adopter {
+            Some(parent) => children.entry(parent).or_default().push(item),
+            None => roots.push(item),
+        }
+    }
+
+    for root in roots {
+        let brood = children.remove(&root.id);
+        items.push(root);
+        items.extend(brood.into_iter().flatten());
+    }
 }
 
 /// Gather rows of the same section together, strongest section first.

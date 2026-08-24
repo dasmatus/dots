@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use beamenu::config::Config;
 use beamenu::index::AppCache;
 use beamenu::item::Action;
-use beamenu::providers::apps::{clean_exec, parse_entry, scan};
+use beamenu::providers::apps::{clean_exec, parse_entry, scan, Apps, DesktopAction};
 use beamenu::providers::clipboard::{load, parse_log, preview, relative_age, Entry};
 use beamenu::providers::files::{display_path, parse_output};
 use beamenu::providers::quicklinks::{expand, percent_encode, Quicklinks};
@@ -56,12 +56,144 @@ fn desktop_action_groups_do_not_override_the_main_entry() {
     let parsed = parse_entry(source).expect("parses");
     assert_eq!(parsed.name, "Claude");
     assert_eq!(parsed.exec, "claude-desktop");
+    assert!(
+        parsed.actions.is_empty(),
+        "no Actions= key declared the group, so the spec says not to show it"
+    );
+}
+
+#[test]
+fn declared_actions_are_captured_in_declared_order() {
+    // The groups are deliberately written out of order, and in an order whose
+    // alphabetical sort differs from the declared one, so this fails if the
+    // parser ever hands back the map's own ordering instead of `Actions=`.
+    let source = "[Desktop Entry]\nType=Application\nName=LibreOffice\nExec=libreoffice\n\
+                  Actions=Writer;Calc;Impress;\n\
+                  \n[Desktop Action Calc]\nName=Calc\nExec=libreoffice --calc\n\
+                  \n[Desktop Action Impress]\nName=Impress\nExec=libreoffice --impress\n\
+                  \n[Desktop Action Writer]\nName=Writer\nExec=libreoffice --writer\n";
+    let parsed = parse_entry(source).expect("parses");
+    let names: Vec<&str> = parsed
+        .actions
+        .iter()
+        .map(|action| action.name.as_str())
+        .collect();
+    assert_eq!(names, ["Writer", "Calc", "Impress"]);
+}
+
+#[test]
+fn an_actions_list_parses_with_or_without_a_trailing_separator() {
+    let without = "[Desktop Entry]\nType=Application\nName=W\nExec=w\n\
+                   Actions=one;two\n\
+                   \n[Desktop Action one]\nName=One\nExec=w --one\n\
+                   \n[Desktop Action two]\nName=Two\nExec=w --two\n";
+    assert_eq!(parse_entry(without).unwrap().actions.len(), 2);
+
+    let with = without.replace("Actions=one;two", "Actions=one;two;");
+    assert_eq!(parse_entry(&with).unwrap().actions.len(), 2);
+}
+
+#[test]
+fn actions_that_cannot_be_launched_are_dropped_rather_than_shown() {
+    let source = "[Desktop Entry]\nType=Application\nName=App\nExec=app\n\
+                  Actions=missing;nameless;execless;good;\n\
+                  \n[Desktop Action nameless]\nExec=app --x\n\
+                  \n[Desktop Action execless]\nName=No Exec\n\
+                  \n[Desktop Action good]\nName=Good\nExec=app --good\n";
+    let actions = parse_entry(source).expect("parses").actions;
+    assert_eq!(
+        actions,
+        vec![DesktopAction {
+            id: "good".to_string(),
+            name: "Good".to_string(),
+            exec: "app --good".to_string(),
+        }],
+        "a declared id with no group, no Name or no Exec has nothing to run"
+    );
 }
 
 #[test]
 fn localised_keys_do_not_win_over_the_plain_one() {
     let source = "[Desktop Entry]\nType=Application\nName=Files\nName[de]=Dateien\nExec=nautilus\n";
     assert_eq!(parse_entry(source).unwrap().name, "Files");
+}
+
+#[test]
+fn a_localised_action_name_does_not_win_even_when_it_comes_first() {
+    // transmission-gtk.desktop really is written this way: two dozen
+    // `Name[xx]` translations, then the plain `Name`.
+    let source = "[Desktop Entry]\nType=Application\nName=Transmission\nExec=transmission-gtk\n\
+                  Actions=Pause;\n\
+                  \n[Desktop Action Pause]\nName[de]=Pausiert starten\nName[fr]=Démarrer en pause\n\
+                  Name=Start Paused\nExec=transmission-gtk --paused\n";
+    assert_eq!(parse_entry(source).unwrap().actions[0].name, "Start Paused");
+}
+
+#[test]
+fn app_rows_lead_their_panel_with_the_apps_own_actions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apps = tmp.path().join("applications");
+    std::fs::create_dir_all(&apps).unwrap();
+    std::fs::write(
+        apps.join("librewolf.desktop"),
+        "[Desktop Entry]\nType=Application\nName=LibreWolf\nExec=librewolf %U\n\
+         Actions=new-private-window;new-window\n\
+         \n[Desktop Action new-private-window]\nName=New Private Window\n\
+         Exec=librewolf --private-window %U\n\
+         \n[Desktop Action new-window]\nName=New Window\nExec=librewolf --new-window %U\n",
+    )
+    .unwrap();
+
+    let ctx = Ctx {
+        config: Config::default(),
+        config_dir: tmp.path().to_path_buf(),
+        state_dir: tmp.path().to_path_buf(),
+        apps: AppCache::with_dirs(vec![tmp.path().to_path_buf()]),
+    };
+    ctx.apps.revalidate();
+
+    let items = Apps.query(&ctx, "");
+
+    let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        ["LibreWolf", "New Private Window", "New Window"],
+        "each action is a row of its own, following the app it belongs to"
+    );
+    assert_eq!(items[0].parent, None);
+    assert_eq!(items[1].parent.as_deref(), Some("apps:librewolf.desktop"));
+    assert_eq!(
+        items[1].id, "apps:librewolf.desktop#new-private-window",
+        "the row id is built from the stable group id, not the localised name"
+    );
+    assert_eq!(
+        items[1].action,
+        Action::Launch {
+            exec: "librewolf --private-window".to_string(),
+            terminal: false,
+        },
+        "an action Exec carries the same field codes the main one does"
+    );
+    assert_eq!(
+        items[1].subtitle.as_deref(),
+        Some("LibreWolf"),
+        "an action promoted past its parent must still say what it opens"
+    );
+    assert!(
+        items[1].keywords.iter().any(|k| k == "LibreWolf"),
+        "typing the app's name has to reach its actions"
+    );
+
+    let labels: Vec<&str> = items[0]
+        .alt_actions
+        .iter()
+        .map(|(label, _)| label.as_str())
+        .collect();
+    assert_eq!(
+        labels,
+        ["New Private Window", "New Window", "Open in terminal"],
+        "the same actions on Ctrl+K, with the generic fallback last"
+    );
 }
 
 #[test]
