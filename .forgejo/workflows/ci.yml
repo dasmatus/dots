@@ -65,7 +65,6 @@ jobs:
             gitEmail = "ci@localhost.invalid";
           }
           EOF
-      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
       # Determinate Nix's determinate-nixd runs automatic background GC by
       # default (targets 30 GB / 5-20% free disk, "urgent" mode below 5%), and
       # its deletion loop never re-checks GC temp roots added while a
@@ -76,28 +75,35 @@ jobs:
       # — a racing GC pass deletes those freshly instantiated .drv files and
       # the check dies with "error: path '…-aipage-944064e.drv' is not valid",
       # cascading to every dependent check. On the hosted runner's small disk
-      # that race fires on ~every run. Disable the collector for the job; the
-      # df/pgrep lines keep the step useful as a diagnostic if it ever stops
-      # being effective. Config-write + try-restart alone isn't enough:
-      # confirmed on codeberg-medium 2026-08-24 that the race still fired
-      # twice after that step. determinate-nixd there IS systemd-managed
-      # with an auto-restart policy, so even a direct `pkill` just gets a
-      # fresh instance back within ~1s (also confirmed) — stop *and* mask
-      # the unit so nothing restarts it. The kill pattern below matches
-      # `determinate-nixd daemon` specifically, not the bare substring
-      # "determinate-nixd": nix-daemon's own cmdline embeds that string via
-      # its `--option json-log-path .../determinate-nixd-logger.socket`
-      # argument, so a loose `-f determinate-nixd` pattern also targets the
-      # real build daemon these checks depend on.
-      - name: Disable determinate-nixd background GC (nix-src#395 race)
+      # that race fires on ~every run.
+      #
+      # A post-install "stop the daemon" step (tried 2026-08-24, three runs)
+      # still lost the race every time: determinate-nixd's very first boot,
+      # during nix-installer-action below, can kick off its initial GC pass
+      # before any later step gets a chance to intervene. Writing this config
+      # *before* Nix is even installed means the daemon never starts with GC
+      # enabled in the first place — no window for an initial pass to exist.
+      - name: Pre-seed determinate-nixd config with GC disabled
         run: |
-          df -h /nix
-          pgrep -a -f determinate-nixd || true
           sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
           echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
-          sudo systemctl try-restart determinate-nixd 2>/dev/null || true
+      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      # Second line of defense in case the pre-seeded config above doesn't
+      # stick (e.g. the installer overwrites it) — stop *and* mask so
+      # nothing restarts it under systemd's auto-restart policy (confirmed
+      # 2026-08-24: a bare `pkill` alone got a fresh instance back within
+      # ~1s). The kill pattern matches `determinate-nixd daemon`
+      # specifically, not the bare substring "determinate-nixd": nix-daemon's
+      # own cmdline embeds that string via its `--option json-log-path
+      # .../determinate-nixd-logger.socket` argument, so a loose
+      # `-f determinate-nixd` pattern also targets the real build daemon
+      # these checks depend on.
+      - name: Stop determinate-nixd (nix-src#395 race)
+        run: |
+          df -h /nix
+          pgrep -a -f determinate-nixd || true
           sudo systemctl stop determinate-nixd.service determinate-nixd.socket 2>/dev/null || true
           sudo systemctl mask determinate-nixd.service determinate-nixd.socket 2>/dev/null || true
           sudo pkill -f 'determinate-nixd daemon' 2>/dev/null || pkill -f 'determinate-nixd daemon' 2>/dev/null || true
@@ -157,21 +163,22 @@ jobs:
         check: [iso-boot, limine-install-boot]
     steps:
       - uses: actions/checkout@v4
-      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
       # Same determinate-nixd background-GC race as in the nix-eval lane
       # (DeterminateSystems/nix-src#395) — this job realises the same IFD
       # drvs plus a far larger closure, so its exposure window is worse.
-      # See the nix-eval step for the full rationale, incl. why this kills
-      # the process outright rather than trusting try-restart alone.
-      - name: Disable determinate-nixd background GC (nix-src#395 race)
+      # See the nix-eval job for the full rationale, incl. why this is
+      # pre-seeded *before* nix-installer-action rather than stopped after.
+      - name: Pre-seed determinate-nixd config with GC disabled
         run: |
-          df -h /nix
-          pgrep -a -f determinate-nixd || true
           sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
           echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
-          sudo systemctl try-restart determinate-nixd 2>/dev/null || true
+      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      - name: Stop determinate-nixd (nix-src#395 race)
+        run: |
+          df -h /nix
+          pgrep -a -f determinate-nixd || true
           sudo systemctl stop determinate-nixd.service determinate-nixd.socket 2>/dev/null || true
           sudo systemctl mask determinate-nixd.service determinate-nixd.socket 2>/dev/null || true
           sudo pkill -f 'determinate-nixd daemon' 2>/dev/null || pkill -f 'determinate-nixd daemon' 2>/dev/null || true
