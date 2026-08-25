@@ -49,6 +49,7 @@
     packages = [ pkgs.apparmor-profiles ];
   };
   networking.firewall = {
+    backend = "firewalld";
     enable = true;
 
     # Block unsolicited inbound connections.
