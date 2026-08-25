@@ -48,23 +48,34 @@
     enable = true;
     packages = [ pkgs.apparmor-profiles ];
   };
+  networking.firewall = {
+    enable = true;
 
-  networking.firewall.enable = true;
+    # Block unsolicited inbound connections.
+    allowedTCPPorts = [ ];
+    allowedUDPPorts = [ ];
 
+    # Do not trust any interfaces.
+    trustedInterfaces = [ ];
+
+    # Optional: silently drop packets rather than reject them.
+    rejectPackets = false;
+  };
   # sudo → sudo-rs (memory-safe Rust reimplementation). The sudo-rs module
   # asserts it can't coexist with security.sudo and mkDefault-disables it, so
   # we drop the old sudo block and disable sudo explicitly here for clarity.
-  security.sudo.enable = false;
-  security.sudo-rs = {
-    enable = true;
-    execWheelOnly = true;
-    # Passwordless for all wheel members. NB: this leaves the FIDO2 sudo PAM
-    # auth wired in desktop.nix dormant — NOPASSWD skips PAM authentication,
-    # so the security key never gets a chance to prompt. Flip this to true to
-    # switch to key-gated sudo (tap key instead of passwordless) instead.
-    wheelNeedsPassword = false;
+  security = {
+    protectKernelImage = true;
+    sudo.enable = false;
+    sudo-rs = {
+      enable = true;
+      execWheelOnly = true;
+      # Passwordless for all wheel members. NB: this leaves the FIDO2 sudo PAM
+      # auth wired in desktop.nix dormant — NOPASSWD skips PAM authentication,
+      # so the security key never gets a chance to prompt. Flip this to true to
+      # switch to key-gated sudo (tap key instead of passwordless) instead.
+      wheelNeedsPassword = false;
+    };
   };
-
-  security.protectKernelImage = true;
   boot.tmp.useTmpfs = true;
 }
