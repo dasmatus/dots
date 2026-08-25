@@ -157,26 +157,39 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             ),
         },
         Step {
-            title: "Stage flake for install".into(),
+title: "Stage flake for install".into(),
             // Copy to a temporary name then mv so a partially-removed previous
             // tree (open file, immutable bit, …) can never leave stale files
             // inside the flake source that nixos-install later evaluates.
             //
-            // Do NOT dereference (-L): the ISO flake ships dangling symlinks
-            // for nix/facter.json and nix/settings.nix (filled in by later
-            // steps). cp -L would fail with "cannot stat". -P preserves the
-            // symlinks; the WriteFile / nixos-facter steps then replace them
-            // with real files. -T makes the dest become a faithful copy of
-            // the source rather than nesting it; cp creates the dest itself.
+            // /etc/dots is a nix-store tree with absolute dangling symlinks
+            // (nix/settings.nix → /var/lib/dots/settings.nix).  cp -L fails
+            // with "cannot stat"; cp -P leaves RO store symlinks that chmod
+            // cannot rewrite.  Copy with -a, materialise links whose targets
+            // exist, drop the rest, recreate the intentional settings.nix
+            // symlink (WriteFile unlinks it before writing the real file),
+            // then chmod.
             action: cmd(
                 "sh",
                 &[
                     "-c",
                     &format!(
                         "rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new \
-                         && cp -rPT {flake_src} {STAGED_FLAKE}.new \
-                         && chmod -R u+w {STAGED_FLAKE}.new \
-                         && mv {STAGED_FLAKE}.new {STAGED_FLAKE}"
+&& mkdir -p {STAGED_FLAKE}.new \
+&& cp -a {flake_src}/. {STAGED_FLAKE}.new/ \
+&& find {STAGED_FLAKE}.new -type l -exec sh -c '\
+for link do \
+  tgt=$(readlink -f \"$link\" 2>/dev/null || true); \
+  if [ -n \"$tgt\" ] && [ -e \"$tgt\" ]; then \
+    rm -f \"$link\" && cp -a \"$tgt\" \"$link\"; \
+  else \
+    rm -f \"$link\"; \
+  fi; \
+done\
+' sh {{}} + \
+&& chmod -R u+w {STAGED_FLAKE}.new \
+&& ln -sfn /var/lib/dots/settings.nix {STAGED_FLAKE}.new/nix/settings.nix \
+&& mv {STAGED_FLAKE}.new {STAGED_FLAKE}"
                     ),
                 ],
                 None,

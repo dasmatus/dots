@@ -132,25 +132,13 @@ fn plan_stage_step_recreates_staging_dir_and_copies_from_flake_src() {
     };
     assert_eq!(program, "sh");
     let script = args.join(" ");
-    // Atomic replace via a sibling .new dir so a half-copied tree is never
-    // visible at STAGED_FLAKE.  cp -rPT preserves structure without following
-    // symlinks into the store.
-    assert!(
-        script.contains(&format!("rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new")),
-        "{script}"
-    );
-    assert!(
-        script.contains(&format!("cp -rPT /etc/dots {STAGED_FLAKE}.new")),
-        "{script}"
-    );
-    assert!(
-        script.contains(&format!("chmod -R u+w {STAGED_FLAKE}.new")),
-        "{script}"
-    );
-    assert!(
-        script.contains(&format!("mv {STAGED_FLAKE}.new {STAGED_FLAKE}")),
-        "{script}"
-    );
+    assert!(script.contains(&format!("rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new")), "{script}");
+    assert!(script.contains(&format!("cp -a /etc/dots/. {STAGED_FLAKE}.new/")), "{script}");
+    assert!(script.contains("find "), "{script}");
+    assert!(script.contains("readlink"), "{script}");
+    assert!(script.contains("ln -sfn"), "{script}");
+    assert!(script.contains(&format!("chmod -R u+w {STAGED_FLAKE}.new")), "{script}");
+    assert!(script.contains(&format!("mv {STAGED_FLAKE}.new {STAGED_FLAKE}")), "{script}");
 }
 
 #[test]
