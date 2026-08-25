@@ -246,3 +246,46 @@ fn factorial_still_refuses_genuine_fractions() {
     assert!(evaluate("2.5!", AngleMode::Radians).is_err());
     assert!(evaluate("(-1)!", AngleMode::Radians).is_err());
 }
+
+// --- regressions for expand_factorial + normalise_literals edge cases ---
+
+#[test]
+fn consecutive_postfix_factorial_expands_to_nested_fact() {
+    // Was producing the broken form "factfact((5))" before the paren-group
+    // matcher also consumed a preceding identifier.
+    assert_eq!(expand_factorial("5!!"), "fact(fact(5))");
+    assert_eq!(expand_factorial("fact(5)!"), "fact(fact(5))");
+    // Outer parentheses around the inner factorial are preserved.
+    assert_eq!(expand_factorial("(5!)!"), "fact((fact(5)))");
+}
+
+#[test]
+fn consecutive_postfix_factorial_evaluates() {
+    // 5!! = (5!)! = 120! is enormous; just check the first step is correct.
+    close(rad("3!!"), 720.0); // (3!)! = 6! = 720
+}
+
+#[test]
+fn ill_formed_radix_literals_are_not_mangled() {
+    // Previously the leading '0' was rewritten to "0.0" and the rest of the
+    // token left behind, yielding the unhelpful "0.0x..." / "0.0b2" form.
+    let still_has_prefix = |s: &str| {
+        let n = normalise_literals(s);
+        assert!(
+            n.contains('x') || n.contains('b') || n.contains('o') || n.contains('X'),
+            "expected original radix prefix to survive, got {n:?} from {s:?}"
+        );
+        // Must not start with the decimal rewrite of the leading zero.
+        assert!(!n.starts_with("0.0"), "got mangled form {n:?} from {s:?}");
+    };
+    still_has_prefix("0xG");
+    still_has_prefix("0b2");
+    still_has_prefix("0x10000000000000000"); // > u64::MAX
+}
+
+#[test]
+fn ill_formed_radix_literals_still_error() {
+    assert!(evaluate("0xG", AngleMode::Radians).is_err());
+    assert!(evaluate("0b2", AngleMode::Radians).is_err());
+    assert!(evaluate("0x10000000000000000", AngleMode::Radians).is_err());
+}

@@ -198,6 +198,11 @@ pub fn normalise_literals(expr: &str) -> String {
                 while j < chars.len() && chars[j].is_digit(radix) {
                     j += 1;
                 }
+                // Prefer a clean float rewrite when the literal is well-formed
+                // and fits in u64.  Otherwise copy the original characters
+                // verbatim (including the prefix) so evalexpr can reject them
+                // with a clear message instead of the mangled "0.0x..." form
+                // that the decimal path would otherwise produce.
                 if j > start {
                     let digits: String = chars[start..j].iter().collect();
                     if let Ok(value) = u64::from_str_radix(&digits, radix) {
@@ -207,6 +212,14 @@ pub fn normalise_literals(expr: &str) -> String {
                         continue;
                     }
                 }
+                // Ill-formed or out-of-range: emit the original slice and skip
+                // the decimal normalisation that follows.
+                for k in i..j.max(start) {
+                    out.push(chars[k]);
+                }
+                // If there were no digits at all, still consume the prefix.
+                i = if j > start { j } else { start };
+                continue;
             }
         }
 
@@ -252,8 +265,10 @@ pub fn normalise_literals(expr: &str) -> String {
 ///
 /// evalexpr's grammar is fixed prefix and infix, with no postfix operator and
 /// no way to register one, so `5!` has to become `fact(5)` before the parser
-/// ever sees it. `!=` is left alone, and the operand is whatever immediately
-/// precedes the `!`: a parenthesised group, or a run of digits and letters.
+/// ever sees it. `!=` is left alone. The operand is whatever immediately
+/// precedes the `!`: a parenthesised group (including a preceding identifier,
+/// so `fact(5)!` and `5!!` both expand correctly), or a run of digits and
+/// letters.
 #[must_use]
 pub fn expand_factorial(expr: &str) -> String {
     let chars: Vec<char> = expr.chars().collect();
@@ -269,6 +284,10 @@ pub fn expand_factorial(expr: &str) -> String {
 
         let start = match out.last() {
             Some(')') => {
+                // Capture the parenthesised group, then any identifier that
+                // immediately precedes the opening '(' so that `fact(5)!`
+                // and `5!!` both become `fact(fact(5))` rather than the
+                // broken `factfact((5))`.
                 let mut depth = 0i32;
                 let mut j = out.len();
                 loop {
@@ -286,6 +305,11 @@ pub fn expand_factorial(expr: &str) -> String {
                     if j == 0 {
                         break;
                     }
+                }
+                // j now points at the matching '('.  Walk further left over
+                // a function name / identifier if one is present.
+                while j > 0 && (out[j - 1].is_alphanumeric() || out[j - 1] == '_') {
+                    j -= 1;
                 }
                 j
             }

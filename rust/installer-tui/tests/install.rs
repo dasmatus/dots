@@ -132,20 +132,23 @@ fn plan_stage_step_recreates_staging_dir_and_copies_from_flake_src() {
     };
     assert_eq!(program, "sh");
     let script = args.join(" ");
+    // Atomic replace via a sibling .new dir so a half-copied tree is never
+    // visible at STAGED_FLAKE.  cp -rPT preserves structure without following
+    // symlinks into the store.
     assert!(
-        script.contains(&format!("rm -rf {STAGED_FLAKE}")),
+        script.contains(&format!("rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new")),
         "{script}"
     );
     assert!(
-        script.contains(&format!("mkdir -p {STAGED_FLAKE}")),
+        script.contains(&format!("cp -rPT /etc/dots {STAGED_FLAKE}.new")),
         "{script}"
     );
     assert!(
-        script.contains(&format!("cp -rTL /etc/dots {STAGED_FLAKE}")),
+        script.contains(&format!("chmod -R u+w {STAGED_FLAKE}.new")),
         "{script}"
     );
     assert!(
-        script.contains(&format!("chmod -R u+w {STAGED_FLAKE}")),
+        script.contains(&format!("mv {STAGED_FLAKE}.new {STAGED_FLAKE}")),
         "{script}"
     );
 }
@@ -204,10 +207,20 @@ fn plan_stashes_exactly_settings_and_facter_to_var_lib_dots() {
         script.contains("mkdir -p /mnt/persist/var/lib/dots"),
         "{script}"
     );
+    // Copies may be issued as a single cp of both files or as two separate
+    // cps; either way both answers must end up under the persist path.
     assert!(
-        script.contains(&format!(
-            "cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json /mnt/persist/var/lib/dots/"
-        )),
+        script.contains(&format!("cp {STAGED_FLAKE}/nix/facter.json"))
+            || script.contains(&format!("cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json")),
+        "{script}"
+    );
+    assert!(
+        script.contains(&format!("cp {STAGED_FLAKE}/nix/settings.nix"))
+            || script.contains(&format!("cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json")),
+        "{script}"
+    );
+    assert!(
+        script.contains("/mnt/persist/var/lib/dots/"),
         "{script}"
     );
 }

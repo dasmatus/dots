@@ -442,10 +442,10 @@ fn ai_view(app: &App, tokens: &TokenSet) -> View {
 }
 
 /// The Installing screen: a cyan `step i/n — title` label, the engine's
-/// `Progress` bar (sub-cell eighth-block fill), and a dim log tail. The bar
-/// reads the eased ratio from `fx.progress_r()` when animations are on (the
-/// loop retargets `fx` on each step change and ticks it per frame), else the
-/// raw step ratio.
+/// `Progress` bar (sub-cell eighth-block fill), and a dim log that fills the
+/// rest of the panel. The bar reads the eased ratio from `fx.progress_r()`
+/// when animations are on (the loop retargets `fx` on each step change and
+/// ticks it per frame), else the raw step ratio.
 #[allow(clippy::cast_precision_loss)]
 fn installing_view(app: &App, fx: &ScreenFx, tokens: &TokenSet) -> View {
     let raw = if app.total_steps == 0 {
@@ -467,11 +467,16 @@ fn installing_view(app: &App, fx: &ScreenFx, tokens: &TokenSet) -> View {
     )]))
     .element(tokens);
     let bar = Progress::new(ratio).element(tokens);
+    // The log pane grows to fill the remaining panel height. Feed a generous
+    // tail of the retained log (app keeps ≤1000 lines) so the frame is dense
+    // rather than eight sparse lines under empty space. Newest lines win when
+    // the tail is longer than the pane; the layout clips the overflow.
+    const LOG_TAIL: usize = 200;
     let log_lines: Vec<RichLine> = app
         .log
         .iter()
         .rev()
-        .take(8)
+        .take(LOG_TAIL)
         .rev()
         .map(|l| span_line(l.clone(), Ink::new().fg(palette::DIM)))
         .collect();
@@ -504,6 +509,7 @@ fn installing_view(app: &App, fx: &ScreenFx, tokens: &TokenSet) -> View {
                 .style(
                     LayoutStyle::default()
                         .width(Dimension::Percent(1.0))
+                        .height(Dimension::Percent(1.0))
                         .grow(1.0),
                 )
                 .child(log.into())
