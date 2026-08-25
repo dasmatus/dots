@@ -97,15 +97,16 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
 /// The full install sequence. `flake_src` is where the ISO carries the flake
 /// (/etc/dots); the plan stages a writable copy at [`STAGED_FLAKE`] and
 /// installs from there, then stashes the two machine-specific answer files
-/// (`settings.nix`, `facter.json`) at `{mnt}/persist/var/lib/dots` — on the
-/// persistent /persist subvol, since the root is a tmpfs wiped each boot
-/// (nix/modules/impermanence.nix) and nixos-impermanence bind-mounts
-/// /persist/var/lib/dots → /var/lib/dots so the first-login `dots-clone` user
-/// service can pick them up. The repo itself is
-/// never copied onto the target — `mnt` is only the installation mount root
-/// (/mnt). `NetworkManager` profiles created by the Wi-Fi screen (credentials
-/// included, root-only 0600 keyfiles) are copied so the installed system
-/// comes up online on first boot; a no-op when nothing was connected.
+/// at `{mnt}/persist/var/lib/dots` (facter.json at the top level,
+/// settings.nix under `nix/`) — on the persistent /persist subvol, since the
+/// root is a tmpfs wiped each boot (nix/modules/impermanence.nix) and
+/// nixos-impermanence bind-mounts /persist/var/lib/dots → /var/lib/dots so
+/// the first-login `dots-clone` user service can pick them up. The repo
+/// itself is never copied onto the target — `mnt` is only the installation
+/// mount root (/mnt). `NetworkManager` profiles created by the Wi-Fi screen
+/// (credentials included, root-only 0600 keyfiles) are copied so the
+/// installed system comes up online on first boot; a no-op when nothing was
+/// connected.
 #[must_use]
 pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
     let swap = format!("{}G", cfg.swap_size_gib);
@@ -157,12 +158,25 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
         },
         Step {
             title: "Stage flake for install".into(),
+            // Copy to a temporary name then mv so a partially-removed previous
+            // tree (open file, immutable bit, …) can never leave stale files
+            // inside the flake source that nixos-install later evaluates.
+            //
+            // Do NOT dereference (-L): the ISO flake ships dangling symlinks
+            // for nix/facter.json and nix/settings.nix (filled in by later
+            // steps). cp -L would fail with "cannot stat". -P preserves the
+            // symlinks; the WriteFile / nixos-facter steps then replace them
+            // with real files. -T makes the dest become a faithful copy of
+            // the source rather than nesting it; cp creates the dest itself.
             action: cmd(
                 "sh",
                 &[
                     "-c",
                     &format!(
-                        "rm -rf {STAGED_FLAKE} && mkdir -p {STAGED_FLAKE} && cp -rTL {flake_src} {STAGED_FLAKE} && chmod -R u+w {STAGED_FLAKE}"
+                        "rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new \
+                         && cp -rPT {flake_src} {STAGED_FLAKE}.new \
+                         && chmod -R u+w {STAGED_FLAKE}.new \
+                         && mv {STAGED_FLAKE}.new {STAGED_FLAKE}"
                     ),
                 ],
                 None,
@@ -195,12 +209,20 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
         },
         Step {
             title: "Stash install answers on target".into(),
+            // Machine-specific answers for the first-login dots-clone service.
+            // Layout on persist (bind-mounted to /var/lib/dots):
+            //   facter.json          → /persist/var/lib/dots/facter.json
+            //   settings.nix         → /persist/var/lib/dots/nix/settings.nix
+            // (mirrors the flake paths the service expects; secrets.nix is
+            // intentionally omitted — install-time only.)
             action: cmd(
                 "sh",
                 &[
                     "-c",
                     &format!(
-                        "mkdir -p {mnt}/persist/var/lib/dots && cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json {mnt}/persist/var/lib/dots/"
+                        "mkdir -p {mnt}/persist/var/lib/dots/nix \
+                         && cp {STAGED_FLAKE}/nix/facter.json {mnt}/persist/var/lib/dots/ \
+                         && cp {STAGED_FLAKE}/nix/settings.nix {mnt}/persist/var/lib/dots/"
                     ),
                 ],
                 None,
@@ -384,7 +406,6 @@ fn hash_password(plaintext: &str) -> anyhow::Result<String> {
 fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
     use anyhow::Context;
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::fs::PermissionsExt;
     use std::process::{Command, Stdio};
 
     match &step.action {
@@ -472,14 +493,9 @@ fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
 
             if *capture == Capture::RecoveryKey {
                 anyhow::ensure!(!last_line.is_empty(), "no recovery key captured");
-                if let Some(parent) = std::path::Path::new(RECOVERY_KEY_FILE).parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                std::fs::write(RECOVERY_KEY_FILE, format!("{last_line}\n"))?;
-                std::fs::set_permissions(
-                    RECOVERY_KEY_FILE,
-                    std::fs::Permissions::from_mode(0o600),
-                )?;
+                // Use the same O_EXCL + mode-from-first-byte helper as the
+                // other secret files so the key is never briefly 0644.
+                write_file_secure(RECOVERY_KEY_FILE, &format!("{last_line}\n"), 0o600)?;
                 let _ = tx.send(Event::RecoveryKey(last_line));
             }
             Ok(())
