@@ -47,8 +47,15 @@ From `accent.rs`/`tint.rs`; reproduce exactly or the ported vectors break.
 
 ### Task 2: The tint writers
 **Files:** create `qml/wallpaper/tint.js`, `tests/qml/tst_tint.qml`.
-**Produces** `hyprBorder(a)`, `rofi(t,a)`, `gtk(t,a)`, `kvantum(t,a)` and
-`recolorIconText(t,a)`, all pure string->string, mirroring `tint.rs`.
+**Produces** ports of `tint.rs`'s writers. Their real signatures are NOT all
+string->string; read them before writing anything:
+`rofiRasiText(base, accent, dark)`; `gtkCss(accent, dark, light, version)`,
+which GENERATES css rather than rewriting a base; `recolorKvantumText(text,
+accent, dark, light)`, mapping the three Kvantum hexes to those three in
+order; `recolorIconText(text, accent)`; and `hyprlandBorderCommands(his,
+accent, dark)`, which returns an argv array invoking
+`hyprctl eval 'hl.config({...})'`, or null when there is no instance
+signature. It is not a border string.
 
 - [ ] **1** Write `tst_tint.qml` from the fixtures already in
       `rust/wallpaper-tui/tests/tint.rs`, one `_data()` row per fixture
@@ -63,12 +70,11 @@ From `accent.rs`/`tint.rs`; reproduce exactly or the ported vectors break.
 **Files:** create `tests/qml/tst_tint_parity.qml`.
 **Produces** nothing new; this task exists so plan 1b can delete the crate
 without the parity evidence disappearing with it.
-
-- [ ] **1** With Task 1's `--dump-accent`, record the crate's accent and its
-      rendered Hyprland border for three wallpapers of differing dominant
-      hue, then revert the patch. Still never `--output`
+- [ ] **1** With Task 1's `--dump-accent`, record the crate's accent triple
+      and its `hyprlandBorderCommands` argv for three wallpapers of
+      differing dominant hue, then revert the patch. Still never `--output`
 - [ ] **2** Write `tst_tint_parity.qml` asserting `accentFrom` +
-      `hyprBorder` reproduce all three
+      `hyprlandBorderCommands` reproduce all three
 - [ ] **3** Run QtTest Expected: PASS
 - [ ] **4** `nix run .#nix-lint` Expected: green
 - [ ] **5** `git commit -m "pin the ported tint maths to the crate's output"`
