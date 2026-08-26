@@ -122,6 +122,16 @@ in
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../settings-global && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd ..
+
+      # pg_agentmem builds through buildPgrxExtension rather than plain
+      # cargo: it links against real PostgreSQL headers via bindgen, and its
+      # #[pg_test] assertions only run inside a Postgres instance that
+      # `cargo pgrx test` stands up. `cargo fmt --check`/`clippy` still run
+      # directly (they need no server), the actual build and test pass goes
+      # through the flake package.
+      cd pg-agentmem && cargo fmt --check && cd ..
+      nix build .#pg-agentmem --no-link
     '';
   };
 
