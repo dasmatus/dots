@@ -122,6 +122,7 @@ in
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../settings-global && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+      cd ../dots-memory-mcp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
     '';
   };
 
