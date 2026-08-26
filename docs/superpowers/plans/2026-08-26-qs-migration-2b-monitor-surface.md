@@ -5,12 +5,11 @@
 
 **Goal:** Move monitor hotplug into the shell process, give the override
 editor a drag-to-arrange canvas, and delete `rust/hyprmon`.
-**Architecture:** `watch.rs` is replaced rather than ported. Instead of
-reading Hyprland's socket2, a `Connections` block on `Quickshell.Hyprland`
-re-runs 2a's `planFor` when the monitor list changes, and applies each spec
-through one `hyprctl eval 'hl.monitor({...})'` call. Quickshell 0.3, Qt 6.11.
-**Depends on:** plans 0 and 2a. 2a's parity test is the only evidence the
-crate can be deleted safely, so do not start before it is green.
+**Architecture:** `watch.rs` is replaced, not ported: a `Connections` block
+on `Quickshell.Hyprland` re-runs 2a's `planFor` when the monitor list
+changes, applying each spec through one `hyprctl eval 'hl.monitor({...})'`.
+Needs plans 0 and 2a; 2a's parity test is the only evidence the crate can be
+deleted safely, so do not start before it is green.
 **Spec:** `docs/superpowers/specs/2026-08-26-quickshell-tui-migration-design.md`
 
 ## Global Constraints
@@ -18,6 +17,13 @@ crate can be deleted safely, so do not start before it is green.
   graphical session. That is a deliberate narrowing from the systemd user
   service, which started slightly earlier. Do not re-add a unit for it.
 - Overrides remain a separate document from the Nix-managed rules.
+- FIX THE PARSE BUG 2a ported faithfully. Live `hyprctl monitors -j` emits
+  `availableModes` as `1920x1080@60.00Hz`; `plan.rs`'s `parse_mode` parses
+  the rate as a bare float, so the `Hz` suffix returns None for EVERY mode
+  on every real machine and the planner silently falls back to the live
+  `refreshRate`, never raising a monitor to its top rate. Strip a trailing
+  `Hz`, and add a fixture carrying it: the Rust tests missed this only
+  because their own fixtures omit the suffix.
 - Apply is one `hyprctl eval 'hl.monitor({...})'` per spec, not a batch, and
   never the legacy `hyprctl keyword monitor`, which Hyprland 0.55+ disables
   under the Lua parser: it exits 0 and changes nothing, so a watcher built
@@ -34,12 +40,11 @@ crate can be deleted safely, so do not start before it is green.
       `FileView` + `JsonAdapter`, and `Quickshell.Hyprland`'s monitor list
 - [ ] **2** Wire a `Connections` block so a monitor change calls `apply()`
 - [ ] **3** Apply each rendered spec with its own `Process`
-- [ ] **4** With `hyprmon.service` still running, stop it
-      (`systemctl --user stop hyprmon`), then unplug and replug a monitor
-      Expected: the layout still comes back, now from the shell
-- [ ] **5** Check `qs` logs Expected: one `hyprctl` call per output, no
-      errors
-- [ ] **6** `git commit -m "watch for monitor hotplug in the shell"`
+- [ ] **4** Stop `hyprmon.service`, then hotplug a monitor Expected: the
+      layout still returns, now from the shell. NOTE: needs a human to
+      unplug something. If nobody is present, report it UNVERIFIED rather
+      than faking it, and check `qs` logs show one `hyprctl` call per output
+- [ ] **5** `git commit -m "watch for monitor hotplug in the shell"`
 
 ### Task 2: The arrange surface
 **Files:** create `qml/monitors/Arrange.qml`; modify `qml/shell.qml`,
@@ -67,10 +72,8 @@ crate can be deleted safely, so do not start before it is green.
       reference above
 - [ ] **3** Rename the rules file to `~/.config/dots-shell/monitors.json`
       and repoint `Watcher.qml` and `Arrange.qml`
-- [ ] **4** `grep -rn 'hyprmon' . --exclude-dir=.git` Expected: no hits
-      outside `docs/`
-- [ ] **5** `nix run .#nix-lint` Expected: green
-- [ ] **6** `systemctl --user list-units | grep hyprmon` Expected: nothing
-- [ ] **7** Rebuild, log out and back in, then hotplug a monitor
+- [ ] **4** `grep -rn 'hyprmon' .` no hits outside `docs/`; nix-lint green;
+      `systemctl --user list-units | grep hyprmon` Expected: nothing
+- [ ] **6** Rebuild, log out and back in, then hotplug a monitor
       Expected: the layout applies with no Rust binary present
-- [ ] **8** `git commit -m "delete the monitor TUI"`
+- [ ] **7** `git commit -m "delete the monitor TUI"`
