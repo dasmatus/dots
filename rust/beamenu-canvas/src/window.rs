@@ -34,6 +34,24 @@ const PREVIEW_NAME: &str = "beamenu-preview";
 const PREVIEW_CSS: &str = "\
 #beamenu-preview, #beamenu-preview > * { background: none; background-color: transparent; }";
 
+/// Priority this sheet is registered at, one step above
+/// `GTK_STYLE_PROVIDER_PRIORITY_USER`.
+///
+/// `GTK_STYLE_PROVIDER_PRIORITY_APPLICATION`, the obvious choice and what
+/// this used to be, is not enough. GTK4 takes almost nothing from
+/// `gtk-theme-name`, so the way a GTK4 desktop theme actually gets applied is
+/// an `@import` of the theme's stylesheet written into
+/// `~/.config/gtk-4.0/gtk.css` — which is exactly what `nix/home/default.nix`
+/// writes for adw-gtk3-dark. GTK loads that file at
+/// `GTK_STYLE_PROVIDER_PRIORITY_USER`, which outranks `..._APPLICATION`, so
+/// the theme's `window.background` rule beat the transparency rule above and
+/// the pane came up as an opaque slab over the result list. Provider
+/// priority is resolved ahead of both specificity and `!important` in GTK4's
+/// cascade, so out-prioritising the user sheet is the only way an app-level
+/// sheet wins. Every selector here is scoped to `#beamenu-preview`, so
+/// sitting above user CSS cannot reach anything but this one window.
+const PREVIEW_CSS_PRIORITY: u32 = gtk4::STYLE_PROVIDER_PRIORITY_USER + 1;
+
 /// A built canvas window: the layer-shell `ApplicationWindow` and the
 /// `WebView` inside it.
 ///
@@ -152,12 +170,17 @@ impl Canvas {
         if let Some(display) = gtk4::gdk::Display::default() {
             let css = gtk4::CssProvider::new();
             css.load_from_data(PREVIEW_CSS);
-            gtk4::style_context_add_provider_for_display(
-                &display,
-                &css,
-                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-            );
+            gtk4::style_context_add_provider_for_display(&display, &css, PREVIEW_CSS_PRIORITY);
         }
+
+        // Belt to the sheet's braces, and not redundant with it. The sheet
+        // can only win a property it names; dropping the class stops a
+        // theme's `.background` rule from matching this window in the first
+        // place, whatever it paints through. Either one alone was enough
+        // against adw-gtk3-dark; both are cheap, and the failure they guard
+        // against is invisible until someone runs a theme that paints
+        // differently.
+        window.remove_css_class("background");
 
         window.init_layer_shell();
         window.set_layer(Layer::Overlay);
