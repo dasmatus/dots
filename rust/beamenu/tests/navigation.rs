@@ -17,6 +17,7 @@ fn push_and_pop_restore_the_previous_query() {
         items: Vec::new(),
         query: "fire".into(),
         static_items: false,
+        prompt: None,
     });
     assert_eq!(stack.depth(), 1);
 

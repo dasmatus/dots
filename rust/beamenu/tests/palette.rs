@@ -62,6 +62,7 @@ fn config_metric_defaults_do_not_drift_from_the_compiled_in_palette() {
     assert_eq!(config.icon_size, PALETTE.beamenu.icon_size);
     assert_eq!(config.line_height, PALETTE.beamenu.line_height);
     assert_eq!(config.search_height, PALETTE.beamenu.search_height);
+    assert_eq!(config.preview_width, PALETTE.beamenu.preview_width);
     assert_eq!(config.radius, PALETTE.beamenu.radius);
     assert!((config.width_factor - PALETTE.beamenu.width_factor).abs() < f32::EPSILON);
 }

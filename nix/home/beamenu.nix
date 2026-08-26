@@ -80,6 +80,7 @@ let
     icon_size = cfg.iconSize;
     line_height = cfg.lineHeight;
     search_height = cfg.searchHeight;
+    preview_width = cfg.previewWidth;
     radius = cfg.radius;
     terminal = cfg.terminal;
     file_manager = cfg.fileManager;
@@ -130,8 +131,9 @@ in
       default = palette.beamenu.widthFactor;
       description = ''
         Fraction of the output width the panel occupies. bemenu has no
-        absolute width, only this factor, so the default is rofi's 720px
-        expressed against a 1920px output.
+        absolute width, only this factor, so the default is expressed
+        against a 1920px output: 0.5 is 960px, which is the 720px the old
+        rofi theme used plus room for the preview column beside it.
       '';
     };
 
@@ -151,6 +153,24 @@ in
       type = lib.types.ints.positive;
       default = palette.beamenu.searchHeight;
       description = "Search row height in pixels; taller than a result row, Raycast-style.";
+    };
+
+    previewWidth = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = palette.beamenu.previewWidth;
+      example = 0;
+      description = ''
+        Width of the preview column in logical pixels, 0 for a list-only
+        panel. The column is carved out of the panel rather than added
+        beside it, so this and widthFactor move together: leave the panel
+        narrow and the list gets what is left. The renderer refuses a split
+        that would leave either side unusable and falls back to the
+        list-only layout, so a bad pair looks like no preview rather than
+        like a broken panel.
+
+        Drawing the column needs beamenu-canvas on PATH. Without it the
+        launcher still works and the column stays empty.
+      '';
     };
 
     radius = lib.mkOption {

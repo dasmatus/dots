@@ -7,6 +7,7 @@
 //! streamed log text (`ui: "log"`, the default) or a JSON-RPC-driven
 //! component tree (`ui: "rpc"`). Esc closes the window; the process exits
 //! when it does.
+mod pane;
 
 mod window;
 mod worker;
@@ -42,25 +43,40 @@ const SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let manifest = match Manifest::load(&cli.manifest) {
+    let config = config::Config::load(&config::config_dir().join("config.json"));
+
+    // The preview pane takes no manifest and opens no view of its own: it is
+    // told what to draw, one row at a time, for as long as the launcher lives.
+    if cli.preview {
+        return pane::run(config.theme.canvas);
+    }
+
+    let (Some(manifest_path), Some(command_id)) = (cli.manifest.as_ref(), cli.command.as_ref())
+    else {
+        // clap's `required_unless_present` already refuses this combination,
+        // so reaching here means the argv contract changed and this arm did
+        // not. Refuse rather than unwrap.
+        eprintln!("beamenu-canvas: --manifest and --command are required without --preview");
+        return ExitCode::from(EXIT_USAGE);
+    };
+
+    let manifest = match Manifest::load(manifest_path) {
         Ok(manifest) => manifest,
         Err(err) => {
             eprintln!("beamenu-canvas: {err}");
             return ExitCode::from(EXIT_USAGE);
         }
     };
-    let Ok(command) = manifest.command(&cli.command) else {
+    let Ok(command) = manifest.command(command_id) else {
         eprintln!(
-            "beamenu-canvas: no command '{}' in {}",
-            cli.command,
-            cli.manifest.display()
+            "beamenu-canvas: no command '{command_id}' in {}",
+            manifest_path.display()
         );
         return ExitCode::from(EXIT_USAGE);
     };
     let argv = substitute_query(&command.exec, cli.query.as_deref());
     let ui_mode = command.ui;
 
-    let config = config::Config::load(&config::config_dir().join("config.json"));
     let theme = config.theme.canvas;
     let width_factor = config.width_factor;
 

@@ -8,10 +8,11 @@
 //! Providers fall into two kinds by how they are *reached*:
 //!
 //! * **Ambient.** Always contribute to the root list (apps, system commands,
-//!   quicklinks, snippets, status). These are what you see before typing.
+//!   quicklinks, snippets, status, and a shallow file search). These are what
+//!   you see before typing.
 //! * **Keyworded.** Contribute only behind a prefix, because their results
 //!   would otherwise drown the list (`=` calculator, `:` emoji, `c ` clipboard,
-//!   `f ` files, `w ` windows, `s ` web search).
+//!   `f ` exhaustive file search, `w ` windows, `s ` web search).
 //!
 //! And into two kinds again by what they *cost*. [`Provider::query`] runs on
 //! every keystroke and must stay inside the frame budget — reading `/proc` or
@@ -125,7 +126,14 @@ pub fn all(config_dir: &Path) -> Vec<Box<dyn Provider>> {
         Box::new(scripts::Scripts),
         Box::new(window::Windows),
         Box::new(clipboard::Clipboard),
-        Box::new(files::Files),
+        // Two scopes of one search: the root list gets a shallow, short-capped
+        // walk, `f ` gets the exhaustive one. See `files` for why the split.
+        Box::new(files::Files {
+            scope: files::Scope::Ambient,
+        }),
+        Box::new(files::Files {
+            scope: files::Scope::Deep,
+        }),
         Box::new(emoji::Emoji),
         Box::new(websearch::WebSearch),
         Box::new(system::System),

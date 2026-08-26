@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::item::{Action, Item};
+use crate::item::{Action, Item, Preview};
 use crate::providers::{Ctx, Provider, Trigger};
 
 /// What activating a command does.
@@ -206,6 +206,19 @@ impl PluginProvider {
             action,
         )
         .icon(self.manifest.icon.clone().map(PathBuf::from));
+
+        // A `view` command already renders through beamenu-canvas when it is
+        // activated. The preview pane is the same renderer, so the same view
+        // can draw beside the list while the row is merely highlighted, and
+        // Enter promotes it to the full window. Nothing new is asked of the
+        // plugin: a manifest that had a view has a preview.
+        if command.mode == Mode::View {
+            item = item.preview(Preview::Command {
+                manifest: self.path.clone(),
+                command: command.id.clone(),
+                query: query.to_string(),
+            });
+        }
 
         if let Some(description) = &command.description {
             item = item.subtitle(description.clone());

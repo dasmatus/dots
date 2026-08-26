@@ -81,6 +81,7 @@ self: {
           ../nix/patches/beamenu/07-unmap-shm-buffers.patch
           ../nix/patches/beamenu/08-nested-rows.patch
           ../nix/patches/beamenu/09-pill-pointer.patch
+          ../nix/patches/beamenu/10-preview-pane.patch
         ];
         buildInputs = old.buildInputs ++ [ pkgs.librsvg ];
         # lld arrives as the stdenv's *wrapped* bintools (above), never as
