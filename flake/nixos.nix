@@ -41,6 +41,7 @@ let
         ../nix/modules/limine-install.nix
         ../nix/modules/network.nix
         ../nix/modules/searxng.nix
+        ../nix/modules/agentmem.nix
         ../nix/modules/virtualisation.nix
         ../nix/modules/users.nix
         ../nix/modules/hardening.nix

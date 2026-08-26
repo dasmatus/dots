@@ -49,6 +49,12 @@
       "/var/lib/NetworkManager" # NM state
       config.dots.paths.stateDir # install answers (settings.nix/facter.json) for dots-clone
       "/var/lib/ollama" # ollama models — survive the tmpfs wipe (no re-download each boot)
+      {
+        directory = "/var/lib/postgresql";
+        user = "postgres";
+        group = "postgres";
+        mode = "0750";
+      } # agentmem cluster (nix/modules/agentmem.nix) — parent dir, not the psqlSchema subdir
       "/var/log" # journal across reboots
     ];
     # /etc/machine-id intentionally NOT persisted: it regenerates each boot,

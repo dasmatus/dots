@@ -11,6 +11,7 @@ swtpm — no libvirt, no host packages, no root. Defined in
 | `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the `dots-installer` TUI reaches tty1 — `DOTS_TUI_READY` on the serial console |
 | `userborn-reboot-login` | under userborn + mutable `/etc` (with `passwordFilesLocation` pinned to `/var/lib/nixos`), the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
 | `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting the TPM2-unlocked LUKS root reaches `multi-user.target` — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
+| `agentmem-postgres` | the agentmem cluster (`nix/modules/agentmem.nix`) is reachable over its unix socket by peer auth, a written row survives a real `nix/modules/impermanence.nix` reboot cycle (bind-mounted `/var/lib/postgresql` on a formatted `/persist` disk), and `postgresqlBackup` produces a dump under the persisted parent |
 
 Also in `checks`: `nix-lint`-fast eval checks (`settings-eval`,
 `facter-*-eval`) and the `dots-installer` package build — see `flake.nix`.
