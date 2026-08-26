@@ -172,6 +172,59 @@ button.primary {{
   font-family: var(--font-ui);
   cursor: pointer;
 }}
+/* The launcher's preview pane. The column sits on a strip of the panel that
+   bemenu already painted and drew a hairline down, so it adds no border and
+   no background of its own: anything opaque here would be a second panel
+   stacked on the first. */
+#column {{ padding: 14px 16px 0 16px; gap: 10px; }}
+.preview-head {{ flex: 0 0 auto; }}
+.preview-title {{
+  font-size: 15px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}}
+.preview-subtitle {{
+  font-size: 12px; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}}
+.preview-body {{
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+}}
+.preview-note {{ font-size: 12px; margin: 8px 0; }}
+.preview-image {{ display: flex; align-items: center; justify-content: center; }}
+.preview-image img {{
+  max-width: 100%; max-height: 100%;
+  object-fit: contain; border-radius: 8px;
+}}
+.preview-text {{
+  font-size: 12px; line-height: 1.45; margin: 0;
+  white-space: pre-wrap; word-break: break-word;
+}}
+.preview-listing {{ list-style: none; margin: 0; padding: 0; font-size: 13px; }}
+.preview-listing li {{
+  padding: 2px 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}}
+.preview-listing li.dir {{ color: var(--accent); }}
+/* A previewed document gets the whole body. The frame is sandboxed and
+   opaque-origin (see crate::preview::document_html), and paints its own
+   background, so it is given a light one rather than left to inherit a dark
+   panel a page never designed against. */
+.preview-doc {{
+  width: 100%; height: 100%;
+  border: 0; border-radius: 8px; background: #ffffff;
+}}
+.preview-meta {{
+  flex: 0 0 auto; margin: 0;
+  padding: 10px 0; border-top: 1px solid var(--border);
+  font-size: 12px;
+}}
+.preview-meta-row {{ display: flex; gap: 12px; padding: 2px 0; }}
+.preview-meta dt {{ color: var(--muted); flex: 0 0 34%; }}
+.preview-meta dd {{
+  margin: 0; flex: 1 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}}
 .ansi-bold {{ font-weight: 700; }}
 .ansi-fg-black {{ color: #1a1d21; }}
 .ansi-fg-red {{ color: #e0685f; }}

@@ -17,7 +17,8 @@
     "canvasMono": "JetBrains Mono"
   },
   "beamenu": {
-    "lines": 9, "widthFactor": 0.375, "iconSize": 24,
-    "lineHeight": 52, "searchHeight": 56, "radius": 16
+    "lines": 9, "widthFactor": 0.5, "iconSize": 24,
+    "lineHeight": 52, "searchHeight": 56, "radius": 16,
+    "previewWidth": 360
   }
 }

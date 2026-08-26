@@ -101,6 +101,127 @@ window.__beamenu = {
 </body>
 </html>"#;
 
+/// The page a `--preview` pane loads once at startup.
+///
+/// Sized to the whole launcher panel rather than to the preview column, and
+/// transparent everywhere outside it. Both surfaces are unanchored layer
+/// surfaces the compositor centres, so two of the same size land on top of
+/// each other and the pane needs no idea where on the output that was. What
+/// it does need is where the column sits inside the panel, which is what
+/// `place` is told.
+///
+/// The column is a flex column: the preview scrolls, the metadata strip is
+/// pinned under it, and a row with no metadata gives that height back rather
+/// than reserving an empty strip.
+pub const PREVIEW_SHELL: &str = r#"<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-src 'self';">
+<style>
+html, body { background: transparent; overflow: hidden; }
+#column {
+  position: absolute;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+#column.visible { display: flex; }
+</style>
+</head>
+<body>
+<div id="column">
+  <div id="head" class="preview-head"></div>
+  <div id="body" class="preview-body"></div>
+  <div id="meta"></div>
+</div>
+<script>
+window.__pane = {
+  place(left, top, width, height) {
+    const column = document.getElementById('column');
+    column.style.left = left + 'px';
+    column.style.top = top + 'px';
+    column.style.width = width + 'px';
+    column.style.height = height + 'px';
+  },
+  show(title, subtitle, bodyHtml, metaHtml) {
+    const head = document.getElementById('head');
+    head.textContent = '';
+    const name = document.createElement('div');
+    name.className = 'preview-title';
+    name.textContent = title;
+    head.appendChild(name);
+    if (subtitle) {
+      const sub = document.createElement('div');
+      sub.className = 'preview-subtitle muted';
+      sub.textContent = subtitle;
+      head.appendChild(sub);
+    }
+    const body = document.getElementById('body');
+    body.innerHTML = bodyHtml;
+    body.scrollTop = 0;
+    document.getElementById('meta').innerHTML = metaHtml;
+    document.getElementById('column').classList.add('visible');
+  },
+  setBody(bodyHtml) {
+    document.getElementById('body').innerHTML = bodyHtml;
+  },
+  hide() {
+    document.getElementById('column').classList.remove('visible');
+    document.getElementById('body').innerHTML = '';
+    document.getElementById('meta').innerHTML = '';
+  },
+};
+</script>
+</body>
+</html>"#;
+
+/// The `evaluate_javascript` call that moves the column onto the panel's
+/// reserved strip.
+#[must_use]
+pub fn call_place(left: u32, top: u32, width: u32, height: u32) -> String {
+    format!("window.__pane.place({left}, {top}, {width}, {height})")
+}
+
+/// The `evaluate_javascript` call that draws one row's preview.
+///
+/// `body_html` and `meta_html` are canvas-generated markup from
+/// `crate::preview`; `title` and `subtitle` cross as strings and the page
+/// assigns them through `textContent`, never `innerHTML`, so a file named
+/// `<script>` is a filename rather than a script.
+#[must_use]
+pub fn call_show_preview(
+    title: &str,
+    subtitle: Option<&str>,
+    body_html: &str,
+    meta_html: &str,
+) -> String {
+    format!(
+        "window.__pane.show({}, {}, {}, {})",
+        js_string(title),
+        subtitle.map_or_else(|| "null".to_string(), js_string),
+        js_string(body_html),
+        js_string(meta_html),
+    )
+}
+
+/// The `evaluate_javascript` call that replaces only the preview body,
+/// leaving the title and the metadata strip where they are.
+///
+/// For a preview that arrives in pieces: a plugin command's output grows as
+/// the command runs, and redrawing the whole pane per chunk would reset the
+/// scroll position and flicker the heading of a row that has not changed.
+#[must_use]
+pub fn call_show_preview_body(body_html: &str) -> String {
+    format!("window.__pane.setBody({})", js_string(body_html))
+}
+
+/// The `evaluate_javascript` call that takes the column off screen.
+#[must_use]
+pub fn call_hide_preview() -> String {
+    "window.__pane.hide()".to_string()
+}
+
 /// Name of the `WebKitUserContentManager` script message handler the form
 /// submit button posts to.
 pub const FORM_SUBMIT_HANDLER: &str = "formSubmit";

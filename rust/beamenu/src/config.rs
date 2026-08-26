@@ -88,6 +88,15 @@ pub struct Config {
     /// Panel corner radius in pixels.
     #[serde(default = "default_radius")]
     pub radius: u32,
+    /// Width of the preview column in logical pixels. 0 turns the pane off.
+    ///
+    /// Taken out of the panel, not added beside it, so this and
+    /// [`Config::width_factor`] move together: a column carved out of a
+    /// narrow panel leaves a list too cramped to read. The renderer refuses
+    /// the split outright rather than draw that, and falls back to the
+    /// list-only layout; see `bm_preview_columns` in the patch series.
+    #[serde(default = "default_preview_width")]
+    pub preview_width: u32,
     /// Terminal used to run desktop entries marked `Terminal=true`.
     #[serde(default = "default_terminal")]
     pub terminal: String,
@@ -142,6 +151,9 @@ fn default_search_height() -> u32 {
 }
 fn default_radius() -> u32 {
     PALETTE.beamenu.radius
+}
+fn default_preview_width() -> u32 {
+    PALETTE.beamenu.preview_width
 }
 /// On by default: a launcher with no clipboard history is the surprising
 /// configuration, and the watcher costs one idle thread.

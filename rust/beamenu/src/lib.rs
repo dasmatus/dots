@@ -9,6 +9,13 @@
 //! client, so beamenu becomes the client and rebuilds the item list between
 //! keystrokes. No IPC, no second process, and every feature lands in code that
 //! never touches Wayland.
+//!
+//! [`preview`] is the one deliberate exception, and it earns it. A preview is
+//! a laid-out document, and the row painter has no way to become one. Drawing
+//! it also means reading whatever the highlighted row points at, which the
+//! frame budget forbids on this thread. So it goes to a child process that
+//! already lays out documents for a living. This side keeps its half of the
+//! bargain and never opens the file.
 
 pub mod config;
 pub mod daemon;
@@ -20,6 +27,7 @@ pub mod index;
 pub mod ipc;
 pub mod item;
 pub mod palette;
+pub mod preview;
 pub mod providers;
 pub mod rank;
 pub mod view;
@@ -27,7 +35,7 @@ pub mod view;
 use anyhow::Result;
 
 use crate::config::Config;
-use crate::frame::{Frame, Stack};
+use crate::frame::{prompt_rows, Frame, Stack};
 use crate::item::{Action, Item};
 use crate::providers::{Ctx, Provider, Trigger};
 
@@ -37,6 +45,11 @@ pub struct App {
     pub providers: Vec<Box<dyn Provider>>,
     pub frecency: frecency::Frecency,
     pub stack: Stack,
+    /// The preview pane, kept across a [`App::refresh`] for the same reason
+    /// the app cache is: it owns a child process whose startup is the whole
+    /// cost, and a daemon that respawned it per show would pay that cost
+    /// exactly as often as a one-shot process would have.
+    pub pane: preview::Pane,
 }
 
 impl App {
@@ -47,7 +60,7 @@ impl App {
     /// everything else is a small file re-read in microseconds, while the
     /// desktop-entry scan is the expensive part the daemon exists to avoid
     /// repeating.
-    fn with_cache(apps: index::AppCache) -> Self {
+    fn with_cache(apps: index::AppCache, pane: preview::Pane) -> Self {
         let config_dir = config::config_dir();
         let state_dir = config::state_dir();
         let config = Config::load(&config_dir.join("config.json"));
@@ -68,13 +81,14 @@ impl App {
             providers,
             frecency: frecency::Frecency::load(&frecency::default_path()),
             stack: Stack::new(),
+            pane,
         }
     }
 
     /// Assemble from the on-disk configuration.
     #[must_use]
     pub fn new() -> Self {
-        let app = Self::with_cache(index::AppCache::default());
+        let app = Self::with_cache(index::AppCache::default(), preview::Pane::new());
         app.ctx.apps.revalidate();
         app
     }
@@ -88,17 +102,25 @@ impl App {
     /// whatever the last show was left in.
     pub fn refresh(&mut self) {
         let apps = std::mem::take(&mut self.ctx.apps);
-        *self = Self::with_cache(apps);
+        let pane = std::mem::take(&mut self.pane);
+        *self = Self::with_cache(apps, pane);
         self.ctx.apps.revalidate();
     }
 
     /// Rows for the current query, ranked.
     ///
-    /// A pushed frame with fixed rows short-circuits: an action panel shows
-    /// what it was built with, in the order it was built.
+    /// A pushed frame short-circuits the providers: an action panel shows what
+    /// it was built with, in the order it was built, and a prompt frame shows
+    /// what the search line currently says.
     #[must_use]
     pub fn results(&self, query: &str) -> Vec<Item> {
         if let Some(frame) = self.stack.top() {
+            // A prompt frame is the one frame whose rows depend on the query
+            // and on nothing else: the search line is its text field, so it
+            // is rebuilt per keystroke and never reaches a provider.
+            if let Some(op) = &frame.prompt {
+                return prompt_rows(op, query);
+            }
             if frame.static_items {
                 return frame.items.clone();
             }
@@ -563,16 +585,54 @@ pub fn run_with(mut menu: view::Menu, app: &mut App) -> Result<()> {
                 if dirty {
                     shown = sync(&mut menu, app, &last_query, &pills, &mut state);
                 }
+
+                // Every frame, not only the dirty ones. Arrowing down a list
+                // moves the highlight inside `pump` without touching the
+                // query, and the highlight is what the pane follows. The
+                // panel's own geometry can move under a still highlight too,
+                // whenever the result count changes its height.
+                //
+                // Cheap on the frames where nothing moved: `Pane::sync` sends
+                // nothing unless `preview::plan` found something to say.
+                let highlighted = menu.highlighted_index().and_then(|index| shown.get(index));
+                app.pane.sync(menu.panel_metrics(), highlighted);
             }
             view::Outcome::Selected { index } => {
                 let Some(item) = shown.get(index).cloned() else {
                     continue;
                 };
+                // Both of these are navigation rather than side effects, so
+                // the loop takes them the same way it takes Push: the stack
+                // belongs to it, and `dispatch` never sees either.
+                if let Action::Prompt { op } = &item.action {
+                    let initial = op.initial();
+                    app.stack.push(Frame {
+                        items: Vec::new(),
+                        query: last_query.clone(),
+                        static_items: false,
+                        prompt: Some(op.clone()),
+                    });
+                    // The search line becomes the text field, prefilled with
+                    // whatever the operation thinks the starting point is.
+                    menu.set_query(&initial);
+                    last_query.clone_from(&initial);
+                    shown = sync(&mut menu, app, &last_query, &pills, &mut state);
+                    continue;
+                }
+                if let Action::Confirm { label, action } = &item.action {
+                    app.stack
+                        .push(Stack::confirm_frame(label, action, &last_query));
+                    menu.set_query("");
+                    last_query.clear();
+                    shown = sync(&mut menu, app, &last_query, &pills, &mut state);
+                    continue;
+                }
                 if let Action::Push { provider, query } = &item.action {
                     app.stack.push(Frame {
                         items: Vec::new(),
                         query: last_query.clone(),
                         static_items: false,
+                        prompt: None,
                     });
                     let _ = provider;
                     menu.set_query(query);
@@ -592,6 +652,7 @@ pub fn run_with(mut menu: view::Menu, app: &mut App) -> Result<()> {
                         items,
                         query: last_query.clone(),
                         static_items: true,
+                        prompt: None,
                     });
                     // The search line keeps the terms that produced the list,
                     // so the frame says what it is an answer to. Safe because
@@ -602,6 +663,11 @@ pub fn run_with(mut menu: view::Menu, app: &mut App) -> Result<()> {
                     shown = sync(&mut menu, app, &last_query, &pills, &mut state);
                     continue;
                 }
+                // Off screen before the action runs, not after: activating a
+                // row is what closes the panel, and a pane still drawing
+                // beside a panel that is gone is a rectangle floating over
+                // the desktop.
+                app.pane.hide();
                 app.activate(&item)?;
                 return Ok(());
             }
@@ -623,7 +689,10 @@ pub fn run_with(mut menu: view::Menu, app: &mut App) -> Result<()> {
                         last_query.clone_from(&query);
                         shown = sync(&mut menu, app, &last_query, &pills, &mut state);
                     }
-                    None => return Ok(()),
+                    None => {
+                        app.pane.hide();
+                        return Ok(());
+                    }
                 }
             }
         }

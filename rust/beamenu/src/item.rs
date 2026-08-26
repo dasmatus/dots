@@ -6,6 +6,75 @@
 
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
+/// A change to the filesystem the launcher makes itself.
+///
+/// Named operations over paths rather than shell command strings, because a
+/// filename is the one piece of user data most likely to contain a quote, a
+/// space or a newline, and every one of these runs against a path somebody
+/// picked out of a list. `crate::dispatch` runs them through `std::fs`, where
+/// a path is an argument rather than a fragment of a command line, so there
+/// is no quoting to get wrong.
+///
+/// Three of the five need a word before they can run; see [`Action::Prompt`]
+/// for where that word comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileOp {
+    /// Make a directory named by the prompt inside `parent`.
+    NewFolder { parent: PathBuf },
+    /// Rename `target` to the prompted name, in the directory it is already
+    /// in. A name containing a path separator is refused rather than treated
+    /// as a move; moving is [`FileOp::MoveTo`] and asks a different question.
+    Rename { target: PathBuf },
+    /// Move `target` into the prompted directory, keeping its name.
+    MoveTo { target: PathBuf },
+    /// Send `target` to the desktop's trash, where it can be got back.
+    Trash { target: PathBuf },
+    /// Remove `target` outright, recursively for a directory.
+    Delete { target: PathBuf },
+}
+
+impl FileOp {
+    /// The path this operates on, for a row that wants to name it.
+    #[must_use]
+    pub fn path(&self) -> &PathBuf {
+        match self {
+            Self::NewFolder { parent } => parent,
+            Self::Rename { target }
+            | Self::MoveTo { target }
+            | Self::Trash { target }
+            | Self::Delete { target } => target,
+        }
+    }
+
+    /// Whether this needs a word typed before it can run.
+    #[must_use]
+    pub fn needs_argument(&self) -> bool {
+        matches!(
+            self,
+            Self::NewFolder { .. } | Self::Rename { .. } | Self::MoveTo { .. }
+        )
+    }
+
+    /// What to put on the search line when the prompt opens.
+    ///
+    /// Rename starts from the current name, because renaming is usually
+    /// editing a name rather than replacing one. The other two start empty:
+    /// there is no obvious new folder name, and prefilling a destination
+    /// would only be a path to delete before typing the real one.
+    #[must_use]
+    pub fn initial(&self) -> String {
+        match self {
+            Self::Rename { target } => target
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+}
+
 /// What activating a row does.
 ///
 /// Every variant is data, never a closure, so a provider's output stays
@@ -47,9 +116,52 @@ pub enum Action {
     /// cost a network round trip or a subprocess without that cost landing on
     /// every character typed. See [`crate::providers::Provider::present`].
     Present { provider: String, query: String },
+    /// Change the filesystem, with whatever [`FileOp::needs_argument`] asked
+    /// for already supplied.
+    File { op: FileOp, argument: String },
+    /// Turn the search line into a text field for `op`, then run it.
+    ///
+    /// The launcher has one text field and it is already on screen, so a
+    /// prompt reuses it rather than inventing a dialog: the frame that opens
+    /// rebuilds its single row from whatever is typed, and Enter on that row
+    /// runs the operation with it. Escape leaves without doing anything,
+    /// which is what Escape does everywhere else here.
+    Prompt { op: FileOp },
+    /// Ask before running `action`.
+    ///
+    /// For the operations with nothing behind them. Trashing a file needs no
+    /// confirmation because the file is still there; deleting one does,
+    /// because a launcher is a place where a keystroke happens fast.
+    Confirm { label: String, action: Box<Action> },
     /// Do nothing. Used by informational rows such as a calculator result
     /// that has already been copied.
     None,
+}
+
+/// What the preview pane draws for a row, when it is the highlighted one.
+///
+/// Deliberately a description of the thing rather than the thing itself. The
+/// launcher rebuilds its list between keystrokes and must not stall on a
+/// 40 MB image or a directory of ten thousand files, so nothing here is read,
+/// decoded or measured on this side. The pane is a separate process and does
+/// all of that in its own time; if it is slow, the keyboard is not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Preview {
+    /// Whatever is at this path. The pane decides what it is from the name
+    /// and from the bytes, since only it is allowed to look.
+    File { path: PathBuf },
+    /// Markdown the provider already holds, for a row whose preview is
+    /// something it computed rather than something on disk.
+    Markdown { body: String },
+    /// A plugin command's own view, drawn in the pane instead of in a window
+    /// of its own. Same three fields as [`Action::View`], and for the same
+    /// reason: the pane re-reads the manifest and redoes the substitution.
+    Command {
+        manifest: PathBuf,
+        command: String,
+        query: String,
+    },
 }
 
 /// One row of the launcher.
@@ -108,6 +220,25 @@ pub struct Item {
     pub action: Action,
     /// Extra actions offered by the Ctrl+K panel.
     pub alt_actions: Vec<(String, Action)>,
+    /// What the preview pane draws while this row is highlighted.
+    ///
+    /// `None` is the normal case and means the pane goes away for this row.
+    /// A row only earns a preview when there is something to see: a file, a
+    /// rendered document, a plugin's own view. Giving every row a placeholder
+    /// pane would be worse than having none, since the panel would then keep
+    /// a third of its width reserved for a shrug.
+    pub preview: Option<Preview>,
+    /// Rows for the strip under the preview, in order.
+    ///
+    /// The pane draws these as label/value pairs. Empty means no strip, and
+    /// the preview gets that height back.
+    ///
+    /// Kept beside [`Item::preview`] rather than inside it because the two
+    /// answer different questions. The preview is what the thing looks like
+    /// and only the pane can produce it; the metadata is what the provider
+    /// already knew when it built the row (a size it stat'd, a MIME type it
+    /// resolved) and would be wasteful to make the pane rediscover.
+    pub metadata: Vec<(String, String)>,
 }
 
 impl Item {
@@ -126,7 +257,23 @@ impl Item {
             score: 0,
             action,
             alt_actions: Vec::new(),
+            preview: None,
+            metadata: Vec::new(),
         }
+    }
+
+    /// Give this row a preview pane.
+    #[must_use]
+    pub fn preview(mut self, preview: Preview) -> Self {
+        self.preview = Some(preview);
+        self
+    }
+
+    /// Append one label/value row to the strip under the preview.
+    #[must_use]
+    pub fn meta(mut self, label: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.push((label.into(), value.into()));
+        self
     }
 
     #[must_use]

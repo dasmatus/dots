@@ -64,9 +64,10 @@ fn pills_follow_registry_order_and_skip_prefix_providers() {
     let pills = Pills::new(&providers());
 
     // providers::all()'s registration order is calc, apps, quicklinks,
-    // snippets, scripts, window, clipboard, files, emoji, websearch, system,
-    // status. Only the ambient ones (no Trigger::Prefix) earn a pill, in that
-    // same order.
+    // snippets, scripts, window, clipboard, files, files-deep, emoji,
+    // websearch, system, status. Only the ambient ones (no Trigger::Prefix)
+    // earn a pill, in that same order, which is why the shallow file search
+    // has one and the `f ` search beside it does not.
     assert_eq!(
         pills.labels(),
         [
@@ -74,6 +75,7 @@ fn pills_follow_registry_order_and_skip_prefix_providers() {
             "Quicklinks",
             "Snippets",
             "Script Commands",
+            "Files",
             "System",
             "Status"
         ]
@@ -85,6 +87,7 @@ fn pills_follow_registry_order_and_skip_prefix_providers() {
             "quicklinks",
             "snippets",
             "scripts",
+            "files",
             "system",
             "status"
         ]
@@ -107,13 +110,14 @@ fn every_plugin_earns_its_own_pill_even_when_two_share_a_title() {
             "quicklinks",
             "snippets",
             "scripts",
+            "files",
             "system",
             "status",
             "notes-a",
             "notes-b"
         ]
     );
-    assert_eq!(pills.labels()[6..], ["Notes", "Notes"]);
+    assert_eq!(pills.labels()[7..], ["Notes", "Notes"]);
 
     // And each filters to its own rows rather than to the shared heading.
     let ambient = vec![row("notes-a", "Notes"), row("notes-b", "Notes")];
@@ -321,7 +325,7 @@ fn a_plugin_manifest_earns_a_pill_that_filters_to_its_own_rows() {
     let pills = Pills::new(&providers_with_ambient_plugins(&[("notes", "Notes")]));
 
     // providers::all() appends plugin providers after the built-in ones, so
-    // the manifest lands last, following the same six ambient built-ins as
+    // the manifest lands last, following the same seven ambient built-ins as
     // pills_follow_registry_order_and_skip_prefix_providers.
     assert_eq!(
         pills.ids(),
@@ -330,6 +334,7 @@ fn a_plugin_manifest_earns_a_pill_that_filters_to_its_own_rows() {
             "quicklinks",
             "snippets",
             "scripts",
+            "files",
             "system",
             "status",
             "notes"

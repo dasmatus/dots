@@ -87,6 +87,10 @@ pub struct BeamenuMetrics {
     pub line_height: u32,
     pub search_height: u32,
     pub radius: u32,
+    /// Logical width of the preview column, 0 for a list-only panel. Paired
+    /// with `widthFactor`: the column is taken out of the panel rather than
+    /// added beside it, so widening one without the other narrows the list.
+    pub preview_width: u32,
 }
 
 /// The two theme slots derived from an accent: `selected_background`

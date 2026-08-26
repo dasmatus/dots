@@ -117,7 +117,10 @@ in
 
       cp -r ${pkgs.bemenu.src} "$work/src"
       chmod -R u+w "$work/src"
-      for p in nix/patches/beamenu/0*.patch; do
+      # [0-9]* rather than 0*: the series passed ten patches, and a glob that
+      # silently stopped matching at 09 would build the tests against a tree
+      # missing exactly the newest unit under test.
+      for p in nix/patches/beamenu/[0-9]*.patch; do
         echo "applying $(basename "$p")"
         patch -d "$work/src" -p1 -s < "$p"
       done
@@ -134,6 +137,12 @@ in
         "$work/src/lib/renderers/rows.cpp" \
         -o "$work/rows_fit_test"
 
+      clang++ -std=c++23 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+        -I"$work/src/lib" \
+        nix/patches/beamenu/tests/preview_split_test.cpp \
+        "$work/src/lib/renderers/preview.cpp" \
+        -o "$work/preview_split_test"
+
       # The units under test allocate nothing, so leak detection buys nothing
       # here, and LeakSanitizer needs ptrace, which sandboxes tend to refuse.
       ASAN_OPTIONS=detect_leaks=0 \
@@ -143,6 +152,10 @@ in
       ASAN_OPTIONS=detect_leaks=0 \
       UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
         "$work/rows_fit_test"
+
+      ASAN_OPTIONS=detect_leaks=0 \
+      UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+        "$work/preview_split_test"
     '';
   };
 

@@ -16,6 +16,7 @@ pub mod dispatch;
 pub mod manifest;
 pub mod markdown;
 pub mod palette;
+pub mod preview;
 pub mod rpc;
 pub mod shell;
 pub mod theme;

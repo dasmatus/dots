@@ -124,6 +124,14 @@ extern "C" {
     fn bm_menu_set_icon_size(menu: *mut BmMenu, size: c_uint);
     fn bm_menu_set_search_height(menu: *mut BmMenu, height: c_uint);
     fn bm_menu_set_pills(menu: *mut BmMenu, spec: *const c_char, active: c_uint);
+    fn bm_menu_set_preview_width(menu: *mut BmMenu, width: c_uint);
+    fn bm_menu_get_panel_metrics(
+        menu: *mut BmMenu,
+        width: *mut c_uint,
+        height: *mut c_uint,
+        list_width: *mut c_uint,
+        content_y: *mut c_uint,
+    );
     fn bm_menu_get_active_pill(menu: *mut BmMenu) -> c_uint;
 
     fn bm_item_new(text: *const c_char) -> *mut BmItem;
@@ -149,6 +157,50 @@ pub enum Outcome {
     Alternate { index: usize },
     /// Escape, or the compositor closing the surface.
     Cancelled,
+}
+
+/// Where the last paint put the panel, in logical pixels.
+///
+/// Every number here is decided inside the renderer and derivable nowhere
+/// else: the width follows from the output size times the width factor, the
+/// height from what nested rows did to the list, and the split from the
+/// clamping `bm_preview_columns` applies to the configured column width.
+/// The preview pane needs all four to place a surface over the panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PanelMetrics {
+    /// Panel width, matching the layer surface bemenu asked the compositor
+    /// for.
+    pub width: u32,
+    /// Panel height, likewise.
+    pub height: u32,
+    /// x the list column ends at, which is where the preview column starts.
+    pub list_width: u32,
+    /// y the two columns start at, under the full-width search row.
+    pub content_y: u32,
+}
+
+impl PanelMetrics {
+    /// Logical width of the preview column, 0 when the renderer drew none.
+    #[must_use]
+    pub fn preview_width(&self) -> u32 {
+        self.width.saturating_sub(self.list_width)
+    }
+
+    /// Logical height of the preview column.
+    #[must_use]
+    pub fn preview_height(&self) -> u32 {
+        self.height.saturating_sub(self.content_y)
+    }
+
+    /// Whether a paint has happened and left a column to draw into.
+    ///
+    /// Both halves matter. Before the first paint every field is zero, and a
+    /// panel too narrow to split has a real width with no column in it; a
+    /// pane placed on either would be placed on nothing.
+    #[must_use]
+    pub fn usable(&self) -> bool {
+        self.width > 0 && self.height > 0 && self.preview_width() > 0 && self.preview_height() > 0
+    }
 }
 
 /// A live bemenu instance.
@@ -287,6 +339,7 @@ impl Menu {
             bm_menu_set_rich_rows(self.ptr, true);
             bm_menu_set_icon_size(self.ptr, config.icon_size);
             bm_menu_set_search_height(self.ptr, config.search_height);
+            bm_menu_set_preview_width(self.ptr, config.preview_width);
 
             bm_menu_grab_keyboard(self.ptr, true);
         }
@@ -386,6 +439,47 @@ impl Menu {
     pub fn active_pill(&self) -> u32 {
         // SAFETY: self.ptr is non-null for the lifetime of this Menu.
         unsafe { bm_menu_get_active_pill(self.ptr) }
+    }
+
+    /// Where the last paint put the panel, in logical pixels.
+    ///
+    /// All zeroes until something has been drawn, which the caller has to
+    /// expect rather than assume away: the first [`Menu::pump`] renders, so
+    /// nothing before it can know the panel's size. [`PanelMetrics::usable`]
+    /// is the check for that.
+    #[must_use]
+    pub fn panel_metrics(&self) -> PanelMetrics {
+        let mut width: c_uint = 0;
+        let mut height: c_uint = 0;
+        let mut list_width: c_uint = 0;
+        let mut content_y: c_uint = 0;
+        // SAFETY: four live out-parameters for the call's duration; the C
+        // side only writes them and accepts NULL for any it is not given.
+        unsafe {
+            bm_menu_get_panel_metrics(
+                self.ptr,
+                &raw mut width,
+                &raw mut height,
+                &raw mut list_width,
+                &raw mut content_y,
+            );
+        }
+        PanelMetrics {
+            width,
+            height,
+            list_width,
+            content_y,
+        }
+    }
+
+    /// Index of the highlighted row, read back out of its userdata.
+    ///
+    /// Public because the preview pane tracks the highlight rather than the
+    /// query: arrowing down a list changes what is previewed without changing
+    /// a character of what was typed.
+    #[must_use]
+    pub fn highlighted_index(&self) -> Option<usize> {
+        self.highlighted()
     }
 
     /// Index of the highlighted row, read back out of its userdata.
