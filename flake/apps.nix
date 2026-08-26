@@ -107,6 +107,15 @@ in
         -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
         -I "${quickshellConfig}"
 
+      # QtTest over tests/qml. qmllint type-checks the shell but cannot see a
+      # unit error — Quickshell hands UPower's percentage over as a 0-1
+      # fraction and the pill wants whole percent, which type-checks either
+      # way and shows an empty battery on a half-full one. Offscreen because
+      # the runner still wants a QPA plugin with nothing to draw.
+      QT_QPA_PLATFORM=offscreen qmltestrunner \
+        -import "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
+        -input tests/qml
+
       nix flake check --no-build
 
       cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test

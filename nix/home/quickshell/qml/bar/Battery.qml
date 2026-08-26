@@ -7,8 +7,12 @@
 // Hidden entirely on machines with no battery. waybar left an empty module
 // there; a desktop has nothing to say about charge and should not reserve a
 // capsule to say it.
+//
+// The arithmetic lives in battery.js so tests/qml/tst_battery.qml can reach
+// it without a compositor, a palette or a D-Bus connection.
 import QtQuick
 import Quickshell.Services.UPower
+import "battery.js" as BatteryMath
 import ".."
 
 Pill {
@@ -16,25 +20,23 @@ Pill {
 
     readonly property var device: UPower.displayDevice
 
-    // UPower reports 0-100, not 0-1.
-    readonly property int percent: Math.round(root.device?.percentage ?? 0)
+    readonly property int percent: BatteryMath.percent(root.device?.percentage)
 
     readonly property bool charging: root.device?.state === UPowerDeviceState.Charging || root.device?.state === UPowerDeviceState.FullyCharged
 
     readonly property var ramp: ["\u{F008E}", "\u{F007A}", "\u{F007B}", "\u{F007C}", "\u{F007D}", "\u{F007E}", "\u{F007F}", "\u{F0080}", "\u{F0081}", "\u{F0082}", "\u{F0079}"]
 
-    readonly property string icon: root.charging ? "\u{F0084}" : root.ramp[Math.min(root.ramp.length - 1, Math.floor(root.percent / 10))]
+    readonly property string icon: root.charging ? "\u{F0084}" : root.ramp[BatteryMath.rampIndex(root.percent, root.ramp.length)]
 
     visible: root.device?.isLaptopBattery ?? false
 
     color: {
-        if (root.charging)
-            return Theme.green;
+        const name = BatteryMath.colorName(root.percent, root.charging);
 
-        if (root.percent <= 15)
+        if (name === "red")
             return Theme.red;
 
-        if (root.percent <= 30)
+        if (name === "yellow")
             return Theme.yellow;
 
         return Theme.green;

@@ -15,6 +15,32 @@ swtpm — no libvirt, no host packages, no root. Defined in
 Also in `checks`: `nix-lint`-fast eval checks (`settings-eval`,
 `facter-*-eval`) and the `dots-installer` package build — see `flake.nix`.
 
+## QML unit tests — `qml/`
+
+[QtTest](https://doc.qt.io/qt-6/qtquicktest-index.html) over the arithmetic
+behind the shell, run by `qmltestrunner` as the second step of `nix run
+.#nix-lint`. Offscreen QPA, because the runner wants a platform plugin even
+with nothing to draw.
+
+`qmllint` type-checks the QML and still cannot see a unit error, which is what
+these catch. The battery pill read Quickshell's `UPowerDevice.percentage`, a
+0-1 fraction, as UPower's raw 0-100 D-Bus property, so a half-full battery
+rounded to `0` and drew an empty red pill. Both values are a `double`, so only
+a test tells them apart.
+
+| File | Covers |
+|------|--------|
+| `tst_battery.qml` | `bar/battery.js` — fraction to whole percent, the eleven-glyph ramp index, waybar's 30/15 colour thresholds |
+
+Those `.js` libraries hold pure functions only, so the tests need no
+compositor, no D-Bus and no palette. `qmltestrunner` cannot instantiate a
+component that inherits a Quickshell type, which is why the arithmetic lives
+beside `Battery.qml` instead of inside it.
+
+```
+nix run .#nix-lint                     # qmllint, then these, then flake check
+```
+
 ## Running
 
 ```
