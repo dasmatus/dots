@@ -194,6 +194,25 @@ either the VM gains a virtio-gpu or the installer keeps a TTY
 fallback. This is the single largest risk in the migration and it sits
 in the last sub-project by design.
 
+**The ISO root must stay xdg-shell.** Plan 0 shipped `installer.qml`
+using `PanelWindow`, copying the idiom every other file in the tree
+uses. Quickshell backs `PanelWindow` with `zwlr_layer_shell_v1`, and
+cage implements neither: its source creates only
+`wlr_xdg_shell_create` and `wlr_xwayland_create`, and carries no
+`layer_shell.c` at all. The window would never have been mapped and
+the media would have booted to a blank screen. It is now
+`FloatingWindow`, with the reason in the file's header.
+
+Two things this cost, worth remembering while writing plan 3b's
+screens. The check that was supposed to catch it — running `qs -p` on
+the built root — passed, because it ran under Hyprland, which does
+implement layer-shell. A check aimed at the wrong runtime is worse
+than none. And this risk section originally blamed the GPU for the
+cage risk; the real blocker was a protocol, and no amount of
+virtio-gpu would have moved it. Every installer surface must be
+xdg-shell, and nothing under `installer/` may reach for `anchors`,
+`exclusiveZone` or any other layer-shell-only property.
+
 **The install path loses its type system.** `install.rs` shells out to
 disko, `nixos-install` and `systemd-cryptenroll` on a path where a
 mistake destroys a disk. JS has no `Result`. The mitigation is that
