@@ -5,22 +5,19 @@
 //! scope; nothing here accumulates between calls, so two concurrent
 //! calls under different scopes never see each other's state.
 
-mod config;
-mod pgerr;
-mod store;
-mod tools;
-
 use rmcp::ServiceExt;
 use tracing_subscriber::EnvFilter;
 
-use config::PgConfig;
-use store::PgStore;
-use tools::DotsMemory;
+use dots_memory_mcp::config::PgConfig;
+use dots_memory_mcp::store::PgStore;
+use dots_memory_mcp::tools::DotsMemory;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .without_time()
         .with_writer(std::io::stderr)
         .init();

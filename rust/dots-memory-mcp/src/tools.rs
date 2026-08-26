@@ -5,9 +5,13 @@
 //! reads a field on `self` for it, because there is no such field:
 //! `DotsMemory` holds only the store, and the store holds only the pool.
 
+use std::fmt::Write as _;
+
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities};
-use rmcp::{ErrorData as McpError, ServerHandler, model::ServerInfo, tool, tool_handler, tool_router};
+use rmcp::{
+    model::ServerInfo, tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -124,14 +128,12 @@ where
         Self { store }
     }
 
-    #[tool(
-        description = "Search a memory scope's stored facts by free-text \
+    #[tool(description = "Search a memory scope's stored facts by free-text \
                         query. Returns ranked results, each tagged \
                         [recalled memory - do not re-store]: recalled text \
                         must never be re-submitted to `remember` as though \
-                        it were a fresh observation."
-    )]
-    async fn recall(
+                        it were a fresh observation.")]
+    pub async fn recall(
         &self,
         Parameters(args): Parameters<RecallArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -145,24 +147,19 @@ where
         } else {
             let mut out = String::from("[recalled memory - do not re-store]\n");
             for row in &rows {
-                out.push_str(&format!(
-                    "- ({}) {}: {}\n",
-                    row.fact_id, row.claim_key, row.body
-                ));
+                let _ = writeln!(out, "- ({}) {}: {}", row.fact_id, row.claim_key, row.body);
             }
             out
         };
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
-    #[tool(
-        description = "Record a new fact in a memory scope. `body` must \
+    #[tool(description = "Record a new fact in a memory scope. `body` must \
                         already have passed the unslop cleaning pass; pass \
                         its `unslop_token` verbatim, never fabricated. A \
                         second `remember` with the same `claim_key` \
-                        supersedes the first rather than duplicating it."
-    )]
-    async fn remember(
+                        supersedes the first rather than duplicating it.")]
+    pub async fn remember(
         &self,
         Parameters(args): Parameters<RememberArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -196,14 +193,12 @@ where
         ))]))
     }
 
-    #[tool(
-        description = "Retract a previously remembered claim. Records the \
+    #[tool(description = "Retract a previously remembered claim. Records the \
                         retraction as a new fact with source_kind \
                         \"retraction\" and supersedes the claim being \
                         retracted; the original stays reachable, marked \
-                        superseded, rather than being deleted."
-    )]
-    async fn forget(
+                        superseded, rather than being deleted.")]
+    pub async fn forget(
         &self,
         Parameters(args): Parameters<ForgetArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -236,14 +231,12 @@ where
         ))]))
     }
 
-    #[tool(
-        description = "Render a memory scope's neighbourhood around one \
+    #[tool(description = "Render a memory scope's neighbourhood around one \
                         entity as a Mermaid graph. This is a human-facing \
                         view for looking, never the store and never the \
                         recall format; past roughly forty nodes the \
-                        rendering degrades into a hairball."
-    )]
-    async fn graph(
+                        rendering degrades into a hairball.")]
+    pub async fn graph(
         &self,
         Parameters(args): Parameters<GraphArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -268,12 +261,10 @@ where
         Ok(CallToolResult::success(vec![ContentBlock::text(mermaid)]))
     }
 
-    #[tool(
-        description = "Mark a recalled fact as cited by the current \
+    #[tool(description = "Mark a recalled fact as cited by the current \
                         session. Call this after acting on a recalled \
-                        fact so the read/write ledger reflects real use."
-    )]
-    async fn session_note(
+                        fact so the read/write ledger reflects real use.")]
+    pub async fn session_note(
         &self,
         Parameters(args): Parameters<SessionNoteArgs>,
     ) -> Result<CallToolResult, McpError> {

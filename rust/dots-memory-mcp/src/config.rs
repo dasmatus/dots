@@ -40,12 +40,14 @@ impl PgConfig {
     /// is, which plan 2 already sets to include `agentmem`.
     #[must_use]
     pub fn from_env() -> Self {
-        let host =
-            std::env::var("PGHOST").unwrap_or_else(|_| "/run/postgresql".to_string());
-        let dbname =
-            std::env::var("PGDATABASE").unwrap_or_else(|_| "matus".to_string());
+        let host = std::env::var("PGHOST").unwrap_or_else(|_| "/run/postgresql".to_string());
+        let dbname = std::env::var("PGDATABASE").unwrap_or_else(|_| "matus".to_string());
         let options = std::env::var("PGOPTIONS").ok();
-        Self { host, dbname, options }
+        Self {
+            host,
+            dbname,
+            options,
+        }
     }
 
     /// Builds a `deadpool_postgres::Pool` from this configuration.
@@ -53,12 +55,14 @@ impl PgConfig {
     /// # Errors
     /// Returns whatever `deadpool_postgres::CreatePoolError` the pool
     /// builder produces, e.g. an invalid `options` string.
-    pub fn create_pool(&self) -> Result<deadpool_postgres::Pool, deadpool_postgres::CreatePoolError> {
+    pub fn create_pool(
+        &self,
+    ) -> Result<deadpool_postgres::Pool, deadpool_postgres::CreatePoolError> {
         let mut cfg = PoolConfig::new();
         cfg.host = Some(self.host.clone());
         cfg.dbname = Some(self.dbname.clone());
         cfg.user = Some(PG_USER.to_string());
-        cfg.options = self.options.clone();
+        cfg.options.clone_from(&self.options);
         cfg.create_pool(Some(Runtime::Tokio1), tokio_postgres::NoTls)
     }
 }
