@@ -55,31 +55,28 @@ in
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
       # has no exec-once; hyprland.start fires once at compositor boot. Called
       # by name (like waybar/nm-applet) since wallpaper-tui is in home.packages.
-      # The eww keybinds script is the first-login keybind cheatsheet
-      # (nix/home/keybinds.nix): the script no-ops once its sentinel exists,
-      # so this fires on every compositor boot but only ever opens the eww
-      # window once per install. NB comments here are Nix (#), not Lua (--)
+      # The cheatsheet is part of the shell now, so there is no daemon to start
+      # and no first-login sentinel to keep: `qs` brings it with everything
+      # else. NB comments here are Nix (#), not Lua (--)
       # — anything inside the `lua ''...''` inline is emitted verbatim into
       # hyprland.lua.
       on = {
         _args = [
           "hyprland.start"
           (lua ''
-                                    function()
-                                      -- eww daemon must be up before keybinds.sh opens the cheatsheet
-                                      -- window. keybinds.sh sleeps 2s on first login to let it
-                                      -- initialize its IPC socket.
-                                      -- awww-daemon must be up before wallpaper-tui --restore
-                                      -- talks to it; awww img blocks briefly and retries, so the
-                                      -- ordering here is belt and braces rather than a race fix.
-                                      hl.exec_cmd("awww-daemon")
-                                      hl.exec_cmd("eww daemon")
-                                      hl.exec_cmd("qs")
-            			      hl.exec_cmd("hyprmon apply")
-                                      hl.exec_cmd("nm-applet --indicator")
-                                      hl.exec_cmd("wallpaper-tui --restore")
-                                      hl.exec_cmd("~/.config/eww/scripts/keybinds.sh")
-                                    end'')
+            function()
+              -- awww-daemon must be up before wallpaper-tui --restore
+              -- talks to it; awww img blocks briefly and retries, so the
+              -- ordering here is belt and braces rather than a race fix.
+              hl.exec_cmd("awww-daemon")
+              hl.exec_cmd("qs")
+              hl.exec_cmd("hyprmon apply")
+              -- The bar's network pill reports state; nm-applet's tray
+              -- icon is what actually offers a menu to switch networks,
+              -- so it stays until the shell grows that.
+              hl.exec_cmd("nm-applet --indicator")
+              hl.exec_cmd("wallpaper-tui --restore")
+            end'')
         ];
       };
 
@@ -433,7 +430,7 @@ in
         {
           _args = [
             (lua ''mod .. " + slash"'')
-            (lua ''hl.dsp.exec_cmd("~/.config/eww/scripts/keybinds.sh --force")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call cheatsheet toggle")'')
           ];
         }
         # The settings menu (nix/home/settings-menu.nix) had its own SUPER+comma

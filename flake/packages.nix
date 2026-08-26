@@ -297,6 +297,9 @@ self: {
   quickshell-config = import ../nix/home/quickshell/tree.nix {
     inherit pkgs;
     stateHome = "/var/empty/.local/state";
+    # The real cheatsheet, not an empty stub: linting a tree whose data files
+    # are all empty would not exercise the delegates that read them.
+    keybinds = import ../nix/home/keybinds.nix;
   };
 
   # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned fetchGit

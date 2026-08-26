@@ -1,15 +1,16 @@
-# First-login keybind cheatsheet data. The curated list is emitted as
-# ~/.config/eww/keybinds.json and rendered by the eww keybinds window
-# (nix/home/eww/eww.yuck). The window pops once, the first time the graphical
-# session comes up on a fresh install, then never again (a sentinel under
-# $XDG_STATE_HOME/dots). A SUPER+/ bind re-opens it on demand — see the bind
-# added in hyprland.nix.
+# First-login keybind cheatsheet data. The curated list feeds the shell's
+# cheatsheet overlay (nix/home/quickshell/qml/cheatsheet), reached with SUPER+/.
 #
 # The list is hand-curated, not introspected from hyprland.nix: those binds are
 # Lua expressions (mod .. " + Q" + hl.dsp.*), so there's no clean way to render
 # them to a human-readable table, and a hand list doubles as docs. `mod` there =
 # SUPER. Keep this in step with the binds and gestures when editing hyprland.nix / kitty.nix.
-{ ... }:
+#
+# Plain data, not a home-manager module. The shell tree is also built from the
+# flake as `quickshell-config` for the qmllint gate, and a module's config can
+# only be read from an evaluated home-manager configuration; a file that
+# evaluates to a list can be imported from either side, so the linted tree
+# carries the same cheatsheet the real one does.
 let
   keybinds = {
     launchers = [
@@ -176,34 +177,13 @@ let
     ];
   };
 
-  # Flat array, not nested {category, items}: eww 0.6.0's `for` can iterate a
-  # top-level variable but cannot iterate a field of a loop variable
-  # (`for item in group.items` → "No variable named `group.items` in scope"),
-  # which poisons the whole config and takes down the launcher window too.
-  # `first` marks the first row of each category so the yuck can show the
-  # category header only once per group via `:visible {item.first}`.
-  json = builtins.toJSON (
-    builtins.concatLists (
-      map (
-        category:
-        let
-          items = keybinds.${category};
-        in
-        builtins.genList (
-          i:
-          let
-            item = builtins.elemAt items i;
-          in
-          {
-            inherit category;
-            first = i == 0;
-            inherit (item) key desc;
-          }
-        ) (builtins.length items)
-      ) (builtins.attrNames keybinds)
-    )
-  );
+  # Grouped, not flattened. This used to be one flat array carrying a `first`
+  # boolean per row, because eww 0.6.0's `for` could iterate a top-level
+  # variable but not a field of a loop variable, so `for item in group.items`
+  # poisoned the whole config. A QML Repeater nests without complaint, so the
+  # shape can say what it means and the marker row disappears.
 in
-{
-  xdg.configFile."eww/keybinds.json".text = json;
-}
+map (category: {
+  name = category;
+  items = keybinds.${category};
+}) (builtins.attrNames keybinds)

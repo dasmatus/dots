@@ -38,7 +38,6 @@
     ./waybar.nix
     ./wallpaper-tui.nix
     ./dots-osd.nix
-    ./keybinds.nix
     ./random_wp.nix
     ./librewolf.nix
     ./eww

@@ -21,6 +21,7 @@
   stateHome,
   quicklinks ? [ ],
   snippets ? [ ],
+  keybinds ? [ ],
 }:
 let
   inherit (pkgs) lib;
@@ -131,6 +132,7 @@ let
   # provider that silently returns nothing.
   quicklinksFile = pkgs.writeText "quicklinks.json" (builtins.toJSON { items = quicklinks; });
   snippetsFile = pkgs.writeText "snippets.json" (builtins.toJSON { items = snippets; });
+  keybindsFile = pkgs.writeText "keybinds.json" (builtins.toJSON { groups = keybinds; });
 in
 pkgs.runCommand "dots-quickshell-config" { } ''
   mkdir -p "$out"
@@ -140,4 +142,5 @@ pkgs.runCommand "dots-quickshell-config" { } ''
   cp ${qmldirFile} "$out/qmldir"
   cp ${quicklinksFile} "$out/launcher/quicklinks.json"
   cp ${snippetsFile} "$out/launcher/snippets.json"
+  cp ${keybindsFile} "$out/cheatsheet/keybinds.json"
 ''

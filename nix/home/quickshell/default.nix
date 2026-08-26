@@ -19,6 +19,7 @@ let
   tree = import ./tree.nix {
     inherit pkgs;
     inherit (cfg) quicklinks snippets;
+    keybinds = import ../keybinds.nix;
     stateHome = config.xdg.stateHome;
   };
 in
@@ -66,6 +67,7 @@ in
       default = [ ];
       description = "Launcher text snippets.";
     };
+
   };
 
   config = {
