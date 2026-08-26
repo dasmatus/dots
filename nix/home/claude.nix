@@ -98,9 +98,10 @@ let
   # `agents/` at its root with only a `.cursor-plugin/` manifest, which
   # Claude Code does not read; a plugin manifest is optional though, so the
   # HM module auto-discovers both subdirs and synthesizes the
-  # `.claude-plugin/plugin.json`. Among the skills is
-  # typescript-best-practices, which skills/writing-good-code routes web
-  # work to, so this pin is load-bearing for that umbrella skill.
+  # `.claude-plugin/plugin.json`. Among the skills are
+  # typescript-best-practices, which skills/writing-good-web routes .ts work
+  # to, and unslop, which dodging-cdb and writing-good-rs both call. Those
+  # references make this pin load-bearing, not merely convenient.
   # fetchFromGitHub (not builtins.fetchGit) so the output path is
   # hash-determined and the offline installer can substitute it without the
   # fetcher cache, the same reason nix/aipage.nix uses a derivation. rev
@@ -221,7 +222,13 @@ in
         "superpowers@claude-plugins-official" = true;
         "explanatory-output-style@claude-plugins-official" = true;
         "learning-output-style@claude-plugins-official" = false;
+        # The official LSP plugins carry no code: each is just an `lspServers`
+        # block in the marketplace manifest naming a binary Claude Code spawns
+        # itself, so the server has to reach PATH on its own. Both do,
+        # via the profile list in nix/home/pkgs.nix: rust-analyzer, and clangd
+        # out of clang-tools, next to the clang c-compiler-preference insists on.
         "clangd-lsp@claude-plugins-official" = true;
+        "rust-analyzer-lsp@claude-plugins-official" = true;
         "linux-computer@claude-linux-computer" = true;
       };
 

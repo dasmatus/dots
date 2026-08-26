@@ -41,8 +41,10 @@ nix/settings.nix
 # can create the accounts with these hashes on first boot.
 nix/secrets.nix
 
-# crash core dumps (core.<pid> — Brave GTK4/Wayland segfault artifacts)
-/core.[0-9]*
+# crash core dumps (core.<pid>). Brave GTK4/Wayland segfaults leave these
+# behind, and so does rustfmt. Unanchored, so it catches dumps dropped in a
+# crate dir and not just the repo root.
+core.[0-9]*
 .superpowers/
 rust/beamenu-calc/target/
 rust/beamenu-status/target/

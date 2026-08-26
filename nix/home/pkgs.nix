@@ -133,6 +133,11 @@ in
       rust-analyzer
       cargo
       clang
+      # clangd, clang-format and clang-tidy. Kept next to clang so the two
+      # majors move together; a clangd ahead of the driver parses flags the
+      # driver never emits. This is also what puts clangd on PATH for the
+      # clangd-lsp plugin in nix/home/claude.nix, which spawns it by bare name.
+      clang-tools
       stack
     ])
     ++ [ haveno ]
@@ -337,7 +342,7 @@ in
       {
         id = "c";
         title = "C Toolchain";
-        description = "clang and the binutils it drives";
+        description = "clang, clangd and the binutils it drives";
         mode = "view";
         exec = [
           "bash"
@@ -345,6 +350,8 @@ in
           ''
             set -u
             clang --version
+            echo
+            clangd --version
             echo
             ld --version | head -1
           ''
