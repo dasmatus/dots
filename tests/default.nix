@@ -471,9 +471,103 @@ let
           "hashed password did not survive restart"
     '';
   };
+
+  # Proves the agentmem cluster (nix/modules/agentmem.nix) is reachable over
+  # its unix socket by peer auth, survives an impermanence-style reboot, and
+  # produces a backup dump — against a real import of nix/modules/
+  # impermanence.nix, not a hand-rolled bind mount, so a change to the
+  # persistence machinery breaks this test first. Role/db "test" stands in
+  # for the installer-collected username; agentmem.nix's own dots.ai.claude
+  # gate is not exercised here (that is an eval-level concern, checked by
+  # flake/checks.nix), only the services.postgresql/postgresqlBackup shape
+  # it produces once gated on.
+  agentmemPostgresTest = pkgs.testers.runNixOSTest {
+    name = "agentmem-postgres";
+
+    nodes.machine =
+      { lib, pkgs, ... }:
+      {
+        imports = [
+          inputs.impermanence.nixosModules.impermanence
+          ../nix/modules/impermanence.nix
+        ];
+        # impermanence.nix reads config.dots.paths.stateDir for one of its
+        # (unrelated, here-irrelevant) persisted directories — stub it
+        # rather than pull in the whole nix/modules/dots.nix option tree.
+        options.dots.paths.stateDir = lib.mkOption {
+          type = lib.types.str;
+          default = "/var/lib/dots";
+        };
+
+        config = {
+          # A real disk-backed /persist so the bind-mounts below survive the
+          # shutdown()/start() cycle — standing in for disko's @persist
+          # subvolume (neededForBoot, forced by impermanence.nix, needs a
+          # systemd initrd to mount + format this early).
+          boot.initrd.systemd.enable = true;
+          virtualisation.emptyDiskImages = [ 512 ];
+          # virtualisation.fileSystems (not the plain fileSystems attribute)
+          # is what actually reaches the built VM — qemu-vm.nix overrides
+          # fileSystems wholesale with this mirror, so neededForBoot must be
+          # set here too: impermanence.nix's own mkForce on the plain
+          # fileSystems."/persist" never reaches the overridden value.
+          virtualisation.fileSystems."/persist" = {
+            device = "/dev/vdb";
+            fsType = "ext4";
+            autoFormat = true;
+            neededForBoot = true;
+          };
+
+          services.postgresql = {
+            enable = true;
+            package = pkgs.postgresql_18;
+            ensureDatabases = [ "test" ];
+            ensureUsers = [
+              {
+                name = "test";
+                ensureDBOwnership = true;
+              }
+            ];
+            enableTCPIP = false;
+          };
+          services.postgresqlBackup = {
+            enable = true;
+            location = "/var/lib/postgresql/backup";
+            startAt = "daily";
+          };
+          users.users.test.isNormalUser = true;
+        };
+      };
+
+    testScript = ''
+      machine.start()
+      machine.wait_for_unit("postgresql.service")
+
+      with subtest("socket reachability and peer auth"):
+          machine.succeed("sudo -u test psql -h /run/postgresql -d test -c 'select 1;'")
+
+      with subtest("a written row survives a reboot"):
+          machine.succeed(
+              "sudo -u test psql -h /run/postgresql -d test -c "
+              "'create table t (n int); insert into t values (1);'"
+          )
+          machine.shutdown()
+          machine.start()
+          machine.wait_for_unit("postgresql.service")
+          out = machine.succeed(
+              "sudo -u test psql -h /run/postgresql -d test -tAc 'select n from t;'"
+          ).strip()
+          assert out == "1", f"row lost across reboot: {out!r}"
+
+      with subtest("the backup dump lands under the persisted parent"):
+          machine.succeed("systemctl start postgresqlBackup.service")
+          machine.succeed("test -s /var/lib/postgresql/backup/all.sql.gz")
+    '';
+  };
 in
 {
   iso-boot = isoBootTest;
   userborn-reboot-login = userbornRebootLogin;
   limine-install-boot = limineInstallBootTest;
+  agentmem-postgres = agentmemPostgresTest;
 }
