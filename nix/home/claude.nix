@@ -242,7 +242,17 @@ in
       inputNeededNotifEnabled = true;
       agentPushNotifEnabled = true;
 
-      model = "claude-fable-5[1m]";
+      # What `/model opus` writes, so a fresh session starts on Opus 5
+      # instead of asking. ~/.claude/settings.json is a store symlink, so
+      # the slash command's own write cannot stick, so this is the only
+      # place the default survives a `home-manager switch`.
+      model = "opus";
+
+      # Turn off auto-memory. Claude then neither reads nor writes
+      # ~/.claude/projects/*/memory, so nothing about a session leaks into
+      # the next one behind the user's back. Project context comes from
+      # CLAUDE.md and the skills above, which are versioned here.
+      autoMemoryEnabled = false;
     };
   };
 
