@@ -201,4 +201,153 @@ TestCase {
             compare(rule.name, row.expectedRuleName);
         }
     }
+
+    // rulesTwo() with one in-place edit, so each planFor row can flex a
+    // single rule field the way rust/hyprmon/tests/plan.rs mutates
+    // rules_two() in place, without every row hand-building a whole ruleset.
+    function rulesTwoWith(mutate) {
+        const rules = rulesTwo();
+        mutate(rules);
+        return rules;
+    }
+
+    // rust/hyprmon/tests/plan.rs, ported one row per test. planFor fuses
+    // matcher.rs's match_monitors with plan.rs's plan(): unmatched monitors
+    // are dropped before layout, same as the Rust pipeline.
+    function test_planFor_data() {
+        return [
+            {
+                tag: "plans two monitors left to right",
+                monitors: [monitor240hz(), monitor60hz()],
+                rules: rulesTwo(),
+                expected: [
+                    { name: "DP-1", position: "0x0", resolution: "1920x1080@240", vrr: "vrrleft" },
+                    { name: "HDMI-A-1", position: "1920x0", resolution: "2560x1200@60", vrr: null }
+                ]
+            },
+            {
+                // The disabled-output case: a monitor with no matching rule
+                // (here, simply no monitors at all) gets no MonitorSpec, so
+                // hyprmon emits no hl.monitor call for it and Hyprland's own
+                // auto-detect is left in place rather than the output being
+                // switched off — the property rust/hyprmon/src/runner.rs's
+                // apply_with documents. Ported from
+                // empty_match_yields_empty_plan.
+                tag: "disabled output: no matches yields an empty plan",
+                monitors: [],
+                rules: rulesTwo(),
+                expected: []
+            },
+            {
+                tag: "an explicit position pins and advances the cursor",
+                monitors: [monitor240hz(), monitor60hz(), monitor240hz()],
+                rules: rulesTwoWith(r => {
+                    r.rules[1].position = "3840x0";
+                }),
+                expected: [
+                    { position: "0x0" },
+                    { position: "3840x0" },
+                    { position: "6400x0" }
+                ]
+            },
+            {
+                tag: "fractional scale renders with a dot",
+                monitors: [monitor240hz()],
+                rules: rulesTwoWith(r => {
+                    r.rules[0].scale = 1.5;
+                }),
+                expected: [{ scale: "1.5" }]
+            },
+            {
+                tag: "integral scale drops the trailing zero",
+                monitors: [monitor240hz()],
+                rules: rulesTwoWith(r => {
+                    r.rules[0].scale = 2.0;
+                }),
+                expected: [{ scale: "2" }]
+            },
+            {
+                tag: "fallback rule emits preferred with the max advertised refresh",
+                monitors: [Object.assign(monitor240hz(), { name: "DP-9", description: "Mystery Panel" })],
+                rules: rulesTwo(),
+                expected: [{ resolution: "preferred@240" }]
+            },
+            {
+                // NVIDIA's proprietary driver doesn't populate availableModes,
+                // so a rule pinning WxH with no refresh must fall back to the
+                // live refreshRate (rounded up) instead of a bare resolution
+                // Hyprland would default to 59.95 Hz.
+                tag: "nvidia empty modes falls back to the live refresh, rounded up",
+                monitors: [Object.assign(monitor60hz(), { availableModes: [] })],
+                rules: rulesTwo(),
+                expected: [{ name: "HDMI-A-1", resolution: "2560x1200@60" }]
+            },
+            {
+                tag: "nvidia empty modes on the preferred path falls back too",
+                monitors: [Object.assign(monitor60hz(), { availableModes: [], name: "DP-9", description: "NVIDIA HDMI sink" })],
+                rules: rulesTwo(),
+                expected: [{ resolution: "preferred@60" }]
+            },
+            {
+                tag: "transform is carried onto the spec when the rule sets one",
+                monitors: [monitor240hz()],
+                rules: rulesTwoWith(r => {
+                    r.rules[0].transform = 2;
+                }),
+                expected: [{ transform: 2 }]
+            },
+            {
+                tag: "vrr off emits no token",
+                monitors: [monitor240hz()],
+                rules: rulesTwoWith(r => {
+                    r.rules[0].vrr = "off";
+                }),
+                expected: [{ vrr: null }]
+            }
+        ];
+    }
+
+    function test_planFor(row) {
+        const specs = Plan.planFor(row.monitors, row.rules);
+        compare(specs.length, row.expected.length);
+        for (let i = 0; i < row.expected.length; i++) {
+            const want = row.expected[i];
+            for (const key in want)
+                compare(specs[i][key], want[key]);
+        }
+    }
+
+    // rust/hyprmon/tests/spec.rs's render_lua_* tests, plus the transform
+    // case plan.rs's transform_is_emitted_when_set checks through render().
+    // render() here IS render_lua(): the crate's own render() (the legacy
+    // `hyprctl keyword monitor ...` CSV) has no port, because Hyprland 0.55+
+    // no-ops that IPC under the Lua parser — see plan.js's file header.
+    function test_render_data() {
+        return [
+            {
+                tag: "emits the hl.monitor call with vrr",
+                spec: { name: "DP-1", resolution: "1920x1080@240", position: "0x0", scale: "1", transform: null, vrr: "vrrleft" },
+                expected: "hl.monitor({output=\"DP-1\", mode=\"1920x1080@240\", position=\"0x0\", scale=1, vrr=1})"
+            },
+            {
+                tag: "omits transform and vrr when unset",
+                spec: { name: "HDMI-A-1", resolution: "2560x1200", position: "1920x0", scale: "1.5", transform: null, vrr: null },
+                expected: "hl.monitor({output=\"HDMI-A-1\", mode=\"2560x1200\", position=\"1920x0\", scale=1.5})"
+            },
+            {
+                tag: "escapes double quotes in the output name",
+                spec: { name: "DP-\"1", resolution: "preferred", position: "0x0", scale: "1", transform: null, vrr: null },
+                expected: "hl.monitor({output=\"DP-\\\"1\", mode=\"preferred\", position=\"0x0\", scale=1})"
+            },
+            {
+                tag: "emits transform alongside vrr",
+                spec: { name: "DP-1", resolution: "1920x1080@240", position: "0x0", scale: "1", transform: 2, vrr: "vrrleft" },
+                expected: "hl.monitor({output=\"DP-1\", mode=\"1920x1080@240\", position=\"0x0\", scale=1, transform=2, vrr=1})"
+            }
+        ];
+    }
+
+    function test_render(row) {
+        compare(Plan.render(row.spec), row.expected);
+    }
 }
