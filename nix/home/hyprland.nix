@@ -425,20 +425,27 @@ in
             (lua ''hl.dsp.exec_cmd("zeditor")'')
           ];
         }
-        # Re-open the first-login keybind cheatsheet (nix/home/keybinds.nix)
-        # on demand. --force skips the once-per-install sentinel.
+        # The keybind cheatsheet (nix/home/keybinds.nix). A plain toggle now:
+        # the once-per-install sentinel and the --force flag that skipped it
+        # went with eww.
         {
           _args = [
             (lua ''mod .. " + slash"'')
             (lua ''hl.dsp.exec_cmd("qs ipc call cheatsheet toggle")'')
           ];
         }
-        # The settings menu (nix/home/settings-menu.nix) had its own SUPER+comma
-        # bind, straight into beamenu-canvas with the plugin's manifest, because
-        # the launcher has no direct-open flag. It now goes through SUPER+Space
-        # like everything else: the Settings plugin answers the `set ` keyword.
-        # Costs one step versus deep-linking, which is the trade for one door
-        # into the launcher rather than three.
+        # The settings form (rust/settings-global, rendered by the shell). This
+        # bind was retired when the settings menu became a beamenu plugin
+        # answering the `set ` keyword, on the grounds that one door into the
+        # launcher beat three. That keyword went with beamenu, and a form the
+        # shell draws itself has no launcher row to hide behind, so the direct
+        # bind comes back.
+        {
+          _args = [
+            (lua ''mod .. " + comma"'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call settings toggle")'')
+          ];
+        }
         #
         # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved
         # for the magic special workspace (was double-bound in hyprlang).
