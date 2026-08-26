@@ -18,6 +18,7 @@ import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
 import ".."
+import "../common"
 
 Scope {
     id: root
@@ -195,7 +196,7 @@ Scope {
             onClicked: root.hide()
         }
 
-        Rectangle {
+        Panel {
             id: panel
 
             anchors.horizontalCenter: parent.horizontalCenter
@@ -208,22 +209,13 @@ Scope {
             width: Math.round(parent.width * Theme.launcherWidthFactor) + (root.previewPath === "" ? 0 : Theme.launcherPreviewWidth)
             height: Theme.launcherSearchHeight + list.height + (list.height > 0 ? 8 : 0)
 
-            radius: Theme.launcherRadius
-            color: Qt.alpha(Theme.bg, 0.95)
-            border.width: 2
-            border.color: Theme.accent
-
-            // Swallows clicks so they do not reach the dismiss handler behind.
-            MouseArea {
-                anchors.fill: parent
-            }
+            padding: 4
 
             // Search field and list on the left, preview on the right, rather
             // than the preview under a full-width search field: the pane wants
             // the panel's whole height for an image or a directory listing.
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 4
 
                 spacing: 0
 

@@ -22,6 +22,7 @@ import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
 import ".."
+import "../common"
 
 Scope {
     id: root
@@ -174,7 +175,7 @@ Scope {
             onClicked: window.visible = false
         }
 
-        Rectangle {
+        Panel {
             id: panel
 
             anchors.centerIn: parent
@@ -182,24 +183,16 @@ Scope {
             width: Math.min(680, parent.width - 80)
             height: Math.min(form.implicitHeight + 96, parent.height - 80)
 
-            radius: Theme.launcherRadius
-            color: Qt.alpha(Theme.bg, 0.96)
-            border.width: 2
-            border.color: Theme.accent
+            padding: 24
 
             focus: true
 
             Keys.onEscapePressed: window.visible = false
 
-            MouseArea {
-                anchors.fill: parent
-            }
-
             ColumnLayout {
                 id: form
 
                 anchors.fill: parent
-                anchors.margins: 24
 
                 spacing: 14
 
