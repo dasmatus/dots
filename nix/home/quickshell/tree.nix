@@ -88,6 +88,10 @@ let
 
         readonly property color accentFallback: "${palette.accentFallback}";
 
+        // The Nix-store MoreWaita tree Icons.qml's retint() copies from. It
+        // ships read-only, hence the chmod that file's own header explains.
+        readonly property string moreWaitaBase: "${pkgs.morewaita-icon-theme}/share/icons/MoreWaita";
+
         // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
         // without exporting it, so qmllint cannot resolve anything reached
         // through it. The bindings work; only the linter is blind, so the
