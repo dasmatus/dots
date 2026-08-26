@@ -136,6 +136,8 @@ in
       # extension in nixpkgs already relies on.
       cd pg-agentmem && cargo fmt --check && cd ..
       nix build .#pg-agentmem --no-link
+
+      cd dots-memory-mcp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
     '';
   };
 
