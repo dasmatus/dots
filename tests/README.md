@@ -8,7 +8,7 @@ swtpm — no libvirt, no host packages, no root. Defined in
 
 | Check | What it proves |
 |-------|----------------|
-| `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the `dots-installer` TUI reaches tty1 — `DOTS_TUI_READY` on the serial console |
+| `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the cage kiosk's Quickshell session reaches tty1 — `DOTS_UI_READY` on the serial console |
 | `userborn-reboot-login` | under userborn + mutable `/etc` (with `passwordFilesLocation` pinned to `/var/lib/nixos`), the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
 | `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting the TPM2-unlocked LUKS root reaches `multi-user.target` — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
 
@@ -63,7 +63,7 @@ with the boot VM defined
 
 ```python
 >>> machine.start()
->>> machine.wait_for_console_text("DOTS_TUI_READY")
+>>> machine.wait_for_console_text("DOTS_UI_READY")
 ```
 
 The booted ISO has **no test instrumentation** (no backdoor shell), so
