@@ -62,6 +62,17 @@ self: {
     '';
     meta.mainProgram = "hyprmon";
   };
+  # dots-memory-mcp — the stateless stdio MCP server over the agentmem
+  # Postgres schema (plans 0-2). Built at the flake level for the same
+  # reasons as hyprmon; `rmcp` has no nixpkgs package, so it is vendored
+  # straight through Cargo.lock like every other crate here.
+  dots-memory-mcp = pkgs.rustPlatform.buildRustPackage {
+    pname = "dots-memory-mcp";
+    version = "0.1.0";
+    src = ../rust/dots-memory-mcp;
+    cargoLock.lockFile = ../rust/dots-memory-mcp/Cargo.lock;
+    meta.mainProgram = "dots-memory-mcp";
+  };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
   # rust/palette.json. nix/home/quickshell/default.nix builds the same thing
   # with the real state directory; this one exists so `nix run .#nix-lint` has
