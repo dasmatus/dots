@@ -1,18 +1,20 @@
-//! `pg_agentmem`: content addressing for the `agentmem` memory store,
-//! exported as an `IMMUTABLE` function. The extension defines no tables and
-//! grants no privileges; the memory store built on top of it is a separate
-//! schema.
+//! `pg_agentmem`: content addressing, id slugification, and a strict-subset
+//! Mermaid flowchart parser/renderer, exported as `IMMUTABLE` functions in
+//! the `agentmem` schema. The extension defines no tables and grants no
+//! privileges; the memory store built on top of it is a separate schema.
 pgrx::pg_module_magic!();
 
 mod hash;
+mod mermaid;
+mod render;
 
-/// The `agentmem` schema and its `IMMUTABLE` functions. `#[pg_schema]`
+/// The `agentmem` schema and its four `IMMUTABLE` functions. `#[pg_schema]`
 /// derives the schema name from this module's own identifier and emits its
 /// `CREATE SCHEMA IF NOT EXISTS agentmem;` -- a function's `schema = "..."`
-/// attribute is only accepted once a matching schema module exists, so this
-/// wrapper lives here rather than as a free function in `hash`. It is a
-/// thin adapter over the pure logic that module holds, the part with
-/// anything to unit test.
+/// attribute is only accepted once a matching schema module exists, so
+/// these wrappers live here rather than as free functions in `hash`,
+/// `mermaid` and `render`. Each wrapper is a thin adapter over the pure
+/// logic those modules hold, the part with anything to unit test.
 #[pgrx::pg_schema]
 mod agentmem {
     use pgrx::prelude::*;
@@ -22,6 +24,45 @@ mod agentmem {
     #[pg_extern(immutable)]
     fn norm_hash_v1(input: &str) -> Vec<u8> {
         crate::hash::hash_bytes(input)
+    }
+
+    /// Map arbitrary text to a Mermaid-safe identifier.
+    #[pg_extern(immutable)]
+    fn slug_v1(input: &str) -> String {
+        crate::render::slug(input)
+    }
+
+    /// Parse a strict-subset Mermaid flowchart document into its edges.
+    #[pg_extern(immutable)]
+    fn mermaid_edges(
+        doc: &str,
+    ) -> TableIterator<
+        'static,
+        (
+            name!(ord, i32),
+            name!(src, String),
+            name!(verb, String),
+            name!(dst, String),
+            name!(directed, bool),
+        ),
+    > {
+        match crate::mermaid::parse(doc) {
+            Ok(edges) => TableIterator::new(
+                edges
+                    .into_iter()
+                    .map(|e| (e.ord, e.src, e.verb, e.dst, e.directed)),
+            ),
+            Err(message) => pgrx::error!("mermaid_edges: {message}"),
+        }
+    }
+
+    /// Render parallel edge arrays back into a flowchart document.
+    // pgrx's `text[]` binding hands the extern function an owned `Vec`
+    // rather than a borrowed slice, so this can't take `&[String]` directly.
+    #[allow(clippy::needless_pass_by_value)]
+    #[pg_extern(immutable)]
+    fn edges_to_mermaid(src: Vec<String>, verb: Vec<String>, dst: Vec<String>) -> String {
+        crate::render::render(&src, &verb, &dst)
     }
 }
 
@@ -39,6 +80,8 @@ mod tests {
     use pgrx::prelude::*;
 
     include!("../tests/hash.rs");
+    include!("../tests/mermaid_edges.rs");
+    include!("../tests/edges_to_mermaid.rs");
 }
 
 #[cfg(test)]
