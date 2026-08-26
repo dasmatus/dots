@@ -1,7 +1,7 @@
 # home-manager profile aggregator — fully native modules; the raw files/
 # dotfile tree is gone (git history). Every former dotfile is either a native
 # module imported below (kitty.nix, zellij.nix, fastfetch.nix, fish.nix,
-# claude.nix, hyprland.nix, waybar.nix, wallpaper-tui.nix, dunst.nix, eww/, rofi/,
+# claude.nix, hyprland.nix, waybar.nix, wallpaper-tui.nix, quickshell/, eww/, rofi/,
 # nixvim.nix, librewolf.nix, dots-repo.nix) or was deliberately dropped (BetterDiscord —
 # Vesktop covers it; gtk-2.0 filechooser state). GUI apps that used to be
 # flatpaks live in pkgs.nix with their configs. The only generated
@@ -37,7 +37,6 @@
     ./hyprmon.nix
     ./waybar.nix
     ./wallpaper-tui.nix
-    ./dunst.nix
     ./dots-osd.nix
     ./keybinds.nix
     ./random_wp.nix

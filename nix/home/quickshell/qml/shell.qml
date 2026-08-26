@@ -5,10 +5,15 @@
 // restart to manage. Bar declares modelData as required, and Variants supplies
 // it per screen.
 //
-// The notification daemon, OSD, launcher and settings form join the bar here
-// in the phases that follow.
+// The notification layer and the OSD are single instances that follow the
+// focused monitor, rather than one per screen. Two monitors showing the same
+// notification is a duplicate, not a feature.
+//
+// The launcher and settings form join them in the phases that follow.
 import Quickshell
 import "bar"
+import "notifications"
+import "osd"
 
 ShellRoot {
     Variants {
@@ -16,4 +21,8 @@ ShellRoot {
 
         Bar {}
     }
+
+    Notifications {}
+
+    Osd {}
 }

@@ -778,32 +778,33 @@ in
 
         # audio mute toggles (plain bind — not locked, not repeating)
         #
-        # These call dots-osd rather than wpctl directly. It runs the same
-        # wpctl command and then reads the result back onto the screen, which
-        # is the whole point: with the bar gone, a mute toggle that draws
-        # nothing leaves you tapping the key to find out which way it went.
-        # See nix/home/dots-osd.nix.
+        # These call the shell's OSD rather than wpctl directly, so the change
+        # is drawn as it is made. That is the whole point: a mute toggle that
+        # shows nothing leaves you tapping the key to find out which way it
+        # went. The shell sets the Pipewire node itself instead of spawning
+        # wpctl, which dots-osd paid for twice per keypress.
+        # See nix/home/quickshell/qml/osd/Osd.qml.
         {
           _args = [
             "XF86AudioMute"
-            (lua ''hl.dsp.exec_cmd("dots-osd volume mute")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call osd volumeMute")'')
           ];
         }
         {
           _args = [
             "XF86AudioMicMute"
-            (lua ''hl.dsp.exec_cmd("dots-osd microphone")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call osd micToggle")'')
           ];
         }
 
         # Touchpad off and on, for typing on a laptop with the heel of a hand
         # in the way. Hyprland cannot be asked whether a device is enabled, so
-        # dots-osd remembers in $XDG_RUNTIME_DIR — which clears at logout,
-        # exactly when Hyprland forgets the setting too.
+        # the shell remembers it for the life of the process — which ends at
+        # logout, exactly when Hyprland forgets the setting too.
         {
           _args = [
             (lua ''mod .. " + SHIFT + T"'')
-            (lua ''hl.dsp.exec_cmd("dots-osd touchpad toggle")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call osd touchpadToggle")'')
           ];
         }
 
@@ -812,7 +813,7 @@ in
         {
           _args = [
             (lua ''mod .. " + SHIFT + P"'')
-            (lua ''hl.dsp.exec_cmd("dots-osd privacy toggle")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call osd privacyToggle")'')
           ];
         }
 
@@ -849,35 +850,35 @@ in
         }
 
         # Volume and brightness, still ±5% and still repeating while held — but
-        # through dots-osd, which runs the same wpctl/brightnessctl command and
-        # then draws the resulting level as a progress bar. The 1.5 boost
-        # ceiling on the way up moved into the binary with the command
-        # (rust/dots-osd/src/control.rs); it is not lost here.
+        # through the shell, which moves the Pipewire node or runs
+        # brightnessctl and then draws the resulting level as a progress bar.
+        # The 1.5 boost ceiling on the way up lives there too
+        # (nix/home/quickshell/qml/osd/Osd.qml); it is not lost here.
         {
           _args = [
             "XF86AudioRaiseVolume"
-            (lua ''hl.dsp.exec_cmd("dots-osd volume up")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call osd volumeUp")'')
             { repeating = true; }
           ];
         }
         {
           _args = [
             "XF86AudioLowerVolume"
-            (lua ''hl.dsp.exec_cmd("dots-osd volume down")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call osd volumeDown")'')
             { repeating = true; }
           ];
         }
         {
           _args = [
             "XF86MonBrightnessUp"
-            (lua ''hl.dsp.exec_cmd("dots-osd brightness up")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call osd brightnessUp")'')
             { repeating = true; }
           ];
         }
         {
           _args = [
             "XF86MonBrightnessDown"
-            (lua ''hl.dsp.exec_cmd("dots-osd brightness down")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call osd brightnessDown")'')
             { repeating = true; }
           ];
         }
@@ -906,7 +907,8 @@ in
   # Runtime tools for the Print-key screenshot: hyprshot does the Wayland
   # capture (on PATH via nix/home/beamenu.nix, which owns the screenshot and
   # recording tools now); libnotify's notify-send surfaces the saved
-  # folder — dunst in nix/home/dunst.nix is the daemon that displays it;
+  # folder — the shell's notification server displays it, see
+  # nix/home/quickshell/qml/notifications/Notifications.qml;
   # xdg-user-dirs provides xdg-user-dir, which both the bind and the shotter
   # use to resolve the PICTURES folder.
   #

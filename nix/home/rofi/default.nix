@@ -4,11 +4,12 @@
 # SUPER+comma) or Nautilus (SUPER+SHIFT+F). `settings.rasi` (the old
 # settings-menu theme) is gone along with the rofi UI it themed.
 #
-# `programs.rofi.enable` stays regardless: grepping before dropping it turned
-# up nix/home/dunst.nix:65 (`dmenu = "rofi -dmenu -p dunst"`, dunst's
-# right-click context menu), an independent runtime consumer of the `rofi`
-# binary that has nothing to do with settings-global. Dropping this would
-# silently break that dunst action.
+# `programs.rofi.enable` used to stay for one reason only: nix/home/dunst.nix
+# ran `rofi -dmenu -p dunst` for its right-click context menu. dunst is gone,
+# replaced by the shell's own notification server, so nothing invokes the rofi
+# binary any more and the enable below is now dead weight. It is left standing
+# only until the tint template below finds another home, because dropping the
+# module would take the theme file with it.
 #
 # tokyonight.rasi is kept installed for a second, unrelated reason:
 # wallpaper-tui's tint engine reads it at runtime as a source template —
