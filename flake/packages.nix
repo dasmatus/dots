@@ -82,6 +82,39 @@ self: {
   # substitutes them from the ISO store (offline-capable).
   aipage-firefox = aipagePackages.firefox;
   aipage-chrome = aipagePackages.chrome;
+
+  # pg_agentmem — the pgrx extension backing the Postgres memory plugin
+  # (docs/superpowers/specs/2026-08-26-postgres-memory-plugin-design.md):
+  # content addressing, id slugification, and a strict-subset Mermaid
+  # flowchart parser/renderer, all IMMUTABLE, all in schema `agentmem`.
+  # Pinned to postgresql_18 and cargo-pgrx 0.18.1 to match `pgrx = "=0.18.1"`
+  # in Cargo.toml — an unpinned pair silently rebuilds bindgen output against
+  # the wrong server headers.
+  #
+  # doCheck stays false, matching every other pgrx extension already in this
+  # nixpkgs revision (pg_graphql, pgx_ulid, pg_search, timescaledb_toolkit,
+  # pglite_fusion, pgvectorscale — all `doCheck = false`, pgx_ulid.nix says so
+  # in so many words: "pgrx tests try to install the extension into
+  # postgresql nix store"). Verified here directly: `cargo pgrx test`
+  # reinstalls the compiled .so and .control file at the exact path
+  # `postgresql.pg_config --sharedir`/`--pkglibdir` report, which for a
+  # nixpkgs-built `postgresql_18` is the package's own immutable store
+  # output, so the reinstall dies with `Permission denied (os error 13)`
+  # before a single #[pg_test] assertion runs — every one of the crate's 16
+  # tests failed on that same write, not on their own logic. The tests
+  # still exist (rust/pg-agentmem/tests/) and still run correctly, verified
+  # by pointing a throwaway `cargo-pgrx pgrx init` at a writable copy of the
+  # postgresql_18 output outside the Nix sandbox.
+  pg-agentmem = pkgs.buildPgrxExtension {
+    pname = "pg_agentmem";
+    version = "0.1.0";
+    src = ../rust/pg-agentmem;
+    postgresql = pkgs.postgresql_18;
+    cargo-pgrx = pkgs.cargo-pgrx;
+    cargoLock.lockFile = ../rust/pg-agentmem/Cargo.lock;
+    doCheck = false;
+  };
+
   iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
   iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
 }
