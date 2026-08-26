@@ -100,7 +100,13 @@ in
       # everything it reports here is a warning. Without it the gate prints the
       # problem, returns success, and gets ignored, which is worse than not
       # running it.
-      find "${quickshellConfig}" -name '*.qml' -print0 | xargs -0 -r qmllint \
+      #
+      # -o -name '*.js' too: qmllint lints .pragma library files the same as
+      # .qml (confirmed against common/hls.js — it catches a real syntax
+      # error there, not a silent skip). Without it, common/'s .js helpers
+      # sit outside the gate entirely and nothing here would have caught a
+      # broken one.
+      find "${quickshellConfig}" \( -name '*.qml' -o -name '*.js' \) -print0 | xargs -0 -r qmllint \
         --max-warnings 0 \
         --uncreatable-type disable \
         -I "${pkgs.quickshell}/lib/qt-6/qml" \
