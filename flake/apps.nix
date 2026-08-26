@@ -84,21 +84,33 @@ in
     ];
     text = ''
       ${cdRepoRoot}
-      nix flake check --no-build
 
-      # qmllint over the shell's QML. Neither Quickshell's modules nor Qt's own
-      # are on qmllint's default import path, so both are passed with -I;
-      # without them every import is unresolved and the real warnings drown.
+      # qmllint over the shell's QML, before the flake eval because it is the
+      # cheaper gate and because `nix flake check` cannot run on a bare
+      # checkout at all: nix/settings.nix is a symlink into /var/lib/dots,
+      # which pure eval refuses and CI works around by materialising a stub.
+      # Ordering it second would mean the QML is never linted locally.
+      #
+      # Neither Quickshell's modules nor Qt's own are on qmllint's default
+      # import path, so both are passed with -I; without them every import is
+      # unresolved and the real warnings drown.
       #
       # uncreatable-type is off because Quickshell registers PanelWindow (and
       # its siblings) as isCreatable: false and substitutes the Wayland or X11
       # implementation at creation time. qmllint cannot see through that
       # indirection and flags every window in the tree.
+      # --max-warnings 0 because qmllint exits 0 on warnings by default, and
+      # everything it reports here is a warning. Without it the gate prints the
+      # problem, returns success, and gets ignored, which is worse than not
+      # running it.
       find "${quickshellConfig}" -name '*.qml' -print0 | xargs -0 -r qmllint \
+        --max-warnings 0 \
         --uncreatable-type disable \
         -I "${pkgs.quickshell}/lib/qt-6/qml" \
         -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
         -I "${quickshellConfig}"
+
+      nix flake check --no-build
 
       cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
