@@ -1,13 +1,13 @@
 # Settings menu (rust/settings-global, built at the flake level as
 # packages.${system}.settings and handed in via extraSpecialArgs like
 # wallpaperTui/hyprmon): edits the installer answers in
-# /var/lib/dots/settings.nix. `global-settings serve` speaks JSON-RPC over
-# stdio to beamenu-canvas (rust/beamenu-canvas), which renders the form —
-# reached via the "settings" beamenu plugin manifest below, and from the
+# /var/lib/dots/settings.nix. The shell draws the form
+# (nix/home/quickshell/qml/settings) over `dump` and `set`, reached from the
 # SUPER+comma bind in hyprland.nix; cheatsheet entry in keybinds.nix.
-# `dump`/`set` are the scripting-facing headless modes. This module no
-# longer touches rofi at all — see nix/home/rofi/default.nix for what still
-# keeps the `rofi` binary around (dunst's context menu, unrelated to this).
+#
+# `serve` is still in the crate and no longer used: it speaks JSON-RPC to
+# whatever renders a component tree, which was beamenu-canvas. The plain CLI
+# is the smaller interface now that the caller can parse JSON itself.
 #
 # The menu runs as the user; only the root-owned file write re-execs the
 # binary under pkexec. pkexec needs a polkit *authentication agent* in the
@@ -23,27 +23,6 @@
 }:
 {
   home.packages = [ settingsMenu ];
-
-  # programs.beamenu.plugins: the attribute name (`settings`, below) doubles
-  # as the manifest's `name` field — the module injects it at render time,
-  # so it is not a settable option here.
-  programs.beamenu.plugins.settings = {
-    title = "Settings";
-    keyword = "set";
-    commands = [
-      {
-        id = "edit";
-        title = "System Settings";
-        description = "Edit installer answers";
-        mode = "view";
-        ui = "rpc";
-        exec = [
-          "global-settings"
-          "serve"
-        ];
-      }
-    ];
-  };
 
   systemd.user.services.hyprpolkitagent = {
     Unit = {

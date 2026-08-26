@@ -213,35 +213,6 @@ in
     # ratatui program, and the canvas gives its child three pipes rather than
     # a pty, so a TUI cannot run inside the pane at all (its alt-screen escape
     # would even leak `1049h` into the log as literal text).
-    programs.beamenu.plugins.wallpaper.commands = [
-      {
-        id = "status";
-        title = "Wallpaper Status";
-        description = "The image on each output right now";
-        mode = "view";
-        exec = [
-          "awww"
-          "query"
-        ];
-        actions = [
-          {
-            id = "pick";
-            title = "Pick Wallpaper";
-            mode = "terminal";
-            exec = [ "wallpaper-tui" ];
-          }
-          {
-            id = "restore";
-            title = "Restore Last Wallpaper";
-            mode = "exec";
-            exec = [
-              "wallpaper-tui"
-              "--restore"
-            ];
-          }
-        ];
-      }
-    ];
 
     home.packages = [
       wallpaper-tui

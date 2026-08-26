@@ -13,11 +13,6 @@
   wallpaperTui,
   hyprmon,
   settingsMenu,
-  beamenuPkg,
-  beamenuCanvasPkg,
-  beamenuCalcPkg,
-  beamenuStatusPkg,
-  dotsOsd,
   claudeDesktop,
   ...
 }:
@@ -124,11 +119,6 @@ in
         wallpaperTui
         hyprmon
         settingsMenu
-        beamenuPkg
-        beamenuCanvasPkg
-        beamenuCalcPkg
-        beamenuStatusPkg
-        dotsOsd
         claudeDesktop
         ;
       dots = config.dots;

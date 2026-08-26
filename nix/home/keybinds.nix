@@ -20,7 +20,7 @@ let
       }
       {
         key = "SUPER + Space";
-        desc = "Launcher (beamenu) — apps, settings, system, plugins";
+        desc = "Launcher — apps, windows, system, files, clipboard";
       }
       {
         key = "SUPER + Shift + F";
@@ -37,6 +37,10 @@ let
       {
         key = "SUPER + /";
         desc = "Show this keybind cheatsheet";
+      }
+      {
+        key = "SUPER + comma";
+        desc = "Settings (git identity, hostname, AI tools)";
       }
     ];
     window = [
@@ -166,7 +170,7 @@ let
       }
       {
         key = "SUPER + Shift + P";
-        desc = "Privacy: mute mic, report camera use";
+        desc = "Privacy: mute the microphone";
       }
     ];
     kitty = [

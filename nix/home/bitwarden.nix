@@ -121,13 +121,4 @@ in
   # Second contribution to the shared `dots` plugin identity declared in
   # beamenu.nix (alongside `keybinds`); nix list options merge by
   # concatenation, so both commands land in the same manifest.
-  programs.beamenu.plugins.dots.commands = [
-    {
-      id = "vault-keys";
-      title = "Bootstrap Vault Keys";
-      description = "Unlock rbw and install SSH/signing keys (terminal)";
-      mode = "terminal";
-      exec = [ "dots-keys" ];
-    }
-  ];
 }

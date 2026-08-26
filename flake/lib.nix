@@ -53,19 +53,20 @@ let
           # stub; the installer regenerates the report on real hardware, so
           # the delta (drivers, microcode) still comes from the binary cache.
           #
-          # The aipage dists and the beamenu launcher are embedded on BOTH
-          # ISOs (not gated on embedSystem): they're small static store
-          # paths, and embedding them lets the installer substitute them
-          # from the ISO store instead of rebuilding Rust/WASM/JS/C at
-          # install time, which keeps lean-ISO installs offline-capable for
-          # them. beamenu-view is listed alongside the binary because it is
-          # a runtime dependency, not just a build one — beamenu dlopens its
-          # renderers out of that store path.
+          # The aipage dists are embedded on BOTH ISOs (not gated on
+          # embedSystem): they're small static store paths, and embedding them
+          # lets the installer substitute them from the ISO store instead of
+          # rebuilding WASM/JS at install time, which keeps lean-ISO installs
+          # offline-capable for them.
+          #
+          # The launcher used to be embedded here too, as a Rust binary plus
+          # the patched libbemenu it dlopened its renderers out of. The shell
+          # is QML now: a config tree Quickshell reads, and Quickshell itself
+          # comes from the binary cache like any other nixpkgs package, so
+          # there is nothing launcher-shaped left to embed.
           isoImage.storeContents = [
             inputs.self.packages.${system}.aipage-firefox
             inputs.self.packages.${system}.aipage-chrome
-            inputs.self.packages.${system}.beamenu
-            inputs.self.packages.${system}.beamenu-view
           ]
           ++ nixpkgs.lib.optionals embedSystem [
             inputs.self.nixosConfigurations.tokyonight.config.system.build.toplevel

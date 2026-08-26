@@ -57,17 +57,18 @@ Three things worth knowing before the first switch:
 - **nixvim** (`nix/home/nixvim.nix`). A from-scratch port of the old lazy.nvim
   config. LSP servers come from nixpkgs, so there is no Mason. Treesitter,
   rainbow-delimiters, bufferline, Tokyonight theme.
-- **Wayland-only Hyprland session**. `nix/home/hyprland.nix`, `waybar.nix`,
-  `dunst.nix` and `hyprtile.nix` give you the compositor, bar, notifications and
-  the [HyprTile](https://hyprtile.org/) fullscreen tile launcher on SUPER+D.
-  Page 2 of the launcher is the power menu, `hyprtile-shotter` handles Print-key
-  screenshots, `hyprtile-wallpaperd` draws the wallpaper, and
-  `hyprtile-sync-apps` regenerates pages 3 and up from every installed
-  `.desktop` entry. The suite builds from source as the flake package
-  `hyprtile`, patched to act like rofi: floating pinned overlay, dismissed on
-  focus loss. `services.hypridle`, `programs.hyprlock` and `services.gammastep`
-  replace the old swayidle/swaylock/redshift exec-once lines. No X11 session is
-  left anywhere.
+- **Wayland-only Hyprland session**. `nix/home/hyprland.nix` is the compositor;
+  everything drawn on top of it is one [Quickshell](https://quickshell.org)
+  config in `nix/home/quickshell/`. The bar, the notification daemon, the
+  volume and brightness OSD, the launcher on SUPER+Space, the keybind
+  cheatsheet on SUPER+/ and the settings form on SUPER+comma are QML in a
+  single process, reading one palette out of `rust/palette.json`. That replaces
+  a waybar bar, a dunst daemon, an eww window, a mostly-retired rofi and a Rust
+  launcher wrapping a ten-patch fork of bemenu's C renderer, which between them
+  had five theme paths and five ways of being told what colour to be.
+  `services.hypridle`, `programs.hyprlock` and `services.gammastep` replace the
+  old swayidle/swaylock/redshift exec-once lines. No X11 session is left
+  anywhere.
 - **LibreWolf** (`nix/home/librewolf.nix`). Runs as a flatpak with an
   arkenfox-derived `user.js` layered over LibreWolf's own hardened defaults,
   injected declaratively into the flatpak's persisted profile.
@@ -77,13 +78,13 @@ Three things worth knowing before the first switch:
   `~/Dokumente` on login, idempotently.
 - **Wallhaven wallpaper service** (`nix/home/random_wp.nix`). A user timer that
   pulls a random wallpaper from the Wallhaven API on login and every hour after,
-  applied through `wallpaper-tui`/`hyprtile-wallpaperd` under Hyprland or
+  applied through `wallpaper-tui` and the awww daemon under Hyprland or
   `gsettings` under GNOME.
 
 ## Testing
 
 ```bash
-nix run .#nix-lint    # nix flake check (eval) + rust/* cargo fmt/clippy/test
+nix run .#nix-lint    # qmllint over the shell + flake eval + cargo fmt/clippy/test
 nix run .#iso         # build the LiveISO (plain, unsigned)
 nix run .#nix-smoke   # NixOS VM test: boot the ISO under OVMF+TPM2, assert TUI ready
 ```
@@ -107,6 +108,7 @@ See [`tests/README.md`](tests/README.md) for how the NixOS VM tests work.
 | `nix/home/` | home-manager profile (nixvim, Hyprland session, LibreWolf, Dokumente skeleton, wallpaper service) |
 | `nix/iso.nix` | The LiveISO: embeds the flake at `/etc/dots`, auto-launches `dots-installer` on tty1 |
 | `rust/installer-tui/` | The Rust/ratatui installer source |
+| `nix/home/quickshell/` | The Quickshell config: bar, notifications, OSD, launcher, cheatsheet, settings |
 | `Wallpapers/` | Five themed sets (light · storm · night · metis · misc) × three styles (abstract · minimal · os) |
 
 [`nix/README.md`](nix/README.md) has the module-by-module design notes, including

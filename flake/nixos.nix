@@ -27,11 +27,6 @@ let
         wallpaperTui = inputs.self.packages.x86_64-linux.wallpaper-tui;
         hyprmon = inputs.self.packages.x86_64-linux.hyprmon;
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
-        beamenuPkg = inputs.self.packages.x86_64-linux.beamenu;
-        beamenuCanvasPkg = inputs.self.packages.x86_64-linux.beamenu-canvas;
-        beamenuCalcPkg = inputs.self.packages.x86_64-linux.beamenu-calc;
-        beamenuStatusPkg = inputs.self.packages.x86_64-linux.beamenu-status;
-        dotsOsd = inputs.self.packages.x86_64-linux.dots-osd;
         claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;
       };
       modules = [

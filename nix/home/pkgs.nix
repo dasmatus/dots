@@ -186,71 +186,6 @@ in
   # The two that do take an argument (`rs`, `mpv`) are keyworded for exactly
   # that reason.
 
-  programs.beamenu.plugins.system-health = {
-    title = "System Health";
-    commands = [
-      {
-        id = "nix";
-        title = "Nix Health";
-        description = "omnix's read-only audit of this Nix install";
-        mode = "view";
-        exec = [
-          "om"
-          "health"
-        ];
-      }
-      {
-        id = "firmware";
-        title = "Firmware Updates";
-        description = "Pending device firmware, via fwupd";
-        mode = "view";
-        # LC_ALL=C is load-bearing: fwupdmgr honours the session locale and
-        # this one is German, which makes the output unsearchable from a
-        # launcher whose other rows are all English.
-        #
-        # Read verbs only. `fwupdmgr update`/`install`/`downgrade` flash the
-        # device and cannot be undone, which is not something a fuzzy match
-        # and one Enter should ever be able to reach.
-        exec = [
-          "env"
-          "LC_ALL=C"
-          "fwupdmgr"
-          "get-updates"
-        ];
-        actions = [
-          {
-            id = "devices";
-            title = "All Firmware Devices";
-            mode = "view";
-            exec = [
-              "env"
-              "LC_ALL=C"
-              "fwupdmgr"
-              "get-devices"
-            ];
-          }
-          {
-            id = "hsi";
-            title = "Host Security Attributes";
-            mode = "view";
-            exec = [
-              "env"
-              "LC_ALL=C"
-              "fwupdmgr"
-              "security"
-            ];
-          }
-          {
-            id = "gui";
-            title = "Open GNOME Firmware";
-            mode = "exec";
-            exec = [ "gnome-firmware" ];
-          }
-        ];
-      }
-    ];
-  };
-
   # Pika Backup's own window answers "did it run?" only after it opens and
   # mounts. The same answer is already sitting in two JSON files it writes,
   # so the launcher can give it in a keystroke. Reading them found both
@@ -259,39 +194,6 @@ in
   # `start-backup` over its D-Bus GActions is deliberately absent: it kicks
   # off a real borg run against removable media, and the marshalling for it
   # is the one part of that interface this has not verified.
-  programs.beamenu.plugins.backups = {
-    title = "Backups";
-    commands = [
-      {
-        id = "status";
-        title = "Backup Status";
-        description = "Every Pika repository, and when it last completed";
-        mode = "view";
-        exec = [
-          "bash"
-          "-lc"
-          ''
-            set -euo pipefail
-            cfg="''${XDG_CONFIG_HOME:-$HOME/.config}/pika-backup"
-            ${lib.getExe pkgs.jq} -r --slurpfile h "$cfg/history.json" '
-              .[]
-              | . as $b
-              | ($h[0][$b.id].last_completed.end // "never") as $last
-              | "\(if ($b.title // "") == "" then $b.repo.path else $b.title end)\n    last completed: \($last)\n    \($b.repo.uri)\n"
-            ' "$cfg/backup.json"
-          ''
-        ];
-        actions = [
-          {
-            id = "open";
-            title = "Open Pika Backup";
-            mode = "exec";
-            exec = [ "pika-backup" ];
-          }
-        ];
-      }
-    ];
-  };
 
   # The eleven packages with no desktop entry. A version readout is a thin
   # thing on its own, which is why these are grouped one row per language
@@ -302,151 +204,16 @@ in
   # `;` or a pipe goes through `bash -lc`, the same form nix/home/claude.nix
   # uses. The pane renders stderr as well as stdout, so a tool that reports
   # its version on the wrong stream still shows up.
-  programs.beamenu.plugins.toolchain = {
-    title = "Toolchain";
-    commands = [
-      {
-        id = "rust";
-        title = "Rust Toolchain";
-        description = "rustc, cargo, clippy, cargo-expand, rust-analyzer";
-        mode = "view";
-        exec = [
-          "bash"
-          "-lc"
-          ''
-            set -u
-            rustc -Vv
-            echo
-            cargo -V
-            cargo clippy -V
-            cargo expand -V
-            rust-analyzer --version
-          ''
-        ];
-      }
-      {
-        id = "haskell";
-        title = "Haskell Toolchain";
-        description = "ghc and stack";
-        mode = "view";
-        exec = [
-          "bash"
-          "-lc"
-          ''
-            set -u
-            ghc --version
-            stack --version
-          ''
-        ];
-      }
-      {
-        id = "c";
-        title = "C Toolchain";
-        description = "clang, clangd and the binutils it drives";
-        mode = "view";
-        exec = [
-          "bash"
-          "-lc"
-          ''
-            set -u
-            clang --version
-            echo
-            clangd --version
-            echo
-            ld --version | head -1
-          ''
-        ];
-      }
-      {
-        id = "imagemagick";
-        title = "ImageMagick Formats";
-        description = "Every format this build can read and write";
-        mode = "view";
-        exec = [
-          "magick"
-          "-list"
-          "format"
-        ];
-      }
-    ];
-  };
 
   # Keyworded, because unlike everything above it consumes what follows it.
   # `rs E0382` renders the long-form explanation in the pane — the one piece
   # of the Rust toolchain that is genuinely launcher-shaped.
-  programs.beamenu.plugins.rustdoc = {
-    title = "Rust Errors";
-    keyword = "rs";
-    commands = [
-      {
-        id = "explain";
-        title = "Explain Rust Error";
-        description = "rustc --explain, for an error code like E0382";
-        mode = "view";
-        exec = [
-          "rustc"
-          "--explain"
-          "{query}"
-        ];
-      }
-    ];
-  };
 
   # Also keyworded, and the one entry here that beats its desktop file
   # outright: `umpv` appends to the playlist of the player that is already
   # running instead of starting a rival process, and mpv.desktop cannot.
   # yt-dlp is on the wrapped mpv's PATH, so a pasted stream URL resolves.
   # A cold start also creates the IPC socket the two actions talk to.
-  programs.beamenu.plugins.media = {
-    title = "Media";
-    keyword = "mpv";
-    commands = [
-      {
-        id = "queue";
-        title = "Queue in mpv";
-        description = "Append a file or URL to the running player";
-        mode = "exec";
-        exec = [
-          "umpv"
-          "{query}"
-        ];
-        actions = [
-          {
-            id = "pause";
-            title = "Play/Pause";
-            mode = "exec";
-            # socat is not on the launcher daemon's PATH — it reaches this
-            # module's own store closure instead, the same way claude.nix
-            # names jq. The socket only exists while an umpv-started player
-            # is alive, hence the guard rather than a bare pipe.
-            exec = [
-              "bash"
-              "-lc"
-              ''
-                s="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/.umpv"
-                [ -S "$s" ] || exit 0
-                printf '%s\n' 'cycle pause' | ${lib.getExe pkgs.socat} - "$s"
-              ''
-            ];
-          }
-          {
-            id = "next";
-            title = "Next in Playlist";
-            mode = "exec";
-            exec = [
-              "bash"
-              "-lc"
-              ''
-                s="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/.umpv"
-                [ -S "$s" ] || exit 0
-                printf '%s\n' 'playlist-next' | ${lib.getExe pkgs.socat} - "$s"
-              ''
-            ];
-          }
-        ];
-      }
-    ];
-  };
 
   dconf.settings."io/github/qwersyk/Newelle" = lib.mkIf dots.ai.ollama {
     language-model = "custom_command";

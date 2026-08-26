@@ -245,22 +245,23 @@ in
       && lib.strings.hasSuffix " balance_performance" r
     ) laptop.config.systemd.tmpfiles.rules;
     pkgs.writeText "formfactor-eval-ok" "desktop+laptop+server+vm";
+
   # rust/palette.json is the single source of truth for the system palette
   # (see docs/superpowers/specs/2026-08-23-system-palette-single-source-design.md).
-  # It must parse with the schema both sides read, and it must reach BOTH
-  # Rust builds' store src: each crate compiles it in via
-  # include_str!("../../palette.json"), which resolves to <src root>/palette.json
-  # only when the src fileset is rooted at rust/ rather than the crate dir.
+  #
+  # It used to be asserted against two Rust store srcs as well, because both
+  # beamenu crates compiled it in through include_str! and that only resolved
+  # when the src fileset was rooted at rust/ rather than at the crate directory.
+  # The shell reads it at build time through builtins.fromJSON instead, so the
+  # check worth having now is that the generated Theme.qml actually carries the
+  # values: a typo in tree.nix would otherwise surface as a shell painted in
+  # QML's default colours, which is a bad way to find out.
   palette-eval =
     let
       palette = builtins.fromJSON (builtins.readFile ../rust/palette.json);
-      beamenuSrc = self.packages.${system}.beamenu.src;
-      canvasSrc = self.packages.${system}.beamenu-canvas.src;
+      theme = builtins.readFile "${self.packages.${system}.quickshell-config}/Theme.qml";
+      carries = value: builtins.match ".*${value}.*" theme != null;
     in
-    assert builtins.pathExists "${beamenuSrc}/palette.json";
-    assert builtins.pathExists "${canvasSrc}/palette.json";
-    assert builtins.pathExists "${beamenuSrc}/beamenu/Cargo.lock";
-    assert builtins.pathExists "${canvasSrc}/beamenu-canvas/Cargo.lock";
     assert palette.colors.bg == "#1a1b26";
     assert palette.colors.bgDarker == "#15161e";
     assert palette.accentFallback == "#7aa2f7";
@@ -269,85 +270,8 @@ in
     assert palette.alpha.opaque == "ff";
     assert palette.fonts.canvasUi == "Manrope";
     assert palette.beamenu.lines == 9;
+    assert carries palette.colors.bg;
+    assert carries palette.accentFallback;
+    assert carries palette.fonts.ui;
     pkgs.writeText "palette-eval-ok" palette.accentFallback;
-  # Round-trip: the Nix-rendered beamenu config.json must contain every key
-  # its two Rust consumers read (rust/beamenu/src/config.rs and
-  # rust/beamenu-canvas/src/{config,theme}.rs), and the accent-derived slots
-  # must actually follow programs.beamenu.accent. theme.canvas missing was a
-  # live bug — the sidecar silently rendered its compiled-in defaults — and
-  # this check would have caught it at eval time.
-  beamenu-config-eval =
-    let
-      palette = builtins.fromJSON (builtins.readFile ../rust/palette.json);
-      hmUser = c: c.config.home-manager.users.${settings.username};
-      # xdg.configFile.*.text is still a plain string, but cfg.terminal
-      # (lib.getExe config.programs.kitty.package) leaves it carrying string
-      # context onto the kitty derivation; fromJSON refuses a string with
-      # context, so it has to be dropped before parsing this eval-only read.
-      rendered = builtins.fromJSON (
-        builtins.unsafeDiscardStringContext
-          (hmUser { config = self.nixosConfigurations.tokyonight.config; })
-          .xdg.configFile."beamenu/config.json".text
-      );
-      accented = self.nixosConfigurations.tokyonight.extendModules {
-        modules = [
-          { home-manager.users.${settings.username}.programs.beamenu.accent = "#8fb8f0"; }
-        ];
-      };
-      renderedAccent = builtins.fromJSON (
-        builtins.unsafeDiscardStringContext (hmUser accented).xdg.configFile."beamenu/config.json".text
-      );
-      hasAll = attrs: keys: builtins.all (k: builtins.hasAttr k attrs) keys;
-      launcherKeys = [
-        "theme"
-        "lines"
-        "width_factor"
-        "icon_size"
-        "line_height"
-        "search_height"
-        "radius"
-        "terminal"
-        "file_manager"
-        "search_url"
-        "search_results"
-        "search_timeout_ms"
-        "disabled"
-      ];
-      launcherTheme = [
-        "background"
-        "foreground"
-        "muted"
-        "selected_background"
-        "selected_foreground"
-        "border"
-        "heading"
-        "font"
-        "accent"
-        "canvas"
-      ];
-      canvasTheme = [
-        "font_ui"
-        "font_mono"
-        "bg"
-        "panel_gradient_start"
-        "panel_gradient_end"
-        "border"
-        "border_strong"
-        "text"
-        "muted"
-        "accent"
-      ];
-    in
-    assert hasAll rendered launcherKeys;
-    assert hasAll rendered.theme launcherTheme;
-    assert hasAll rendered.theme.canvas canvasTheme;
-    assert rendered.theme.background == palette.colors.bg + palette.alpha.panel;
-    assert rendered.theme.selected_background == palette.accentFallback + palette.alpha.opaque;
-    assert rendered.theme.canvas.bg == palette.colors.bg;
-    assert rendered.lines == palette.beamenu.lines;
-    assert rendered.width_factor == palette.beamenu.widthFactor;
-    assert renderedAccent.theme.selected_background == "#8fb8f0" + palette.alpha.opaque;
-    assert renderedAccent.theme.heading == "#8fb8f0" + palette.alpha.heading;
-    assert renderedAccent.theme.canvas.accent == "#8fb8f0";
-    pkgs.writeText "beamenu-config-ok" "theme.canvas present, accent derived";
 }

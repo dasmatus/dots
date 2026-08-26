@@ -157,41 +157,4 @@ in
   # thing an entry cannot: rendering the live layout in the canvas. A row
   # that takes no argument belongs in the root list, where it is found by
   # typing its name — a keyword would only be one more prefix to remember.
-  programs.beamenu.plugins.monitors = {
-    title = "Monitors";
-    commands = [
-      {
-        id = "layout";
-        title = "Monitor Layout";
-        description = "What Hyprland currently drives, per output";
-        # Read-only: `hyprctl monitors` reports, `hyprmon apply` is what
-        # changes anything, and that is an action rather than the default.
-        mode = "view";
-        exec = [
-          "hyprctl"
-          "monitors"
-        ];
-        actions = [
-          {
-            id = "apply";
-            title = "Apply Monitor Layout";
-            mode = "exec";
-            exec = [
-              "hyprmon"
-              "apply"
-            ];
-          }
-          {
-            id = "override";
-            title = "Monitor Override Editor";
-            mode = "terminal";
-            exec = [
-              "hyprmon"
-              "override"
-            ];
-          }
-        ];
-      }
-    ];
-  };
 }

@@ -1,7 +1,7 @@
 # Claude Desktop for Linux (beta). Chat, Cowork and Claude Code in one app.
 #
 # The derivation is nix/claude-desktop.nix, built at the flake level and handed
-# in via extraSpecialArgs like beamenuPkg/wallpaperTui. It repackages upstream's
+# in via extraSpecialArgs like wallpaperTui. It repackages upstream's
 # .deb because that is the only channel they publish: the documented install is
 # an apt repository (https://code.claude.com/docs/en/desktop-linux), which has
 # no NixOS analogue, so the package is pinned by digest and bumped by hand.
