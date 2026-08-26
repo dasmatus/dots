@@ -125,11 +125,15 @@ in
       cd ..
 
       # pg_agentmem builds through buildPgrxExtension rather than plain
-      # cargo: it links against real PostgreSQL headers via bindgen, and its
-      # #[pg_test] assertions only run inside a Postgres instance that
-      # `cargo pgrx test` stands up. `cargo fmt --check`/`clippy` still run
-      # directly (they need no server), the actual build and test pass goes
-      # through the flake package.
+      # cargo: it links against real PostgreSQL headers via bindgen.
+      # `cargo fmt --check` still runs directly (no server needed); the
+      # actual build gate is the flake package. Its #[pg_test] assertions
+      # (rust/pg-agentmem/tests/) are not part of this gate: `cargo pgrx
+      # test`'s own install step writes into postgresql.pg_config's
+      # reported --sharedir/--pkglibdir, which for a nixpkgs postgresql
+      # package is the immutable store output, so doCheck is false here —
+      # see flake/packages.nix for the same reasoning every other pgrx
+      # extension in nixpkgs already relies on.
       cd pg-agentmem && cargo fmt --check && cd ..
       nix build .#pg-agentmem --no-link
     '';
