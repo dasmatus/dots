@@ -22,6 +22,11 @@ let
   # The patched libbemenu, for the crates and gates that link against it.
   beamenuView = self.packages.${pkgs.stdenv.hostPlatform.system}.beamenu-view;
 
+  # The shell's QML tree, linted below. Built rather than read from
+  # nix/home/quickshell/qml because Theme.qml is generated from
+  # rust/palette.json and only exists in the built tree.
+  quickshellConfig = self.packages.${pkgs.stdenv.hostPlatform.system}.quickshell-config;
+
   # Build a LiveISO closure into result-iso. Plain (unsigned) — Secure Boot
   # was removed; the ISO boots through plain OVMF / firmware defaults. The
   # installed system uses systemd-boot + TPM2 auto-unlock (no UKI signing).
@@ -74,10 +79,27 @@ in
       pkgs.rustc
       pkgs.rustfmt
       pkgs.clippy
+      pkgs.qt6.qtdeclarative
+      pkgs.findutils
     ];
     text = ''
       ${cdRepoRoot}
       nix flake check --no-build
+
+      # qmllint over the shell's QML. Neither Quickshell's modules nor Qt's own
+      # are on qmllint's default import path, so both are passed with -I;
+      # without them every import is unresolved and the real warnings drown.
+      #
+      # uncreatable-type is off because Quickshell registers PanelWindow (and
+      # its siblings) as isCreatable: false and substitutes the Wayland or X11
+      # implementation at creation time. qmllint cannot see through that
+      # indirection and flags every window in the tree.
+      find "${quickshellConfig}" -name '*.qml' -print0 | xargs -0 -r qmllint \
+        --uncreatable-type disable \
+        -I "${pkgs.quickshell}/lib/qt-6/qml" \
+        -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
+        -I "${quickshellConfig}"
+
       cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test

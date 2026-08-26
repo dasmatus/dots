@@ -288,6 +288,17 @@ self: {
     '';
     meta.mainProgram = "hyprmon";
   };
+  # quickshell-config — the shell's QML tree with Palette.qml generated from
+  # rust/palette.json. nix/home/quickshell/default.nix builds the same thing
+  # with the real state directory; this one exists so `nix run .#nix-lint` has
+  # something to point qmllint at, and so a broken palette fails the flake
+  # rather than the next login. The stateHome here only reaches a FileView
+  # path string, so a placeholder is enough to lint against.
+  quickshell-config = import ../nix/home/quickshell/tree.nix {
+    inherit pkgs;
+    stateHome = "/var/empty/.local/state";
+  };
+
   # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned fetchGit
   # source — see nix/aipage.nix. Consumed by the LibreWolf and Brave home
   # modules via specialArgs, and embedded in both ISOs so the installer

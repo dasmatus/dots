@@ -31,6 +31,7 @@
     ./brave.nix
     ./junction.nix
     ./hyprland.nix
+    ./quickshell
     ./beamenu.nix
     ./claude-desktop.nix
     ./hyprmon.nix
