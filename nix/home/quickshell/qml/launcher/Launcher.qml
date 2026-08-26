@@ -33,21 +33,37 @@ Scope {
     // Rows are computed fresh per keystroke. The result sets here are small
     // (a few hundred desktop entries at worst) and recomputing is simpler to
     // reason about than invalidating a cache on every provider's own schedule.
+    // A prefixed query answers from one provider alone, which is beamenu's
+    // rule and the reason typing "w " does not also list every application
+    // whose name happens to contain a w.
     readonly property var results: {
-        const text = root.query.trim();
+        const text = root.query;
 
-        if (text.startsWith("=")) {
+        if (text.startsWith("="))
             return root.calculatorRows(text.slice(1));
-        }
 
-        const rows = root.applicationRows(text).concat(root.windowRows(text));
+        if (text.startsWith("?"))
+            return providers.websearchRows(text.slice(1));
+
+        if (text.startsWith("w "))
+            return providers.windowRows(text.slice(2).trim());
+
+        if (text.startsWith("c "))
+            return providers.clipboardRows(text.slice(2).trim());
+
+        if (text.startsWith("e "))
+            return providers.emojiRows(text.slice(2).trim());
+
+        const needle = text.trim();
+
+        const rows = providers.applicationRows(needle).concat(providers.systemRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle));
 
         // Prefix matches first: typing "fi" should reach Firefox before it
         // reaches anything merely containing "fi".
-        const needle = text.toLowerCase();
+        const lowered = needle.toLowerCase();
         rows.sort((a, b) => {
-            const aPrefix = a.title.toLowerCase().startsWith(needle) ? 0 : 1;
-            const bPrefix = b.title.toLowerCase().startsWith(needle) ? 0 : 1;
+            const aPrefix = a.title.toLowerCase().startsWith(lowered) ? 0 : 1;
+            const bPrefix = b.title.toLowerCase().startsWith(lowered) ? 0 : 1;
 
             if (aPrefix !== bPrefix)
                 return aPrefix - bPrefix;
@@ -56,55 +72,6 @@ Scope {
         });
 
         return rows.slice(0, 50);
-    }
-
-    function matches(haystack: string, needle: string): bool {
-        if (needle === "")
-            return true;
-
-        return haystack.toLowerCase().includes(needle.toLowerCase());
-    }
-
-    function applicationRows(text: string): var {
-        const rows = [];
-
-        for (const entry of DesktopEntries.applications.values) {
-            if (entry.noDisplay)
-                continue;
-
-            const haystack = `${entry.name} ${entry.genericName} ${entry.keywords}`;
-            if (!root.matches(haystack, text))
-                continue;
-
-            rows.push({
-                title: entry.name,
-                subtitle: entry.genericName || entry.comment,
-                icon: entry.icon ? Quickshell.iconPath(entry.icon, true) : "",
-                accessory: "",
-                run: () => Quickshell.execDetached(entry.command)
-            });
-        }
-
-        return rows;
-    }
-
-    function windowRows(text: string): var {
-        const rows = [];
-
-        for (const toplevel of Hyprland.toplevels.values) {
-            if (!root.matches(toplevel.title, text))
-                continue;
-
-            rows.push({
-                title: toplevel.title,
-                subtitle: `workspace ${toplevel.workspace?.name ?? "?"}`,
-                icon: "",
-                accessory: "window",
-                run: () => Hyprland.dispatch(`focuswindow address:${toplevel.address}`)
-            });
-        }
-
-        return rows;
     }
 
     function calculatorRows(expression: string): var {
@@ -120,7 +87,7 @@ Scope {
                 subtitle: `= ${expression.trim()}`,
                 icon: "",
                 accessory: "copy",
-                run: () => Quickshell.execDetached(["wl-copy", "--", rendered])
+                run: () => providers.copy(rendered)
             }
         ];
     }
@@ -156,6 +123,10 @@ Scope {
 
     Calc {
         id: calculator
+    }
+
+    Providers {
+        id: providers
     }
 
     // open/close rather than show/hide: `qs ipc call launcher show` is

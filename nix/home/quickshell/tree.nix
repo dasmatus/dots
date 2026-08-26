@@ -19,6 +19,8 @@
 {
   pkgs,
   stateHome,
+  quicklinks ? [ ],
+  snippets ? [ ],
 }:
 let
   inherit (pkgs) lib;
@@ -119,6 +121,16 @@ let
   qmldirFile = pkgs.writeText "qmldir" ''
     singleton Theme 1.0 Theme.qml
   '';
+  # The launcher's user data. $XDG_CONFIG_HOME/quickshell is a symlink to this
+  # store path, so nothing can be dropped alongside it at runtime; generating
+  # these into the tree keeps them declarative and keeps the launcher reading
+  # one location rather than two.
+  # Wrapped in an object rather than written as a bare array: JsonAdapter
+  # refuses a non-object root with "Failed to deserialize json: not an object",
+  # and it says so in the log rather than at load, so a bare array yields a
+  # provider that silently returns nothing.
+  quicklinksFile = pkgs.writeText "quicklinks.json" (builtins.toJSON { items = quicklinks; });
+  snippetsFile = pkgs.writeText "snippets.json" (builtins.toJSON { items = snippets; });
 in
 pkgs.runCommand "dots-quickshell-config" { } ''
   mkdir -p "$out"
@@ -126,4 +138,6 @@ pkgs.runCommand "dots-quickshell-config" { } ''
   chmod -R u+w "$out"
   cp ${themeFile} "$out/Theme.qml"
   cp ${qmldirFile} "$out/qmldir"
+  cp ${quicklinksFile} "$out/launcher/quicklinks.json"
+  cp ${snippetsFile} "$out/launcher/snippets.json"
 ''
