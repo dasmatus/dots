@@ -45,7 +45,7 @@ impl MemoryStore for FakeStore {
             .into_iter()
             .enumerate()
             .map(|(idx, (claim_key, body))| SearchRow {
-                fact_id: idx as i64,
+                fact_id: i64::try_from(idx).expect("fixture row count fits in i64"),
                 claim_key,
                 body,
                 rank: 1.0,
@@ -70,7 +70,7 @@ impl MemoryStore for FakeStore {
         let mut claims = self.claims.lock().expect("lock poisoned");
         let bucket = claims.entry(scope.to_string()).or_default();
         bucket.push((claim_key.to_string(), body.to_string()));
-        Ok(bucket.len() as i64)
+        Ok(i64::try_from(bucket.len()).expect("fixture row count fits in i64"))
     }
 
     async fn cite_fact(&self, _fact: i64, _session: Uuid) -> Result<(), StoreError> {
