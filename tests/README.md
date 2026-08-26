@@ -31,11 +31,12 @@ a test tells them apart.
 | File | Covers |
 |------|--------|
 | `tst_battery.qml` | `bar/battery.js` — fraction to whole percent, the eleven-glyph ramp index, waybar's 30/15 colour thresholds |
+| `tst_preview.qml` | `launcher/preview.js` — file/image/directory kind, `file:` URL encoding, size formatting, and that a previewed path travels in argv rather than inside the shell script |
 
 Those `.js` libraries hold pure functions only, so the tests need no
 compositor, no D-Bus and no palette. `qmltestrunner` cannot instantiate a
 component that inherits a Quickshell type, which is why the arithmetic lives
-beside `Battery.qml` instead of inside it.
+beside `Battery.qml` and `PreviewPane.qml` instead of inside them.
 
 ```
 nix run .#nix-lint                     # qmllint, then these, then flake check

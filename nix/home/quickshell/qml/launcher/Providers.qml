@@ -15,6 +15,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
+import "preview.js" as PreviewMath
 
 QtObject {
     id: root
@@ -102,12 +103,19 @@ QtObject {
         root.fileDebounce.restart();
     }
 
+    // `path` is what makes a row previewable: PreviewPane keys off it, and no
+    // other provider sets it, so "is this entry a file" needs no type tag.
+    //
+    // The title comes from preview.js rather than from split("/").pop(),
+    // which returns the empty string for every directory fd hands over —
+    // directories arrive with a trailing slash, so the last segment is blank.
     function fileRows(text: string): var {
         return root.fileResults.map(path => ({
-                    title: path.split("/").pop(),
+                    title: PreviewMath.displayName(path) + (PreviewMath.isDirectory(path) ? "/" : ""),
                     subtitle: path.replace(Quickshell.env("HOME"), "~"),
                     icon: "",
                     accessory: "open",
+                    path: path,
                     run: () => Quickshell.execDetached(["xdg-open", path])
                 }));
     }

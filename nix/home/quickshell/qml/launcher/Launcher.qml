@@ -28,6 +28,11 @@ Scope {
     property string query: ""
     property int selected: 0
 
+    // The highlighted row's path, or "" for a row that has none. Only the file
+    // provider sets `path`, so this is the whole "is the entry a file" test:
+    // an application, a calculation or an emoji simply has nothing to preview.
+    readonly property string previewPath: root.results[root.selected]?.path ?? ""
+
     readonly property var focusedScreen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? null
 
     // Rows are computed fresh per keystroke. The result sets here are small
@@ -197,7 +202,10 @@ Scope {
             anchors.top: parent.top
             anchors.topMargin: Math.round(parent.height * 0.18)
 
-            width: Math.round(parent.width * Theme.launcherWidthFactor)
+            // The preview column is added to the panel rather than taken out
+            // of it: the list keeps the width it has without a preview, so
+            // arrowing onto a file does not reflow the rows you were reading.
+            width: Math.round(parent.width * Theme.launcherWidthFactor) + (root.previewPath === "" ? 0 : Theme.launcherPreviewWidth)
             height: Theme.launcherSearchHeight + list.height + (list.height > 0 ? 8 : 0)
 
             radius: Theme.launcherRadius
@@ -210,93 +218,114 @@ Scope {
                 anchors.fill: parent
             }
 
-            ColumnLayout {
+            // Search field and list on the left, preview on the right, rather
+            // than the preview under a full-width search field: the pane wants
+            // the panel's whole height for an image or a directory listing.
+            RowLayout {
                 anchors.fill: parent
                 anchors.margins: 4
 
-                spacing: 4
+                spacing: 0
 
-                TextInput {
-                    id: input
-
+                ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.launcherSearchHeight - 8
-                    Layout.leftMargin: 14
-                    Layout.rightMargin: 14
+                    Layout.fillHeight: true
 
-                    text: root.query
-                    color: Theme.fg
+                    spacing: 4
 
-                    font.family: Theme.fontUi
-                    font.pointSize: 13
+                    TextInput {
+                        id: input
 
-                    verticalAlignment: TextInput.AlignVCenter
-                    clip: true
-                    selectByMouse: true
-                    selectionColor: Theme.accent
-                    selectedTextColor: Theme.bg
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.launcherSearchHeight - 8
+                        Layout.leftMargin: 14
+                        Layout.rightMargin: 14
 
-                    onTextChanged: {
-                        root.query = input.text;
-                        root.selected = 0;
-
-                        // File search is driven by assignment rather than from
-                        // the results binding, because kicking off a process
-                        // inside a binding makes the binding a side effect and
-                        // re-runs it whenever anything else it touches changes.
-                        providers.fileQuery = input.text.startsWith("=") || input.text.startsWith("?") ? "" : input.text.trim();
-                    }
-
-                    Keys.onDownPressed: root.move(1)
-                    Keys.onUpPressed: root.move(-1)
-                    Keys.onEscapePressed: root.hide()
-                    Keys.onReturnPressed: root.activate()
-                    Keys.onEnterPressed: root.activate()
-
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-
-                        text: "Search"
-                        color: Theme.muted
-                        visible: input.text === ""
+                        text: root.query
+                        color: Theme.fg
 
                         font.family: Theme.fontUi
                         font.pointSize: 13
+
+                        verticalAlignment: TextInput.AlignVCenter
+                        clip: true
+                        selectByMouse: true
+                        selectionColor: Theme.accent
+                        selectedTextColor: Theme.bg
+
+                        onTextChanged: {
+                            root.query = input.text;
+                            root.selected = 0;
+
+                            // File search is driven by assignment rather than from
+                            // the results binding, because kicking off a process
+                            // inside a binding makes the binding a side effect and
+                            // re-runs it whenever anything else it touches changes.
+                            providers.fileQuery = input.text.startsWith("=") || input.text.startsWith("?") ? "" : input.text.trim();
+                        }
+
+                        Keys.onDownPressed: root.move(1)
+                        Keys.onUpPressed: root.move(-1)
+                        Keys.onEscapePressed: root.hide()
+                        Keys.onReturnPressed: root.activate()
+                        Keys.onEnterPressed: root.activate()
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            text: "Search"
+                            color: Theme.muted
+                            visible: input.text === ""
+
+                            font.family: Theme.fontUi
+                            font.pointSize: 13
+                        }
+                    }
+
+                    ListView {
+                        id: list
+
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(root.results.length, root.visibleRows) * Theme.launcherLineHeight
+
+                        model: root.results
+                        currentIndex: root.selected
+
+                        clip: true
+                        // Keeps the selected row on screen when the cursor moves
+                        // past the edge of the visible window.
+                        highlightFollowsCurrentItem: true
+                        highlightMoveDuration: 90
+
+                        delegate: ResultRow {
+                            required property var modelData
+                            required property int index
+
+                            width: list.width
+
+                            title: modelData.title
+                            subtitle: modelData.subtitle ?? ""
+                            icon: modelData.icon ?? ""
+                            accessory: modelData.accessory ?? ""
+                            current: index === root.selected
+
+                            onActivated: {
+                                root.selected = index;
+                                root.activate();
+                            }
+                        }
                     }
                 }
 
-                ListView {
-                    id: list
+                // Invisible for every row that carries no path, and an
+                // invisible item is left out of a RowLayout entirely — which
+                // is what keeps the column from reserving space it cannot use.
+                PreviewPane {
+                    Layout.preferredWidth: Theme.launcherPreviewWidth
+                    Layout.fillHeight: true
 
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Math.min(root.results.length, root.visibleRows) * Theme.launcherLineHeight
-
-                    model: root.results
-                    currentIndex: root.selected
-
-                    clip: true
-                    // Keeps the selected row on screen when the cursor moves
-                    // past the edge of the visible window.
-                    highlightFollowsCurrentItem: true
-                    highlightMoveDuration: 90
-
-                    delegate: ResultRow {
-                        required property var modelData
-                        required property int index
-
-                        width: list.width
-
-                        title: modelData.title
-                        subtitle: modelData.subtitle ?? ""
-                        icon: modelData.icon ?? ""
-                        accessory: modelData.accessory ?? ""
-                        current: index === root.selected
-
-                        onActivated: {
-                            root.selected = index;
-                            root.activate();
-                        }
-                    }
+                    visible: root.previewPath !== ""
+                    path: root.previewPath
                 }
             }
         }
