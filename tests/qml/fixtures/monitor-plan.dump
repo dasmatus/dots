@@ -1,0 +1,1 @@
+hl.monitor({output="eDP-1", mode="preferred@60", position="0x0", scale=1})

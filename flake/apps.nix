@@ -118,7 +118,12 @@ in
       # fraction and the pill wants whole percent, which type-checks either
       # way and shows an empty battery on a half-full one. Offscreen because
       # the runner still wants a QPA plugin with nothing to draw.
-      QT_QPA_PLATFORM=offscreen qmltestrunner \
+      #
+      # QML_XHR_ALLOW_FILE_READ=1 because tst_monitor_parity.qml reads its
+      # fixtures/ JSON via a synchronous XMLHttpRequest — QtQml refuses GET on
+      # a file:// URL by default and the test would throw "Invalid state"
+      # rather than run without this.
+      QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 qmltestrunner \
         -import "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
         -input tests/qml
 
