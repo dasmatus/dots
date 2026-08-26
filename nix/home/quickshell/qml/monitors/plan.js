@@ -305,18 +305,62 @@ function layoutMatched(matched) {
 }
 
 // Match every monitor against rules, plan the survivors into a horizontal
-// layout, and return the resulting specs. Unmatched monitors are silently
-// dropped (matcher.rs's match_monitors behaviour) rather than emitted as
-// "disabled" — an empty result is a no-op for the caller, not a command to
-// switch anything off.
-function planFor(monitors, rules) {
+// layout, apply overrides last, and return the resulting specs. Unmatched
+// monitors are silently dropped (matcher.rs's match_monitors behaviour)
+// rather than emitted as "disabled" — an empty result is a no-op for the
+// caller, not a command to switch anything off. overrides is optional so
+// Task 2's rows (which never touch it) still pass unmodified.
+function planFor(monitors, rules, overrides) {
     const matched = [];
     for (const monitor of monitors) {
         const rule = matchRule(monitor, rules);
         if (rule)
             matched.push({ monitor: monitor, rule: rule });
     }
-    return layoutMatched(matched);
+    const specs = layoutMatched(matched);
+    return overrides ? applyOverrides(specs, monitors, overrides) : specs;
+}
+
+// Find the override entry that applies to monitor, or null. Name pins take
+// priority over description fallbacks; within each pass the first matching
+// entry in list order wins — overrides.rs's match_override.
+function matchOverride(monitor, overrides) {
+    const entries = (overrides && overrides.entries) || [];
+    const byName = entries.find(e => e.name === monitor.name);
+    if (byName)
+        return byName;
+    const byDescription = entries.find(e => (e.name === undefined || e.name === null) && e.description === monitor.description);
+    return byDescription || null;
+}
+
+// Apply overrides to a planned set of specs. For each spec, the matching
+// override entry (looked up via the original monitor list, since the spec
+// carries the name but not the description the fallback match needs)
+// replaces whichever fields it sets; everything else falls through
+// unchanged. A field set to a falsy-but-meaningful value (transform 0, an
+// explicit vrr "off") must still apply, so every check below is
+// undefined/null-aware rather than a truthiness test.
+function applyOverrides(specs, monitors, overrides) {
+    return specs.map(spec => {
+        const monitor = monitors.find(m => m.name === spec.name);
+        if (!monitor)
+            return spec;
+        const entry = matchOverride(monitor, overrides);
+        if (!entry)
+            return spec;
+        const out = Object.assign({}, spec);
+        if (entry.resolution != null)
+            out.resolution = entry.resolution;
+        if (entry.position != null)
+            out.position = entry.position;
+        if (entry.scale != null)
+            out.scale = renderScale(entry.scale);
+        if (entry.transform != null)
+            out.transform = entry.transform;
+        if (entry.vrr != null)
+            out.vrr = vrrToken(entry.vrr);
+        return out;
+    });
 }
 
 function luaString(s) {

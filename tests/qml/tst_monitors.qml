@@ -350,4 +350,96 @@ TestCase {
     function test_render(row) {
         compare(Plan.render(row.spec), row.expected);
     }
+
+    // A bare planned spec, the shape layoutMatched would have produced
+    // before overrides run — mirrors rust/hyprmon/tests/overrides.rs's own
+    // spec() helper.
+    function specFor(name, resolution, position, scale) {
+        return { name: name, resolution: resolution, position: position, scale: scale, transform: null, vrr: null };
+    }
+
+    // rust/hyprmon/tests/overrides.rs's matching cases. Load/save round-trip
+    // and upsert/remove aren't ported: those manage overrides.json on disk,
+    // which is 2b's FileView surface, not this pure-logic module.
+    function test_matchOverride_data() {
+        return [
+            {
+                tag: "a name pin wins over a description-only entry",
+                monitor: monitor60hz(),
+                overrides: {
+                    entries: [
+                        { name: "HDMI-A-1", resolution: "2560x1200@60" },
+                        { description: monitor60hz().description, resolution: "1600x1200@60" }
+                    ]
+                },
+                expectedResolution: "2560x1200@60"
+            },
+            {
+                tag: "description fallback matches when no name pin exists",
+                monitor: monitor60hz(),
+                overrides: { entries: [{ description: monitor60hz().description, resolution: "2560x1200@60" }] },
+                expectedResolution: "2560x1200@60"
+            },
+            {
+                tag: "no match returns null",
+                monitor: monitor60hz(),
+                overrides: { entries: [{ name: "DP-2" }] },
+                expectedResolution: null
+            }
+        ];
+    }
+
+    function test_matchOverride(row) {
+        const entry = Plan.matchOverride(row.monitor, row.overrides);
+        if (row.expectedResolution === null) {
+            verify(entry === null, "expected no match, got " + JSON.stringify(entry));
+        } else {
+            verify(entry !== null, "expected a match");
+            compare(entry.resolution, row.expectedResolution);
+        }
+    }
+
+    function test_applyOverrides_data() {
+        return [
+            {
+                tag: "a partial override replaces only the fields it sets",
+                monitors: [monitor60hz()],
+                specs: [specFor("HDMI-A-1", "2560x1200@60", "1920x0", "1")],
+                overrides: { entries: [{ name: "HDMI-A-1", resolution: "1920x1080@60" }] },
+                expected: [{ resolution: "1920x1080@60", position: "1920x0", scale: "1" }]
+            },
+            {
+                tag: "a full override replaces every field",
+                monitors: [monitor240hz()],
+                specs: [specFor("DP-1", "1920x1080@240", "0x0", "1")],
+                overrides: {
+                    entries: [{
+                        name: "DP-1",
+                        resolution: "2560x1440@120",
+                        position: "0x0",
+                        scale: 1.25,
+                        transform: 2,
+                        vrr: "left"
+                    }]
+                },
+                expected: [{ resolution: "2560x1440@120", position: "0x0", scale: "1.25", transform: 2, vrr: "vrrleft" }]
+            },
+            {
+                tag: "an overridden scale renders without a trailing zero",
+                monitors: [monitor60hz()],
+                specs: [specFor("HDMI-A-1", "2560x1200@60", "1920x0", "1")],
+                overrides: { entries: [{ name: "HDMI-A-1", scale: 2.0 }] },
+                expected: [{ scale: "2" }]
+            }
+        ];
+    }
+
+    function test_applyOverrides(row) {
+        const out = Plan.applyOverrides(row.specs, row.monitors, row.overrides);
+        for (let i = 0; i < row.expected.length; i++) {
+            const want = row.expected[i];
+            for (const key in want)
+                compare(out[i][key], want[key]);
+        }
+    }
 }
