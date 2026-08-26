@@ -12,6 +12,7 @@
 // The launcher and settings form join them in the phases that follow.
 import Quickshell
 import "bar"
+import "launcher"
 import "notifications"
 import "osd"
 
@@ -25,4 +26,6 @@ ShellRoot {
     Notifications {}
 
     Osd {}
+
+    Launcher {}
 }

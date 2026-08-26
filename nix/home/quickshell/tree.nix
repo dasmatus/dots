@@ -66,6 +66,17 @@ let
         readonly property int barIconSize: ${toString palette.bar.iconSize};
         readonly property int barTitleMaxWidth: ${toString palette.bar.titleMaxWidth};
 
+        // Launcher geometry, still read from the palette's `beamenu` block.
+        // The values outlive the program they were named for, so the key is
+        // renamed when that crate goes rather than duplicated now.
+        readonly property int launcherLines: ${toString palette.beamenu.lines};
+        readonly property real launcherWidthFactor: ${toString palette.beamenu.widthFactor};
+        readonly property int launcherIconSize: ${toString palette.beamenu.iconSize};
+        readonly property int launcherLineHeight: ${toString palette.beamenu.lineHeight};
+        readonly property int launcherSearchHeight: ${toString palette.beamenu.searchHeight};
+        readonly property int launcherRadius: ${toString palette.beamenu.radius};
+        readonly property int launcherPreviewWidth: ${toString palette.beamenu.previewWidth};
+
         // Alpha suffixes are applied at the seam by each consumer, so they stay
         // strings here rather than being folded into the colours above.
         readonly property string alphaPanel: "${palette.alpha.panel}";

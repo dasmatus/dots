@@ -244,15 +244,16 @@ in
         }
       ];
 
-      # beamenu draws into a wlr-layer-shell surface, and bemenu hardcodes its
-      # namespace to "menu" (lib/renderers/wayland/window.c, the
-      # zwlr_layer_shell_v1_get_layer_surface call) — that string is the only
-      # handle a rule has on it, since a layer surface has no class or title.
+      # The launcher draws into a wlr-layer-shell surface, and its namespace is
+      # the only handle a rule has on it, since a layer surface carries no
+      # class and no title. It is set in the QML
+      # (nix/home/quickshell/qml/launcher/Launcher.qml) rather than being
+      # whatever the toolkit happened to hardcode.
       #
       # ignore_alpha 0.1 is what makes the blur actually show: Hyprland skips
       # blurring behind pixels below the threshold, and the panel background is
-      # deliberately translucent (#1a1b26f2 in nix/home/beamenu.nix). Leaving
-      # it at the default would blur only the fully opaque text.
+      # deliberately translucent. Leaving it at the default would blur only the
+      # fully opaque text.
       #
       # Blur STRENGTH is global in Hyprland — there is no per-layer size or
       # pass count — so the heavy look comes from decoration.blur above, which
@@ -262,25 +263,19 @@ in
       # Field names verified against Hyprland 0.56.2's HL.LayerRuleSpec stub
       # (share/hypr/stubs/hl.meta.lua).
       #
-      # beamenu-canvas (rust/beamenu-canvas) is the WebKitGTK sidecar beamenu
-      # spawns for a plugin's `view` command — its own layer-shell surface,
-      # namespaced literally "beamenu-canvas" (unlike bemenu's hardcoded
-      # "menu"), so it needs its own rule rather than sharing the match above.
-      # Same blur/alpha settings: it is deliberately dressed as the same
-      # surface family as the launcher panel.
+      # The launcher is a Quickshell layer surface now, and it names itself.
+      # bemenu hardcoded its namespace to "menu", which is why the old rule
+      # matched a word that said nothing about which program owned it; a
+      # WlrLayershell sets its own, so the match reads as what it is.
+      #
+      # ignore_alpha stays: Hyprland skips blurring behind near-transparent
+      # pixels, and the panel background is deliberately translucent, so
+      # without it the blur is dropped exactly where it is wanted.
       layer_rule = [
         {
-          name = "beamenu-blur";
+          name = "launcher-blur";
           match = {
-            namespace = "menu";
-          };
-          blur = true;
-          ignore_alpha = 0.1;
-        }
-        {
-          name = "beamenu-canvas-blur";
-          match = {
-            namespace = "beamenu-canvas";
+            namespace = "dots-launcher";
           };
           blur = true;
           ignore_alpha = 0.1;
@@ -388,22 +383,25 @@ in
             (lua ''hl.dsp.exec_cmd("kitty")'')
           ];
         }
-        # beamenu (nix/home/beamenu.nix) is the app launcher: a Raycast-style
-        # search panel drawn by patched bemenu. No pre-warm and no scratchpad
-        # parking — layer-shell plus cairo starts fast enough to just run the
-        # binary, which is what retired HyprTile's whole resident-instance
-        # apparatus.
+        # The launcher is a Quickshell surface the shell already has open, so
+        # this toggles it rather than spawning anything. beamenu ran a fresh
+        # binary per keypress and got away with it because layer-shell plus
+        # cairo starts fast; not starting at all is faster still.
+        #
+        # The IPC function is `toggle` and not `show` for a reason worth
+        # knowing: `qs ipc call launcher show` is swallowed by the `qs ipc show`
+        # subcommand, which prints the handler listing and exits successfully
+        # without calling anything.
         #
         # One bind, not three. SUPER+D and SUPER+SHIFT+E both ran plain
         # `beamenu` (the second one's comment claimed a pre-seeded query, which
         # nothing ever seeded), and SUPER+comma skipped the launcher to open the
         # settings plugin's canvas view directly. Everything they reached is
-        # inside the panel: session commands under the System pill, settings
-        # under the Settings plugin and its `set ` keyword.
+        # inside the panel.
         {
           _args = [
             (lua ''mod .. " + Space"'')
-            (lua ''hl.dsp.exec_cmd("beamenu")'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call launcher toggle")'')
           ];
         }
         # Nautilus directly (GNOME Files, services.gnome.core-apps) — the
