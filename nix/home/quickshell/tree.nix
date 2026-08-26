@@ -2,8 +2,9 @@
 # plus a Theme.qml generated from nix/palette.json.
 #
 # Generating rather than hand-writing the palette keeps nix/palette.json the
-# one place colours are defined, the way nix/home/beamenu.nix already reads it
-# with builtins.fromJSON and the Rust crates read it with include_str!. A
+# one place colours are defined: this file is what reads it, with
+# builtins.fromJSON, and flake/checks.nix's palette-eval check reads the same
+# JSON back to assert the generated Theme.qml actually carries it. A
 # hand-copied QML palette would be a sixth source of truth, which is the exact
 # problem docs/superpowers/specs/2026-08-23-system-palette-single-source-design.md
 # exists to stop.
