@@ -8,6 +8,7 @@
   lib,
   dots,
   claudeDesktop,
+  inputs,
   ...
 }:
 let
@@ -113,6 +114,67 @@ let
     rev = "18e0e908a13553b0e58d065ab26dbc9a972ec8ba";
     sha256 = "1nj8hrvakcpvbi89gvpcj1szr2yr6531w86npyx56msj6683c61m";
   };
+
+  # dots-memory: the Postgres-backed memory plugin. Design:
+  # docs/superpowers/specs/2026-08-26-postgres-memory-plugin-design.md.
+  # The hook shells out to psql itself, rather than trusting the MCP
+  # server, so a dead cluster degrades the plugin to silence instead of a
+  # failed SessionStart/Stop: any psql failure means no stdout at all, and
+  # the script always exits 0. `basename` is done with pure parameter
+  # expansion (not the coreutils binary) so `postgresql_18` can stay the
+  # only runtimeInput.
+  dotsMemoryHook = pkgs.writeShellApplication {
+    name = "dots-memory-hook";
+    runtimeInputs = [ pkgs.postgresql_18 ];
+    text = ''
+      # Escapes backslashes, double quotes and newlines for one JSON
+      # string literal. No jq dependency for a single field.
+      json_escape() {
+        local s=$1
+        s=''${s//\\/\\\\}
+        s=''${s//\"/\\\"}
+        s=''${s//$'\n'/\\n}
+        printf '%s' "$s"
+      }
+
+      event="''${1:-}"
+      project_dir="''${CLAUDE_PROJECT_DIR:-$PWD}"
+      scope="''${project_dir##*/}"
+
+      case "$event" in
+        session-start)
+          if digest="$(psql -X -d matus -Atc \
+              "select agentmem.digest('$scope', 40, 6000)" 2>/dev/null)"; then
+            printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' \
+              "$(json_escape "$digest")"
+          fi
+          ;;
+        stop)
+          printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"nothing durable was recorded this session; if something was learned, call remember"}}\n'
+          ;;
+      esac
+      exit 0
+    '';
+  };
+
+  # The checked-in tree under plugins/dots-memory/ stays diffable; this
+  # runCommand only adds `bin/` store symlinks on top, so `.mcp.json` and
+  # `hooks/hooks.json` can name `''${CLAUDE_PLUGIN_ROOT}/bin/<name>`
+  # without ever spelling out a store path. The plugin's own
+  # .claude-plugin/plugin.json suppresses Home Manager's synthesized
+  # manifest. `dots-memory-mcp` is plan 3's crate
+  # (rust/dots-memory-mcp); this derivation only symlinks the built
+  # binary in, it does not build it.
+  dotsMemoryPlugin = pkgs.runCommand "dots-memory-plugin" { } ''
+    cp -r ${../../plugins/dots-memory} $out
+    chmod -R u+w $out
+    mkdir -p $out/bin
+    ln -s ${inputs.self.packages.x86_64-linux.dots-memory-mcp}/bin/dots-memory-mcp \
+      $out/bin/dots-memory-mcp
+    ln -s ${dotsMemoryHook}/bin/dots-memory-hook $out/bin/dots-memory-hook
+    test -e $out/.claude-plugin/plugin.json
+    test -e $out/.mcp.json
+  '';
 in
 {
   home.packages = [ ccbar ];
@@ -133,6 +195,13 @@ in
     # from the marketplace plugins in settings.enabledPlugins below; the two
     # mechanisms coexist.
     plugins.pstack = "${pstackSrc}";
+
+    # dots-memory — see `dotsMemoryPlugin` above. Ships its own
+    # .claude-plugin/plugin.json, so no manifest is synthesized here
+    # either. Not in `settings.enabledPlugins`: that key names
+    # `<plugin>@<marketplace>` pairs for marketplace-sourced plugins, and
+    # this one is loaded straight from the store like pstack above.
+    plugins.dots-memory = "${dotsMemoryPlugin}";
 
     # Personal skills from this repo's skills/ tree (one folder per skill,
     # each holding a SKILL.md). The module symlinks the whole directory into
