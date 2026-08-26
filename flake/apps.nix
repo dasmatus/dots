@@ -21,7 +21,7 @@ let
 
   # The shell's QML tree, linted below. Built rather than read from
   # nix/home/quickshell/qml because Theme.qml is generated from
-  # rust/palette.json and only exists in the built tree.
+  # nix/palette.json and only exists in the built tree.
   quickshellConfig = self.packages.${pkgs.stdenv.hostPlatform.system}.quickshell-config;
 
   # Build a LiveISO closure into result-iso. Plain (unsigned) — Secure Boot

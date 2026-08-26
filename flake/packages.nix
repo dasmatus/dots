@@ -63,7 +63,7 @@ self: {
     meta.mainProgram = "hyprmon";
   };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
-  # rust/palette.json. nix/home/quickshell/default.nix builds the same thing
+  # nix/palette.json. nix/home/quickshell/default.nix builds the same thing
   # with the real state directory; this one exists so `nix run .#nix-lint` has
   # something to point qmllint at, and so a broken palette fails the flake
   # rather than the next login. The stateHome here only reaches a FileView

@@ -61,7 +61,7 @@ Three things worth knowing:
   config in `nix/home/quickshell/`. The bar, the notification daemon, the
   volume and brightness OSD, the launcher on SUPER+Space, the keybind
   cheatsheet on SUPER+/ and the settings form on SUPER+comma are QML in a
-  single process, reading one palette out of `rust/palette.json`. That replaces
+  single process, reading one palette out of `nix/palette.json`. That replaces
   a waybar bar, a dunst daemon, an eww window, a mostly-retired rofi and a Rust
   launcher wrapping a ten-patch fork of bemenu's C renderer, which between them
   had five theme paths and five ways of being told what colour to be.

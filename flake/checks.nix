@@ -246,7 +246,7 @@ in
     ) laptop.config.systemd.tmpfiles.rules;
     pkgs.writeText "formfactor-eval-ok" "desktop+laptop+server+vm";
 
-  # rust/palette.json is the single source of truth for the system palette
+  # nix/palette.json is the single source of truth for the system palette
   # (see docs/superpowers/specs/2026-08-23-system-palette-single-source-design.md).
   #
   # It used to be asserted against two Rust store srcs as well, because both
@@ -258,7 +258,7 @@ in
   # QML's default colours, which is a bad way to find out.
   palette-eval =
     let
-      palette = builtins.fromJSON (builtins.readFile ../rust/palette.json);
+      palette = builtins.fromJSON (builtins.readFile ../nix/palette.json);
       theme = builtins.readFile "${self.packages.${system}.quickshell-config}/Theme.qml";
       carries = value: builtins.match ".*${value}.*" theme != null;
     in
