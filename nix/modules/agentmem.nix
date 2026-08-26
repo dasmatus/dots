@@ -1,11 +1,19 @@
 # Local PostgreSQL cluster backing the dots-memory Claude Code plugin — see
-# docs/superpowers/specs/2026-08-26-postgres-memory-plugin-design.md. This
-# module owns the cluster only: no schema, no extension, no plugin wiring —
-# those land in later plans on top of the same `agentmem` role/database.
+# docs/superpowers/specs/2026-08-26-postgres-memory-plugin-design.md.
 #
-# Gated on the same flag as the plugin it serves (nix/home/claude.nix:122):
-# the cluster has no reason to exist when Claude Code's Home Manager config
-# is off. Package is pinned to postgresql_18 explicitly (never mkDefault) —
+# Assembled from three plans that each own one slice:
+#   plan 0 (cluster)   -- services.postgresql/postgresqlBackup, peer auth,
+#                          persistence, the pinned package.
+#   plan 1 (extension) -- pgAgentmem, the pgrx package loaded via
+#                          services.postgresql.extensions. Passed in as a
+#                          module argument (flake/nixos.nix specialArgs,
+#                          same pattern as wallpaperTui/hyprmon below it).
+#   plan 2 (schema)    -- the migration runner, the ident map entry for
+#                          agentmem_mcp, and nix/modules/agentmem/migrations/.
+#
+# Gated on the same flag as the plugin it serves (nix/home/claude.nix): the
+# cluster has no reason to exist when Claude Code's Home Manager config is
+# off. Package is pinned to postgresql_18 explicitly (never mkDefault) --
 # maintenance.nix autoupgrades the channel daily, and an unpinned package
 # would move psqlSchema/dataDir under a live cluster the moment nixpkgs
 # gains postgresql_19. enableTCPIP stays false: peer auth over the unix
@@ -15,21 +23,70 @@
   config,
   pkgs,
   lib,
+  pgAgentmem ? null,
   ...
 }:
+let
+  username = config.dots.username;
+  migrationsDir = ./agentmem/migrations;
+in
 {
   config = lib.mkIf config.dots.ai.claude {
     services.postgresql = {
       enable = true;
       package = pkgs.postgresql_18;
-      ensureDatabases = [ config.dots.username ];
+      enableTCPIP = false;
+      extensions = ps: lib.optional (pgAgentmem != null) pgAgentmem ++ [ ps.pg_trgm ps.unaccent ];
+      ensureDatabases = [ username ];
       ensureUsers = [
         {
-          name = config.dots.username;
+          name = username;
           ensureDBOwnership = true;
         }
+        {
+          name = "agentmem_mcp";
+        }
       ];
-      enableTCPIP = false;
+
+      # Peer auth maps OS user `username` to both roles over the unix
+      # socket (nix/hosts.nix rules out DynamicUser and ReadWritePaths here
+      # -- see the design spec section 9). No password exists anywhere.
+      identMap = ''
+        agentmem-map ${username} ${username}
+        agentmem-map ${username} agentmem_mcp
+      '';
+      authentication = ''
+        local ${username} ${username}         peer map=agentmem-map
+        local ${username} agentmem_mcp        peer map=agentmem-map
+      '';
+
+      # Idempotent migration runner: agentmem._migrations tracks which of
+      # nix/modules/agentmem/migrations/*.sql already applied, by filename,
+      # so a rebuild that adds a migration only ever runs the new one.
+      # Deliberately not `initialScript` -- that option is `types.path` and
+      # lands world-readable in the store (design spec section 9); running
+      # from postStart under the postgres service's own permissions avoids
+      # that without needing a secrets manager this repo does not have.
+      postStart = ''
+        PSQL="${config.services.postgresql.package}/bin/psql -U ${username} -d ${username} -v ON_ERROR_STOP=1"
+
+        $PSQL -c "
+          CREATE SCHEMA IF NOT EXISTS agentmem;
+          CREATE TABLE IF NOT EXISTS agentmem._migrations (
+            filename   text PRIMARY KEY,
+            applied_at timestamptz NOT NULL DEFAULT now()
+          );
+        "
+
+        for f in ${migrationsDir}/*.sql; do
+          name=$(basename "$f")
+          applied=$($PSQL -tAc "SELECT 1 FROM agentmem._migrations WHERE filename = '$name'")
+          if [ "$applied" != "1" ]; then
+            $PSQL -f "$f"
+            $PSQL -c "INSERT INTO agentmem._migrations (filename) VALUES ('$name')"
+          fi
+        done
+      '';
     };
 
     # location moves the dump off /var/backup/postgresql (the module
