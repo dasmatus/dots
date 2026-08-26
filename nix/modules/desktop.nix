@@ -66,6 +66,15 @@
           };
           services.udisks2.enable = true;
 
+          # UPower backs the Quickshell bar's battery module. waybar read
+          # /sys/class/power_supply itself and so needed nothing here, which is
+          # why this was never enabled; Quickshell talks to
+          # org.freedesktop.UPower over D-Bus instead, and without the service
+          # the name is not activatable and the battery silently never appears.
+          # The daemon also supplies charge state and time-to-empty, which
+          # sysfs only offers as raw counters to be reassembled by hand.
+          services.upower.enable = true;
+
           # ── Security key support (system level) ──────────────────────────
           # pcscd: required for smart-card / PIV / OpenPGP card access
           services.pcscd.enable = true;

@@ -74,7 +74,7 @@ in
                                       -- ordering here is belt and braces rather than a race fix.
                                       hl.exec_cmd("awww-daemon")
                                       hl.exec_cmd("eww daemon")
-                                      hl.exec_cmd("waybar")
+                                      hl.exec_cmd("qs")
             			      hl.exec_cmd("hyprmon apply")
                                       hl.exec_cmd("nm-applet --indicator")
                                       hl.exec_cmd("wallpaper-tui --restore")

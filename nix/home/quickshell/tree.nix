@@ -55,6 +55,17 @@ let
         readonly property string fontMono: "${palette.fonts.mono}";
         readonly property int fontSize: ${toString palette.fonts.size};
 
+        // Bar geometry, kept beside the colours for the same reason the
+        // launcher's metrics are: waybar's stylesheet had them as CSS
+        // literals, which is where a "why is this 30 and that 32" afternoon
+        // comes from.
+        readonly property int barHeight: ${toString palette.bar.height};
+        readonly property int barSpacing: ${toString palette.bar.spacing};
+        readonly property int barFontSize: ${toString palette.bar.fontSize};
+        readonly property int barPillPadding: ${toString palette.bar.pillPadding};
+        readonly property int barIconSize: ${toString palette.bar.iconSize};
+        readonly property int barTitleMaxWidth: ${toString palette.bar.titleMaxWidth};
+
         // Alpha suffixes are applied at the seam by each consumer, so they stay
         // strings here rather than being folded into the colours above.
         readonly property string alphaPanel: "${palette.alpha.panel}";

@@ -16,6 +16,10 @@
     "canvasUi": "Manrope",
     "canvasMono": "JetBrains Mono"
   },
+  "bar": {
+    "height": 30, "spacing": 4, "fontSize": 15,
+    "pillPadding": 14, "iconSize": 20, "titleMaxWidth": 480
+  },
   "beamenu": {
     "lines": 9, "widthFactor": 0.5, "iconSize": 24,
     "lineHeight": 52, "searchHeight": 56, "radius": 16,
