@@ -89,6 +89,21 @@ a row can come into being, and it carries four gates:
 4. **content address** rejects a duplicate by hash, across live and superseded
    rows alike.
 
+The callable surface, fixed as the interface contract; every plan and
+every caller matches these names and types verbatim:
+
+```sql
+ingest_fact(p_scope text, p_claim_key text, p_body text,
+            p_source_kind text, p_source_ref text,
+            p_unslop_token text, p_session uuid) RETURNS bigint
+cite_fact(p_fact bigint, p_session uuid) RETURNS void
+digest(p_scope text, p_max_rows int, p_max_chars int) RETURNS text
+search(p_scope text, p_q text, p_k int)
+  RETURNS TABLE(fact_id bigint, claim_key text, body text, rank real)
+subgraph(p_scope text, p_root text, p_hops int)
+  RETURNS TABLE(src text, verb text, dst text, depth int, origin text)
+```
+
 The mem0 duplication loop needs a direct `INSERT`. There is none. This is also
 what makes the server stateless in a way that cannot rot: it holds no state
 because it is not permitted to hold any.
@@ -216,6 +231,17 @@ words above plus `click`, spaces both sides of every arrow, and brackets and
 quotes every label with entity escaping.
 
 Exit code 0 is never treated as validation.
+
+The extension's SQL surface, equally fixed, all `IMMUTABLE`, all in
+schema `agentmem`:
+
+```sql
+norm_hash_v1(input text) RETURNS bytea
+slug_v1(input text) RETURNS text
+mermaid_edges(doc text)
+  RETURNS TABLE(ord int, src text, verb text, dst text, directed bool)
+edges_to_mermaid(src text[], verb text[], dst text[]) RETURNS text
+```
 
 ## 9. Operational constraints
 
