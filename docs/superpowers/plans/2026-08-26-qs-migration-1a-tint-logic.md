@@ -30,10 +30,10 @@ From `accent.rs`/`tint.rs`; reproduce exactly or the ported vectors break.
 **Consumes** `common/hls.js`. **Produces** `accentFrom(pixels)`, taking an RGBA
 `Uint8ClampedArray` in, `{accent, dark, light}` as `#rrggbb` out.
 
-- [ ] **1** Record the oracle first: run
-      `wallpaper-tui --output '*' Wallpapers/wh/wallhaven-7jeozo.jpg`
-      and save the accent from `tint/current.json`. This is the value
-      Task 1 must reproduce, and the crate is deleted in plan 1b
+- [ ] **1** Record the oracle WITHOUT touching the live desktop: add a
+      temporary `--dump-accent <path>` to wallpaper-tui that prints the
+      extracted triple and exits. NEVER run `wallpaper-tui --output` — it
+      applies the wallpaper AND retints GTK, Rofi, Kvantum and the icons
 - [ ] **2** Write `tst_accent.qml`: `Canvas` with
       `renderTarget: Canvas.Image`, `loadImage` in `Component.onCompleted`,
       `drawImage`+`getImageData` in `onPaint`, asserting the Step 1 value
@@ -64,8 +64,9 @@ From `accent.rs`/`tint.rs`; reproduce exactly or the ported vectors break.
 **Produces** nothing new; this task exists so plan 1b can delete the crate
 without the parity evidence disappearing with it.
 
-- [ ] **1** For three wallpapers of different dominant hue, record the
-      crate's accent and its rendered Hyprland border string
+- [ ] **1** With Task 1's `--dump-accent`, record the crate's accent and its
+      rendered Hyprland border for three wallpapers of differing dominant
+      hue, then revert the patch. Still never `--output`
 - [ ] **2** Write `tst_tint_parity.qml` asserting `accentFrom` +
       `hyprBorder` reproduce all three
 - [ ] **3** Run QtTest Expected: PASS

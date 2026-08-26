@@ -17,8 +17,10 @@ offscreen. Quickshell 0.3, Qt 6.11, QtTest. Needs plan 0.
 - Overrides stay a separate document from rules: `overrides.json` exists so
   a monitor hyprmon got wrong can be fixed without touching the Nix-managed
   ruleset, and merging the two would destroy that property.
-- A `MonitorSpec` renders to exactly one `hyprctl keyword monitor` argument
-  string. `render()`'s output is the contract 2b shells out with.
+- A `MonitorSpec` renders to one `hl.monitor({...})` Lua expression applied
+  via `hyprctl eval <expr>`. NOT `hyprctl keyword monitor`: Hyprland 0.55+
+  disables that IPC under the Lua parser and it exits 0 while changing
+  nothing (rust/hyprmon/src/runner.rs:7-10). `render()` is 2b's contract.
 
 ---
 
@@ -39,17 +41,18 @@ or `null`, with the same precedence `matcher.rs` implements.
 ### Task 2: Plan and render
 **Files:** modify `qml/monitors/plan.js`, `tests/qml/tst_monitors.qml`.
 **Consumes** Task 1. **Produces** `planFor(monitors, rules, overrides)` ->
-array of `MonitorSpec`; `render(spec)` -> the `hyprctl keyword monitor`
-argument string, byte-identical to `spec.rs`'s `render()`.
+array of `MonitorSpec`; `render(spec)` -> the `hl.monitor({...})` Lua
+expression, byte-identical to `spec.rs`'s `render()`.
 
 - [ ] **1** Port `rust/hyprmon/tests/plan.rs` and `tests/spec.rs` into
       `_data()` rows, including the disabled-output case
 - [ ] **2** Run QtTest Expected: FAIL
 - [ ] **3** Port `plan.rs` and `spec.rs`'s `render`
 - [ ] **4** Run QtTest Expected: PASS
-- [ ] **5** Capture the real thing: `hyprmon apply` prints one rendered
-      spec per line. Assert `render()` reproduces those lines for the
-      monitors currently attached
+- [ ] **5** Capture the real thing WITHOUT touching the live session: add a
+      temporary `--dump-plan` to hyprmon that runs the pipeline against a
+      saved `hyprctl monitors -j` and prints each rendered spec, applying
+      nothing. NEVER run `hyprmon apply` — it reconfigures real monitors
 - [ ] **6** `git commit -m "port the monitor planner to the shell"`
 
 ### Task 3: Overrides
@@ -69,9 +72,9 @@ last stage before render.
 **Produces** nothing new; this exists so 2b can delete the crate without
 the parity evidence going with it.
 
-- [ ] **1** Save `hyprctl monitors -j` and `hyprmon apply`'s output as
-      fixtures under `tests/qml/fixtures/`
+- [ ] **1** Save `hyprctl monitors -j` (read-only) and Task 2's `--dump-plan`
+      output as fixtures under `tests/qml/fixtures/`; revert the patch
 - [ ] **2** Write the parity test asserting `planFor` + `render` reproduce
-      the saved `hyprmon apply` lines from the saved `hyprctl` JSON
+      the saved dump lines from the saved `hyprctl` JSON
 - [ ] **3** Run QtTest Expected: PASS
 - [ ] **4** `git commit -m "pin the ported monitor plan to the crate"`

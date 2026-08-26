@@ -8,7 +8,7 @@ editor a drag-to-arrange canvas, and delete `rust/hyprmon`.
 **Architecture:** `watch.rs` is replaced rather than ported. Instead of
 reading Hyprland's socket2, a `Connections` block on `Quickshell.Hyprland`
 re-runs 2a's `planFor` when the monitor list changes, and applies each spec
-through one `hyprctl keyword monitor` call. Quickshell 0.3, Qt 6.11.
+through one `hyprctl eval 'hl.monitor({...})'` call. Quickshell 0.3, Qt 6.11.
 **Depends on:** plans 0 and 2a. 2a's parity test is the only evidence the
 crate can be deleted safely, so do not start before it is green.
 **Spec:** `docs/superpowers/specs/2026-08-26-quickshell-tui-migration-design.md`
@@ -18,8 +18,10 @@ crate can be deleted safely, so do not start before it is green.
   graphical session. That is a deliberate narrowing from the systemd user
   service, which started slightly earlier. Do not re-add a unit for it.
 - Overrides remain a separate document from the Nix-managed rules.
-- Apply is one `hyprctl keyword monitor` call per spec, not a batch. A
-  failing output must not take the others down with it.
+- Apply is one `hyprctl eval 'hl.monitor({...})'` per spec, not a batch, and
+  never the legacy `hyprctl keyword monitor`, which Hyprland 0.55+ disables
+  under the Lua parser: it exits 0 and changes nothing, so a watcher built
+  on it silently no-ops. A failing output must not take the others down.
 
 ---
 
