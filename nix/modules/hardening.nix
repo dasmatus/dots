@@ -49,8 +49,10 @@
     enable = true;
     packages = [ pkgs.apparmor-profiles ];
   };
+  services.firewalld.enable = true;
+  services.firewalld.settings.DefaultZone = "drop";
+  networking.nftables.enable = true;
   networking.firewall = {
-    backend = lib.mkForce "firewalld";
     enable = true;
 
     # Block unsolicited inbound connections.
