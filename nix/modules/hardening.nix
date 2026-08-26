@@ -4,6 +4,7 @@
 # USBGuard, firewall, sudo, kernel image protection, tmpfs /tmp.
 {
   pkgs,
+  lib,
   ...
 }:
 {
@@ -20,7 +21,7 @@
     "fs.protected_symlinks" = 1;
     "fs.protected_fifos" = 2;
     "fs.protected_regular" = 2;
-    "net.ipv4.conf.all.rp_filter" = 2;
+    "net.ipv4.conf.all.rp_filter" = lib.mkForce 2;
     "net.ipv4.conf.default.rp_filter" = 2;
     "net.ipv4.tcp_syncookies" = 1;
     "net.ipv4.conf.all.accept_redirects" = 0;
@@ -49,7 +50,7 @@
     packages = [ pkgs.apparmor-profiles ];
   };
   networking.firewall = {
-    backend = "firewalld";
+    backend = lib.mkForce "firewalld";
     enable = true;
 
     # Block unsolicited inbound connections.
