@@ -49,6 +49,7 @@ Every claim below was run on this machine, not recalled.
 | Hooks that reach the model | Plain stdout on three events only: `SessionStart`, `UserPromptSubmit`, `UserPromptExpansion`. `hookSpecificOutput.additionalContext` on eleven, including `Stop`. `SessionEnd`, `PreCompact` and `PostCompact` have no variant and fail schema validation. |
 | Mermaid token cost | Same 15-entity, 25-relation graph: outline 410, table 594, Mermaid 597, minified JSON 854, pretty JSON 1206. Structure-only Mermaid, no observations: 367. |
 | Mermaid parsers | None. `mermaid.parse()` returns `{diagramType}` and nothing else. `@mermaid-js/parser` v1.2.0 has no flowchart grammar. |
+| The read path, end to end | Confirmed with a throwaway plugin. `hooks/hooks.json` carrying the outer `{"hooks": {...}}` wrapper loaded both events; `plugin details` reported `Hooks (2) SessionStart, Stop` and `MCP servers (1)`. `${CLAUDE_PLUGIN_ROOT}/bin/<name>` resolved and executed, and a fresh headless session read the hook's stdout marker back out of its own context. |
 
 ## 3. Layout
 
@@ -268,11 +269,13 @@ checkable rather than arguable.
 
 Named as risks rather than solved, per the repo's planning rules.
 
-1. **Hook behaviour is pinned to `claude-code` 2.1.228** and was read out of
-   the bundled JS. The published docs list roughly ten more
-   `additionalContext`-capable events than the binary implements. Every hook
-   claim needs re-verifying after a CLI bump, and this machine autoupgrades
-   daily.
+1. **Hook behaviour is pinned to `claude-code` 2.1.228.** The event list and
+   the `additionalContext` mapping were read out of the bundled JS; the
+   published docs list roughly ten more capable events than the binary
+   implements. The read path itself was then confirmed against a live session
+   rather than left inferred, so what remains at risk is the wider event
+   table, not the mechanism. Re-verify after a CLI bump; this machine
+   autoupgrades daily.
 2. **No latency measurement at target scale.** The live test cluster held three
    rows and planned a sequential scan. Nobody has measured tsvector plus
    trigram over a few thousand realistic rows on this CPU.
