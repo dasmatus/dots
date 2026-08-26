@@ -84,6 +84,34 @@ QtObject {
 
     property var emojiData: []
 
+    // File search is the one provider that costs a process, so it is the one
+    // that must not run per keystroke. beamenu forked fd on every character;
+    // this waits for a pause first. Below three characters it does not search
+    // at all, because "e" matches most of a home directory.
+    property string fileQuery: ""
+
+    property var fileResults: []
+
+    onFileQueryChanged: {
+        if (root.fileQuery.length < 3) {
+            root.fileResults = [];
+            root.fileDebounce.stop();
+            return;
+        }
+
+        root.fileDebounce.restart();
+    }
+
+    function fileRows(text: string): var {
+        return root.fileResults.map(path => ({
+                    title: path.split("/").pop(),
+                    subtitle: path.replace(Quickshell.env("HOME"), "~"),
+                    icon: "",
+                    accessory: "open",
+                    run: () => Quickshell.execDetached(["xdg-open", path])
+                }));
+    }
+
     function matches(haystack: string, needle: string): bool {
         if (needle === "")
             return true;
@@ -313,6 +341,24 @@ QtObject {
         onAdapterUpdated: root.emojiData = root.emojiFile.adapter.root?.items ?? []
     }
     // qmllint enable unresolved-type
+
+    property var fileDebounce: Timer {
+        interval: 120
+
+        onTriggered: {
+            // Restarting a running process would leave the previous search's
+            // output arriving against the new query, so it is stopped first.
+            root.fileSearch.running = false;
+            root.fileSearch.command = ["fd", "--hidden", "--follow", "--exclude", ".git", "--max-results", "40", "--max-depth", "5", root.fileQuery, Quickshell.env("HOME")];
+            root.fileSearch.running = true;
+        }
+    }
+
+    property var fileSearch: Process {
+        stdout: StdioCollector {
+            onStreamFinished: root.fileResults = this.text.split("\n").filter(line => line !== "")
+        }
+    }
 
     // The clipboard watcher. beamenu ran this inside `--daemon`; the shell is
     // already resident, so it owns it directly and the daemon has one less

@@ -56,7 +56,7 @@ Scope {
 
         const needle = text.trim();
 
-        const rows = providers.applicationRows(needle).concat(providers.systemRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle));
+        const rows = providers.applicationRows(needle).concat(providers.systemRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle)).concat(providers.fileRows(needle));
 
         // Prefix matches first: typing "fi" should reach Firefox before it
         // reaches anything merely containing "fi".
@@ -239,6 +239,12 @@ Scope {
                     onTextChanged: {
                         root.query = input.text;
                         root.selected = 0;
+
+                        // File search is driven by assignment rather than from
+                        // the results binding, because kicking off a process
+                        // inside a binding makes the binding a side effect and
+                        // re-runs it whenever anything else it touches changes.
+                        providers.fileQuery = input.text.startsWith("=") || input.text.startsWith("?") ? "" : input.text.trim();
                     }
 
                     Keys.onDownPressed: root.move(1)
