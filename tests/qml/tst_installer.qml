@@ -1,15 +1,23 @@
-// Pins qml/installer/config.js and disks.js against installer-tui's own
-// tests: rust/installer-tui/tests/config.rs and tests/disks.rs, run over the
-// same checked-in rust/installer-tui/tests/fixtures/lsblk.json (read here,
-// not copied — one fixture, not a second one that can drift from the first).
+// Pins qml/installer/config.js, disks.js and plan.js against installer-tui's
+// own tests: rust/installer-tui/tests/config.rs and tests/disks.rs, run over
+// the same checked-in rust/installer-tui/tests/fixtures/lsblk.json (read
+// here, not copied — one fixture, not a second one that can drift from the
+// first). plan.js is pinned against tests/qml/fixtures/install-plan.json, a
+// fixture captured straight from install.rs::plan() via a temporary
+// `--dump-plan` flag added to installer-tui, run once against the answers
+// `installPlanCfg()` below reproduces, and reverted — never hand-transcribed
+// from the Rust source, which builds several of these commands from
+// `format!` strings with backslash line-continuations that are easy to
+// mistranscribe.
 //
-// Reading that fixture needs QML_XHR_ALLOW_FILE_READ=1 (flake/apps.nix sets
-// it on the qmltestrunner invocation); without it readFixture below throws
+// Reading fixtures needs QML_XHR_ALLOW_FILE_READ=1 (flake/apps.nix sets it
+// on the qmltestrunner invocation); without it readFixture below throws
 // "Invalid state" instead of returning file contents.
 import QtQuick
 import QtTest
 import "../../nix/home/quickshell/qml/installer/config.js" as Config
 import "../../nix/home/quickshell/qml/installer/disks.js" as Disks
+import "../../nix/home/quickshell/qml/installer/plan.js" as Plan
 
 TestCase {
     name: "Installer"
@@ -29,6 +37,30 @@ TestCase {
             return true;
         }
         return false;
+    }
+
+    /// Structural equality over plain JSON-shaped values (objects, arrays,
+    /// primitives) — key order and reference identity don't matter, only
+    /// content, which is what planFor's output must match in the fixture.
+    function deepEqual(a, b) {
+        if (a === b)
+            return true;
+        if (typeof a !== typeof b || a === null || b === null)
+            return false;
+        if (typeof a !== "object")
+            return false;
+        if (Array.isArray(a) !== Array.isArray(b))
+            return false;
+        if (Array.isArray(a)) {
+            if (a.length !== b.length)
+                return false;
+            return a.every((v, i) => deepEqual(v, b[i]));
+        }
+        const keysA = Object.keys(a).sort();
+        const keysB = Object.keys(b).sort();
+        if (keysA.length !== keysB.length || keysA.some((k, i) => k !== keysB[i]))
+            return false;
+        return keysA.every(k => deepEqual(a[k], b[k]));
     }
 
     // --- config.js: settingsNix -------------------------------------------
@@ -192,12 +224,44 @@ TestCase {
         verify(Config.validateGitEmail(row.value) !== null);
     }
 
+    // --- plan.js: planFor against the install.rs oracle fixture -----------
+
+    /// The exact answers `--dump-plan` was run with to capture
+    /// tests/qml/fixtures/install-plan.json — change one without the other
+    /// and this suite's first assertion catches the drift.
+    function installPlanCfg() {
+        return Object.assign(Config.defaults(), {
+            disks: ["/dev/vda", "/dev/vdb"],
+            hostname: "myhost",
+            username: "alice",
+            gitName: "Alice Q",
+            gitEmail: "alice@example.org",
+            userPassword: "usersecret",
+            swapSizeGib: 16
+        });
+    }
+
+    function test_planFor_reproduces_install_rs_plan_argv_for_argv() {
+        const actions = Plan.planFor(installPlanCfg());
+        verify(deepEqual(actions, installPlanFixture), JSON.stringify(actions, null, 2) + "\n!==\n" + JSON.stringify(installPlanFixture, null, 2));
+    }
+
+    function test_recovery_key_capture_is_present_and_the_only_one() {
+        const actions = Plan.planFor(installPlanCfg());
+        const withRecoveryKey = actions.filter(step => step.action.capture === "RecoveryKey");
+        compare(withRecoveryKey.length, 1, "exactly one action may carry RecoveryKey capture — it is the LUKS recovery key");
+        compare(withRecoveryKey[0].title, "Enroll recovery key");
+        compare(withRecoveryKey[0].action.kind, "Command");
+    }
+
     // --- disks.js: parseLsblk / autodetectDisk against the real fixture ---
 
     property string fixture: ""
+    property var installPlanFixture: ({})
 
     function initTestCase() {
         fixture = readFixture("../../rust/installer-tui/tests/fixtures/lsblk.json");
+        installPlanFixture = JSON.parse(readFixture("fixtures/install-plan.json"));
     }
 
     function test_keeps_only_writable_physical_disks() {
