@@ -34,8 +34,20 @@ import "watch.js" as Watch
 Scope {
     id: root
 
-    readonly property string rulesPath: Quickshell.env("HOME") + "/.config/dots-shell/monitors.json"
-    readonly property string overridesPath: Quickshell.env("HOME") + "/.config/dots-shell/overrides.json"
+    // $XDG_CONFIG_HOME, falling back to ~/.config the way the XDG base
+    // directory spec requires — found by a headless test sandbox that set
+    // XDG_CONFIG_HOME to an isolated tmpdir and had this file ignore it,
+    // reading the real ~/.config instead (harmlessly, since nothing was
+    // there yet, but a home-manager rebuild under a customised
+    // XDG_CONFIG_HOME would have written the rules file somewhere this
+    // watcher would never look).
+    readonly property string configHome: {
+        const xdg = Quickshell.env("XDG_CONFIG_HOME");
+        return xdg && xdg.length > 0 ? xdg : Quickshell.env("HOME") + "/.config";
+    }
+
+    readonly property string rulesPath: root.configHome + "/dots-shell/monitors.json"
+    readonly property string overridesPath: root.configHome + "/dots-shell/overrides.json"
 
     // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
     // without exporting it, the same gap Theme.qml's own tintState works

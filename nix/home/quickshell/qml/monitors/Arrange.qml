@@ -48,6 +48,13 @@ Scope {
     property var monitorsSnapshot: []
     property var transform: ({ originX: 0, originY: 0, scale: 1 })
 
+    // $XDG_CONFIG_HOME, falling back to ~/.config — see Watcher.qml's own
+    // property of the same name for why this isn't just "$HOME/.config".
+    readonly property string configHome: {
+        const xdg = Quickshell.env("XDG_CONFIG_HOME");
+        return xdg && xdg.length > 0 ? xdg : Quickshell.env("HOME") + "/.config";
+    }
+
     function open(): void {
         root.refreshSnapshot();
         window.visible = true;
@@ -117,7 +124,7 @@ Scope {
     FileView {
         id: overridesFile
 
-        path: Quickshell.env("HOME") + "/.config/dots-shell/overrides.json"
+        path: root.configHome + "/dots-shell/overrides.json"
         adapter: JsonAdapter {}
     }
     // qmllint enable unresolved-type
