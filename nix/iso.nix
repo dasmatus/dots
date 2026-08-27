@@ -119,19 +119,49 @@ in
       # Mesa's llvmpipe (see environment.systemPackages above) — pixman only
       # changes how cage composites what Quickshell hands it, not how
       # Quickshell draws it.
+      # This is a system service, not a login session: nothing sets
+      # XDG_RUNTIME_DIR for it, and cage refuses outright without one
+      # ("XDG_RUNTIME_DIR is not set in the environment", exit 1) — no
+      # renderer is ever selected, so it crash-loops forever before any of
+      # the GBM/EGL/pixman reasoning above even gets exercised.
+      # RuntimeDirectory=dots-installer asks systemd to create
+      # /run/dots-installer itself (owned by the unit's User/Group, which
+      # defaults to root here, and torn down on stop) instead of
+      # hand-rolling a path here that could drift from what actually gets
+      # created; the Environment entry below just has to point at the same
+      # name.
+      RuntimeDirectory = "dots-installer";
       Environment = [
         "WLR_RENDERER=pixman"
         "WLR_BACKENDS=drm,libinput"
+        "XDG_RUNTIME_DIR=%t/dots-installer"
       ];
       StandardInput = "tty";
       StandardOutput = "tty";
-      StandardError = "journal";
+      # journal+console duplicates stderr to the kernel console in addition
+      # to the journal. tty1 is where StandardOutput already goes and where
+      # a human at the machine would look, but the smoke test — and any
+      # future automation — watches ttyS0, which is a *console*
+      # (boot.kernelParams above), not a getty. Without this, a crash here
+      # is a 50-times-repeated one-liner sitting in the journal where
+      # nothing is ever asked to look, and the test just times out at
+      # 6600s with no clue why. This is what turned a bug into a
+      # 110-minute discovery instead of an immediate one.
+      StandardError = "journal+console";
       TTYPath = "/dev/tty1";
       TTYReset = true;
       TTYVHangup = true;
       Type = "idle";
       Restart = "on-failure";
       RestartSec = 2;
+      # Bound the crash-loop instead of letting it repeat for the full
+      # 6600s the smoke test is willing to wait: 5 failures inside a
+      # minute is already proof this unit is broken, and StartLimitBurst
+      # kicks the unit to `failed` so `systemctl status` (and the serial
+      # marker above) says so quickly rather than the test discovering it
+      # only by timing out.
+      StartLimitIntervalSec = 60;
+      StartLimitBurst = 5;
     };
   };
 }
