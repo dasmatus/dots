@@ -4,6 +4,7 @@
 //! privileges; the memory store built on top of it is a separate schema.
 pgrx::pg_module_magic!();
 
+mod fsutil;
 mod hash;
 mod mermaid;
 mod render;
@@ -56,6 +57,17 @@ mod agentmem {
         }
     }
 
+    /// Whether `path` exists on the local filesystem. Not `IMMUTABLE` --
+    /// the filesystem is external state, and the whole point of this
+    /// function is to notice when it has changed. Backs the staleness
+    /// sweep's file-missing check (`agentmem._mark_stale`, migration
+    /// 0004): a `remembered` fact whose `source_ref` names a file must not
+    /// outlive that file.
+    #[pg_extern(volatile)]
+    fn file_exists_v1(path: &str) -> bool {
+        crate::fsutil::path_exists(path)
+    }
+
     /// Render parallel edge arrays back into a flowchart document.
     // pgrx's `text[]` binding hands the extern function an owned `Vec`
     // rather than a borrowed slice, so this can't take `&[String]` directly.
@@ -82,6 +94,7 @@ mod tests {
     include!("../tests/hash.rs");
     include!("../tests/mermaid_edges.rs");
     include!("../tests/edges_to_mermaid.rs");
+    include!("../tests/file_exists.rs");
 }
 
 #[cfg(test)]
