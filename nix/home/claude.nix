@@ -50,13 +50,18 @@ let
         import urllib.request
 
         from mcp.server.fastmcp import FastMCP
+        from mcp.types import ToolAnnotations
 
         SEARXNG = "http://127.0.0.1:8888"
 
         mcp = FastMCP("searxng")
 
 
-        @mcp.tool()
+        # readOnlyHint defaults to false — "this tool may change state" — and plan mode
+        # denies any MCP tool that says so, whatever the allow-list holds. Read-only is
+        # necessary but not sufficient there: a matching permissions.allow entry is the
+        # other half.
+        @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True))
         def web_search(query: str, pageno: int = 1, time_range: str = "", categories: str = "") -> str:
             """Search the web through the local SearXNG metasearch instance.
 
@@ -275,6 +280,12 @@ in
           "Bash(chmod +x *)"
           "Bash(bash -n /var/home/matus/Dokumente/schule/demo-maturitna-praca/mkosi.extra/usr/local/sbin/oci-sysupdate)"
           "Bash(cargo vendor *)"
+          # SearXNG is the default web search for every session (see the
+          # `context` block below), so this tool fires constantly, and one GET
+          # against a loopback instance is not worth a prompt. Plan mode needs
+          # both halves: the readOnlyHint annotation above clears its read-only
+          # gate, and this rule is what then approves the call.
+          "mcp__plugin_hm_searxng__web_search"
           # The auto-mode-setup skill drafts auto-mode config and needs to
           # create files under the project's .claude/ and ~/.claude/ without
           # prompting. NB: ~/.claude/settings.json itself is HM-managed, so
