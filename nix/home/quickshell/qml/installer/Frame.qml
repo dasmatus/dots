@@ -7,12 +7,6 @@
 // under a plain signal so screens never need `import QtQuick.Controls`
 // themselves just to grab keyboard focus back after a push/replace — only
 // this file needs to know StackView exists.
-//
-// Every size/position here is a plain x/y/width/height binding, never
-// `anchors` — not because Item's own anchor system is layer-shell (it is
-// not; only a PanelWindow's edge anchors and exclusiveZone are), but because
-// this whole directory stays free of the keyword so a plain grep for it
-// keeps meaning something under qml/installer/.
 import QtQuick
 import QtQuick.Controls
 import ".."
@@ -30,24 +24,17 @@ Item {
 
     StackView.onActivated: root.activated()
 
-    x: 0
-    y: 0
-    width: parent ? parent.width : 0
-    height: parent ? parent.height : 0
+    anchors.fill: parent
 
     Rectangle {
-        x: 0
-        y: 0
-        width: parent.width
-        height: parent.height
+        anchors.fill: parent
         color: Theme.bg
     }
 
     Column {
-        x: (root.width - width) / 2
-        y: (root.height - height) / 2
+        anchors.centerIn: parent
 
-        width: Math.min(720, root.width - 160)
+        width: Math.min(720, parent.width - 160)
         spacing: 20
 
         Text {

@@ -103,10 +103,7 @@ ShellRoot {
         StackView {
             id: stack
 
-            x: 0
-            y: 0
-            width: parent.width
-            height: parent.height
+            anchors.fill: parent
 
             initialItem: welcomeComponent
         }

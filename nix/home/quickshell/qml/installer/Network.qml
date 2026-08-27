@@ -215,17 +215,13 @@ Frame {
                     color: index === root.selected ? Theme.selection : "transparent"
 
                     Row {
-                        id: rowContent
-
-                        x: 12
-                        y: 0
-                        width: parent.width - 12
-                        height: parent.height
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
 
                         spacing: 12
 
                         Text {
-                            y: (rowContent.height - height) / 2
+                            anchors.verticalCenter: parent.verticalCenter
 
                             text: root.signalBars(row.modelData.signal)
                             color: Theme.accent
@@ -235,7 +231,7 @@ Frame {
                         }
 
                         Text {
-                            y: (rowContent.height - height) / 2
+                            anchors.verticalCenter: parent.verticalCenter
 
                             text: row.modelData.ssid + (root.isOpen(row.modelData.security) ? "" : "  🔒")
                             color: Theme.fg
