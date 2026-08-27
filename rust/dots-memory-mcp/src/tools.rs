@@ -1,5 +1,8 @@
-//! The five memory tools, each a thin translation from its MCP arguments
-//! to a `MemoryStore` call and back to an MCP result.
+//! The memory tools, each a thin translation from its MCP arguments to a
+//! `MemoryStore` call and back to an MCP result: the five from the design
+//! spec's fixed interface contract, plus `note_session`, which backs
+//! `agentmem.note_session` (migration 0004) and is the only path a
+//! session's distilled summary can be written through.
 //!
 //! Every handler takes `scope` as an argument on every call. None of them
 //! reads a field on `self` for it, because there is no such field:
@@ -110,6 +113,29 @@ pub struct SessionNoteArgs {
     pub fact_id: i64,
     /// The session doing the citing.
     pub session: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct NoteSessionArgs {
+    /// The session this summary belongs to.
+    pub session: String,
+    /// The memory scope this session's summary belongs to.
+    pub scope: String,
+    /// The distilled summary text. Must already have passed the unslop
+    /// cleaning pass; pass its `unslop_token` verbatim, never fabricated.
+    pub summary: String,
+    /// Files touched this session, folded into the stored summary.
+    #[serde(default)]
+    pub files: Vec<String>,
+    /// Decisions made this session, folded into the stored summary.
+    #[serde(default)]
+    pub decisions: String,
+    /// Work left unfinished this session, folded into the stored summary.
+    #[serde(default)]
+    pub unfinished: String,
+    /// The token proving `summary` passed the unslop cleaning pass.
+    /// Forwarded verbatim to `agentmem.note_session`.
+    pub unslop_token: String,
 }
 
 /// The MCP server: five tools over one `MemoryStore`. `S` is generic so
@@ -276,6 +302,35 @@ where
         Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "cited fact {}",
             args.fact_id
+        ))]))
+    }
+
+    #[tool(description = "Store this session's distilled summary. `summary` \
+                        must already have passed the unslop cleaning pass; \
+                        pass its `unslop_token` verbatim, never fabricated. \
+                        A second call for the same session replaces the \
+                        summary rather than appending to it: exactly one \
+                        summary row exists per session.")]
+    pub async fn note_session(
+        &self,
+        Parameters(args): Parameters<NoteSessionArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let session = parse_session(&args.session)?;
+        self.store
+            .note_session(
+                session,
+                &args.scope,
+                &args.summary,
+                &args.files,
+                &args.decisions,
+                &args.unfinished,
+                &args.unslop_token,
+            )
+            .await
+            .map_err(|err| McpError::internal_error(err.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+            "noted summary for session {}",
+            args.session
         ))]))
     }
 }

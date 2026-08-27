@@ -94,6 +94,19 @@ impl MemoryStore for FakeStore {
     ) -> Result<String, StoreError> {
         Ok(String::new())
     }
+
+    async fn note_session(
+        &self,
+        _session: Uuid,
+        _scope: &str,
+        _summary: &str,
+        _files: &[String],
+        _decisions: &str,
+        _unfinished: &str,
+        _unslop_token: &str,
+    ) -> Result<(), StoreError> {
+        Ok(())
+    }
 }
 
 fn text_of(result: &rmcp::model::CallToolResult) -> String {
