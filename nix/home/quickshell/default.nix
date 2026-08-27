@@ -25,6 +25,104 @@ let
 in
 {
   options.programs.dots-shell = {
+    # qml/monitors/Watcher.qml's ruleset, replacing nix/home/hyprmon.nix's
+    # xdg.configFile."hyprmon/rules.json" (deleted alongside the crate — see
+    # docs/superpowers/plans/2026-08-26-qs-migration-2b-monitor-surface.md).
+    # Field names are plan.js's own (matchName/matchDescription, camelCase
+    # throughout) rather than the crate's serde ones (match_name/
+    # match_description): rules.json is no longer a Rust struct's wire
+    # format read by anything else, so there is no reason to keep the
+    # underscore spelling and then adapt it back at read time the way
+    # tst_monitor_parity.qml's adaptRule still has to for the frozen fixture
+    # captured from the crate.
+    monitorRules = lib.mkOption {
+      type = lib.types.listOf (
+        lib.types.submodule {
+          options = {
+            name = lib.mkOption {
+              type = lib.types.str;
+              description = "Rule name, for logging only — matching is by matchName/matchDescription.";
+            };
+            matchName = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = "Regex against the monitor's connector name (e.g. \"^DP-1$\").";
+            };
+            matchDescription = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = "Regex against the monitor's EDID description.";
+            };
+            resolution = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = "\"WxH\", \"WxH@R\", or unset for Hyprland's own preferred mode.";
+            };
+            scale = lib.mkOption {
+              type = lib.types.float;
+              description = "Hyprland monitor scale.";
+            };
+            position = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = "\"XxY\" to pin this monitor absolutely; unset to continue the horizontal layout.";
+            };
+            transform = lib.mkOption {
+              type = lib.types.nullOr lib.types.int;
+              default = null;
+              description = "Hyprland's monitor transform enum (0-7).";
+            };
+            vrr = lib.mkOption {
+              type = lib.types.enum [
+                "off"
+                "left"
+                "right"
+                "auto"
+              ];
+              default = "off";
+              description = "Variable refresh rate mode.";
+            };
+          };
+        }
+      );
+      # The two-monitor setup from AGENTS.md: a 27" 1080p 240Hz VRR panel
+      # (DP-1, ASUS VG279QM) on the left and a 25" 1200p 60Hz panel
+      # (HDMI-A-1, LG 25UM58) on its right, plus a "*" fallback so a
+      # hotplugged projector gets preferred/auto/1 instead of Hyprland's
+      # mirror-default — verbatim from the deleted hyprmon.nix.
+      default = [
+        {
+          name = "laptop-edp";
+          matchName = "^eDP-1$";
+          scale = 1.0;
+          vrr = "off";
+        }
+        {
+          name = "primary-240hz";
+          matchName = "^DP-1$";
+          matchDescription = "VG279QM";
+          resolution = "1920x1080@240";
+          scale = 1.0;
+          vrr = "left";
+        }
+        {
+          name = "secondary-60hz";
+          matchName = "^HDMI-A-1$";
+          matchDescription = "25UM58";
+          resolution = "2560x1200";
+          scale = 1.0;
+          vrr = "off";
+        }
+        {
+          name = "*";
+          scale = 1.0;
+          vrr = "off";
+        }
+      ];
+      description = "Monitor layout rules, read by the shell's hotplug watcher.";
+    };
+
+
     quicklinks = lib.mkOption {
       type = lib.types.listOf (
         lib.types.submodule {
@@ -90,5 +188,15 @@ in
     # Lands at $XDG_CONFIG_HOME/quickshell, which is where a bare `qs` looks
     # for shell.qml, so the compositor's exec line needs no --path.
     xdg.configFile."quickshell".source = tree;
+
+    # Watcher.qml's rules file. Deliberately a sibling of quickshell/ rather
+    # than inside it: quickshell/ is home-manager's whole-directory symlink
+    # into the built tree above (tree.nix's runCommand output), so nothing
+    # can be dropped alongside shell.qml at runtime — Arrange.qml's
+    # overrides.json needs exactly that, and lives here too, unmanaged by
+    # home-manager, once written once.
+    xdg.configFile."dots-shell/monitors.json".text = builtins.toJSON {
+      rules = cfg.monitorRules;
+    };
   };
 }

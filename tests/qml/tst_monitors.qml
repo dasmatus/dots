@@ -283,6 +283,23 @@ TestCase {
                 expected: [{ name: "HDMI-A-1", resolution: "2560x1200@60" }]
             },
             {
+                // The bug 2b fixes: real hyprctl spells every availableModes
+                // entry "WxH@RR.RRHz", not the bare "WxH@RR" every other row
+                // in this file uses. A monitor whose live refreshRate is
+                // stale (still reporting last session's 59.95) but whose
+                // 2560x1200 mode is actually capable of 143.86 must be raised
+                // to that mode's ceiling — 144 — not stuck at ceil(59.95)=60,
+                // which is what maxRefreshAt returned before the Hz suffix
+                // was stripped (see refreshFor's docstring).
+                tag: "a real hyprctl Hz-suffixed mode is parsed and raises the monitor to its top rate",
+                monitors: [Object.assign(monitor60hz(), {
+                    refresh: 59.95,
+                    availableModes: ["2560x1200@143.86Hz", "2560x1200@59.95Hz"]
+                })],
+                rules: rulesTwo(),
+                expected: [{ name: "HDMI-A-1", resolution: "2560x1200@144" }]
+            },
+            {
                 tag: "nvidia empty modes on the preferred path falls back too",
                 monitors: [Object.assign(monitor60hz(), { availableModes: [], name: "DP-9", description: "NVIDIA HDMI sink" })],
                 rules: rulesTwo(),

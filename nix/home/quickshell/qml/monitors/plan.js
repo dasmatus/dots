@@ -143,9 +143,20 @@ function parsePosition(s) {
     return [x, y];
 }
 
-// `1920x1080@239.76` -> [1920, 1080, 239.76]. null for a mode entry this
-// doesn't model — including real hyprctl's `WxH@RR.RRHz` shape, whose
-// trailing unit fails parseFloatStrict's plain-decimal check.
+// hyprctl's own availableModes entries spell the rate `RR.RRHz` (e.g.
+// `60.00Hz`), never the bare `RR` the rule/override vocabulary and the
+// fixtures ported from rust/hyprmon's tests use. Stripped here, and only
+// here: rule-authored resolutions (effectiveResolutionString's `@rate`
+// parsing) never carry this suffix, so treating it as part of the general
+// float grammar would silently accept malformed rule input instead of
+// leaving it for Hyprland to reject.
+function stripHzSuffix(s) {
+    return s.replace(/Hz$/i, "");
+}
+
+// `1920x1080@239.76` -> [1920, 1080, 239.76]; `1920x1080@60.00Hz` (the shape
+// hyprctl actually emits) -> [1920, 1080, 60]. null for a mode entry this
+// doesn't model.
 function parseMode(s) {
     const whRate = splitOnce(s, "@");
     if (!whRate)
@@ -155,7 +166,7 @@ function parseMode(s) {
         return null;
     const w = parseU32(parts[0]);
     const h = parseU32(parts[1]);
-    const rate = parseFloatStrict(whRate[1]);
+    const rate = parseFloatStrict(stripHzSuffix(whRate[1]));
     if (w === null || h === null || rate === null)
         return null;
     return [w, h, rate];
@@ -169,13 +180,10 @@ function roundUpRefresh(r) {
 }
 
 // Highest refresh the monitor advertises for resolution w×h, read from
-// availableModes entries of the form WxH@R. null when no mode matches at
-// that resolution — including on every real machine this was checked
-// against: hyprctl's own availableModes report "@60.00Hz" rather than the
-// bare "@60" the fixtures use, so parseMode's rate never parses and this
-// always returns null there, falling through to the live-refresh branch
-// below. That fallback is what actually fires on hardware; the exact-match
-// branch only fires for hand-built fixtures shaped like the Rust tests'.
+// availableModes entries of the form WxH@R (parseMode strips a trailing Hz
+// first, so this matches real hyprctl output, not just hand-built
+// fixtures). null when no mode matches at that resolution — the case
+// refreshFor's live-refresh fallback below exists for.
 function maxRefreshAt(modes, w, h) {
     let best = null;
     for (const mode of modes) {
