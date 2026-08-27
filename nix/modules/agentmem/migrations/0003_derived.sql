@@ -4,7 +4,7 @@
 -- scope's whole `origin = 'derived'` slice of agentmem.relation inside one
 -- transaction, stamped with the commit the extractor read. Derived edges
 -- carry no provenance and are never superseded (0001_schema.sql's
--- relation.superseded_at exists for `remembered` rows only) -- staleness
+-- relation.superseded_at exists for `remembered` rows only) — staleness
 -- for them is a rebuild, never a correction, so this function deletes the
 -- old set and inserts the new one rather than diffing.
 --

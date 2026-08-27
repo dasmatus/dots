@@ -85,7 +85,7 @@ self: {
   # friends), which is exactly what plan 5 task 2 asks it to assert
   # against. `src` above is only rust/dots-memory-derive, so inside the
   # build sandbox those repo-root files never exist and every test fails
-  # on a bare "No such file or directory" -- not a real regression. The
+  # on a bare "No such file or directory" — not a real regression. The
   # suite still runs correctly outside the sandbox: `nix run .#nix-lint`
   # (and plain `cargo test` from a checkout) exercises it against the
   # real tree.
