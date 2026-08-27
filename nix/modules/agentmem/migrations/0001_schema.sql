@@ -14,13 +14,22 @@
 -- (convert_to) is only STABLE, so it cannot appear in a generated
 -- column at all. See the design spec section 4 for the byte-for-byte
 -- collision this avoids.
-CREATE SCHEMA IF NOT EXISTS agentmem;
-
+-- No manual CREATE SCHEMA here: pg_agentmem's own extension script
+-- (pgrx's #[pg_schema] macro) issues its own CREATE SCHEMA IF NOT
+-- EXISTS agentmem, and CREATE EXTENSION ... SCHEMA agentmem demands
+-- the schema already exist. Pre-creating it manually collides with
+-- that self-creation -- "schema agentmem is not a member of
+-- extension pg_agentmem", since IF NOT EXISTS inside an extension
+-- script may only skip an object the extension already owns. Letting
+-- pg_agentmem create and own the schema first sidesteps that; pg_trgm
+-- and unaccent then install into it by name, which needs it to exist
+-- but not to be owned by either of them.
+--
 -- All three installed into agentmem itself rather than the default
 -- public schema: every API function below pins search_path to
 -- (agentmem, pg_temp), so similarity(), the trigram operators and the
 -- unaccent dictionary all need to resolve from inside this schema.
-CREATE EXTENSION IF NOT EXISTS pg_agentmem SCHEMA agentmem;
+CREATE EXTENSION IF NOT EXISTS pg_agentmem;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA agentmem;
 CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA agentmem;
 
