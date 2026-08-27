@@ -155,7 +155,28 @@ let
           fi
           ;;
         stop)
-          printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"nothing durable was recorded this session; if something was learned, call remember"}}\n'
+          # Claude Code hands a hook its event JSON on stdin. An empty read
+          # delimiter takes the whole of it in one go, and the regex lifts out the
+          # one field that matters. Parsing it here keeps postgresql_18 the only
+          # runtimeInput, the same reason basename above avoids coreutils.
+          payload=""
+          if [ ! -t 0 ]; then
+            IFS= read -r -d "" payload || true
+          fi
+          session=""
+          session_re='"session_id"[[:space:]]*:[[:space:]]*"([0-9a-fA-F-]{36})"'
+          if [[ $payload =~ $session_re ]]; then
+            session="''${BASH_REMATCH[1]}"
+          fi
+          # Without a session id there is nothing to ask the database about, and
+          # asserting "nothing was recorded" without having looked is precisely
+          # the bug this branch exists to fix. Stay quiet instead of guessing.
+          [ -n "$session" ] || exit 0
+          if wrote="$(psql -X -d matus -Atc \
+              "select agentmem.session_wrote('$session')" 2>/dev/null)" \
+              && [ "$wrote" = "f" ]; then
+            printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"nothing durable was recorded this session; if something was learned, call remember"}}\n'
+          fi
           ;;
       esac
       exit 0
