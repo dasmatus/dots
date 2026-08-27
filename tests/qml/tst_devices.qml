@@ -333,4 +333,30 @@ TestCase {
         compare(plan[1], Devices.powerOffCommand(hostile));
         verify(plan[1].indexOf(hostile) !== -1);
     }
+
+    // A superfloppy is a whole "disk" carrying a filesystem directly, no
+    // partition table, no children — parseDevices sets its diskPath to its
+    // own path and leaves type "disk". A plan that only looks for type
+    // "part" would skip its unmount and power the disk off still mounted,
+    // the closest thing to data loss in this file.
+    function test_eject_plan_unmounts_a_mounted_superfloppy_before_powering_off() {
+        const diskPath = "/dev/sdc";
+        const devices = [
+            { path: diskPath, diskPath: diskPath, type: "disk", fstype: "exfat", mountPoint: "/run/media/sdc", hotplug: true }
+        ];
+
+        const plan = Devices.ejectPlan(devices, diskPath);
+
+        compare(plan.length, 2);
+        compare(plan[0], Devices.unmountCommand(diskPath));
+        compare(plan[1], Devices.powerOffCommand(diskPath));
+
+        // powerOffCommand and unmountCommand each build a fresh array, so
+        // ordering has to be checked by content, not by indexOf identity:
+        // every step before the last must be a `udisksctl unmount`, and
+        // only the last step may be the `udisksctl power-off`.
+        for (let i = 0; i < plan.length - 1; i++)
+            verify(plan[i][1] === "unmount", "every step before the power-off must be an unmount");
+        verify(plan[plan.length - 1][1] === "power-off", "the power-off must be the last step");
+    }
 }

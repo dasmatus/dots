@@ -169,12 +169,17 @@ function powerOffCommand(path) {
 }
 
 /// The eject sequence for one disk: unmount every one of its mounted
-/// partitions, then power the disk off. Unmounting a partition that was
-/// never mounted is a udisksctl error the caller doesn't need, so only
-/// mounted ones get a step.
+/// devices, then power the disk off. "Its mounted devices" is partitions
+/// AND the disk-as-superfloppy case parseDevices also emits — a childless
+/// disk with a filesystem directly on it has diskPath equal to its own
+/// path and type "disk", not "part", so filtering on type "part" alone
+/// skips its unmount and hands udisksctl a power-off for a device that is
+/// still mounted. Unmounting a device that was never mounted is a
+/// udisksctl error the caller doesn't need, so only mounted ones get a
+/// step.
 function ejectPlan(devices, diskPath) {
-    const mountedPartitions = devices.filter(d => d.diskPath === diskPath && d.type === "part" && d.mountPoint);
-    const plan = mountedPartitions.map(d => unmountCommand(d.path));
+    const mountedOnDisk = devices.filter(d => d.diskPath === diskPath && d.mountPoint);
+    const plan = mountedOnDisk.map(d => unmountCommand(d.path));
     plan.push(powerOffCommand(diskPath));
     return plan;
 }
