@@ -36,7 +36,12 @@ in
       enable = true;
       package = pkgs.postgresql_18;
       enableTCPIP = false;
-      extensions = ps: lib.optional (pgAgentmem != null) pgAgentmem ++ [ ps.pg_trgm ps.unaccent ];
+      # Only pg_agentmem. pg_trgm and unaccent are contrib and already ship
+      # inside the base package's share/postgresql/extension, so there is no
+      # postgresql18Packages attribute to name here and listing them fails
+      # eval with "attribute 'pg_trgm' missing". Migration 0001 reaches them
+      # with a plain CREATE EXTENSION, which is all they ever needed.
+      extensions = _ps: lib.optional (pgAgentmem != null) pgAgentmem;
       ensureDatabases = [ username ];
       ensureUsers = [
         {
