@@ -6,6 +6,110 @@
 }:
 let
   lua = lib.generators.mkLuaInline;
+
+  cfg = config.dots.session;
+  actions = import ./session/actions.nix;
+  keyedActions = builtins.filter (a: a.key != null) actions;
+
+  # The dispatcher map: `dispatch` (actions.nix) → the Lua expression that
+  # invokes it. This is the WM-specific half of this file — the only part
+  # that knows Hyprland's own `hl.dsp.*` spelling — and is exactly what a
+  # future nix/home/sway.nix replaces with a map onto `swaymsg`. Keyed off
+  # `dispatch`, never off `name`: several `name`s (e.g. `focus.left` and
+  # `focus.left-arrow`) share one `dispatch` value, and looking this up by
+  # `name` instead would either miss rows or duplicate dispatchers.
+  dispatchMap = {
+    "window.close" = lua "hl.dsp.window.close()";
+    "window.float-toggle" = lua ''hl.dsp.window.float({ action = "toggle" })'';
+    "window.fullscreen" = lua "hl.dsp.window.fullscreen()";
+    "window.pseudo" = lua "hl.dsp.window.pseudo()";
+
+    "workspace.toggle-scratch" = lua ''hl.dsp.workspace.toggle_special("scratch")'';
+    "workspace.move-scratch" = lua ''hl.dsp.window.move({ workspace = "special:scratch" })'';
+    "workspace.toggle-magic" = lua ''hl.dsp.workspace.toggle_special("magic")'';
+    "workspace.move-magic" = lua ''hl.dsp.window.move({ workspace = "special:magic" })'';
+    "workspace.next" = lua ''hl.dsp.focus({ workspace = "e+1" })'';
+    "workspace.prev" = lua ''hl.dsp.focus({ workspace = "e-1" })'';
+
+    "focus.left" = lua ''hl.dsp.focus({ direction = "l" })'';
+    "focus.right" = lua ''hl.dsp.focus({ direction = "r" })'';
+    "focus.up" = lua ''hl.dsp.focus({ direction = "u" })'';
+    "focus.down" = lua ''hl.dsp.focus({ direction = "d" })'';
+
+    "window.move-left" = lua ''hl.dsp.window.move({ direction = "l" })'';
+    "window.move-right" = lua ''hl.dsp.window.move({ direction = "r" })'';
+    "window.move-up" = lua ''hl.dsp.window.move({ direction = "u" })'';
+    "window.move-down" = lua ''hl.dsp.window.move({ direction = "d" })'';
+
+    "window.resize-left" = lua "hl.dsp.window.resize({ x = -40, y = 0, relative = true })";
+    "window.resize-right" = lua "hl.dsp.window.resize({ x = 40, y = 0, relative = true })";
+    "window.resize-up" = lua "hl.dsp.window.resize({ x = 0, y = -40, relative = true })";
+    "window.resize-down" = lua "hl.dsp.window.resize({ x = 0, y = 40, relative = true })";
+
+    "window.drag" = lua "hl.dsp.window.drag()";
+    "window.resize" = lua "hl.dsp.window.resize()";
+  }
+  # workspace 1-10 dispatchers, focus and move: generated rather than
+  # spelled out twenty times over, the same way actions.nix itself
+  # generates the rows that reference them.
+  // lib.listToAttrs (
+    map (
+      n:
+      lib.nameValuePair "workspace.focus-${toString n}" (
+        lua "hl.dsp.focus({ workspace = ${toString n} })"
+      )
+    ) (lib.range 1 10)
+  )
+  // lib.listToAttrs (
+    map (
+      n:
+      lib.nameValuePair "workspace.move-${toString n}" (
+        lua "hl.dsp.window.move({ workspace = ${toString n} })"
+      )
+    ) (lib.range 1 10)
+  );
+
+  # Key rendering. `mods = [ ]` passes the key straight through as a plain
+  # Nix string (`"Print"`, `"XF86AudioMute"`), which HM emits as a quoted lua
+  # string. Every other row's `mods` starts with "SUPER": `mod` (the local
+  # below) is concatenated with the remaining modifiers and the key, e.g.
+  # `[ "SUPER" "SHIFT" ]` with key `F` becomes `mod .. " + SHIFT + F"`.
+  mkKey =
+    a:
+    if a.mods == [ ] then
+      a.key
+    else if lib.head a.mods == "SUPER" then
+      lua ''mod .. " + ${lib.concatStringsSep " + " (lib.tail a.mods ++ [ a.key ])}"''
+    else
+      throw "nix/home/hyprland.nix: mkKey does not know how to render a mods list not starting with SUPER, from action `${a.name}`";
+
+  # Dispatcher rendering. `kind = "dispatch"` rows have no command at all —
+  # look their `dispatch` up in `dispatchMap`. Every other keyed row
+  # (`app`/`action`) has a command in `config.dots.session.commands`, keyed
+  # by `name`, run through `hl.dsp.exec_cmd`. `builtins.toJSON` escapes the
+  # literal double quotes some commands carry (e.g. the `$RANDOM`-suffixed
+  # unit name) into a lua string literal that Lua parses the same way JSON
+  # does; this is ASCII-only input, so `toJSON`'s `\uXXXX` escaping of
+  # non-ASCII text never fires here — widening the commands to non-ASCII
+  # would need a second look at this.
+  mkDispatch =
+    a:
+    if a.kind == "dispatch" then
+      dispatchMap.${a.dispatch}
+        or (throw "nix/home/hyprland.nix: no Lua dispatcher registered for dispatch `${a.dispatch}`, from action `${a.name}`")
+    else
+      lua "hl.dsp.exec_cmd(${builtins.toJSON cfg.commands.${a.name}})";
+
+  # One `hl.bind` per keyed row: key, dispatcher, then the flags the row
+  # carries — `repeating` and `mouse` are never both true for the same row.
+  mkBind = a: {
+    _args = [
+      (mkKey a)
+      (mkDispatch a)
+    ]
+    ++ lib.optional a.repeating { repeating = true; }
+    ++ lib.optional a.mouse { mouse = true; };
+  };
 in
 {
   systemd.user.services.hyprlock = {
@@ -52,98 +156,35 @@ in
       # applied at runtime by the hyprmon daemon (nix/home/hyprmon.nix) via
       # `hyprctl eval 'hl.monitor({...})'`, not from this config file.
 
-      # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
-      # has no exec-once; hyprland.start fires once at compositor boot. Called
-      # by name (like waybar/nm-applet) since wallpaper-tui is in home.packages.
-      # The cheatsheet is part of the shell now, so there is no daemon to start
-      # and no first-login sentinel to keep: `qs` brings it with everything
-      # else. NB comments here are Nix (#), not Lua (--)
-      # — anything inside the `lua ''...''` inline is emitted verbatim into
-      # hyprland.lua.
-      on = {
-        _args = [
-          "hyprland.start"
-          (lua ''
-            function()
-              -- awww-daemon must be up before wallpaper-tui --restore
-              -- talks to it; awww img blocks briefly and retries, so the
-              -- ordering here is belt and braces rather than a race fix.
-              hl.exec_cmd("awww-daemon")
-              hl.exec_cmd("qs")
-              hl.exec_cmd("hyprmon apply")
-              -- The bar's network pill reports state; nm-applet's tray
-              -- icon is what actually offers a menu to switch networks,
-              -- so it stays until the shell grows that.
-              hl.exec_cmd("nm-applet --indicator")
-              hl.exec_cmd("wallpaper-tui --restore")
-            end'')
-        ];
-      };
+      # No exec-once / hl.on("hyprland.start", ...) block. The five commands
+      # it used to run at compositor start (awww-daemon, qs, hyprmon apply,
+      # nm-applet, wallpaper-tui --restore) are now systemd --user units
+      # WantedBy graphical-session.target (nix/home/session/default.nix), so
+      # nothing needs to launch them from the Lua DSL any more.
 
       # env = [ "X,24" … ] (hyprlang comma-strings) → one hl.env(name, val)
-      # call per pair, via _args.
-      env = [
-        {
-          _args = [
-            "XCURSOR_SIZE"
-            "24"
-          ];
-        }
-        {
-          _args = [
-            "XCURSOR_THEME"
-            "Adwaita"
-          ];
-        }
-        {
-          _args = [
-            "XDG_CURRENT_DESKTOP"
-            "Hyprland"
-          ];
-        }
-        {
-          _args = [
-            "XDG_SESSION_TYPE"
-            "wayland"
-          ];
-        }
-        {
-          _args = [
-            "XDG_SESSION_DESKTOP"
-            "Hyprland"
-          ];
-        }
-        {
-          _args = [
-            "QT_QPA_PLATFORM"
-            "wayland"
-          ];
-        }
-        {
-          _args = [
-            "QT_QPA_PLATFORMTHEME"
-            "gtk3"
-          ];
-        }
-        {
-          _args = [
-            "MOZ_ENABLE_WAYLAND"
-            "1"
-          ];
-        }
-        {
-          _args = [
-            "NIXOS_OZONE_WL"
-            "1"
-          ];
-        }
-        {
-          _args = [
-            "GDK_BACKEND"
-            "wayland,x11"
-          ];
-        }
-      ];
+      # call per pair, via _args. The eight portable variables come from
+      # `config.dots.session.sessionVariables` (nix/home/session/default.nix)
+      # — the same attrset `systemd.user.sessionVariables` reads, so the two
+      # can never drift — merged with the two that stay WM-specific here,
+      # since both are always "Hyprland". `lib.mapAttrsToList` walks names in
+      # sorted order, so the rendered hyprland.lua now lists these
+      # alphabetically rather than in the hand-written order above.
+      env =
+        lib.mapAttrsToList
+          (name: value: {
+            _args = [
+              name
+              value
+            ];
+          })
+          (
+            cfg.sessionVariables
+            // {
+              XDG_CURRENT_DESKTOP = "Hyprland";
+              XDG_SESSION_DESKTOP = "Hyprland";
+            }
+          );
 
       # general/decoration/dwindle/master/misc/input/animations.enabled
       # all go into ONE hl.config({ … }) call. `col.*` (dotted in
@@ -372,547 +413,26 @@ in
       # expression (mod .. " + Q") and the dispatcher (hl.dsp.*) so HM
       # emits them verbatim. Plain Nix strings ("Print", "XF86AudioMute")
       # pass through as quoted lua strings for binds with no modifier.
-      bind = [
-        # launchers
-        {
-          _args = [
-            (lua ''mod .. " + Return"'')
-            (lua ''hl.dsp.exec_cmd("kitty")'')
-          ];
-        }
-        # The launcher is a Quickshell surface the shell already has open, so
-        # this toggles it rather than spawning anything. beamenu ran a fresh
-        # binary per keypress and got away with it because layer-shell plus
-        # cairo starts fast; not starting at all is faster still.
-        #
-        # The IPC function is `toggle` and not `show` for a reason worth
-        # knowing: `qs ipc call launcher show` is swallowed by the `qs ipc show`
-        # subcommand, which prints the handler listing and exits successfully
-        # without calling anything.
-        #
-        # One bind, not three. SUPER+D and SUPER+SHIFT+E both ran plain
-        # `beamenu` (the second one's comment claimed a pre-seeded query, which
-        # nothing ever seeded), and SUPER+comma skipped the launcher to open the
-        # settings plugin's canvas view directly. Everything they reached is
-        # inside the panel.
-        {
-          _args = [
-            (lua ''mod .. " + Space"'')
-            (lua ''hl.dsp.exec_cmd("qs ipc call launcher toggle")'')
-          ];
-        }
-        # Nautilus directly (GNOME Files, services.gnome.core-apps) — the
-        # rofi-files.sh dmenu browser retired with the HyprTile conversion.
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + F"'')
-            (lua ''hl.dsp.exec_cmd("nautilus")'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + O"'')
-            (lua ''hl.dsp.exec_cmd("obsidian")'')
-          ];
-        }
-        # Zed editor — the GUI code editor that replaces VSCodium. The nixpkgs
-        # `zed-editor` package installs its binary as `zeditor` (its
-        # meta.mainProgram), not `zed`, so the bare command name here is that
-        # binary. programs.zed-editor (nix/home/zed.nix) puts it on PATH.
-        {
-          _args = [
-            (lua ''mod .. " + Z"'')
-            (lua ''hl.dsp.exec_cmd("zeditor")'')
-          ];
-        }
-        # The keybind cheatsheet (nix/home/keybinds.nix). A plain toggle now:
-        # the once-per-install sentinel and the --force flag that skipped it
-        # went with eww.
-        {
-          _args = [
-            (lua ''mod .. " + slash"'')
-            (lua ''hl.dsp.exec_cmd("qs ipc call cheatsheet toggle")'')
-          ];
-        }
-        # The settings form (rust/settings-global, rendered by the shell). This
-        # bind was retired when the settings menu became a beamenu plugin
-        # answering the `set ` keyword, on the grounds that one door into the
-        # launcher beat three. That keyword went with beamenu, and a form the
-        # shell draws itself has no launcher row to hide behind, so the direct
-        # bind comes back.
-        {
-          _args = [
-            (lua ''mod .. " + comma"'')
-            (lua ''hl.dsp.exec_cmd("qs ipc call settings toggle")'')
-          ];
-        }
-        #
-        # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved
-        # for the magic special workspace (was double-bound in hyprlang).
-
-        # window ops
-        {
-          _args = [
-            (lua ''mod .. " + Q"'')
-            (lua "hl.dsp.window.close()")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + Space"'')
-            (lua ''hl.dsp.window.float({ action = "toggle" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + F"'')
-            (lua "hl.dsp.window.fullscreen()")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + P"'')
-            (lua "hl.dsp.window.pseudo()")
-          ];
-        }
-
-        # scratch special workspace
-        {
-          _args = [
-            (lua ''mod .. " + minus"'')
-            (lua ''hl.dsp.workspace.toggle_special("scratch")'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + minus"'')
-            (lua ''hl.dsp.window.move({ workspace = "special:scratch" })'')
-          ];
-        }
-
-        # focus directional (HJKL + arrows)
-        {
-          _args = [
-            (lua ''mod .. " + H"'')
-            (lua ''hl.dsp.focus({ direction = "l" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + L"'')
-            (lua ''hl.dsp.focus({ direction = "r" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + K"'')
-            (lua ''hl.dsp.focus({ direction = "u" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + J"'')
-            (lua ''hl.dsp.focus({ direction = "d" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + Left"'')
-            (lua ''hl.dsp.focus({ direction = "l" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + Right"'')
-            (lua ''hl.dsp.focus({ direction = "r" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + Up"'')
-            (lua ''hl.dsp.focus({ direction = "u" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + Down"'')
-            (lua ''hl.dsp.focus({ direction = "d" })'')
-          ];
-        }
-
-        # move window directional (SHIFT + HJKL/arrows)
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + H"'')
-            (lua ''hl.dsp.window.move({ direction = "l" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + L"'')
-            (lua ''hl.dsp.window.move({ direction = "r" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + K"'')
-            (lua ''hl.dsp.window.move({ direction = "u" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + J"'')
-            (lua ''hl.dsp.window.move({ direction = "d" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + Left"'')
-            (lua ''hl.dsp.window.move({ direction = "l" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + Right"'')
-            (lua ''hl.dsp.window.move({ direction = "r" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + Up"'')
-            (lua ''hl.dsp.window.move({ direction = "u" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + Down"'')
-            (lua ''hl.dsp.window.move({ direction = "d" })'')
-          ];
-        }
-
-        # workspace 1-10 (key 0 → workspace 10)
-        {
-          _args = [
-            (lua ''mod .. " + 1"'')
-            (lua "hl.dsp.focus({ workspace = 1 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 2"'')
-            (lua "hl.dsp.focus({ workspace = 2 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 3"'')
-            (lua "hl.dsp.focus({ workspace = 3 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 4"'')
-            (lua "hl.dsp.focus({ workspace = 4 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 5"'')
-            (lua "hl.dsp.focus({ workspace = 5 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 6"'')
-            (lua "hl.dsp.focus({ workspace = 6 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 7"'')
-            (lua "hl.dsp.focus({ workspace = 7 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 8"'')
-            (lua "hl.dsp.focus({ workspace = 8 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 9"'')
-            (lua "hl.dsp.focus({ workspace = 9 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + 0"'')
-            (lua "hl.dsp.focus({ workspace = 10 })")
-          ];
-        }
-
-        # move window to workspace 1-10
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 1"'')
-            (lua "hl.dsp.window.move({ workspace = 1 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 2"'')
-            (lua "hl.dsp.window.move({ workspace = 2 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 3"'')
-            (lua "hl.dsp.window.move({ workspace = 3 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 4"'')
-            (lua "hl.dsp.window.move({ workspace = 4 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 5"'')
-            (lua "hl.dsp.window.move({ workspace = 5 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 6"'')
-            (lua "hl.dsp.window.move({ workspace = 6 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 7"'')
-            (lua "hl.dsp.window.move({ workspace = 7 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 8"'')
-            (lua "hl.dsp.window.move({ workspace = 8 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 9"'')
-            (lua "hl.dsp.window.move({ workspace = 9 })")
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + 0"'')
-            (lua "hl.dsp.window.move({ workspace = 10 })")
-          ];
-        }
-
-        # mouse-wheel workspace cycling
-        {
-          _args = [
-            (lua ''mod .. " + mouse_down"'')
-            (lua ''hl.dsp.focus({ workspace = "e+1" })'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + mouse_up"'')
-            (lua ''hl.dsp.focus({ workspace = "e-1" })'')
-          ];
-        }
-
-        # magic special workspace
-        {
-          _args = [
-            (lua ''mod .. " + S"'')
-            (lua ''hl.dsp.workspace.toggle_special("magic")'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + S"'')
-            (lua ''hl.dsp.window.move({ workspace = "special:magic" })'')
-          ];
-        }
-
-        # lock + session
-        {
-          _args = [
-            (lua ''mod .. " + ALT + L"'')
-            (lua ''hl.dsp.exec_cmd("hyprlock")'')
-          ];
-        }
-        # The power menu had its own SUPER+SHIFT+E bind running plain `beamenu`,
-        # the identical command SUPER+D ran, on the claim that the query was
-        # pre-seeded to the session commands. Nothing seeded it. Those commands
-        # live under the System pill, one Tab from opening SUPER+Space.
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + C"'')
-            (lua ''hl.dsp.exec_cmd("hyprctl reload")'')
-          ];
-        }
-
-        # Print (no modifier) grabs the focused output with hyprshot, which
-        # writes Screenshot_<stamp>.png into the xdg-user-dir PICTURES folder
-        # itself; notify-send surfaces the folder. SUPER+Print is the region
-        # variant. `&&` skips the notify if the capture failed. Both are also
-        # reachable from beamenu's System provider.
-        {
-          _args = [
-            "Print"
-            (lua ''hl.dsp.exec_cmd("hyprshot -m output && notify-send \"Screenshot saved in $(xdg-user-dir PICTURES 2>/dev/null || echo ~/Pictures)\"")'')
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + Print"'')
-            (lua ''hl.dsp.exec_cmd("hyprshot -m region && notify-send \"Screenshot saved in $(xdg-user-dir PICTURES 2>/dev/null || echo ~/Pictures)\"")'')
-          ];
-        }
-
-        # audio mute toggles (plain bind — not locked, not repeating)
-        #
-        # These call the shell's OSD rather than wpctl directly, so the change
-        # is drawn as it is made. That is the whole point: a mute toggle that
-        # shows nothing leaves you tapping the key to find out which way it
-        # went. The shell sets the Pipewire node itself instead of spawning
-        # wpctl, which dots-osd paid for twice per keypress.
-        # See nix/home/quickshell/qml/osd/Osd.qml.
-        {
-          _args = [
-            "XF86AudioMute"
-            (lua ''hl.dsp.exec_cmd("qs ipc call osd volumeMute")'')
-          ];
-        }
-        {
-          _args = [
-            "XF86AudioMicMute"
-            (lua ''hl.dsp.exec_cmd("qs ipc call osd micToggle")'')
-          ];
-        }
-
-        # Touchpad off and on, for typing on a laptop with the heel of a hand
-        # in the way. Hyprland cannot be asked whether a device is enabled, so
-        # the shell remembers it for the life of the process — which ends at
-        # logout, exactly when Hyprland forgets the setting too.
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + T"'')
-            (lua ''hl.dsp.exec_cmd("qs ipc call osd touchpadToggle")'')
-          ];
-        }
-
-        # Privacy switch: mute the microphone, and name anything holding the
-        # camera open so "privacy on" is never read as "the camera is off".
-        {
-          _args = [
-            (lua ''mod .. " + SHIFT + P"'')
-            (lua ''hl.dsp.exec_cmd("qs ipc call osd privacyToggle")'')
-          ];
-        }
-
-        # repeating binds (was `binde`): window resize + volume/brightness.
-        # { repeating = true } as the third _args element replaces `binde`.
-        # Not locked — the hyprlang source used `binde`, not `bindle`.
-        {
-          _args = [
-            (lua ''mod .. " + ALT + H"'')
-            (lua "hl.dsp.window.resize({ x = -40, y = 0, relative = true })")
-            { repeating = true; }
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + ALT + L"'')
-            (lua "hl.dsp.window.resize({ x = 40, y = 0, relative = true })")
-            { repeating = true; }
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + ALT + K"'')
-            (lua "hl.dsp.window.resize({ x = 0, y = -40, relative = true })")
-            { repeating = true; }
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + ALT + J"'')
-            (lua "hl.dsp.window.resize({ x = 0, y = 40, relative = true })")
-            { repeating = true; }
-          ];
-        }
-
-        # Volume and brightness, still ±5% and still repeating while held — but
-        # through the shell, which moves the Pipewire node or runs
-        # brightnessctl and then draws the resulting level as a progress bar.
-        # The 1.5 boost ceiling on the way up lives there too
-        # (nix/home/quickshell/qml/osd/Osd.qml); it is not lost here.
-        {
-          _args = [
-            "XF86AudioRaiseVolume"
-            (lua ''hl.dsp.exec_cmd("qs ipc call osd volumeUp")'')
-            { repeating = true; }
-          ];
-        }
-        {
-          _args = [
-            "XF86AudioLowerVolume"
-            (lua ''hl.dsp.exec_cmd("qs ipc call osd volumeDown")'')
-            { repeating = true; }
-          ];
-        }
-        {
-          _args = [
-            "XF86MonBrightnessUp"
-            (lua ''hl.dsp.exec_cmd("qs ipc call osd brightnessUp")'')
-            { repeating = true; }
-          ];
-        }
-        {
-          _args = [
-            "XF86MonBrightnessDown"
-            (lua ''hl.dsp.exec_cmd("qs ipc call osd brightnessDown")'')
-            { repeating = true; }
-          ];
-        }
-
-        # mouse binds (was `bindm`): { mouse = true } replaces the keyword.
-        # movewindow → hl.dsp.window.drag(), resizewindow → hl.dsp.window.resize()
-        # (mouse-drag form, no args).
-        {
-          _args = [
-            (lua ''mod .. " + mouse:272"'')
-            (lua "hl.dsp.window.drag()")
-            { mouse = true; }
-          ];
-        }
-        {
-          _args = [
-            (lua ''mod .. " + mouse:273"'')
-            (lua "hl.dsp.window.resize()")
-            { mouse = true; }
-          ];
-        }
-      ];
+      #
+      # Generated from `nix/home/session/actions.nix`, one `hl.bind` per row
+      # that carries a `key`; table order is preserved so the rendered file
+      # reads in the same sequence as before. `mkKey`/`mkDispatch`/`mkBind`
+      # and `dispatchMap` above do the rendering — see the comment on
+      # `dispatchMap` for the one part of this that is Hyprland-specific.
+      # Comments explaining why a particular bind exists live in actions.nix
+      # now, not here.
+      bind = map mkBind keyedActions;
     };
   };
 
-  # Runtime tools for the Print-key screenshot: hyprshot does the Wayland
-  # capture (on PATH via nix/home/beamenu.nix, which owns the screenshot and
-  # recording tools now); libnotify's notify-send surfaces the saved
-  # folder — the shell's notification server displays it, see
-  # nix/home/quickshell/qml/notifications/Notifications.qml;
-  # xdg-user-dirs provides xdg-user-dir, which both the bind and the shotter
-  # use to resolve the PICTURES folder.
+  # Screenshots run grim + slurp from a unit script built in
+  # nix/home/session/default.nix (mkScreenshotScript), which resolves every
+  # binary as an absolute store path and needs nothing from this list. That
+  # replaces hyprshot, which was never on PATH here — the nix/home/beamenu.nix
+  # that once carried it was deleted in f74f647, which is why both screenshot
+  # binds were dead before this change. libnotify and xdg-user-dirs stay for
+  # interactive use: a shell calling notify-send or xdg-user-dir by hand still
+  # wants them on PATH.
   #
   # xdg-desktop-portal-gtk is also listed here (not just in the system
   # xdg.portal.extraPortals) because NixOS sets NIX_XDG_DESKTOP_PORTAL_DIR to

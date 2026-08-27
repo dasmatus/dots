@@ -259,11 +259,11 @@ in
         so the systemd user manager (and anything it launches, e.g. a
         unit-started Obsidian or Zed) sees the same environment as a
         compositor child — without this, such a process falls back to
-        XWayland. `nix/home/hyprland.nix` keeps setting these too (task 4
-        rewires it to read this option instead), so the two lists can never
-        drift out of step; `XDG_CURRENT_DESKTOP`/`XDG_SESSION_DESKTOP` are
-        intentionally not here — both are always "Hyprland", so they belong
-        to the WM module.
+        XWayland. `nix/home/hyprland.nix` reads this option for its own
+        `settings.env` and adds the two per-WM variables itself, so the two
+        lists can never drift out of step; `XDG_CURRENT_DESKTOP`/
+        `XDG_SESSION_DESKTOP` are intentionally not here — both are always
+        "Hyprland", so they belong to the WM module.
       '';
     };
   };
