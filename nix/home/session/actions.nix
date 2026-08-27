@@ -17,10 +17,18 @@
 # Every entry carries all nine attributes below, never omitted, so no
 # consumer ever needs an `or` default:
 #
-#   name       unique identifier. Kebab-case for daemon/startup/app/action
-#              entries; for `kind = "dispatch"` it is the `dispatch` value
-#              itself, since inventing a second slug next to an already-
-#              unique dotted name would just be a redundant duplicate.
+#   name       unique identifier and the only join key: task 2's
+#              `default.nix` attaches a command by `name`, never by
+#              `dispatch`. Kebab-case for daemon/startup/app/action entries.
+#              For `kind = "dispatch"` it is usually the `dispatch` value
+#              itself, but not always: several `name`s can share one
+#              `dispatch`, because `name` must stay unique while `dispatch`
+#              only has to be unique per distinct action. `focus.left` and
+#              `focus.left-arrow` are two such `name`s, both carrying
+#              `dispatch = "focus.left"` — the HJKL and arrow-key rows fire
+#              the same dispatcher from a different key. Task 4's bind
+#              generator must therefore key its dispatcher lookup off
+#              `dispatch`, never off `name`.
 #   mods       modifier list, in the order written below; `[ ]` for
 #              daemon/startup entries and for keys with no modifier.
 #   key        the key itself, no modifiers; `null` for daemon/startup
@@ -512,260 +520,47 @@
     mouse = false;
   }
 
-  # workspace 1-10 (key 0 → workspace 10)
+]
+# workspace 1-10 (key 0 → workspace 10)
+++ builtins.genList (
+  i:
+  let
+    n = i + 1;
+  in
   {
-    name = "workspace.focus-1";
+    name = "workspace.focus-${toString n}";
     mods = [ "SUPER" ];
-    key = "1";
-    desc = "Focus workspace 1";
+    key = if n == 10 then "0" else toString n;
+    desc = "Focus workspace ${toString n}";
     category = "workspaces";
     kind = "dispatch";
-    dispatch = "workspace.focus-1";
+    dispatch = "workspace.focus-${toString n}";
     repeating = false;
     mouse = false;
   }
+) 10
+# move window to workspace 1-10
+++ builtins.genList (
+  i:
+  let
+    n = i + 1;
+  in
   {
-    name = "workspace.focus-2";
-    mods = [ "SUPER" ];
-    key = "2";
-    desc = "Focus workspace 2";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-2";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.focus-3";
-    mods = [ "SUPER" ];
-    key = "3";
-    desc = "Focus workspace 3";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-3";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.focus-4";
-    mods = [ "SUPER" ];
-    key = "4";
-    desc = "Focus workspace 4";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-4";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.focus-5";
-    mods = [ "SUPER" ];
-    key = "5";
-    desc = "Focus workspace 5";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-5";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.focus-6";
-    mods = [ "SUPER" ];
-    key = "6";
-    desc = "Focus workspace 6";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-6";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.focus-7";
-    mods = [ "SUPER" ];
-    key = "7";
-    desc = "Focus workspace 7";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-7";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.focus-8";
-    mods = [ "SUPER" ];
-    key = "8";
-    desc = "Focus workspace 8";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-8";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.focus-9";
-    mods = [ "SUPER" ];
-    key = "9";
-    desc = "Focus workspace 9";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-9";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.focus-10";
-    mods = [ "SUPER" ];
-    key = "0";
-    desc = "Focus workspace 10";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.focus-10";
-    repeating = false;
-    mouse = false;
-  }
-
-  # move window to workspace 1-10
-  {
-    name = "workspace.move-1";
+    name = "workspace.move-${toString n}";
     mods = [
       "SUPER"
       "SHIFT"
     ];
-    key = "1";
-    desc = "Move window to workspace 1";
+    key = if n == 10 then "0" else toString n;
+    desc = "Move window to workspace ${toString n}";
     category = "workspaces";
     kind = "dispatch";
-    dispatch = "workspace.move-1";
+    dispatch = "workspace.move-${toString n}";
     repeating = false;
     mouse = false;
   }
-  {
-    name = "workspace.move-2";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "2";
-    desc = "Move window to workspace 2";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-2";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.move-3";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "3";
-    desc = "Move window to workspace 3";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-3";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.move-4";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "4";
-    desc = "Move window to workspace 4";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-4";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.move-5";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "5";
-    desc = "Move window to workspace 5";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-5";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.move-6";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "6";
-    desc = "Move window to workspace 6";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-6";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.move-7";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "7";
-    desc = "Move window to workspace 7";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-7";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.move-8";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "8";
-    desc = "Move window to workspace 8";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-8";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.move-9";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "9";
-    desc = "Move window to workspace 9";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-9";
-    repeating = false;
-    mouse = false;
-  }
-  {
-    name = "workspace.move-10";
-    mods = [
-      "SUPER"
-      "SHIFT"
-    ];
-    key = "0";
-    desc = "Move window to workspace 10";
-    category = "workspaces";
-    kind = "dispatch";
-    dispatch = "workspace.move-10";
-    repeating = false;
-    mouse = false;
-  }
-
+) 10
+++ [
   # mouse-wheel workspace cycling
   {
     name = "workspace.next";
