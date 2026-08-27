@@ -64,6 +64,7 @@ in
       echo "  nix-smoke-interactive  test driver Python REPL"
       echo "  enroll-fido            enroll a FIDO2/U2F key as a mandatory 2FA factor"
       echo "  memory-derive          rebuild the agentmem 'derived' graph from this checkout"
+      echo "  memory-health          check agentmem's reads-vs-writes kill criterion (design spec section 10)"
       echo "  clean                  remove local build/test leftovers"
     '';
   };
@@ -172,6 +173,41 @@ in
       count="$(psql -U "$db" -d "$db" -v ON_ERROR_STOP=1 -v doc="$doc" -v sha="$sha" \
         -tAf "$script")"
       echo "rebuilt the derived graph: $count edges"
+    '';
+  };
+
+  # Render agentmem.health() (migration 0005) for a human, checking the kill
+  # criterion committed to in design spec section 10: this store gets deleted
+  # rather than tuned if reads never exceed writes within a month of the
+  # first stored row. Peer auth maps the OS user to both the database and
+  # role of the same name (agentmem.nix), so -U/-d is all a connection needs.
+  #
+  # -Atc emits one unaligned, unheaded row of '|'-joined columns — the
+  # verdict text itself never contains that character — and the shell read
+  # below splits it back out into a small report instead of a raw psql table.
+  memory-health = mkShellApp "memory-health" {
+    runtimeInputs = [ pkgs.postgresql_18 ];
+    text = ''
+      ${cdRepoRoot}
+      db="$(id -un)"
+      row="$(psql -U "$db" -d "$db" -v ON_ERROR_STOP=1 -Atc "
+        SELECT reads || '|' || writes || '|' || coalesce(ratio::text, 'n/a')
+          || '|' || coalesce(oldest_fact_age::text, 'n/a')
+          || '|' || live_facts || '|' || superseded_facts || '|' || stale_facts
+          || '|' || verdict
+        FROM agentmem.health();
+      ")"
+      IFS='|' read -r reads writes ratio age live superseded stale verdict <<< "$row"
+      echo "agentmem health (last 30 days)"
+      echo "  reads:            $reads"
+      echo "  writes:           $writes"
+      echo "  reads/writes:     $ratio"
+      echo "  oldest fact age:  $age"
+      echo "  live facts:       $live"
+      echo "  superseded facts: $superseded"
+      echo "  stale facts:      $stale"
+      echo
+      echo "  verdict: $verdict"
     '';
   };
 
