@@ -320,7 +320,16 @@ in
     # The runner is its own unit. `services.postgresql.postStart` is not an
     # option at all, and referencing this config at all is what catches that.
     assert migrate.serviceConfig.Type == "oneshot";
-    assert migrate.serviceConfig.User == sys.dots.username;
+    # postgres, because CREATE EXTENSION on LANGUAGE c needs superuser: a
+    # plain role gets "permission denied for language c".
+    assert migrate.serviceConfig.User == "postgres";
+    # But the migrations run with the session role set to the database owner,
+    # so the SECURITY DEFINER API functions carry the owner's rights and not
+    # a superuser's. Losing this line is a silent privilege escalation.
+    assert lib.hasInfix "PGOPTIONS=-crole=${sys.dots.username}" script;
+    # And the schema is handed back to that owner, because 0001 grants USAGE
+    # on it to the MCP role and a non-owner GRANT only warns.
+    assert lib.hasInfix "ALTER SCHEMA agentmem OWNER TO ${sys.dots.username}" script;
     assert builtins.elem "postgresql.service" migrate.after;
     assert builtins.elem "postgresql-setup.service" migrate.after;
     # Ordering and ownership: install the extension, then the bookkeeping

@@ -96,11 +96,23 @@ in
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
-        User = username;
-        Group = "users";
+        # postgres, because CREATE EXTENSION on a C-language extension needs
+        # superuser: pg_agentmem's functions are LANGUAGE c, and a plain role
+        # gets "permission denied for language c". Every packaged extension
+        # assumes this; pg_graphql ships superuser = true for the same reason.
+        # The migrations themselves still run as ${username}, see below.
+        User = "postgres";
+        Group = "postgres";
       };
       script = ''
-        PSQL="${config.services.postgresql.package}/bin/psql -U ${username} -d ${username} -v ON_ERROR_STOP=1"
+        SU="${config.services.postgresql.package}/bin/psql -U postgres -d ${username} -v ON_ERROR_STOP=1"
+        # Same connection, but the session assumes ${username} before running
+        # anything, so every object the migrations create is owned by the
+        # database owner rather than by a superuser. That matters: the API
+        # functions are SECURITY DEFINER, and owned by postgres they would run
+        # with superuser rights instead of the owner's, which is the opposite
+        # of what the privilege boundary exists to do.
+        PSQL="env PGOPTIONS=-crole=${username} $SU"
 
         # Repair path for a cluster bootstrapped by the earlier runner, which
         # created the schema itself. That leaves a schema no extension owns,
@@ -110,7 +122,7 @@ in
         # Guarded so it can only ever drop the empty leftover: the extension
         # must be absent and no migration recorded, which together mean
         # nothing has been stored yet.
-        $PSQL -c "
+        $SU -c "
           DO \$\$
           DECLARE applied bigint := 0;
           BEGIN
@@ -131,9 +143,19 @@ in
         # The extension creates and owns the schema, so it has to come first:
         # pgrx's #[pg_schema] emits its own CREATE SCHEMA IF NOT EXISTS, and
         # 0001_schema.sql deliberately does not, for the reason above.
-        # _migrations then lands inside a schema the extension already owns.
-        $PSQL -c "
+        #
+        # Then the schema is handed straight to ${username}. The migrations
+        # were written against an owner that can grant on it, and 0001 does
+        # GRANT USAGE ON SCHEMA agentmem TO agentmem_mcp; a non-owner GRANT
+        # raises a warning rather than an error, so leaving the schema with
+        # postgres would silently leave the MCP role unable to reach any of
+        # the functions it has EXECUTE on.
+        $SU -c "
           CREATE EXTENSION IF NOT EXISTS pg_agentmem;
+          ALTER SCHEMA agentmem OWNER TO ${username};
+        "
+
+        $PSQL -c "
           CREATE TABLE IF NOT EXISTS agentmem._migrations (
             filename   text PRIMARY KEY,
             applied_at timestamptz NOT NULL DEFAULT now()
