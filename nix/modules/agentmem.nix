@@ -102,8 +102,38 @@ in
       script = ''
         PSQL="${config.services.postgresql.package}/bin/psql -U ${username} -d ${username} -v ON_ERROR_STOP=1"
 
+        # Repair path for a cluster bootstrapped by the earlier runner, which
+        # created the schema itself. That leaves a schema no extension owns,
+        # and CREATE EXTENSION then fails forever with "schema agentmem is not
+        # a member of extension pg_agentmem": an extension script's
+        # IF NOT EXISTS may only skip an object the extension already owns.
+        # Guarded so it can only ever drop the empty leftover: the extension
+        # must be absent and no migration recorded, which together mean
+        # nothing has been stored yet.
         $PSQL -c "
-          CREATE SCHEMA IF NOT EXISTS agentmem;
+          DO \$\$
+          DECLARE applied bigint := 0;
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_agentmem')
+               OR to_regnamespace('agentmem') IS NULL THEN
+              RETURN;
+            END IF;
+            IF to_regclass('agentmem._migrations') IS NOT NULL THEN
+              EXECUTE 'SELECT count(*) FROM agentmem._migrations' INTO applied;
+            END IF;
+            IF applied = 0 THEN
+              RAISE NOTICE 'dropping the unowned agentmem schema left by the earlier bootstrap';
+              DROP SCHEMA agentmem CASCADE;
+            END IF;
+          END \$\$;
+        "
+
+        # The extension creates and owns the schema, so it has to come first:
+        # pgrx's #[pg_schema] emits its own CREATE SCHEMA IF NOT EXISTS, and
+        # 0001_schema.sql deliberately does not, for the reason above.
+        # _migrations then lands inside a schema the extension already owns.
+        $PSQL -c "
+          CREATE EXTENSION IF NOT EXISTS pg_agentmem;
           CREATE TABLE IF NOT EXISTS agentmem._migrations (
             filename   text PRIMARY KEY,
             applied_at timestamptz NOT NULL DEFAULT now()

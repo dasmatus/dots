@@ -227,9 +227,21 @@ in
 
     # ~/.claude/CLAUDE.md — global memory, loaded in every project: this is
     # what makes the MCP tool the *default* rather than merely available.
+    #
+    # The `mcp__plugin_hm_` prefix on the tool name is not decoration. The
+    # module folds `mcpServers` above into a synthesized personal plugin whose
+    # manifest name is the short `hm`, and the MCP tool prefix is built from
+    # that manifest name, so the bare `mcp__searxng__web_search` this used to
+    # say named a tool that does not exist. An agent that tries it gets
+    # nothing and silently falls back to the built-in WebSearch — the exact
+    # behaviour this block exists to prevent.
+    #
+    # Reaches general-purpose subagents but not Explore or Plan, which are
+    # built with CLAUDE.md stripped. The SubagentStart hook below is the only
+    # channel that reaches those two.
     context = ''
       # Web search
-      Default to the `searxng` MCP tool (`mcp__searxng__web_search`, backed
+      Default to the `searxng` MCP tool (`mcp__plugin_hm_searxng__web_search`, backed
       by the local SearXNG instance at http://127.0.0.1:8888) for all web
       searches. Fall back to the built-in WebSearch tool only when the local
       instance is unreachable.
