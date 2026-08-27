@@ -10,7 +10,6 @@
   inputs,
   aipageFirefox,
   aipageChrome,
-  wallpaperTui,
   hyprmon,
   settingsMenu,
   claudeDesktop,
@@ -116,7 +115,6 @@ in
         settings
         aipageFirefox
         aipageChrome
-        wallpaperTui
         hyprmon
         settingsMenu
         claudeDesktop

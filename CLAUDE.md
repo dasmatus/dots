@@ -10,7 +10,7 @@ tree .
 ## CI 
 GitLab
 ## Testing
-- Rust: @rust/installer-tui/tests/ (integration tests; `cargo test` in rust/installer-tui/), @rust/wallpaper-tui/tests/, @rust/hyprmon/tests/
+- Rust: @rust/installer-tui/tests/ (integration tests; `cargo test` in rust/installer-tui/), @rust/hyprmon/tests/
 - Nix: `nix run .#nix-lint` (flake eval + fmt/clippy/test), `nix run .#iso` (builds the LiveISO, plain/unsigned), `nix run .#nix-smoke` (NixOS test @tests/default.nix — `checks.x86_64-linux.iso-boot`: ISO boots under OVMF+swtpm, asserts DOTS_TUI_READY serial marker)
 ---
 # Resources to follow

@@ -24,7 +24,6 @@ let
         settings = s;
         aipageFirefox = inputs.self.packages.x86_64-linux.aipage-firefox;
         aipageChrome = inputs.self.packages.x86_64-linux.aipage-chrome;
-        wallpaperTui = inputs.self.packages.x86_64-linux.wallpaper-tui;
         hyprmon = inputs.self.packages.x86_64-linux.hyprmon;
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
         claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;

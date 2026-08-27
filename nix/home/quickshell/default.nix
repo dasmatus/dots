@@ -75,10 +75,16 @@ in
       pkgs.quickshell
 
       # The launcher's clipboard history reads wl-paste --watch, and its file
-      # provider shells out to fd. Both were beamenu's dependencies and move
-      # here with the providers that use them.
+      # provider shells out to fd, which the wallpaper picker's own file
+      # listing (qml/wallpaper/Picker.qml, Rotation.qml) also shells out to.
       pkgs.wl-clipboard
       pkgs.fd
+
+      # awww (formerly swww) is the wallpaper daemon: hyprland.nix's
+      # hyprland.start launches awww-daemon, and Picker.qml/Rotation.qml both
+      # shell out to the `awww` client. Moved here from the now-deleted
+      # wallpaper-tui.nix, which used to be the only consumer.
+      pkgs.awww
     ];
 
     # Lands at $XDG_CONFIG_HOME/quickshell, which is where a bare `qs` looks

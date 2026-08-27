@@ -14,9 +14,9 @@
 # evaluated from the flake's package set, but this can.
 #
 # Neutrals, fonts and metrics are baked in at build time. The accent is not:
-# wallpaper-tui derives it from the current wallpaper and rewrites
-# tint/current.json, which Theme.qml watches, so a wallpaper change repaints
-# the shell with no home-manager switch.
+# Picker.qml (and Rotation.qml's hourly pick through it) derives it from the
+# current wallpaper and rewrites tint/current.json, which Theme.qml watches,
+# so a wallpaper change repaints the shell with no home-manager switch.
 {
   pkgs,
   stateHome,

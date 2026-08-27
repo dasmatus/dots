@@ -54,7 +54,7 @@ in
 
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
       # has no exec-once; hyprland.start fires once at compositor boot. Called
-      # by name (like waybar/nm-applet) since wallpaper-tui is in home.packages.
+      # by name (like waybar/nm-applet) since awww is in home.packages.
       # The cheatsheet is part of the shell now, so there is no daemon to start
       # and no first-login sentinel to keep: `qs` brings it with everything
       # else. NB comments here are Nix (#), not Lua (--)
@@ -65,9 +65,10 @@ in
           "hyprland.start"
           (lua ''
             function()
-              -- awww-daemon must be up before wallpaper-tui --restore
-              -- talks to it; awww img blocks briefly and retries, so the
-              -- ordering here is belt and braces rather than a race fix.
+              -- awww-daemon must be up before Rotation.qml's own
+              -- shell-startup pick (inside `qs`) can hand it a wallpaper;
+              -- awww img blocks briefly and retries, so the ordering here
+              -- is belt and braces rather than a race fix.
               hl.exec_cmd("awww-daemon")
               hl.exec_cmd("qs")
               hl.exec_cmd("hyprmon apply")
@@ -75,7 +76,6 @@ in
               -- icon is what actually offers a menu to switch networks,
               -- so it stays until the shell grows that.
               hl.exec_cmd("nm-applet --indicator")
-              hl.exec_cmd("wallpaper-tui --restore")
             end'')
         ];
       };

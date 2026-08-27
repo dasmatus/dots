@@ -1,9 +1,8 @@
-# devShells.${system} — the dev shell for hacking on the two Rust crates
-# (installer-tui and wallpaper-tui): a plain Rust toolchain so
+# devShells.${system} — the dev shell for hacking on the repo's Rust crates
+# (installer-tui, hyprmon, settings-global): a plain Rust toolchain so
 # `cargo fmt`/`cargo clippy`/`cargo test`/`cargo run` work locally without a
-# system rust install. Both are pure TUIs with no native deps, so no
-# pkg-config / webkit / gtk stack is needed here (the old Tauri dev shell
-# carried it).
+# system rust install. None need pkg-config / webkit / gtk, so that stack
+# is not needed here (the old Tauri dev shell carried it).
 #
 # The interactive shell is fish (not mkShell's default bash), loading a
 # reproducible rebuild of the host's fish config (nix/home/fish.nix) so the

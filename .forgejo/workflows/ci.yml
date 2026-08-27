@@ -171,19 +171,14 @@ jobs:
         with:
           toolchain: "1.97"
           components: rustfmt, clippy
-      # Cache both crates: Swatinem/rust-cache supports a comma-separated list
-      # of workspace roots (Cargo.toml dirs), so installer-tui AND wallpaper-tui
-      # share the cache. Mirrors `nix run .#nix-lint`, which lints both.
+      # Swatinem/rust-cache supports a comma-separated list of workspace roots
+      # (Cargo.toml dirs); only installer-tui needs one here.
       - uses: https://github.com/Swatinem/rust-cache@v2
         with:
-          workspaces: rust/installer-tui,rust/wallpaper-tui
-      # Lint both Rust crates — matches `nix run .#nix-lint` (flake/apps.nix).
+          workspaces: rust/installer-tui
+      # Lint the Rust crate — matches `nix run .#nix-lint` (flake/apps.nix).
       - run: |
           cd rust/installer-tui
-          cargo fmt --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test
-          cd ../wallpaper-tui
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
           cargo test

@@ -10,7 +10,6 @@ vm-state-*/
 # Nix + Rust build outputs
 rust/**/target/
 rust/installer-tui/target/
-rust/wallpaper-tui/target/
 rust/hyprmon/target/
 rust/beamenu/target/
 rust/beamenu-canvas/target/
