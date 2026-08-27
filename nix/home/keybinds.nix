@@ -51,24 +51,57 @@ let
       builtins.head matches;
 
   # Human-facing spelling for the cheatsheet, distinct from the WM-facing
-  # spelling actions.nix carries: SHIFT/ALT there read as Shift/Alt here,
-  # and a couple of X11 keysym names read better spelled out.
+  # spelling actions.nix carries: SHIFT/ALT/CTRL there read as
+  # Shift/Alt/Ctrl here, and a couple of X11 keysym names read better
+  # spelled out. Both are total over their input, on purpose: a mod or key
+  # this file doesn't know how to render throws instead of printing raw,
+  # which is the same drift the coverage check below exists to catch —
+  # silently rendering an unrecognised mod or keysym would be exactly the
+  # kind of un-noticed staleness this file was rewritten to make
+  # impossible.
   modLabel =
     m:
-    if m == "SHIFT" then
+    if m == "SUPER" then
+      "SUPER"
+    else if m == "SHIFT" then
       "Shift"
     else if m == "ALT" then
       "Alt"
+    else if m == "CTRL" then
+      "Ctrl"
     else
-      m;
+      throw "nix/home/keybinds.nix: renderKey does not know how to render modifier `${m}`";
+
+  # Keysyms the overlay has always printed raw, deliberately: not letters,
+  # not digits, not an XF86 media key, not a mouse form, and not worth a
+  # human translation either. Written down as a decision rather than left
+  # as a silent fallback — anything outside this list and outside the
+  # mechanical patterns below throws.
+  keyPassthrough = [
+    "comma"
+    "minus"
+    "Space"
+    "Print"
+  ];
+
   keyLabel =
     k:
     if k == "Return" then
       "Enter"
     else if k == "slash" then
       "/"
+    else if builtins.elem k keyPassthrough then
+      k
+    else if builtins.match "[A-Z]" k != null then
+      k
+    else if builtins.match "[0-9]" k != null then
+      k
+    else if builtins.match "XF86.*" k != null then
+      k
+    else if builtins.match "mouse.*" k != null then
+      k
     else
-      k;
+      throw "nix/home/keybinds.nix: renderKey does not know how to render key `${k}`";
 
   renderKey = mods: key: builtins.concatStringsSep " + " (map modLabel mods ++ [ (keyLabel key) ]);
 
