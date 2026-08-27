@@ -1,7 +1,9 @@
 # Ex-flatpak GUI apps as native Home Manager packages (nix/modules/flatpak.nix
-# is gone — git history). GNOME core apps went back to services.gnome.core-apps
-# (nix/modules/desktop.nix); LibreWolf is managed by programs.librewolf
-# (librewolf.nix). Attrs verified against the pinned nixpkgs rev.
+# is gone — git history). GNOME core apps (nautilus, below) are packaged
+# directly here now: services.gnome.core-apps and nix/modules/desktop.nix,
+# which used to provide them, both went in 6c5ac98 and nothing replaced the
+# option. LibreWolf is managed by programs.librewolf (librewolf.nix). Attrs
+# verified against the pinned nixpkgs rev.
 #
 # Dropped in the migration:
 #   - com.github.tchx84.Flatseal — flatpak permission manager, obsolete
@@ -139,6 +141,20 @@ in
       # clangd-lsp plugin in nix/home/claude.nix, which spawns it by bare name.
       clang-tools
       stack
+      # nix/home/session/actions.nix's nm-applet daemon has run at session
+      # start since forever, but nothing in this repo ever packaged it, so
+      # the network tray icon has silently never actually appeared.
+      networkmanagerapplet
+      # File manager for the SUPER+SHIFT+F bind (nix/home/session/actions.nix).
+      nautilus
+      # Screenshot capture pair for the Print / SUPER+Print binds, replacing
+      # hyprshot (went with nix/home/beamenu.nix in f74f647, never
+      # re-added). The generated unit scripts in nix/home/session/default.nix
+      # reference these by absolute store path, so the binds work without
+      # this; they go on PATH too since both are useful by hand and a
+      # package a unit depends on ought to be visible in the profile.
+      grim
+      slurp
     ])
     ++ [ haveno ]
     # Newelle's only purpose here is the ollama cloud chat front-end (the
