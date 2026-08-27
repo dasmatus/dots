@@ -41,7 +41,9 @@ pub enum StoreError {
     Db(#[from] tokio_postgres::Error),
 }
 
-/// The five `agentmem` functions the MCP tools call, one method each.
+/// The `agentmem` functions the MCP tools call, one method each: the five
+/// from the spec's fixed interface contract plus `note_session`, added in
+/// migration 0004 to fill in `agentmem.session.summary`.
 ///
 /// No method here accepts or returns anything that could accumulate
 /// between calls: every argument arrives fresh from the tool invocation,
@@ -100,6 +102,22 @@ pub trait MemoryStore {
         verb: &'a [String],
         dst: &'a [String],
     ) -> impl Future<Output = Result<String, StoreError>> + Send + 'a;
+
+    /// `agentmem.note_session(p_session, p_scope, p_summary, p_files,
+    /// p_decisions, p_unfinished, p_unslop_token)` — upserts the one
+    /// distilled summary row a session gets, replacing rather than
+    /// appending on a second call; backs the `note_session` tool.
+    #[allow(clippy::too_many_arguments)]
+    fn note_session<'a>(
+        &'a self,
+        session: Uuid,
+        scope: &'a str,
+        summary: &'a str,
+        files: &'a [String],
+        decisions: &'a str,
+        unfinished: &'a str,
+        unslop_token: &'a str,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send + 'a;
 }
 
 /// A `MemoryStore` backed by a `deadpool_postgres::Pool`.
@@ -212,5 +230,33 @@ impl MemoryStore for PgStore {
             )
             .await?;
         Ok(row.get(0))
+    }
+
+    async fn note_session(
+        &self,
+        session: Uuid,
+        scope: &str,
+        summary: &str,
+        files: &[String],
+        decisions: &str,
+        unfinished: &str,
+        unslop_token: &str,
+    ) -> Result<(), StoreError> {
+        let client = self.pool.get().await?;
+        client
+            .execute(
+                "SELECT agentmem.note_session($1, $2, $3, $4, $5, $6, $7)",
+                &[
+                    &session,
+                    &scope,
+                    &summary,
+                    &files,
+                    &decisions,
+                    &unfinished,
+                    &unslop_token,
+                ],
+            )
+            .await?;
+        Ok(())
     }
 }
