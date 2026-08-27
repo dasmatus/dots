@@ -33,9 +33,10 @@ Rectangle {
     TextInput {
         id: input
 
-        anchors.fill: parent
-        anchors.leftMargin: 12
-        anchors.rightMargin: 12
+        x: 12
+        y: 0
+        width: parent.width - 24
+        height: parent.height
 
         color: Theme.fg
         font.family: Theme.fontMono

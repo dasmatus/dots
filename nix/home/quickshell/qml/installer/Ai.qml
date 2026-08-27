@@ -92,14 +92,17 @@ Frame {
                     border.color: Theme.accent
 
                     Row {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
+                        id: rowContent
+
+                        x: 12
+                        y: 0
+                        width: parent.width - 24
+                        height: parent.height
 
                         spacing: 12
 
                         Text {
-                            anchors.verticalCenter: parent.verticalCenter
+                            y: (rowContent.height - height) / 2
 
                             text: root.valueAt(row.index) ? "[x]" : "[ ]"
                             color: root.valueAt(row.index) ? Theme.green : Theme.muted
@@ -109,7 +112,7 @@ Frame {
                         }
 
                         Text {
-                            anchors.verticalCenter: parent.verticalCenter
+                            y: (rowContent.height - height) / 2
 
                             text: row.modelData
                             color: Theme.fg
