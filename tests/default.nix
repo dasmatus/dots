@@ -474,13 +474,13 @@ let
 
   # Proves the agentmem cluster (nix/modules/agentmem.nix) is reachable over
   # its unix socket by peer auth, survives an impermanence-style reboot, and
-  # produces a backup dump — against a real import of nix/modules/
-  # impermanence.nix, not a hand-rolled bind mount, so a change to the
-  # persistence machinery breaks this test first. Role/db "test" stands in
-  # for the installer-collected username; agentmem.nix's own dots.ai.claude
-  # gate is not exercised here (that is an eval-level concern, checked by
-  # flake/checks.nix), only the services.postgresql/postgresqlBackup shape
-  # it produces once gated on.
+  # that the backup dump it produces actually restores — against a real
+  # import of nix/modules/impermanence.nix, not a hand-rolled bind mount, so
+  # a change to the persistence machinery breaks this test first. Role/db
+  # "test" stands in for the installer-collected username; agentmem.nix's
+  # own dots.ai.claude gate is not exercised here (that is an eval-level
+  # concern, checked by flake/checks.nix), only the
+  # services.postgresql/postgresqlBackup shape it produces once gated on.
   agentmemPostgresTest = pkgs.testers.runNixOSTest {
     name = "agentmem-postgres";
 
@@ -541,7 +541,11 @@ let
 
     testScript = ''
       machine.start()
-      machine.wait_for_unit("postgresql.service")
+      # postgresql.service only starts the server -- ensureUsers/
+      # ensureDatabases run in the separate postgresql-setup.service oneshot
+      # (requires+after postgresql.service), so the "test" role and database
+      # do not exist yet the instant postgresql.service is merely active.
+      machine.wait_for_unit("postgresql-setup.service")
 
       with subtest("socket reachability and peer auth"):
           machine.succeed("sudo -u test psql -h /run/postgresql -d test -c 'select 1;'")
@@ -553,7 +557,7 @@ let
           )
           machine.shutdown()
           machine.start()
-          machine.wait_for_unit("postgresql.service")
+          machine.wait_for_unit("postgresql-setup.service")
           out = machine.succeed(
               "sudo -u test psql -h /run/postgresql -d test -tAc 'select n from t;'"
           ).strip()
@@ -562,6 +566,45 @@ let
       with subtest("the backup dump lands under the persisted parent"):
           machine.succeed("systemctl start postgresqlBackup.service")
           machine.succeed("test -s /var/lib/postgresql/backup/all.sql.gz")
+
+      with subtest("the backup dump actually restores"):
+          # Known rows, distinct from the "t" table above so a leftover row
+          # in "t" cannot be mistaken for a successful restore.
+          machine.succeed(
+              "sudo -u test psql -h /run/postgresql -d test -c "
+              "'create table restore_check (id int primary key, value int); "
+              "insert into restore_check values (1, 111), (2, 222);'"
+          )
+          # pg_dumpall (backupAll, the default with no databases listed) dumps
+          # the whole cluster as it stands right now, so the dump must be
+          # forced again after the insert above rather than reusing the one
+          # from the previous subtest.
+          machine.succeed("systemctl start postgresqlBackup.service")
+          machine.succeed(
+              "sudo -u test psql -h /run/postgresql -d test -c "
+              "'truncate restore_check;'"
+          )
+          emptied = machine.succeed(
+              "sudo -u test psql -h /run/postgresql -d test -tAc "
+              "'select count(*) from restore_check;'"
+          ).strip()
+          assert emptied == "0", f"truncate did not clear the table: {emptied!r}"
+          # Restore as the postgres superuser, same as pg_dumpall's own
+          # convention: the dump's CREATE ROLE/CREATE DATABASE/CREATE TABLE
+          # statements error out because those objects already exist (no
+          # --clean, matching pgdumpAllOptions' default of ""), and psql
+          # without -v ON_ERROR_STOP=1 keeps going past each one — the COPY
+          # statements that follow still find their tables and refill them.
+          machine.succeed(
+              "${pkgs.gzip}/bin/zcat /var/lib/postgresql/backup/all.sql.gz"
+              " | sudo -u postgres psql -h /run/postgresql -d postgres -f - >&2"
+          )
+          restored = machine.succeed(
+              "sudo -u test psql -h /run/postgresql -d test -tAc "
+              "'select id, value from restore_check order by id;'"
+          ).strip()
+          assert restored == "1|111\n2|222", \
+              f"restore did not bring back the known rows: {restored!r}"
     '';
   };
 in
