@@ -60,15 +60,16 @@ sudo nixos-rebuild switch --flake .#tokyonight
   dotfile tree is deleted — git history): `alacritty.nix`, `zellij.nix`,
   `fastfetch.nix` (ported from the old neofetch config), `fish.nix`,
   `hyprland.nix`, `quickshell/` (the desktop shell: bar, notification daemon,
-  media-key OSD, launcher, keybind cheatsheet and settings form, all QML in
-  one process — this is where waybar, dunst, eww, rofi and the beamenu
-  launcher went), `nixvim.nix`,
+  media-key OSD, launcher, keybind cheatsheet, settings form and wallpaper
+  picker, all QML in one process — this is where waybar, dunst, eww, rofi,
+  the beamenu launcher and the wallpaper-tui crate all went; the picker's own
+  `Rotation.qml` is the hourly random pick that used to be `random_wp.nix`),
+  `nixvim.nix`,
   `librewolf.nix`, `claude.nix` (Claude Code + nix-built `ccbar` statusline),
   `pkgs.nix` (ex-flatpak GUI apps incl. the Haveno AppImage wrap and the
-  Newelle→Claude Code wiring), `git.nix`, `random_wp.nix` (Wallhaven
-  wallpaper timer), `dots-repo.nix` (first-login clone of this repo +
-  install-answer restore) and `dokumente.nix`/`dokumente/` (haumea
-  `~/Dokumente` skeleton).
+  Newelle→Claude Code wiring), `git.nix`, `dots-repo.nix` (first-login clone
+  of this repo + install-answer restore) and `dokumente.nix`/`dokumente/`
+  (haumea `~/Dokumente` skeleton).
 - `iso.nix` — the LiveISO: embeds this flake at `/etc/dots`, auto-launches
   `dots-installer` on tty1. The installer stages a writable copy of that
   flake at `/tmp/dots-flake` and runs `nixos-install` from there; the
