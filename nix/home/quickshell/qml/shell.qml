@@ -9,8 +9,8 @@
 // focused monitor, rather than one per screen. Two monitors showing the same
 // notification is a duplicate, not a feature.
 //
-// The launcher, cheatsheet and settings form are single instances too: only
-// one can be open, and it belongs where you are looking.
+// The launcher, cheatsheet, settings form and wallpaper picker are single
+// instances too: only one can be open, and it belongs where you are looking.
 import Quickshell
 import "bar"
 import "cheatsheet"
@@ -18,6 +18,7 @@ import "launcher"
 import "notifications"
 import "osd"
 import "settings"
+import "wallpaper"
 
 ShellRoot {
     Variants {
@@ -35,4 +36,6 @@ ShellRoot {
     Cheatsheet {}
 
     Settings {}
+
+    Picker {}
 }

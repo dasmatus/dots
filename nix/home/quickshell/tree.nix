@@ -29,6 +29,13 @@ let
 
   palette = builtins.fromJSON (builtins.readFile ../../palette.json);
 
+  # Named for the shell rather than for wallpaper-tui: Picker.qml is what
+  # writes this file now. One Nix binding used on both the writer's
+  # (Theme.tintStatePath) and the watcher's (tintState.path) side below is
+  # what keeps the two from disagreeing about where it lives — see this
+  # module's own header for what happens when they do.
+  tintStateDir = "${stateHome}/dots-shell/tint";
+
   # Double-quoted, not an indented string: Nix strips the common indentation
   # off a '' '' literal, which would flatten every one of these to column 0.
   colorProperties = lib.concatStringsSep "\n" (
@@ -92,6 +99,13 @@ let
         // ships read-only, hence the chmod that file's own header explains.
         readonly property string moreWaitaBase: "${pkgs.morewaita-icon-theme}/share/icons/MoreWaita";
 
+        // Picker.qml mkdir -p's this before every write; exposed as its own
+        // property rather than derived by trimming tintStatePath in JS so
+        // there is exactly one place that knows the directory ends in
+        // "/current.json".
+        readonly property string tintStateDir: "${tintStateDir}";
+        readonly property string tintStatePath: "${tintStateDir}/current.json";
+
         // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
         // without exporting it, so qmllint cannot resolve anything reached
         // through it. The bindings work; only the linter is blind, so the
@@ -109,7 +123,7 @@ let
         FileView {
             id: tintState
 
-            path: "${stateHome}/wallpaper-tui/tint/current.json"
+            path: "${tintStateDir}/current.json"
             watchChanges: true
             onFileChanged: reload()
             adapter: JsonAdapter { }
