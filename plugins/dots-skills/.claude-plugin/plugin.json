@@ -1,0 +1,8 @@
+{
+  "name": "dots-skills",
+  "version": "0.1.0",
+  "description": "This repo's personal skills, packaged so a subagent can be handed the whole index the moment it spawns.",
+  "author": {
+    "name": "Matus"
+  }
+}

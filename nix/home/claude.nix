@@ -8,6 +8,7 @@
   lib,
   dots,
   claudeDesktop,
+  inputs,
   ...
 }:
 let
@@ -49,13 +50,18 @@ let
         import urllib.request
 
         from mcp.server.fastmcp import FastMCP
+        from mcp.types import ToolAnnotations
 
         SEARXNG = "http://127.0.0.1:8888"
 
         mcp = FastMCP("searxng")
 
 
-        @mcp.tool()
+        # readOnlyHint defaults to false — "this tool may change state" — and plan mode
+        # denies any MCP tool that says so, whatever the allow-list holds. Read-only is
+        # necessary but not sufficient there: a matching permissions.allow entry is the
+        # other half.
+        @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True))
         def web_search(query: str, pageno: int = 1, time_range: str = "", categories: str = "") -> str:
             """Search the web through the local SearXNG metasearch instance.
 
@@ -113,6 +119,95 @@ let
     rev = "18e0e908a13553b0e58d065ab26dbc9a972ec8ba";
     sha256 = "1nj8hrvakcpvbi89gvpcj1szr2yr6531w86npyx56msj6683c61m";
   };
+
+  # dots-memory: the Postgres-backed memory plugin. Design:
+  # docs/superpowers/specs/2026-08-26-postgres-memory-plugin-design.md.
+  # The hook shells out to psql itself, rather than trusting the MCP
+  # server, so a dead cluster degrades the plugin to silence instead of a
+  # failed SessionStart/Stop: any psql failure means no stdout at all, and
+  # the script always exits 0. `basename` is done with pure parameter
+  # expansion (not the coreutils binary) so `postgresql_18` can stay the
+  # only runtimeInput.
+  dotsMemoryHook = pkgs.writeShellApplication {
+    name = "dots-memory-hook";
+    runtimeInputs = [ pkgs.postgresql_18 ];
+    text = ''
+      # Escapes backslashes, double quotes and newlines for one JSON
+      # string literal. No jq dependency for a single field.
+      json_escape() {
+        local s=$1
+        s=''${s//\\/\\\\}
+        s=''${s//\"/\\\"}
+        s=''${s//$'\n'/\\n}
+        printf '%s' "$s"
+      }
+
+      event="''${1:-}"
+      project_dir="''${CLAUDE_PROJECT_DIR:-$PWD}"
+      scope="''${project_dir##*/}"
+
+      case "$event" in
+        session-start)
+          if digest="$(psql -X -d matus -Atc \
+              "select agentmem.digest('$scope', 40, 6000)" 2>/dev/null)"; then
+            printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' \
+              "$(json_escape "$digest")"
+          fi
+          ;;
+        stop)
+          # Claude Code hands a hook its event JSON on stdin. An empty read
+          # delimiter takes the whole of it in one go, and the regex lifts out the
+          # one field that matters. Parsing it here keeps postgresql_18 the only
+          # runtimeInput, the same reason basename above avoids coreutils.
+          payload=""
+          if [ ! -t 0 ]; then
+            IFS= read -r -d "" payload || true
+          fi
+          session=""
+          session_re='"session_id"[[:space:]]*:[[:space:]]*"([0-9a-fA-F-]{36})"'
+          if [[ $payload =~ $session_re ]]; then
+            session="''${BASH_REMATCH[1]}"
+          fi
+          # Without a session id there is nothing to ask the database about, and
+          # asserting "nothing was recorded" without having looked is precisely
+          # the bug this branch exists to fix. Stay quiet instead of guessing.
+          [ -n "$session" ] || exit 0
+          if wrote="$(psql -X -d matus -Atc \
+              "select agentmem.session_wrote('$session')" 2>/dev/null)" \
+              && [ "$wrote" = "f" ]; then
+            printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"nothing durable was recorded this session; if something was learned, call remember"}}\n'
+          fi
+          ;;
+      esac
+      exit 0
+    '';
+  };
+
+  # The checked-in tree under plugins/dots-memory/ stays diffable; this
+  # runCommand only adds `bin/` store symlinks on top, so `.mcp.json` and
+  # `hooks/hooks.json` can name `''${CLAUDE_PLUGIN_ROOT}/bin/<name>`
+  # without ever spelling out a store path. The plugin's own
+  # .claude-plugin/plugin.json suppresses Home Manager's synthesized
+  # manifest. `dots-memory-mcp` is plan 3's crate
+  # (rust/dots-memory-mcp); this derivation only symlinks the built
+  # binary in, it does not build it.
+  dotsMemoryPlugin = pkgs.runCommand "dots-memory-plugin" { } ''
+    cp -r ${../../plugins/dots-memory} $out
+    chmod -R u+w $out
+    mkdir -p $out/bin
+    ln -s ${inputs.self.packages.x86_64-linux.dots-memory-mcp}/bin/dots-memory-mcp \
+      $out/bin/dots-memory-mcp
+    ln -s ${dotsMemoryHook}/bin/dots-memory-hook $out/bin/dots-memory-hook
+    test -e $out/.claude-plugin/plugin.json
+    test -e $out/.mcp.json
+  '';
+
+  # dots-skills — this repo's skills/ tree as a plugin, plus the hook payloads
+  # generated from it. Defined in nix/dots-skills.nix rather than here because
+  # nix/claude-desktop.nix needs the identical tree: the desktop app reads
+  # ~/.claude/skills on none of its surfaces, so the plugin is the only route
+  # that reaches it.
+  dotsSkills = pkgs.callPackage ../dots-skills.nix { };
 in
 {
   home.packages = [ ccbar ];
@@ -134,20 +229,45 @@ in
     # mechanisms coexist.
     plugins.pstack = "${pstackSrc}";
 
-    # Personal skills from this repo's skills/ tree (one folder per skill,
-    # each holding a SKILL.md). The module symlinks the whole directory into
-    # ~/.claude/skills/, so dropping a new skill folder into skills/ needs no
-    # Nix change. Each skill self-triggers off its frontmatter description;
-    # dodging-cdb is additionally injected at session start via the
-    # SessionStart hook in settings below, because Claude Code has no native
-    # "run this skill at startup" mechanism.
-    skills = ../../skills;
+    # dots-memory — see `dotsMemoryPlugin` above. Ships its own
+    # .claude-plugin/plugin.json, so no manifest is synthesized here
+    # either. Not in `settings.enabledPlugins`: that key names
+    # `<plugin>@<marketplace>` pairs for marketplace-sourced plugins, and
+    # this one is loaded straight from the store like pstack above.
+    plugins.dots-memory = "${dotsMemoryPlugin}";
+
+    # dots-skills — see `dotsSkills` above. This replaces the bare
+    # `skills = ../../skills` wiring rather than sitting beside it. Both routes
+    # land in ~/.claude/skills/, but the plugin's copies answer to
+    # `dots-skills:<name>` and the bare copies to `<name>`; the listing dedups
+    # by resolved name, and two different names dedup to nothing. Keeping both
+    # would double the listing without doubling the capability, and Home
+    # Manager cannot catch it — its only assertion is that skill directory
+    # names must not collide with plugin directory names, and `dots-skills`
+    # collides with none of them.
+    #
+    # Dropping a new folder into skills/ still needs no Nix change: the
+    # manifest deliberately omits a `skills` key, which is what keeps the
+    # folder auto-loaded rather than shadowed by an explicit list.
+    plugins.dots-skills = "${dotsSkills.plugin}";
 
     # ~/.claude/CLAUDE.md — global memory, loaded in every project: this is
     # what makes the MCP tool the *default* rather than merely available.
+    #
+    # The `mcp__plugin_hm_` prefix on the tool name is not decoration. The
+    # module folds `mcpServers` above into a synthesized personal plugin whose
+    # manifest name is the short `hm`, and the MCP tool prefix is built from
+    # that manifest name, so the bare `mcp__searxng__web_search` this used to
+    # say named a tool that does not exist. An agent that tries it gets
+    # nothing and silently falls back to the built-in WebSearch — the exact
+    # behaviour this block exists to prevent.
+    #
+    # Reaches general-purpose subagents but not Explore or Plan, which are
+    # built with CLAUDE.md stripped. The SubagentStart hook below is the only
+    # channel that reaches those two.
     context = ''
       # Web search
-      Default to the `searxng` MCP tool (`mcp__searxng__web_search`, backed
+      Default to the `searxng` MCP tool (`mcp__plugin_hm_searxng__web_search`, backed
       by the local SearXNG instance at http://127.0.0.1:8888) for all web
       searches. Fall back to the built-in WebSearch tool only when the local
       instance is unreachable.
@@ -181,11 +301,23 @@ in
           "Bash(chmod +x *)"
           "Bash(bash -n /var/home/matus/Dokumente/schule/demo-maturitna-praca/mkosi.extra/usr/local/sbin/oci-sysupdate)"
           "Bash(cargo vendor *)"
+          # SearXNG is the default web search for every session (see the
+          # `context` block below), so this tool fires constantly, and one GET
+          # against a loopback instance is not worth a prompt. Plan mode needs
+          # both halves: the readOnlyHint annotation above clears its read-only
+          # gate, and this rule is what then approves the call.
+          "mcp__plugin_hm_searxng__web_search"
           # The auto-mode-setup skill drafts auto-mode config and needs to
           # create files under the project's .claude/ and ~/.claude/ without
           # prompting. NB: ~/.claude/settings.json itself is HM-managed, so
           # a switch reverts any edits the skill makes there.
           "Skill(auto-mode-setup)"
+          # The primer tells every subagent to call these skills, and a
+          # subagent has nobody to answer a permission prompt: a prompt it
+          # cannot answer is a denial, which turns the mandate into a silent
+          # no-op. Pre-allowing the namespace is what keeps the hook from
+          # being advice a subagent is structurally unable to take.
+          "Skill(dots-skills:*)"
           "Edit(.claude/**)"
           "Edit(/${config.home.homeDirectory}/.claude/**)"
         ];
@@ -193,18 +325,44 @@ in
       };
 
       # Claude Code lifecycle hooks (settings.json "hooks", distinct from
-      # the HM module's hooks/ script directory). A SessionStart hook's
-      # stdout is added to the session context, so cat-ing dodging-cdb's
-      # SKILL.md from its store path primes every fresh session with it
-      # before any git push happens. That is the closest thing to "run this
-      # skill at startup". The path interpolation pins the file into the
-      # store, so the hook can never dangle even if the repo checkout moves.
+      # the HM module's hooks/ script directory). Two events, one payload,
+      # both generated by `dotsSkills.primer` above.
+      #
+      # SessionStart is the old wiring widened. It used to cat a single
+      # SKILL.md, which primed the top-level session with dodging-cdb and
+      # left every other skill to self-trigger off a description the model
+      # may or may not have matched against. It now emits the generated
+      # index as well, so a fresh session starts holding one trigger line
+      # per skill and a standing instruction to call the Skill tool on a
+      # match.
+      #
+      # SubagentStart is the reason any of this exists. A subagent is built
+      # with a fresh message array rather than a copy of its parent's
+      # transcript, so SessionStart output never reaches it and it fires
+      # this event instead. Both hooks emit JSON rather than bare text
+      # deliberately: bare stdout becomes a hook_success attachment, which
+      # a session folds into context and a subagent does not, so a plain
+      # cat here would fire, log a clean exit, and change nothing about
+      # what the subagent does. Only hookSpecificOutput/additionalContext
+      # lands. No matcher, so it covers every agent type including Explore
+      # and Plan — the two built-ins that have CLAUDE.md stripped from
+      # their context and so cannot be reached any other way.
       hooks.SessionStart = [
         {
           hooks = [
             {
               type = "command";
-              command = "cat ${../../skills/dodging-cdb/SKILL.md}";
+              command = "cat ${dotsSkills.primer}/session-start.json";
+            }
+          ];
+        }
+      ];
+      hooks.SubagentStart = [
+        {
+          hooks = [
+            {
+              type = "command";
+              command = "cat ${dotsSkills.primer}/subagent-start.json";
             }
           ];
         }

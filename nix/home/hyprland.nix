@@ -55,10 +55,14 @@ in
 
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
       # has no exec-once; hyprland.start fires once at compositor boot. Called
-      # by name (like waybar/nm-applet) since awww is in home.packages.
-      # The cheatsheet is part of the shell now, so there is no daemon to start
-      # and no first-login sentinel to keep: `qs` brings it with everything
-      # else. NB comments here are Nix (#), not Lua (--)
+      # by name (like nm-applet) since awww is in home.packages.
+      # The shell is deliberately not here: this hook fires only at boot, so
+      # a `qs` started from it would stay dead through every rebuild until
+      # the next login. It runs as a systemd user unit instead, which comes
+      # back on switch — see nix/home/quickshell/default.nix. The cheatsheet
+      # moved into the shell along with it, which is why there is no daemon
+      # to start and no first-login sentinel to keep.
+      # NB comments here are Nix (#), not Lua (--)
       # — anything inside the `lua ''...''` inline is emitted verbatim into
       # hyprland.lua.
       on = {
@@ -71,10 +75,11 @@ in
               -- awww img blocks briefly and retries, so the ordering here
               -- is belt and braces rather than a race fix.
               hl.exec_cmd("awww-daemon")
-              -- qs starts Watcher.qml, whose own Component.onCompleted
-              -- applies the monitor layout once on startup — no separate
-              -- "apply" exec needed the way the old hyprmon daemon required.
-              hl.exec_cmd("qs")
+              -- No monitor exec here. hyprmon is gone, and the shell that
+              -- replaced it is a systemd user unit rather than a child of
+              -- this hook, so `qs` must not be started from here either.
+              -- Watcher.qml's own Component.onCompleted applies the layout
+              -- once the unit brings the shell up.
               -- The bar's network pill reports state; nm-applet's tray
               -- icon is what actually offers a menu to switch networks,
               -- so it stays until the shell grows that.

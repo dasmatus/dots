@@ -24,6 +24,7 @@ let
         settings = s;
         aipageFirefox = inputs.self.packages.x86_64-linux.aipage-firefox;
         aipageChrome = inputs.self.packages.x86_64-linux.aipage-chrome;
+        pgAgentmem = inputs.self.packages.x86_64-linux.pg-agentmem;
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
         claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;
       };
@@ -39,6 +40,7 @@ let
         ../nix/modules/limine-install.nix
         ../nix/modules/network.nix
         ../nix/modules/searxng.nix
+        ../nix/modules/agentmem.nix
         ../nix/modules/virtualisation.nix
         ../nix/modules/users.nix
         ../nix/modules/hardening.nix

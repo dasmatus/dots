@@ -274,4 +274,182 @@ in
     assert carries palette.accentFallback;
     assert carries palette.fonts.ui;
     pkgs.writeText "palette-eval-ok" palette.accentFallback;
+
+  # nix/modules/agentmem.nix, guarded against the three ways it has already
+  # broken at activation. Each of those reached a rebuild because parsing a
+  # module is not evaluating it, and `nix flake check` cannot run on a bare
+  # checkout here (nix/settings.nix is a symlink into /var/lib/dots), so on a
+  # workstation nothing forced these paths until switch time. In CI, where the
+  # settings stub exists, this is the gate that fires first.
+  agentmem-eval =
+    let
+      sys = self.nixosConfigurations.tokyonight.config;
+      migrate = sys.systemd.services.agentmem-migrate;
+      script = migrate.script;
+
+      # Everything after the extension install. `_migrations` has to land in
+      # there: the schema belongs to pg_agentmem, so creating the table before
+      # the extension exists is the ordering that fails.
+      afterExtension =
+        let
+          parts = lib.splitString "CREATE EXTENSION IF NOT EXISTS pg_agentmem" script;
+        in
+        if builtins.length parts >= 2 then builtins.elemAt parts 1 else "";
+
+      # Migration filenames must be 0001..000N with no gap and no repeat. Two
+      # agents once both produced a `0004`, under different names, and git
+      # merged all three with no textual conflict because the collision is in
+      # the sequence rather than in any line.
+      sqlNames = lib.sort (a: b: a < b) (
+        builtins.filter (lib.hasSuffix ".sql") (
+          builtins.attrNames (builtins.readDir ../nix/modules/agentmem/migrations)
+        )
+      );
+      prefixes = map (f: builtins.substring 0 4 f) sqlNames;
+      expected = lib.genList (i: lib.fixedWidthNumber 4 (i + 1)) (builtins.length sqlNames);
+    in
+    # Forcing finalPackage is the whole point of the next line: it is what
+    # evaluates the `extensions` list, and naming a contrib extension there
+    # (pg_trgm, unaccent) fails with "attribute 'pg_trgm' missing".
+    assert lib.hasPrefix "postgresql-and-plugins" sys.services.postgresql.finalPackage.name;
+    # Pinned major. The repo sets no system.stateVersion and autoupgrades
+    # daily, so an unpinned package moves psqlSchema and dataDir under a live
+    # cluster the moment nixpkgs gains a new major.
+    assert lib.hasPrefix "18." sys.services.postgresql.package.version;
+    assert !sys.services.postgresql.enableTCPIP;
+    # The runner is its own unit. `services.postgresql.postStart` is not an
+    # option at all, and referencing this config at all is what catches that.
+    assert migrate.serviceConfig.Type == "oneshot";
+    # postgres, because CREATE EXTENSION on LANGUAGE c needs superuser: a
+    # plain role gets "permission denied for language c".
+    assert migrate.serviceConfig.User == "postgres";
+    # But the migrations run with the session role set to the database owner,
+    # so the SECURITY DEFINER API functions carry the owner's rights and not
+    # a superuser's. Losing this line is a silent privilege escalation.
+    assert lib.hasInfix "PGOPTIONS=-crole=${sys.dots.username}" script;
+    # And the schema is handed back to that owner, because 0001 grants USAGE
+    # on it to the MCP role and a non-owner GRANT only warns.
+    assert lib.hasInfix "ALTER SCHEMA agentmem OWNER TO ${sys.dots.username}" script;
+    assert builtins.elem "postgresql.service" migrate.after;
+    assert builtins.elem "postgresql-setup.service" migrate.after;
+    # Ordering and ownership: install the extension, then the bookkeeping
+    # table, and never create the schema by hand. pgrx's #[pg_schema] emits
+    # its own CREATE SCHEMA, and an extension script may only skip an object
+    # the extension already owns, so a second creator blocks it permanently.
+    assert lib.hasInfix "_migrations" afterExtension;
+    assert !(lib.hasInfix "CREATE SCHEMA IF NOT EXISTS agentmem" script);
+    # A cluster left by the older bootstrap still carries an unowned schema,
+    # which no retry repairs, so the runner has to clear it first.
+    assert lib.hasInfix "DROP SCHEMA agentmem CASCADE" script;
+    assert prefixes == expected;
+    # State that outlives a reboot: root is a tmpfs, so without the
+    # persistence entry the cluster is re-initdb'd empty every boot, and the
+    # backup has to sit under that same persisted parent rather than the
+    # module default on /var/backup.
+    assert builtins.any (
+      d: (if builtins.isAttrs d then d.directory else d) == "/var/lib/postgresql"
+    ) sys.environment.persistence."/persist".directories;
+    assert lib.hasPrefix "/var/lib/postgresql/" sys.services.postgresqlBackup.location;
+    pkgs.writeText "agentmem-eval-ok" (builtins.concatStringsSep "\n" prefixes);
+
+  # Every home.activation entry, guarded against ending the run early.
+  # home-manager splices the whole DAG into one bash script, so an `exit` in
+  # any entry stops the activation there — including linkGeneration, which is
+  # the step that puts ~/.config/quickshell, and every other managed file, on
+  # disk. Nothing about that failure is loud: the script exits 0, systemd
+  # reports success, and home.packages still arrive because useUserPackages
+  # installs them through the NixOS closure rather than through this script.
+  # The symptom is a ~/.config that quietly stops tracking the repo, which is
+  # how a whole desktop shell reached the store and never reached the machine.
+  #
+  # checkLinkTargets is upstream's and its `|| exit 1` is the point: a file
+  # collision has to stop the run before anything is linked. Every other entry
+  # fails here instead, a home-manager bump that adds one included — read what
+  # the new entry does before deciding its name belongs below.
+  hm-activation-eval =
+    let
+      sys = self.nixosConfigurations.tokyonight.config;
+      hm = sys.home-manager.users.${sys.dots.username};
+
+      deliberate = [ "checkLinkTargets" ];
+
+      # A comment naming exit is not a call to it, and the one in
+      # nix/home/claude-desktop.nix explaining this rule is exactly that.
+      isComment = line: builtins.match "[[:space:]]*#.*" line != null;
+
+      # `exit` as a word: opening the line or following a shell operator, and
+      # not the prefix of $exitCode, exited or exit_helper.
+      callsExit =
+        line:
+        builtins.match "([[:space:]]*|.*[^[:alnum:]_$])exit([[:space:]]+[0-9]+)?[[:space:]]*" line != null;
+
+      aborting =
+        entry: builtins.any (line: !(isComment line) && callsExit line) (lib.splitString "\n" entry.data);
+
+      offenders = builtins.attrNames (
+        lib.filterAttrs (name: entry: !(builtins.elem name deliberate) && aborting entry) hm.home.activation
+      );
+    in
+    # Named rather than counted, because the whole failure mode is not knowing
+    # which entry swallowed the rest of the run.
+    assert lib.assertMsg (offenders == [ ]) (
+      "home.activation entries call exit, which ends the activation script "
+      + "before linkGeneration: "
+      + builtins.concatStringsSep ", " offenders
+    );
+    # The step the exit was skipping and the file it never linked, both named
+    # so a rename cannot quietly turn this check into a no-op.
+    assert hm.home.activation ? linkGeneration;
+    assert hm.xdg.configFile ? quickshell;
+    assert hm.xdg.configFile.quickshell.target == ".config/quickshell";
+    pkgs.writeText "hm-activation-eval-ok" (
+      builtins.concatStringsSep "\n" (builtins.attrNames hm.home.activation)
+    );
+
+  # How the shell gets started, which is not the same question as whether its
+  # config is on disk. `hyprland.start` fires once at compositor boot, so a
+  # shell launched only from that hook cannot come back on a rebuild — the QML
+  # lands in ~/.config and nothing reads it until the next login. Every other
+  # session-scoped thing here is a systemd user unit and does return: hyprmon
+  # restarted during the very activation that first linked this shell, in the
+  # same session, while the shell itself sat on disk unread.
+  #
+  # Both halves of the unit are the contract. Wanted by graphical-session
+  # .target is what starts it at login. X-Restart-Triggers naming the config
+  # tree is what makes sd-switch restart it when the QML changes rather than
+  # only when the quickshell package does — without it the unit text is stable
+  # across every edit to the shell and the bug returns wearing a systemd hat.
+  #
+  # And the hook must not launch it too, or a login races two shells onto one
+  # IPC socket. The keybinds still speak `qs ipc call`, which is a client
+  # talking to whatever instance is up, so those stay.
+  shell-service-eval =
+    let
+      sys = self.nixosConfigurations.tokyonight.config;
+      hm = sys.home-manager.users.${sys.dots.username};
+      unit = hm.systemd.user.services.quickshell;
+      lua = hm.xdg.configFile."hypr/hyprland.lua".text;
+      # home-manager normalises ExecStart to a list; toString handles both.
+      execStart = toString unit.Service.ExecStart;
+    in
+    assert hm.systemd.user.services ? quickshell;
+    assert builtins.elem "graphical-session.target" unit.Install.WantedBy;
+    assert builtins.elem "graphical-session.target" unit.Unit.PartOf;
+    # The want symlink rather than just the unit: that is the half which
+    # actually pulls the shell in at login, and it is generated from Install
+    # rather than written out, so it is worth reading back.
+    assert hm.xdg.configFile ? "systemd/user/graphical-session.target.wants/quickshell.service";
+    # Keyed to the same tree the module links into ~/.config, so the two
+    # cannot drift into a unit that restarts on a config it does not serve.
+    assert builtins.elem "${hm.xdg.configFile.quickshell.source}" unit.Unit."X-Restart-Triggers";
+    assert lib.hasInfix "quickshell" execStart;
+    # Bare, because --path would key the instance to the store tree and strand
+    # every `qs ipc call` client looking under ~/.config.
+    assert !(lib.hasInfix "--path" execStart);
+    # Started by the unit, not by the compositor.
+    assert !(lib.hasInfix ''hl.exec_cmd("qs")'' lua);
+    # But still reachable from the keybinds, which is a different code path
+    # and must not be collateral damage of removing the start line.
+    assert lib.hasInfix "qs ipc call launcher toggle" lua;
+    pkgs.writeText "shell-service-eval-ok" execStart;
 }
