@@ -76,9 +76,16 @@ forcing the whole tree through `builtins.toJSON` on every rebuild.
 GRANT USAGE   ON SCHEMA   agentmem TO agentmem_mcp;
 GRANT EXECUTE ON FUNCTION agentmem.ingest_fact, agentmem.cite_fact,
                           agentmem.digest, agentmem.search,
-                          agentmem.subgraph TO agentmem_mcp;
+                          agentmem.subgraph,   agentmem.note_session,
+                          agentmem.health TO agentmem_mcp;
 -- no GRANT ... ON TABLE anywhere
 ```
+
+Two functions are deliberately withheld from that role.
+`agentmem.rebuild_derived` swaps a scope's derived edges wholesale and
+`agentmem._mark_stale` retires facts whose source is gone; both are
+maintenance the service runs, not calls an agent gets to make. A test
+asserts `_mark_stale` is denied to `agentmem_mcp`.
 
 The MCP role holds no table privileges. `agentmem.ingest_fact` is the only way
 a row can come into being, and it carries four gates:
@@ -102,6 +109,21 @@ search(p_scope text, p_q text, p_k int)
   RETURNS TABLE(fact_id bigint, claim_key text, body text, rank real)
 subgraph(p_scope text, p_root text, p_hops int)
   RETURNS TABLE(src text, verb text, dst text, depth int, origin text)
+note_session(p_session uuid, p_scope text, p_summary text,
+             p_files text[], p_decisions text, p_unfinished text,
+             p_unslop_token text) RETURNS void
+health(p_since interval DEFAULT '30 days')
+  RETURNS TABLE(reads bigint, writes bigint, ratio numeric,
+                oldest_fact_age interval, live_facts bigint,
+                superseded_facts bigint, stale_facts bigint,
+                verdict text)
+```
+
+Maintenance, run by the service rather than by an agent:
+
+```sql
+rebuild_derived(p_scope text, p_mermaid text, p_sha text) RETURNS int
+_mark_stale() RETURNS void
 ```
 
 The mem0 duplication loop needs a direct `INSERT`. There is none. This is also

@@ -78,7 +78,7 @@ pub trait MemoryStore {
     ) -> impl Future<Output = Result<i64, StoreError>> + Send + 'a;
 
     /// `agentmem.cite_fact(p_fact, p_session)` — marks a fact as read this
-    /// session; backs the `session_note` tool.
+    /// session; backs the `cite_fact` tool.
     fn cite_fact(
         &self,
         fact: i64,

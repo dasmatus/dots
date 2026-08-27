@@ -108,7 +108,7 @@ fn default_hops() -> i32 {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct SessionNoteArgs {
+pub struct CiteFactArgs {
     /// The id of the fact being cited as read this session.
     pub fact_id: i64,
     /// The session doing the citing.
@@ -290,9 +290,9 @@ where
     #[tool(description = "Mark a recalled fact as cited by the current \
                         session. Call this after acting on a recalled \
                         fact so the read/write ledger reflects real use.")]
-    pub async fn session_note(
+    pub async fn cite_fact(
         &self,
-        Parameters(args): Parameters<SessionNoteArgs>,
+        Parameters(args): Parameters<CiteFactArgs>,
     ) -> Result<CallToolResult, McpError> {
         let session = parse_session(&args.session)?;
         self.store
