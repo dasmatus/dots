@@ -18,6 +18,30 @@ function requiredGib(swapGib) {
     return ESP_GIB + swapGib + ROOT_GIB;
 }
 
+/// `requiredGib` in bytes — DiskSelect.qml's multi-pick capacity gate wants
+/// the span in bytes, same unit `size_bytes` is already in.
+function requiredBytes(swapGib) {
+    return requiredGib(swapGib) * GIB;
+}
+
+/// ESP/boot partition size in GiB — exposed as a function rather than a bare
+/// module-level export, since a `.pragma library`'s plain `const`s are not
+/// guaranteed reachable through an `import ... as X` the way its functions
+/// are.
+function espGib() {
+    return ESP_GIB;
+}
+
+/// btrfs root floor in GiB — see `espGib` above for why this is a function.
+function rootGib() {
+    return ROOT_GIB;
+}
+
+/// One GiB in bytes — see `espGib` above for why this is a function.
+function gib() {
+    return GIB;
+}
+
 /// lsblk emits native booleans (util-linux >= 2.37) or "0"/"1" strings.
 function flag(v) {
     if (typeof v === "boolean")
