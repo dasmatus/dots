@@ -46,10 +46,11 @@ in
       };
 
       # No static `monitor` block: Hyprland 0.55+ retired the hyprlang
-      # `keyword` IPC for the Lua ("non-legacy") parser, so the
-      # `hyprctl keyword monitor …` calls hyprmon shells out to are now a
-      # silent no-op (exit 0 with an error string). The scale is therefore
-      # applied at runtime by the hyprmon daemon (nix/home/hyprmon.nix) via
+      # `keyword` IPC for the Lua ("non-legacy") parser, so a
+      # `hyprctl keyword monitor …` call is a silent no-op (exit 0 with an
+      # error string). The scale is therefore applied at runtime by the
+      # shell's own monitor watcher
+      # (nix/home/quickshell/qml/monitors/Watcher.qml) via
       # `hyprctl eval 'hl.monitor({...})'`, not from this config file.
 
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
@@ -70,8 +71,10 @@ in
               -- awww img blocks briefly and retries, so the ordering here
               -- is belt and braces rather than a race fix.
               hl.exec_cmd("awww-daemon")
+              -- qs starts Watcher.qml, whose own Component.onCompleted
+              -- applies the monitor layout once on startup — no separate
+              -- "apply" exec needed the way the old hyprmon daemon required.
               hl.exec_cmd("qs")
-              hl.exec_cmd("hyprmon apply")
               -- The bar's network pill reports state; nm-applet's tray
               -- icon is what actually offers a menu to switch networks,
               -- so it stays until the shell grows that.
@@ -453,6 +456,16 @@ in
           _args = [
             (lua ''mod .. " + W"'')
             (lua ''hl.dsp.exec_cmd("qs ipc call wallpaper toggle")'')
+          ];
+        }
+        # The monitor arrange surface
+        # (nix/home/quickshell/qml/monitors/Arrange.qml), hyprmon.nix's old
+        # "Monitors" desktop entry replaced by a direct bind — one door in,
+        # like the settings form and the wallpaper picker above.
+        {
+          _args = [
+            (lua ''mod .. " + M"'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call arrange toggle")'')
           ];
         }
         #

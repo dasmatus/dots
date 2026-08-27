@@ -46,6 +46,10 @@ let
         key = "SUPER + W";
         desc = "Wallpaper picker";
       }
+      {
+        key = "SUPER + M";
+        desc = "Arrange monitors (drag to reposition)";
+      }
     ];
     window = [
       {
