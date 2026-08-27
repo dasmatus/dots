@@ -1,5 +1,5 @@
 -- Exercises the file-existence half of the staleness sweep added in
--- 0004_source_staleness.sql: a `remembered` fact must not outlive the
+-- 0006_source_staleness.sql: a `remembered` fact must not outlive the
 -- file its source_ref names (design spec section 7). agentmem._mark_stale
 -- already covered usage-based decay before this migration; this file
 -- covers the branch that checks agentmem.file_exists_v1(source_ref) for
@@ -8,7 +8,7 @@
 --
 -- Also proves the sweep's effect actually reaches the two read paths
 -- that promise to honour is_stale: agentmem.digest and (as of
--- 0004_source_staleness.sql, which added the guard) agentmem.search.
+-- 0006_source_staleness.sql, which added the guard) agentmem.search.
 -- And proves the sweep never deletes: a stale row is excluded from both,
 -- not removed from agentmem.fact.
 --

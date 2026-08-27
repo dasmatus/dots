@@ -1,4 +1,4 @@
--- agentmem schema, migration 4 of 4.
+-- agentmem schema, migration 6.
 --
 -- Closes a gap left open by 0002_functions.sql: `agentmem._mark_stale`
 -- decayed a `remembered` fact by age and citation count, but never
