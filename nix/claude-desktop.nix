@@ -22,6 +22,7 @@
   stdenv,
   fetchurl,
   dpkg,
+  callPackage,
   autoPatchelfHook,
   makeWrapper,
   wrapGAppsHook3,
@@ -136,6 +137,25 @@ stdenv.mkDerivation (finalAttrs: {
 
     runHook postInstall
   '';
+
+  # The repo's skills/ tree in plugin shape, for the app to load. Same
+  # derivation the terminal CLI gets (nix/dots-skills.nix), so the two stay
+  # one tree rather than two that drift.
+  #
+  # It is exposed rather than applied because the app cannot be pointed at a
+  # skills directory from here. The CLI derives its user skills directory from
+  # CLAUDE_CONFIG_DIR alone, and every session the app starts spawns the CLI
+  # with that variable overwritten to a private per-session directory seeded
+  # with a CLAUDE.md and caches. Nor would setting it in the wrapper survive:
+  # the app builds its subprocess environment from a fixed allowlist — it
+  # re-adds HOME, PATH, SHELL, TERM and USER by hand precisely because nothing
+  # is inherited — so a variable set here reaches the Electron process and
+  # stops there. What does reach a session is the plugin list handed to the
+  # CLI as --plugin-dir, and registering a plugin is $HOME state, so
+  # nix/home/claude-desktop.nix does that half.
+  #
+  # passthru is not passed to the builder, so this adds nothing to rebuild.
+  passthru.skillsPlugin = (callPackage ./dots-skills.nix { }).plugin;
 
   meta = {
     description = "Official Claude desktop app (Chat, Cowork and Claude Code)";

@@ -27,6 +27,7 @@
     ./claude.nix
     ./codex.nix
     ./computer-use-linux.nix
+    ./edupage-mcp.nix
     ./nixvim.nix
     ./dokumente.nix
     ./dots-repo.nix
