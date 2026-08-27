@@ -11,6 +11,10 @@
 //
 // The launcher, cheatsheet, settings form and wallpaper picker are single
 // instances too: only one can be open, and it belongs where you are looking.
+//
+// Rotation has no window of its own; it holds a reference to the one
+// Picker instance so its hourly random pick can drive the same apply() a
+// grid click does.
 import Quickshell
 import "bar"
 import "cheatsheet"
@@ -37,5 +41,11 @@ ShellRoot {
 
     Settings {}
 
-    Picker {}
+    Picker {
+        id: picker
+    }
+
+    Rotation {
+        picker: picker
+    }
 }

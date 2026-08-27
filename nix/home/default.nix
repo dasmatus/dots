@@ -37,7 +37,6 @@
     ./claude-desktop.nix
     ./hyprmon.nix
     ./wallpaper-tui.nix
-    ./random_wp.nix
     ./librewolf.nix
     ./settings-menu.nix
     ./git.nix
@@ -90,9 +89,10 @@
 
   home.packages = with pkgs; [
     # The wallpaper daemon is awww (nix/home/wallpaper-tui.nix puts it on
-    # PATH and hyprland.start launches awww-daemon); wallpaper-tui talks to
-    # it over its IPC socket, and random_wp.nix routes through wallpaper-tui
-    # so it inherits the same daemon.
+    # PATH and hyprland.start launches awww-daemon); Picker.qml and
+    # Rotation.qml both talk to it over Process rather than through
+    # wallpaper-tui now, so a random hourly pick and a grid click share the
+    # one daemon the same way the old TUI and its login timer used to.
     brightnessctl
     # Haskell toolchain — shared by Neovim (nixvim lsp.servers.hls) and Zed
     # (the `haskell` extension finds these on PATH) plus the shell. Installed
@@ -152,7 +152,11 @@
     # Tokyonight theme @import, so the @define-color overrides win. If the
     # state file doesn't exist yet (fresh boot, before the first tint), GTK
     # logs a CSS warning and falls back to the base theme — corrected within
-    # seconds by the wallhaven-wallpaper login service / wallpaper-tui --restore.
+    # seconds by `wallpaper-tui --restore` at login. Picker.qml and
+    # Rotation.qml do not write this file: only the icon theme
+    # (Icons.qml) and the bar's own accent (tint/current.json) have moved
+    # off the TUI so far, so GTK/Kvantum/rofi tinting still depends on it
+    # until a later plan ports those writers too.
     gtk3.extraCss = ''
       @import url("file://${config.xdg.stateHome}/wallpaper-tui/tint/gtk3.css");
     '';
