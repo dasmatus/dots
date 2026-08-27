@@ -35,7 +35,6 @@
     ./hyprland.nix
     ./quickshell
     ./claude-desktop.nix
-    ./hyprmon.nix
     ./librewolf.nix
     ./settings-menu.nix
     ./git.nix

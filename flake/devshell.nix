@@ -1,5 +1,5 @@
 # devShells.${system} — the dev shell for hacking on the repo's Rust crates
-# (installer-tui, hyprmon, settings-global): a plain Rust toolchain so
+# (installer-tui, settings-global): a plain Rust toolchain so
 # `cargo fmt`/`cargo clippy`/`cargo test`/`cargo run` work locally without a
 # system rust install. None need pkg-config / webkit / gtk, so that stack
 # is not needed here (the old Tauri dev shell carried it).

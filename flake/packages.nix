@@ -25,28 +25,6 @@ self: {
     # binary spelled out.
     meta.mainProgram = "global-settings";
   };
-  # hyprmon — the declarative multi-monitor auto-detection daemon. Built at
-  # the flake level for the same reason `settings` above is (cache key
-  # sharing, `nix build .#hyprmon`); nix/home/hyprmon.nix wraps the store path
-  # and wires the systemd user service.
-  hyprmon = pkgs.rustPlatform.buildRustPackage {
-    pname = "hyprmon";
-    version = "0.1.0";
-    src = ../rust/hyprmon;
-    cargoLock.lockFile = ../rust/hyprmon/Cargo.lock;
-    # The launcher entry's icon (nix/home/hyprmon.nix names it `hyprmon`,
-    # unqualified). It ships here rather than as a home file because the
-    # launcher resolves an `Icon=` name through the icon themes on
-    # XDG_DATA_DIRS, and hicolor in the profile is what puts it there — the
-    # same lookup the GNOME app grid makes. Named as a Nix path rather than a
-    # relative one: cargoInstallHook does not run with the unpacked source as
-    # its cwd.
-    postInstall = ''
-      install -Dm444 ${../rust/hyprmon/hyprmon.svg} \
-        "$out/share/icons/hicolor/scalable/apps/hyprmon.svg"
-    '';
-    meta.mainProgram = "hyprmon";
-  };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
   # nix/palette.json. nix/home/quickshell/default.nix builds the same thing
   # with the real state directory; this one exists so `nix run .#nix-lint` has

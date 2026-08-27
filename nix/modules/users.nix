@@ -10,7 +10,6 @@
   inputs,
   aipageFirefox,
   aipageChrome,
-  hyprmon,
   settingsMenu,
   claudeDesktop,
   ...
@@ -115,7 +114,6 @@ in
         settings
         aipageFirefox
         aipageChrome
-        hyprmon
         settingsMenu
         claudeDesktop
         ;
