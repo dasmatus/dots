@@ -42,6 +42,10 @@ let
         key = "SUPER + comma";
         desc = "Settings (git identity, hostname, AI tools)";
       }
+      {
+        key = "SUPER + W";
+        desc = "Wallpaper picker";
+      }
     ];
     window = [
       {

@@ -446,6 +446,15 @@ in
             (lua ''hl.dsp.exec_cmd("qs ipc call settings toggle")'')
           ];
         }
+        # The wallpaper picker (nix/home/quickshell/qml/wallpaper/Picker.qml).
+        # Toggled the same way the launcher and settings form are: it is
+        # already open inside the shell process, so there is nothing to spawn.
+        {
+          _args = [
+            (lua ''mod .. " + W"'')
+            (lua ''hl.dsp.exec_cmd("qs ipc call wallpaper toggle")'')
+          ];
+        }
         #
         # Print (below) is the screenshot key; SUPER+SHIFT+S stays reserved
         # for the magic special workspace (was double-bound in hyprlang).

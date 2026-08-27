@@ -8,9 +8,11 @@
 // repainting — that FileView is the whole point.
 //
 // apply(path, output, mode) is also reachable over IPC (`qs ipc call
-// wallpaper apply <path> <output> <mode>`), which is how Rotation.qml
-// drives it: two callers, one implementation, rather than the hourly timer
-// re-deriving what a click already does.
+// wallpaper apply <path> <output> <mode>`) for an external caller — a
+// keybind or a terminal. Rotation.qml lives inside this same process, so it
+// holds a direct reference to this component instead of shelling out to its
+// own IPC socket: one implementation, reached in-process by the timer and
+// externally by IPC, rather than either re-deriving what the other does.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -118,13 +120,25 @@ Scope {
     // output/mode default to "*"/"fill" (every output, cropped to fill) —
     // wallpaper-tui.nix's own defaults — so a caller that only has a path,
     // like a grid click or Rotation's random pick, does not have to name them.
+    //
+    // "*" never reaches awww's argv: this awww build takes "every output" by
+    // the ABSENCE of --outputs, not by a wildcard, and passing the literal
+    // asterisk fails outright ("none of the requested outputs are valid") —
+    // found by actually running the built command rather than trusting
+    // awww.rs's own convention, which named "*" a level up, in random_wp.nix,
+    // not in the CLI it shells out to.
     function apply(path, output, mode) {
         root.pendingPath = path;
 
         const targetOutput = output && output.length > 0 ? output : "*";
         const targetMode = awwwResizeMode(mode && mode.length > 0 ? mode : "fill");
 
-        awwwProc.command = ["awww", "img", path, "--outputs", targetOutput, "--resize", targetMode, "--fill-color", "d2a1a1", "--transition-type", "fade", "--transition-duration", "1", "--transition-fps", "60"];
+        const args = ["awww", "img", path];
+        if (targetOutput !== "*")
+            args.push("--outputs", targetOutput);
+        args.push("--resize", targetMode, "--fill-color", "d2a1a1", "--transition-type", "fade", "--transition-duration", "1", "--transition-fps", "60");
+
+        awwwProc.command = args;
         awwwProc.running = true;
     }
 
@@ -144,46 +158,79 @@ Scope {
         // qmllint enable signal-handler-parameters
     }
 
-    // Sized to accent.rs's own thumbnail bounding box (fit within 64x64,
-    // keep the aspect ratio) rather than a flat 64x64 stretch: accentFrom
-    // only counts hue votes, so squashing every photo to square would not
-    // change which hue wins, but this keeps the port honest about what
-    // accent.rs's `thumbnail(64, 64)` actually does before the bucket loop
-    // ever runs (see tst_accent.qml's 64x36 fixture for the same call).
-    Image {
-        id: sizer
+    // A second, permanently-visible layer-shell surface, 1x1 and background-
+    // layer so nothing about it is ever seen — Canvas.onPaint only fires for
+    // an item inside a window that is actually part of a live scene graph,
+    // and the picker's own `window` below sits at visible: false until the
+    // user opens it. Rotation.qml's hourly apply() has no reason to open
+    // that window, so the extraction Canvas needs a window of its own that
+    // is never toggled. Found by running apply() with the picker closed and
+    // watching onPaint simply never fire — qmllint and qmltestrunner cannot
+    // catch a missing scene graph, only a running compositor can.
+    PanelWindow {
+        id: accentSurface
 
-        visible: false
-        asynchronous: true
-        cache: false
+        screen: root.focusedScreen
+        color: "transparent"
+        visible: true
 
-        onStatusChanged: {
-            if (status !== Image.Ready)
-                return;
+        WlrLayershell.layer: WlrLayer.Background
+        WlrLayershell.namespace: "dots-wallpaper-accent"
+        exclusiveZone: 0
 
-            const iw = Math.max(1, sizer.implicitWidth);
-            const ih = Math.max(1, sizer.implicitHeight);
-            const scale = Math.min(64 / iw, 64 / ih, 1);
+        implicitWidth: 1
+        implicitHeight: 1
 
-            accentCanvas.width = Math.max(1, Math.round(iw * scale));
-            accentCanvas.height = Math.max(1, Math.round(ih * scale));
-            accentCanvas.loadImage(sizer.source.toString());
+        // Sized to accent.rs's own thumbnail bounding box (fit within 64x64,
+        // keep the aspect ratio) rather than a flat 64x64 stretch:
+        // accentFrom only counts hue votes, so squashing every photo to
+        // square would not change which hue wins, but this keeps the port
+        // honest about what accent.rs's `thumbnail(64, 64)` actually does
+        // before the bucket loop ever runs (see tst_accent.qml's 64x36
+        // fixture for the same call).
+        Image {
+            id: sizer
+
+            visible: false
+            asynchronous: true
+            cache: false
+
+            onStatusChanged: {
+                if (status !== Image.Ready)
+                    return;
+
+                const iw = Math.max(1, sizer.implicitWidth);
+                const ih = Math.max(1, sizer.implicitHeight);
+                const scale = Math.min(64 / iw, 64 / ih, 1);
+
+                accentCanvas.width = Math.max(1, Math.round(iw * scale));
+                accentCanvas.height = Math.max(1, Math.round(ih * scale));
+                accentCanvas.loadImage(sizer.source.toString());
+            }
         }
-    }
 
-    Canvas {
-        id: accentCanvas
+        Canvas {
+            id: accentCanvas
 
-        visible: false
-        renderTarget: Canvas.Image
-        width: 1
-        height: 1
+            visible: false
+            renderTarget: Canvas.Image
+            width: 1
+            height: 1
 
-        onImageLoaded: requestPaint()
-        onPaint: {
-            const ctx = getContext("2d");
-            ctx.drawImage(sizer.source.toString(), 0, 0, width, height);
-            root.applyAccent(Accent.accentFrom(ctx.getImageData(0, 0, width, height).data));
+            onImageLoaded: requestPaint()
+            onPaint: {
+                // The scene graph paints this on its own the moment the
+                // surface above maps, before apply() has ever run and
+                // sizer has a source — drawImage("") on that first pass
+                // logs a type-mismatch warning and aborts the handler,
+                // which this guard skips instead of provoking.
+                if (sizer.status !== Image.Ready)
+                    return;
+
+                const ctx = getContext("2d");
+                ctx.drawImage(sizer.source.toString(), 0, 0, width, height);
+                root.applyAccent(Accent.accentFrom(ctx.getImageData(0, 0, width, height).data));
+            }
         }
     }
 
@@ -211,11 +258,13 @@ Scope {
 
     // No adapter: this side only ever writes, and a plain string is one
     // fewer schema to keep in sync with what tree.nix's tintState reads
-    // back through JsonAdapter's generic `.root`.
+    // back through JsonAdapter's generic `.root`. Setting `path` loads
+    // eagerly, so the very first ever pick logs one "file does not exist"
+    // warning for a file this same call is about to create — the same
+    // fresh-install warning tree.nix's own tintState reader already accepts,
+    // not a sign either side is broken.
     FileView {
         id: stateWriter
-
-        printErrors: true
     }
 
     PanelWindow {
