@@ -79,11 +79,22 @@ self: {
   # `origin = 'derived'` Mermaid edges for `nix run .#memory-derive` to feed
   # into `agentmem.rebuild_derived`. No Postgres headers needed, unlike
   # pg-agentmem above — plain rustPlatform.buildRustPackage is enough.
+  #
+  # doCheck stays false: tests/derive_emit.rs deliberately runs the
+  # extractor against this checkout's own tree (flake/nixos.nix and
+  # friends), which is exactly what plan 5 task 2 asks it to assert
+  # against. `src` above is only rust/dots-memory-derive, so inside the
+  # build sandbox those repo-root files never exist and every test fails
+  # on a bare "No such file or directory" -- not a real regression. The
+  # suite still runs correctly outside the sandbox: `nix run .#nix-lint`
+  # (and plain `cargo test` from a checkout) exercises it against the
+  # real tree.
   dots-memory-derive = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-memory-derive";
     version = "0.1.0";
     src = ../rust/dots-memory-derive;
     cargoLock.lockFile = ../rust/dots-memory-derive/Cargo.lock;
+    doCheck = false;
     meta.mainProgram = "dots-memory-derive";
   };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
