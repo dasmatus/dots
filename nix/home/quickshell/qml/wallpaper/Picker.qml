@@ -3,9 +3,11 @@
 // A thumbnail grid over Wallpapers/, wired straight to awww: picking a
 // tile runs `awww img`, extracts the new accent from the same file with
 // accent.js (plan 1a) over a Canvas, writes it to Theme.tintStatePath for
-// tree.nix's FileView to pick up, and hands the accent to Icons.qml's
-// retint(). No home-manager switch sits between a click and the bar
-// repainting — that FileView is the whole point.
+// tree.nix's FileView to pick up, and hands the accent to every tint
+// target — Icons.qml, Borders.qml, Gtk.qml and Kvantum.qml — so one pick
+// repaints the icon theme, the Hyprland borders, the GTK stylesheets and
+// the Kvantum theme together. No home-manager switch sits between a click
+// and the bar repainting — that FileView is the whole point.
 //
 // apply(path, output, mode) is also reachable over IPC (`qs ipc call
 // wallpaper apply <path> <output> <mode>`) for an external caller — a
@@ -42,6 +44,18 @@ Scope {
 
     Icons {
         id: icons
+    }
+
+    Borders {
+        id: borders
+    }
+
+    Gtk {
+        id: gtk
+    }
+
+    Kvantum {
+        id: kvantum
     }
 
     function open(): void {
@@ -235,10 +249,16 @@ Scope {
     }
 
     function applyAccent(triple) {
-        // Independent of each other: retint() manages its own destination
-        // tree and never reads tintStatePath, so it runs the moment an
-        // accent exists rather than waiting on the state-file write below.
+        // Every target below is independent of the others: each manages
+        // its own destination (or, for borders, its own live IPC call) and
+        // none reads tintStatePath, so all four run the moment an accent
+        // exists rather than waiting on the state-file write below, and a
+        // failure or skip in one (no Hyprland instance, a missing Kvantum
+        // base, an unwritable GTK dir) never blocks the rest.
         icons.retint(triple.accent);
+        borders.apply(triple.accent, triple.dark);
+        gtk.write(triple.accent, triple.dark, triple.light);
+        kvantum.retint(triple.accent, triple.dark, triple.light);
 
         root.pendingTriple = triple;
         stateDir.command = ["mkdir", "-p", Theme.tintStateDir];

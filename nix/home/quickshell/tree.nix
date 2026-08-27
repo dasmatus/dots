@@ -99,6 +99,12 @@ let
         // ships read-only, hence the chmod that file's own header explains.
         readonly property string moreWaitaBase: "${pkgs.morewaita-icon-theme}/share/icons/MoreWaita";
 
+        // The Nix-store Kvantum theme Kvantum.qml's retint() copies from —
+        // the same store path the deleted wallpaper-tui.nix wrapper passed
+        // in as WALLPAPER_TUI_KVANTUM_BASE. Read-only for the same reason
+        // moreWaitaBase is.
+        readonly property string kvantumBase: "${pkgs.catppuccin-kvantum}/share/Kvantum/catppuccin-frappe-blue";
+
         // Picker.qml mkdir -p's this before every write; exposed as its own
         // property rather than derived by trimming tintStatePath in JS so
         // there is exactly one place that knows the directory ends in
