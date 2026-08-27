@@ -60,14 +60,41 @@ in
         local ${username} agentmem_mcp        peer map=agentmem-map
       '';
 
-      # Idempotent migration runner: agentmem._migrations tracks which of
-      # nix/modules/agentmem/migrations/*.sql already applied, by filename,
-      # so a rebuild that adds a migration only ever runs the new one.
-      # Deliberately not `initialScript` -- that option is `types.path` and
-      # lands world-readable in the store (design spec section 9); running
-      # from postStart under the postgres service's own permissions avoids
-      # that without needing a secrets manager this repo does not have.
-      postStart = ''
+    };
+
+    # Idempotent migration runner: agentmem._migrations tracks which of
+    # nix/modules/agentmem/migrations/*.sql already applied, by filename, so a
+    # rebuild that adds a migration only ever runs the new one.
+    #
+    # Deliberately not `initialScript` -- that option is `types.path` and lands
+    # world-readable in the store (design spec section 9), and it runs only on
+    # the very first cluster start, so a migration added later would never
+    # apply.
+    #
+    # Its own unit rather than a postStart on either postgresql.service or
+    # postgresql-setup.service. `services.postgresql.postStart` is not an
+    # option at all. postgresql.service is too early: ensureDatabases and
+    # ensureUsers run in postgresql-setup.service, so the database and the
+    # roles do not exist yet. And postgresql-setup runs as `postgres`, whose
+    # peer identity cannot authenticate as ${username}, while every function
+    # below is SECURITY DEFINER -- owned by postgres they would carry
+    # superuser rights instead of the database owner's, which is the opposite
+    # of what the privilege boundary is for.
+    systemd.services.agentmem-migrate = {
+      description = "Apply agentmem schema migrations";
+      requires = [ "postgresql-setup.service" ];
+      after = [
+        "postgresql.service"
+        "postgresql-setup.service"
+      ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        User = username;
+        Group = "users";
+      };
+      script = ''
         PSQL="${config.services.postgresql.package}/bin/psql -U ${username} -d ${username} -v ON_ERROR_STOP=1"
 
         $PSQL -c "
