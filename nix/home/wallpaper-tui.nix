@@ -139,6 +139,21 @@ in
       description = "systemd OnCalendar for the preview-cache timer.";
     };
 
+    finalPackage = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      default = wallpaper-tui;
+      description = ''
+        The wrapper script actually run for wallpaper-tui, for callers
+        outside this module (nix/home/session/default.nix's
+        wallpaper-restore unit) that need to invoke it. Not the raw
+        wallpaperTui binary: the wrapper is what injects
+        WALLPAPER_TUI_KVANTUM_BASE, WALLPAPER_TUI_ICON_BASE and pywal on
+        PATH, so pointing at the bare binary would silently lose the tint
+        backend.
+      '';
+    };
+
     outputs = lib.mkOption {
       type = lib.types.attrsOf (
         lib.types.submodule {
