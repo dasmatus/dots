@@ -54,10 +54,14 @@ in
 
       # exec-once → hl.on("hyprland.start", function() … end). The Lua DSL
       # has no exec-once; hyprland.start fires once at compositor boot. Called
-      # by name (like waybar/nm-applet) since wallpaper-tui is in home.packages.
-      # The cheatsheet is part of the shell now, so there is no daemon to start
-      # and no first-login sentinel to keep: `qs` brings it with everything
-      # else. NB comments here are Nix (#), not Lua (--)
+      # by name (like nm-applet) since wallpaper-tui is in home.packages.
+      # The shell is deliberately not here: this hook fires only at boot, so
+      # a `qs` started from it would stay dead through every rebuild until
+      # the next login. It runs as a systemd user unit instead, which comes
+      # back on switch — see nix/home/quickshell/default.nix. The cheatsheet
+      # moved into the shell along with it, which is why there is no daemon
+      # to start and no first-login sentinel to keep.
+      # NB comments here are Nix (#), not Lua (--)
       # — anything inside the `lua ''...''` inline is emitted verbatim into
       # hyprland.lua.
       on = {
@@ -69,7 +73,6 @@ in
               -- talks to it; awww img blocks briefly and retries, so the
               -- ordering here is belt and braces rather than a race fix.
               hl.exec_cmd("awww-daemon")
-              hl.exec_cmd("qs")
               hl.exec_cmd("hyprmon apply")
               -- The bar's network pill reports state; nm-applet's tray
               -- icon is what actually offers a menu to switch networks,

@@ -84,5 +84,42 @@ in
     # Lands at $XDG_CONFIG_HOME/quickshell, which is where a bare `qs` looks
     # for shell.qml, so the compositor's exec line needs no --path.
     xdg.configFile."quickshell".source = tree;
+
+    # The shell runs as a unit rather than as a child of the compositor.
+    # `hyprland.start` fires once at compositor boot (nix/home/hyprland.nix),
+    # so anything launched from there stays dead until the next login — a
+    # rebuild puts new QML in ~/.config and nothing reads it. As a unit it
+    # starts at login through graphical-session.target and comes back on
+    # switch, the way hyprmon and gammastep already do.
+    #
+    # ExecStart is a bare binary with no --path, so the running instance is
+    # keyed to ~/.config/quickshell/shell.qml. That is the path the keybinds'
+    # `qs ipc call …` clients resolve; pointing the daemon at the store tree
+    # instead would leave every one of them talking to an instance that does
+    # not exist.
+    #
+    # Which is why the tree is named in X-Restart-Triggers instead. Nothing
+    # else in this unit changes when the QML does, so without it sd-switch
+    # compares two identical unit files and restarts the shell only when the
+    # quickshell package itself moves.
+    systemd.user.services.quickshell = {
+      Unit = {
+        Description = "Quickshell desktop shell";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session-pre.target" ];
+        # The bar's workspace and window pills read Hyprland's socket, so a
+        # non-Hyprland session has no shell to run. Same gate as hyprmon.
+        ConditionPathExists = [ "%t/hypr" ];
+        X-Restart-Triggers = [ "${tree}" ];
+      };
+      Service = {
+        ExecStart = lib.getExe pkgs.quickshell;
+        Restart = "on-failure";
+        RestartSec = 2;
+      };
+      Install = {
+        WantedBy = [ "graphical-session.target" ];
+      };
+    };
   };
 }

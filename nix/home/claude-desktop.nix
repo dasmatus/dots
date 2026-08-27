@@ -56,39 +56,42 @@ in
     # entry, install any plugin once through its own UI, diff what it wrote,
     # and match it.
     home.activation.claudeDesktopSkills = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      # home-manager splices every activation entry into one bash script,
+      # so `exit` here would abort the run before linkGeneration links
+      # ~/.config. Skip the loop instead of leaving the script.
       sessions="$HOME/.config/Claude/local-agent-mode-sessions"
-      [ -d "$sessions" ] || exit 0
+      if [ -d "$sessions" ]; then
+        for org in "$sessions"/*/*/; do
+          # skills-plugin/ is the cloud-synced skill cache, which nests the same
+          # two UUIDs the other way round and is not a session root.
+          case "$org" in *"/skills-plugin/"*) continue ;; esac
+          [ -d "$org" ] || continue
 
-      for org in "$sessions"/*/*/; do
-        # skills-plugin/ is the cloud-synced skill cache, which nests the same
-        # two UUIDs the other way round and is not a session root.
-        case "$org" in *"/skills-plugin/"*) continue ;; esac
-        [ -d "$org" ] || continue
+          plugins="$org/cowork_plugins"
+          reg="$plugins/installed_plugins.json"
+          set="$org/cowork_settings.json"
 
-        plugins="$org/cowork_plugins"
-        reg="$plugins/installed_plugins.json"
-        set="$org/cowork_settings.json"
+          run mkdir -p "$plugins/dots-skills"
+          run cp -r --no-preserve=mode ${claudeDesktop.skillsPlugin}/. "$plugins/dots-skills"/
 
-        run mkdir -p "$plugins/dots-skills"
-        run cp -r --no-preserve=mode ${claudeDesktop.skillsPlugin}/. "$plugins/dots-skills"/
+          # Both registry files are the app's own mutable state — it rewrites
+          # them whenever a plugin is installed or toggled — so they are merged
+          # into rather than owned. A read-only store symlink here would make
+          # the app's next write fail.
+          [ -f "$reg" ] || echo '{"plugins":{}}' > "$reg"
+          [ -f "$set" ] || echo '{}' > "$set"
 
-        # Both registry files are the app's own mutable state — it rewrites
-        # them whenever a plugin is installed or toggled — so they are merged
-        # into rather than owned. A read-only store symlink here would make
-        # the app's next write fail.
-        [ -f "$reg" ] || echo '{"plugins":{}}' > "$reg"
-        [ -f "$set" ] || echo '{}' > "$set"
+          run ${lib.getExe pkgs.jq} \
+            --arg p "$plugins/dots-skills" \
+            '.plugins["dots-skills@local-desktop-app-uploads"] =
+               [{ installPath: $p, scope: "user", installedAt: (now * 1000 | floor) }]' \
+            "$reg" > "$reg.tmp" && run mv "$reg.tmp" "$reg"
 
-        run ${lib.getExe pkgs.jq} \
-          --arg p "$plugins/dots-skills" \
-          '.plugins["dots-skills@local-desktop-app-uploads"] =
-             [{ installPath: $p, scope: "user", installedAt: (now * 1000 | floor) }]' \
-          "$reg" > "$reg.tmp" && run mv "$reg.tmp" "$reg"
-
-        run ${lib.getExe pkgs.jq} \
-          '.enabledPlugins["dots-skills@local-desktop-app-uploads"] = true' \
-          "$set" > "$set.tmp" && run mv "$set.tmp" "$set"
-      done
+          run ${lib.getExe pkgs.jq} \
+            '.enabledPlugins["dots-skills@local-desktop-app-uploads"] = true' \
+            "$set" > "$set.tmp" && run mv "$set.tmp" "$set"
+        done
+      fi
     '';
   };
 }
