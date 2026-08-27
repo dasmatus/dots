@@ -73,6 +73,19 @@ self: {
     cargoLock.lockFile = ../rust/dots-memory-mcp/Cargo.lock;
     meta.mainProgram = "dots-memory-mcp";
   };
+  # dots-memory-derive — plan 5's mechanical extractor: walks the checkout
+  # (the flake/nixos.nix modules list, the nix/home/default.nix imports,
+  # dots.* declaration-to-use pairs, the flake/apps.nix names) and prints
+  # `origin = 'derived'` Mermaid edges for `nix run .#memory-derive` to feed
+  # into `agentmem.rebuild_derived`. No Postgres headers needed, unlike
+  # pg-agentmem above — plain rustPlatform.buildRustPackage is enough.
+  dots-memory-derive = pkgs.rustPlatform.buildRustPackage {
+    pname = "dots-memory-derive";
+    version = "0.1.0";
+    src = ../rust/dots-memory-derive;
+    cargoLock.lockFile = ../rust/dots-memory-derive/Cargo.lock;
+    meta.mainProgram = "dots-memory-derive";
+  };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
   # rust/palette.json. nix/home/quickshell/default.nix builds the same thing
   # with the real state directory; this one exists so `nix run .#nix-lint` has

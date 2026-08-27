@@ -138,6 +138,8 @@ in
       nix build .#pg-agentmem --no-link
 
       cd dots-memory-mcp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
+
+      cd dots-memory-derive && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
     '';
   };
 
