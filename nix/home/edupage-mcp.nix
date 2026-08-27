@@ -24,18 +24,36 @@
 # Username and subdomain live in the keyring next to the password rather
 # than as literals below: both identify the human behind a public repo.
 #
+# Home Manager does ship a secret mechanism for MCP env vars: `env.X.file
+# = "/run/secrets/x"`, which modules/lib/mcp.nix turns into a generated
+# wrapper that reads the file at startup. Two things rule it out here. It
+# resolves a plaintext file rather than a keyring, and it is wired to
+# `programs.mcp.servers` alone — the claude-code module puts its own
+# cfg.mcpServers through addType and nothing else, so a file ref on this
+# option is serialised into .mcp.json verbatim as {"file": "..."} rather
+# than resolved. That fails silently instead of erroring, which is the
+# kind of thing worth knowing before reaching for the attribute.
+#
 # One-time imperative step this module cannot do for you: run
 # `edupage-keyring` once and answer the three prompts. Until then the
 # server still starts, just without auto-login, and its `login` tool is
-# the way in — an empty or locked keyring degrades to "not logged in",
-# never to a failed stdio handshake. Re-run it to change credentials.
+# the way in. Re-run it to change credentials.
 #
 # Known rough edge: nix/modules/core.nix turns on PAM keyring unlock for
-# the `login` service only, and this box logs in through regreet/greetd.
-# So the first secret-tool read after a boot can raise a gcr unlock
-# prompt. `security.pam.services.greetd.enableGnomeKeyring = true` would
-# remove it; left alone deliberately, because it changes how the graphical
-# session authenticates and that is a bigger decision than this module.
+# the `login` service only, and this box logs in through regreet/greetd,
+# so the collection can still be locked on a fresh boot. That matters more
+# than a stray dialog would suggest. secret-tool has no way to decline an
+# unlock prompt — `lookup` unlocks unconditionally, and only `search`
+# takes `--unlock` — and libsecret resolves the prompt through a plain
+# g_main_loop_run with no deadline and no cancellable, so an unanswered
+# dialog blocks the caller for as long as it goes unanswered. The wrapper
+# below caps every lookup at ten seconds for exactly that reason; without
+# the cap an unattended spawn would hang before the exec and leave the MCP
+# connection with nothing on its stdio pipe at all.
+# `security.pam.services.greetd.enableGnomeKeyring = true` would remove
+# the prompt at the source; left alone deliberately, because it changes
+# how the graphical session authenticates, which is a bigger decision than
+# this module gets to make.
 {
   lib,
   pkgs,
@@ -113,20 +131,33 @@ let
     };
   };
 
-  # Keyring shim: the actual `command` Claude Code spawns. secret-tool
-  # exits non-zero when an item is missing or the collection is locked, so
-  # every lookup is swallowed — the server must come up either way, since a
-  # dead stdio handshake would take the whole MCP connection down while an
-  # empty credential merely leaves the `login` tool as the way in.
-  # server.py gates its startup auto-login on `if username and password and
-  # subdomain`, and Python reads "" as false, so exporting empty values is
-  # exactly equivalent to exporting nothing.
+  # Keyring shim: the actual `command` Claude Code spawns. Every lookup is
+  # bounded and its failure swallowed, because the server has to come up
+  # either way — a dead stdio handshake takes the whole MCP connection down
+  # with it, while an empty credential only leaves the `login` tool as the
+  # way in. server.py gates its startup auto-login on `if username and
+  # password and subdomain`, and Python reads "" as false, so exporting
+  # empty values is exactly equivalent to exporting nothing.
+  #
+  # The timeout is the load-bearing part, not decoration. A *missing* item
+  # makes secret-tool exit non-zero immediately, which `|| true` handles;
+  # a *locked* collection instead makes it block on a Secret Service unlock
+  # prompt, and libsecret's synchronous lookup carries no deadline of its
+  # own and no flag to decline the prompt. An unattended spawn — cold boot,
+  # dialog opening behind another window, nobody watching — would hang
+  # before the exec and wedge the MCP connection with no output at all.
+  # Ten seconds is deliberately far too short to type a password into that
+  # dialog: bounded startup without auto-login beats an indefinite hang.
+  # Unlock the keyring and reconnect the server to pick the credentials up.
   edupage-mcp-keyring = pkgs.writeShellApplication {
     name = "edupage-mcp-keyring";
-    runtimeInputs = [ pkgs.libsecret ];
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.libsecret
+    ];
     text = ''
       lookup() {
-        secret-tool lookup service edupage attribute "$1" 2>/dev/null || true
+        timeout 10 secret-tool lookup service edupage attribute "$1" 2>/dev/null || true
       }
 
       EDUPAGE_USERNAME="$(lookup username)"
