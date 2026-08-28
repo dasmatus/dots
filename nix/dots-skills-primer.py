@@ -54,36 +54,53 @@ def split(path, expected_name):
     return fields, body.strip()
 
 
-def parse_agents(root, bodies):
-    """Return (fields, body) for agents/*.md, after validating each `skills` entry.
+def parse_agents(root, prefix, bodies):
+    """Return one frontmatter-fields dict per agents/*.md, after validating its `skills` entry.
 
     An agent's whole reason to exist is the skill(s) it preloads, so a
     missing `skills` key or an entry that resolves to no known skill fails
     the build instead of shipping an agent that silently forgot its rules.
+    The body half of split()'s return is discarded; render() never quotes an
+    agent's body, only its name and description.
+
+    Claude Code resolves a `skills:` entry by trying it as written, then by
+    joining the spawning agent's own plugin prefix to it. Our agents all
+    live in this plugin, so only the bare skill name or `<prefix>:<name>`
+    can ever resolve to one of our skills; any other prefix looks valid
+    here and silently resolves to nothing at runtime.
     """
     paths = sorted((root / "agents").glob("*.md"))
     if not paths:
         raise SystemExit(f"{root}/agents: no agent files found")
+    allowed = set(bodies) | {f"{prefix}:{name}" for name in bodies}
     agents = []
     for path in paths:
-        fields, body = split(path, path.stem)
+        fields, _ = split(path, path.stem)
         raw = fields.get("skills")
         if raw is None:
             raise SystemExit(f"{path}: agent frontmatter has no skills entry")
         raw = raw.strip()
         if not (raw.startswith("[") and raw.endswith("]")):
             raise SystemExit(f"{path}: skills value {raw!r} is not a flow sequence")
-        entries = [e.strip().strip("\"'") for e in raw[1:-1].split(",")]
-        entries = [e for e in entries if e]
-        if not entries:
+        inner = raw[1:-1].strip()
+        if not inner:
             raise SystemExit(f"{path}: skills value has no entries")
+        entries = []
+        for piece in inner.split(","):
+            entry = piece.strip()
+            if len(entry) > 1 and entry[0] == entry[-1] and entry[0] in "\"'":
+                entry = entry[1:-1]
+            if not entry:
+                raise SystemExit(f"{path}: skills value has an empty entry")
+            if '"' in entry or "'" in entry:
+                raise SystemExit(f"{path}: skills entry {entry!r} still carries a quote")
+            entries.append(entry)
         for entry in entries:
-            name = entry.split(":", 1)[-1]
-            if name not in bodies:
+            if entry not in allowed:
                 raise SystemExit(
                     f"{path}: skills entry {entry!r} does not resolve to a known skill"
                 )
-        agents.append((fields, body))
+        agents.append(fields)
     return agents
 
 
@@ -95,8 +112,12 @@ def render(prefix, parsed, names, bodies, agents):
     sections = "\n\n".join(
         f"# {name}, in force for the whole session\n\n{bodies[name]}" for name in names
     )
+
+    def escape_row(text):
+        return text.replace("|", "\\|")
+
     delegate = "\n".join(
-        f"| `{prefix}:{f['name']}` | {f['description']} |" for f, _ in agents
+        f"| `{prefix}:{f['name']}` | {escape_row(f['description'])} |" for f in agents
     )
     return f"""# Personal skills ({prefix})
 
@@ -143,7 +164,7 @@ def main():
         if name not in bodies:
             raise SystemExit(f"{root}/skills: no skill named {name!r} to inline")
 
-    agents = parse_agents(root, bodies)
+    agents = parse_agents(root, prefix, bodies)
 
     session_primer = render(prefix, parsed, session_names, bodies, agents)
     subagent_primer = render(prefix, parsed, subagent_names, bodies, agents)
