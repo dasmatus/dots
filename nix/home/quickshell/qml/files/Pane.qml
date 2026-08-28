@@ -1,6 +1,11 @@
 // One directory's listing. `ls -1Ap --group-directories-first` runs as
 // direct argv with no shell. Nothing on this path interpolates a path
 // into a command string, so there is nothing here for a shell to need.
+//
+// `active` is owned by Files.qml, not by this file: only one side may be
+// active at a time, and a property this file set on itself could not
+// enforce that. A click anywhere in the pane asks the parent for focus via
+// focusRequested() instead of claiming it directly.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -10,14 +15,21 @@ import Quickshell.Io
 import "files.js" as FilesMath
 import ".."
 
-Item {
+Rectangle {
     id: root
 
     required property string path
+    required property bool active
 
     signal navigate(string path)
+    signal focusRequested()
 
     property var entries: []
+    property var selected: null
+
+    color: Theme.bg
+    border.width: root.active ? 2 : 0
+    border.color: Theme.accent
 
     onPathChanged: root.list()
     Component.onCompleted: root.list()
@@ -47,6 +59,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
+        anchors.margins: root.active ? 2 : 0
         spacing: 0
 
         RowLayout {
@@ -60,7 +73,10 @@ Item {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: root.navigate(FilesMath.parentOf(root.path))
+                    onClicked: {
+                        root.focusRequested();
+                        root.navigate(FilesMath.parentOf(root.path));
+                    }
                 }
             }
 
@@ -87,7 +103,7 @@ Item {
 
                 width: ListView.view.width
                 height: 28
-                color: "transparent"
+                color: root.selected === row.modelData ? Theme.bgDark : "transparent"
 
                 Text {
                     anchors.left: parent.left
@@ -101,7 +117,12 @@ Item {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: root.activate(row.modelData)
+
+                    onClicked: {
+                        root.focusRequested();
+                        root.selected = row.modelData;
+                    }
+                    onDoubleClicked: root.activate(row.modelData)
                 }
             }
         }

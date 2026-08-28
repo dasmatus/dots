@@ -1,11 +1,8 @@
-// The file manager's outer shell: one FloatingWindow holding a Sidebar and
-// a Pane side by side in a RowLayout. A second Pane for dual-pane browsing
-// arrives in a later plan.
-//
-// Devices.requestOpen(path) is the single way anything outside this file
-// tells it where to go: this window's own Sidebar calls it, the launcher's
-// directory hits will too once a later task in this plan wires them up,
-// and this Connections block is the only listener.
+// The file manager's outer shell, now two Panes: leftPath/rightPath persist
+// independently, and activeSide says which one write operations (added
+// later in this plan) act on. Devices.requestOpen and openPath both target
+// whichever side is active, through setActivePath, the same single
+// entrypoint Plan 1 established, extended rather than replaced.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -17,7 +14,12 @@ import "../services"
 Scope {
     id: root
 
-    property string path: Quickshell.env("HOME")
+    property string leftPath: Quickshell.env("HOME")
+    property string rightPath: Quickshell.env("HOME")
+    property string activeSide: "left"
+
+    readonly property var activePane: root.activeSide === "left" ? leftPane : rightPane
+    readonly property var otherPane: root.activeSide === "left" ? rightPane : leftPane
 
     function open(): void {
         window.visible = true;
@@ -31,11 +33,18 @@ Scope {
         window.visible = !window.visible;
     }
 
+    function setActivePath(path: string): void {
+        if (root.activeSide === "left")
+            root.leftPath = path;
+        else
+            root.rightPath = path;
+    }
+
     Connections {
         target: Devices
 
         function onRequestOpen(path) {
-            root.path = path;
+            root.setActivePath(path);
             root.open();
         }
     }
@@ -56,7 +65,7 @@ Scope {
         }
 
         function openPath(path: string): void {
-            root.path = path;
+            root.setActivePath(path);
             root.open();
         }
     }
@@ -65,24 +74,46 @@ Scope {
         id: window
 
         visible: false
-        implicitWidth: 900
+        implicitWidth: 1200
         implicitHeight: 600
 
-        RowLayout {
+        ColumnLayout {
             anchors.fill: parent
             spacing: 0
 
-            Sidebar {
-                Layout.fillHeight: true
-                Layout.preferredWidth: 200
-            }
-
-            Pane {
+            RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                spacing: 0
 
-                path: root.path
-                onNavigate: (path) => root.path = path
+                Sidebar {
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 200
+                }
+
+                Pane {
+                    id: leftPane
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    path: root.leftPath
+                    active: root.activeSide === "left"
+                    onNavigate: (path) => root.leftPath = path
+                    onFocusRequested: root.activeSide = "left"
+                }
+
+                Pane {
+                    id: rightPane
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    path: root.rightPath
+                    active: root.activeSide === "right"
+                    onNavigate: (path) => root.rightPath = path
+                    onFocusRequested: root.activeSide = "right"
+                }
             }
         }
     }
