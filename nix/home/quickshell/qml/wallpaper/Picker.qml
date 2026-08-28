@@ -18,7 +18,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
@@ -42,6 +41,11 @@ Scope {
     property var files: []
     property int selected: -1
 
+    // GridView has no "columns" property of its own; this is the same
+    // divide-and-floor the delegate's own cell sizing implies, read back so
+    // Up/Down can jump a whole row instead of the Left/Right single step.
+    readonly property int gridColumns: Math.max(1, Math.floor(grid.width / grid.cellWidth))
+
     Icons {
         id: icons
     }
@@ -60,6 +64,7 @@ Scope {
 
     function open(): void {
         root.reload();
+        root.selected = 0;
         window.visible = true;
     }
 
@@ -77,6 +82,30 @@ Scope {
     function reload(): void {
         lister.running = false;
         lister.running = true;
+    }
+
+    // Clamped rather than wrapped: a flat list wrapping top-to-bottom reads
+    // naturally (Launcher does exactly that), but a row-jump wrap in a 2D
+    // grid can land the cursor in an arbitrary column, which reads as a bug
+    // rather than a shortcut.
+    function moveSelection(delta: int): void {
+        const count = root.files.length;
+        if (count === 0)
+            return;
+
+        const start = root.selected < 0 ? 0 : root.selected;
+        root.selected = Math.min(count - 1, Math.max(0, start + delta));
+    }
+
+    // The keyboard half of what the grid's click handler already does; task
+    // 2 is the one that changes what apply() itself is called with.
+    function applySelected(): void {
+        const path = root.files[root.selected];
+        if (!path)
+            return;
+
+        root.apply(path, "*", "fill");
+        root.close();
     }
 
     // -e is case-insensitive in fd, so a stray .JPG is still found. "." is
@@ -318,7 +347,7 @@ Scope {
             onClicked: root.close()
         }
 
-        Panel {
+        Chrome {
             id: panel
 
             anchors.centerIn: parent
@@ -330,71 +359,108 @@ Scope {
 
             focus: true
 
-            Keys.onEscapePressed: root.close()
+            title: "Wallpapers"
+            hints: [
+                {
+                    key: "↑↓/jk",
+                    label: "row"
+                },
+                {
+                    key: "←→/hl",
+                    label: "column"
+                },
+                {
+                    key: "Enter",
+                    label: "apply"
+                },
+                {
+                    key: "Esc",
+                    label: "close"
+                }
+            ]
 
-            ColumnLayout {
+            Keys.onEscapePressed: root.close()
+            Keys.onUpPressed: root.moveSelection(-root.gridColumns)
+            Keys.onDownPressed: root.moveSelection(root.gridColumns)
+            Keys.onLeftPressed: root.moveSelection(-1)
+            Keys.onRightPressed: root.moveSelection(1)
+            Keys.onReturnPressed: root.applySelected()
+            Keys.onEnterPressed: root.applySelected()
+
+            // No focused text field on this surface to steal j/k/h/l as
+            // literal characters, so they alias the arrows Vim-style — the
+            // same reasoning Cheatsheet and Arrange apply, and Settings
+            // does not.
+            Keys.onPressed: event => {
+                switch (event.key) {
+                case Qt.Key_J:
+                    root.moveSelection(root.gridColumns);
+                    event.accepted = true;
+                    break;
+                case Qt.Key_K:
+                    root.moveSelection(-root.gridColumns);
+                    event.accepted = true;
+                    break;
+                case Qt.Key_H:
+                    root.moveSelection(-1);
+                    event.accepted = true;
+                    break;
+                case Qt.Key_L:
+                    root.moveSelection(1);
+                    event.accepted = true;
+                    break;
+                }
+            }
+
+            GridView {
+                id: grid
+
                 anchors.fill: parent
 
-                spacing: 10
+                clip: true
+                cellWidth: 200
+                cellHeight: 130
 
-                Text {
-                    text: "Wallpapers"
-                    color: Theme.accent
+                model: root.files
+                currentIndex: root.selected
+                highlightFollowsCurrentItem: true
 
-                    font.family: Theme.fontUi
-                    font.pointSize: 14
-                    font.bold: true
-                }
+                delegate: Rectangle {
+                    id: cell
 
-                GridView {
-                    id: grid
+                    required property string modelData
+                    required property int index
 
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    width: grid.cellWidth - 8
+                    height: grid.cellHeight - 8
 
-                    clip: true
-                    cellWidth: 200
-                    cellHeight: 130
+                    radius: 6
+                    color: Theme.bgDark
+                    border.width: cell.index === root.selected ? 2 : 0
+                    border.color: Theme.accent
 
-                    model: root.files
+                    // Capped at 320x200 (sourceSize, not the cell's own
+                    // display size): the old preview cache's own bound,
+                    // kept so a directory of a few hundred photos never
+                    // decodes at full resolution just to show a tile.
+                    Image {
+                        anchors.fill: parent
+                        anchors.margins: 2
 
-                    delegate: Rectangle {
-                        id: cell
+                        source: PreviewMath.fileUrl(cell.modelData)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        sourceSize.width: 320
+                        sourceSize.height: 200
+                    }
 
-                        required property string modelData
-                        required property int index
+                    MouseArea {
+                        anchors.fill: parent
 
-                        width: grid.cellWidth - 8
-                        height: grid.cellHeight - 8
-
-                        radius: 6
-                        color: Theme.bgDark
-                        border.width: cell.index === root.selected ? 2 : 0
-                        border.color: Theme.accent
-
-                        // Capped at 320x200 (sourceSize, not the cell's own
-                        // display size): the old preview cache's own bound,
-                        // kept so a directory of a few hundred photos never
-                        // decodes at full resolution just to show a tile.
-                        Image {
-                            anchors.fill: parent
-                            anchors.margins: 2
-
-                            source: PreviewMath.fileUrl(cell.modelData)
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            sourceSize.width: 320
-                            sourceSize.height: 200
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-
-                            onClicked: {
-                                root.selected = cell.index;
-                                root.apply(cell.modelData, "*", "fill");
-                                root.close();
-                            }
+                        onClicked: {
+                            root.selected = cell.index;
+                            root.apply(cell.modelData, "*", "fill");
+                            root.close();
                         }
                     }
                 }

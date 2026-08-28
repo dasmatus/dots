@@ -37,11 +37,26 @@ Scope {
 
     property string status: ""
 
+    // Which row Up/Down highlights. A cursor only — editing still needs a
+    // click, same as before, so arrowing past a field never steals focus
+    // out from under whatever the mouse last put it on.
+    property int selected: 0
+
     function load(): void {
         root.edits = {};
         root.status = "";
+        root.selected = 0;
         loader.running = false;
         loader.running = true;
+    }
+
+    // Wraps, matching Launcher's own move().
+    function moveSelection(delta: int): void {
+        const count = root.fields.length;
+        if (count === 0)
+            return;
+
+        root.selected = (root.selected + delta % count + count) % count;
     }
 
     function valueOf(field: var): var {
@@ -175,7 +190,7 @@ Scope {
             onClicked: window.visible = false
         }
 
-        Panel {
+        Chrome {
             id: panel
 
             anchors.centerIn: parent
@@ -187,7 +202,31 @@ Scope {
 
             focus: true
 
+            title: "Settings"
+            hints: [
+                {
+                    key: "↑↓",
+                    label: "move"
+                },
+                {
+                    key: "Enter",
+                    label: "save"
+                },
+                {
+                    key: "Esc",
+                    label: "close"
+                }
+            ]
+
             Keys.onEscapePressed: window.visible = false
+            Keys.onReturnPressed: root.save()
+            Keys.onEnterPressed: root.save()
+
+            // Arrows only, unlike Arrange/Picker/Cheatsheet's j/k alias: this
+            // surface has real text fields, and a "j" typed into one while it
+            // has focus must land in the field, not get stolen as a move.
+            Keys.onUpPressed: root.moveSelection(-1)
+            Keys.onDownPressed: root.moveSelection(1)
 
             ColumnLayout {
                 id: form
@@ -196,15 +235,6 @@ Scope {
 
                 spacing: 14
 
-                Text {
-                    text: "Settings"
-                    color: Theme.accent
-
-                    font.family: Theme.fontUi
-                    font.pointSize: 14
-                    font.bold: true
-                }
-
                 Repeater {
                     model: root.fields
 
@@ -212,6 +242,7 @@ Scope {
                         id: row
 
                         required property var modelData
+                        required property int index
 
                         Layout.fillWidth: true
 
@@ -221,7 +252,7 @@ Scope {
                             Layout.preferredWidth: 200
 
                             text: row.modelData.label
-                            color: Theme.fgDark
+                            color: row.index === root.selected ? Theme.accent : Theme.fgDark
 
                             font.family: Theme.fontUi
                             font.pointSize: 10
@@ -256,6 +287,17 @@ Scope {
                                 selectedTextColor: Theme.bg
 
                                 onTextEdited: root.edit(row.modelData.key, text)
+
+                                // TextInput answers Return itself rather than
+                                // letting it bubble to the panel's own
+                                // handler, so the grammar's commit/cancel
+                                // keys are repeated here — the same reason
+                                // Field.qml and Launcher's search box wire
+                                // them on the input directly rather than on
+                                // an ancestor.
+                                Keys.onReturnPressed: root.save()
+                                Keys.onEnterPressed: root.save()
+                                Keys.onEscapePressed: window.visible = false
                             }
                         }
 

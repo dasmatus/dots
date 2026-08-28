@@ -5,6 +5,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import ".."
+import "../common"
 
 Frame {
     id: root

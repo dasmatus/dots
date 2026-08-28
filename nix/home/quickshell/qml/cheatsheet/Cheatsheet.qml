@@ -21,6 +21,7 @@ import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
 import ".."
+import "../common"
 
 Scope {
     id: root
@@ -36,11 +37,40 @@ Scope {
     }
     // qmllint enable unresolved-type
 
+    // The flat index each group's first row starts at, so a row nested two
+    // Repeaters deep can compare itself against `selected` without the
+    // groups themselves being flattened out of the JSON they were loaded
+    // from — Up/Down moves through one continuous list even though the
+    // layout stays grouped.
+    readonly property var groupOffsets: {
+        let offset = 0;
+        return root.groups.map(g => {
+            const start = offset;
+            offset += g.items.length;
+            return start;
+        });
+    }
+
+    readonly property int totalItems: root.groups.reduce((sum, g) => sum + g.items.length, 0)
+
+    property int selected: 0
+
+    // Wraps, matching Launcher's own move().
+    function moveSelection(delta: int): void {
+        const count = root.totalItems;
+        if (count === 0)
+            return;
+
+        root.selected = (root.selected + delta % count + count) % count;
+    }
+
     IpcHandler {
         target: "cheatsheet"
 
         function toggle(): void {
             window.visible = !window.visible;
+            if (window.visible)
+                root.selected = 0;
         }
 
         function close(): void {
@@ -79,7 +109,7 @@ Scope {
             onClicked: window.visible = false
         }
 
-        Rectangle {
+        Chrome {
             id: panel
 
             anchors.centerIn: parent
@@ -87,44 +117,46 @@ Scope {
             width: Math.min(920, parent.width - 80)
             height: Math.min(scroll.contentHeight + 72, parent.height - 80)
 
-            radius: Theme.launcherRadius
-            color: Qt.alpha(Theme.bg, 0.95)
-            border.width: 2
-            border.color: Theme.accent
+            padding: 24
 
             focus: true
 
+            title: "Keybinds"
+            hints: [
+                {
+                    key: "↑↓/jk",
+                    label: "browse"
+                },
+                {
+                    key: "Esc/Enter",
+                    label: "close"
+                }
+            ]
+
             Keys.onEscapePressed: window.visible = false
+            // Nothing on a read-only reference to commit, so Enter closes it
+            // too rather than doing nothing.
+            Keys.onReturnPressed: window.visible = false
+            Keys.onEnterPressed: window.visible = false
+            Keys.onUpPressed: root.moveSelection(-1)
+            Keys.onDownPressed: root.moveSelection(1)
 
-            MouseArea {
-                anchors.fill: parent
-            }
-
-            Text {
-                id: heading
-
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.topMargin: 18
-                anchors.leftMargin: 24
-
-                text: "Keybinds"
-                color: Theme.accent
-
-                font.family: Theme.fontUi
-                font.pointSize: 14
-                font.bold: true
+            // No focused text field on this surface to steal j/k as literal
+            // characters, so they alias the arrows Vim-style.
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_J) {
+                    root.moveSelection(1);
+                    event.accepted = true;
+                } else if (event.key === Qt.Key_K) {
+                    root.moveSelection(-1);
+                    event.accepted = true;
+                }
             }
 
             Flickable {
                 id: scroll
 
-                anchors.top: heading.bottom
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.margins: 24
-                anchors.topMargin: 12
+                anchors.fill: parent
 
                 contentWidth: width
                 contentHeight: column.implicitHeight
@@ -143,6 +175,7 @@ Scope {
                             id: section
 
                             required property var modelData
+                            required property int index
 
                             Layout.fillWidth: true
 
@@ -167,6 +200,12 @@ Scope {
                                     required property var modelData
                                     required property int index
 
+                                    // Where this row sits in root.selected's
+                                    // flat numbering — groupOffsets carries
+                                    // the running total so this doesn't need
+                                    // the groups flattened to compare.
+                                    readonly property int flatIndex: root.groupOffsets[section.index] + row.index
+
                                     Layout.fillWidth: true
 
                                     spacing: 16
@@ -175,11 +214,12 @@ Scope {
                                         // Zebra striping came from eww's
                                         // :nth-child(2n); here it is the row
                                         // index, which survives reordering.
+                                        // The selected row overrides both.
                                         Layout.preferredWidth: 240
                                         Layout.preferredHeight: keyLabel.implicitHeight + 6
 
                                         radius: 6
-                                        color: row.index % 2 === 0 ? Theme.bgDark : "transparent"
+                                        color: row.flatIndex === root.selected ? Theme.selection : (row.index % 2 === 0 ? Theme.bgDark : "transparent")
 
                                         Text {
                                             id: keyLabel

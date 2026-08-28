@@ -13,6 +13,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import ".."
+import "../common"
 import "config.js" as Config
 
 Frame {

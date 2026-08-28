@@ -48,6 +48,11 @@ Scope {
     property var monitorsSnapshot: []
     property var transform: ({ originX: 0, originY: 0, scale: 1 })
 
+    // Which rectangle Up/Down moves between. Drag still owns position; this
+    // is only a keyboard cursor over the same list, ready for a future
+    // screen to act on "the selected monitor" without repeating the lookup.
+    property int selected: 0
+
     // $XDG_CONFIG_HOME, falling back to ~/.config — see Watcher.qml's own
     // property of the same name for why this isn't just "$HOME/.config".
     readonly property string configHome: {
@@ -57,7 +62,19 @@ Scope {
 
     function open(): void {
         root.refreshSnapshot();
+        root.selected = 0;
         window.visible = true;
+    }
+
+    // Wraps, matching Launcher's own move(): a flat list of monitors has no
+    // 2D ambiguity the way a grid does, so there is no reason to stop at the
+    // edge instead of coming back around.
+    function moveSelection(delta: int): void {
+        const count = root.monitorsSnapshot.length;
+        if (count === 0)
+            return;
+
+        root.selected = (root.selected + delta % count + count) % count;
     }
 
     function close(): void {
@@ -163,7 +180,7 @@ Scope {
             onClicked: root.close()
         }
 
-        Panel {
+        Chrome {
             id: panel
 
             anchors.centerIn: parent
@@ -175,23 +192,48 @@ Scope {
 
             focus: true
 
+            title: "Arrange Monitors"
+            hints: [
+                {
+                    key: "↑↓/jk",
+                    label: "select"
+                },
+                {
+                    key: "drag",
+                    label: "reposition"
+                },
+                {
+                    key: "Enter",
+                    label: "save"
+                },
+                {
+                    key: "Esc",
+                    label: "cancel"
+                }
+            ]
+
             Keys.onEscapePressed: root.close()
             Keys.onReturnPressed: root.confirm()
             Keys.onEnterPressed: root.confirm()
+            Keys.onUpPressed: root.moveSelection(-1)
+            Keys.onDownPressed: root.moveSelection(1)
+
+            // No focused text field on this surface to steal j/k as literal
+            // characters, so they alias the arrows Vim-style.
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_J) {
+                    root.moveSelection(1);
+                    event.accepted = true;
+                } else if (event.key === Qt.Key_K) {
+                    root.moveSelection(-1);
+                    event.accepted = true;
+                }
+            }
 
             ColumnLayout {
                 anchors.fill: parent
 
                 spacing: 12
-
-                Text {
-                    text: "Arrange Monitors"
-                    color: Theme.accent
-
-                    font.family: Theme.fontUi
-                    font.pointSize: 14
-                    font.bold: true
-                }
 
                 Item {
                     id: canvas
@@ -208,6 +250,7 @@ Scope {
                             id: rect
 
                             required property var modelData
+                            required property int index
 
                             // The dragged screen-space position, read back by
                             // confirm() through rectRepeater.itemAt(i) — kept
@@ -225,8 +268,8 @@ Scope {
 
                             radius: 6
                             color: Theme.bgDark
-                            border.width: 2
-                            border.color: Theme.accent
+                            border.width: rect.index === root.selected ? 3 : 2
+                            border.color: rect.index === root.selected ? Theme.cyan : Theme.accent
 
                             Column {
                                 anchors.centerIn: parent
@@ -280,14 +323,11 @@ Scope {
 
                     spacing: 12
 
-                    Text {
+                    // Pushes the Save button to the trailing edge now that
+                    // the hint text it used to sit beside lives in Chrome's
+                    // own footer instead.
+                    Item {
                         Layout.fillWidth: true
-
-                        text: "Drag to reposition · Enter to save · Esc to cancel"
-                        color: Theme.muted
-
-                        font.family: Theme.fontUi
-                        font.pointSize: 9
                     }
 
                     Rectangle {
