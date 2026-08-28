@@ -1,17 +1,22 @@
 // The monitor arrange surface, reached with SUPER+M.
 //
 // Replaces `hyprmon override`, the crate's own interactive TUI for pinning a
-// layout by hand. That one drew monitors as ASCII boxes in a terminal grid,
-// nudged with arrow keys; this one is the shell's own surface, so the boxes
-// are real rectangles and the nudging is a mouse drag — Watcher.qml already
-// owns everything downstream of overrides.json, so this component's entire
-// job is producing that one file.
+// layout by hand: "an interactive editor for overrides.json ... Lists the
+// connected monitors (left), shows an edit form for the selected one
+// (right)". That one drew monitors as ASCII boxes in a terminal grid, nudged
+// with arrow keys, with a seven-field form (name, description, resolution,
+// position, scale, transform, vrr) beside it; this one is the shell's own
+// surface, so the boxes are real rectangles, the nudging is a mouse drag,
+// and the same seven fields sit beside the canvas rather than replacing it —
+// Watcher.qml already owns everything downstream of overrides.json, so this
+// component's entire job is still producing that one file.
 //
-// Positions only. A drag changes where a monitor sits, never its resolution,
-// scale or VRR — those still come from monitors.json's rules, matching what
-// the crate's own override entries did (a partial override; see plan.js's
-// applyOverrides, which merges this file's `position` on top of the planned
-// spec rather than replacing it).
+// A drag or an edited field changes only what it names; the rest still
+// comes from monitors.json's rules, matching what the crate's own override
+// entries did (a partial override — see plan.js's applyOverrides, which
+// merges each present field on top of the planned spec rather than
+// replacing it, and arrange.js's own mergedOverrides, which does the same
+// merge one step earlier, over whatever overrides.json already held).
 //
 // Takes a snapshot of Quickshell.Hyprland's live monitor list on open()
 // rather than binding to it directly: the canvas has to stay still while a
@@ -38,6 +43,18 @@ Scope {
     readonly property real canvasWidth: 720
     readonly property real canvasHeight: 420
 
+    // The edit form column's width — named rather than read back off
+    // formColumn.width, which would make Chrome's own width a binding loop
+    // (Chrome's width feeding the RowLayout that determines formColumn's
+    // width, which would be feeding back into Chrome's width).
+    readonly property real formWidth: 220
+
+    // The RowLayout's own spacing between the canvas and the form column —
+    // named because Chrome's width formula below needs the exact same
+    // number the RowLayout uses, not a copy that could quietly drift from
+    // it.
+    readonly property real formSpacing: 20
+
     // Canvas-pixel distance within which a dragged edge snaps to a
     // neighbour's edge. 14 is comfortably wider than a stray pixel of mouse
     // jitter but narrower than the gap between two monitors placed only
@@ -48,10 +65,34 @@ Scope {
     property var monitorsSnapshot: []
     property var transform: ({ originX: 0, originY: 0, scale: 1 })
 
-    // Which rectangle Up/Down moves between. Drag still owns position; this
-    // is only a keyboard cursor over the same list, ready for a future
-    // screen to act on "the selected monitor" without repeating the lookup.
-    property int selected: 0
+    // The monitor both the canvas and the edit form agree is current: a
+    // click sets it directly (selectMonitor()), Up/Down and j/k move it by
+    // one position in monitorsSnapshot (moveSelection()) and then defer to
+    // the same selectMonitor() — one property, moved by two inputs, rather
+    // than a keyboard cursor and a click target that could each point
+    // somewhere different. "" means nothing selected yet — only possible
+    // before the first monitor loads. The five editable fields themselves
+    // live only on their own Field instances (resolutionField.text and
+    // friends, below) rather than mirrored into a property here: a Field
+    // bound to an external property loses that binding the instant the
+    // user types into it (TextInput's own typing is itself an imperative
+    // write, which breaks a prior QML binding for good), so
+    // selectMonitor()/loadFormFor() assign each Field's `text` directly
+    // instead of relying on one to keep re-syncing the other.
+    property string selectedName: ""
+
+    readonly property var footerHints: [
+        { key: "↑↓/jk", label: "Select" },
+        { key: "Drag", label: "Reposition" },
+        { key: "Enter", label: "Save" },
+        { key: "Ctrl+R", label: "Reset" },
+        { key: "Esc", label: "Cancel" }
+    ]
+
+    readonly property string selectedDescription: {
+        const m = root.monitorsSnapshot.find(mon => mon.name === root.selectedName);
+        return m ? m.description : "";
+    }
 
     // $XDG_CONFIG_HOME, falling back to ~/.config — see Watcher.qml's own
     // property of the same name for why this isn't just "$HOME/.config".
@@ -62,19 +103,37 @@ Scope {
 
     function open(): void {
         root.refreshSnapshot();
-        root.selected = 0;
+        root.selectedName = "";
+        resolutionField.text = "";
+        positionField.text = "";
+        scaleField.text = "";
+        transformField.text = "";
+        vrrField.text = "";
+        // Keyboard nav needs a starting point the same way a click already
+        // has one. Goes through selectMonitor() rather than writing
+        // selectedName directly, so the form comes up already showing the
+        // first monitor's own override entry instead of sitting blank until
+        // the first click or arrow press.
+        if (root.monitorsSnapshot.length > 0)
+            root.selectMonitor(root.monitorsSnapshot[0].name);
         window.visible = true;
     }
 
     // Wraps, matching Launcher's own move(): a flat list of monitors has no
     // 2D ambiguity the way a grid does, so there is no reason to stop at the
-    // edge instead of coming back around.
+    // edge instead of coming back around. Goes through selectMonitor()
+    // rather than writing selectedName directly, so a keyboard move flushes
+    // the outgoing monitor's pending edits and loads the incoming one's
+    // form exactly the way a canvas click already does.
     function moveSelection(delta: int): void {
         const count = root.monitorsSnapshot.length;
         if (count === 0)
             return;
 
-        root.selected = (root.selected + delta % count + count) % count;
+        const current = root.monitorsSnapshot.findIndex(m => m.name === root.selectedName);
+        const base = current === -1 ? 0 : current;
+        const next = (base + delta % count + count) % count;
+        root.selectMonitor(root.monitorsSnapshot[next].name);
     }
 
     function close(): void {
@@ -91,6 +150,7 @@ Scope {
     function refreshSnapshot(): void {
         const list = Hyprland.monitors.values.map(m => ({
             name: m.name,
+            description: m.description || "",
             x: m.x,
             y: m.y,
             width: m.width,
@@ -110,14 +170,92 @@ Scope {
     }
 
     // qmllint disable unresolved-type
+    // Selecting a rectangle loads the form from whatever overrides.json
+    // already holds for that monitor, never from Hyprland's live-reported
+    // state: pre-filling a rule-derived default would mean an untouched
+    // Save silently promoting that rule's value into a standing override,
+    // which the surface's own job description forbids (overrides stay a
+    // separate document from the Nix-managed rules). Every field but
+    // position reads back as "" when the monitor has no override yet;
+    // position always has a real value, because a monitor always sits
+    // somewhere — it comes from the rectangle's own dragged position, not
+    // the override entry, so it stays in step with the canvas.
+    function selectMonitor(name: string): void {
+        root.selectedName = name;
+        root.loadFormFor(name);
+    }
+
+    function loadFormFor(name: string): void {
+        const entries = (overridesFile.adapter.root && overridesFile.adapter.root.entries) || [];
+        const entry = entries.find(e => e.name === name) || {};
+        const rect = root.rectItems().find(item => item.monitorName === name);
+        resolutionField.text = entry.resolution != null ? String(entry.resolution) : "";
+        positionField.text = rect ? ArrangeLogic.toWorldPosition(rect.x, rect.y, root.transform) : (entry.position != null ? String(entry.position) : "");
+        scaleField.text = entry.scale != null ? String(entry.scale) : "";
+        transformField.text = entry.transform != null ? String(entry.transform) : "";
+        vrrField.text = entry.vrr != null ? String(entry.vrr) : "";
+    }
+    // qmllint enable unresolved-type
+
+    // The position field is the one editable field with no "unset" state —
+    // so typing a new value here moves the dragged rectangle itself rather
+    // than sitting alongside it as a second, possibly-disagreeing source of
+    // truth. An unparseable value is ignored, same as a drag that never
+    // happened.
+    function applyPositionField(text: string): void {
+        const world = ArrangeLogic.parseWorldPosition(text);
+        if (!world)
+            return;
+        const target = root.rectItems().find(item => item.monitorName === root.selectedName);
+        if (!target)
+            return;
+        const screen = ArrangeLogic.toScreen(world, root.transform);
+        target.x = Math.max(0, Math.min(canvas.width - target.width, screen.x));
+        target.y = Math.max(0, Math.min(canvas.height - target.height, screen.y));
+        positionField.text = ArrangeLogic.toWorldPosition(target.x, target.y, root.transform);
+    }
+
+    // qmllint disable unresolved-type
+    // Every rectangle's dragged position saves, unconditionally — the drag
+    // canvas stays live for every monitor whether or not it is the selected
+    // one. Only the selected monitor's item also carries the other four form
+    // fields, which is what "alongside the dragged position" (not instead of
+    // it) means for confirm().
     function confirm(): void {
-        const items = root.rectItems().map(item => ({
-            name: item.monitorName,
-            position: ArrangeLogic.toWorldPosition(item.x, item.y, root.transform)
-        }));
+        root.applyPositionField(positionField.text);
+        const items = root.rectItems().map(item => {
+            const entry = {
+                name: item.monitorName,
+                position: ArrangeLogic.toWorldPosition(item.x, item.y, root.transform)
+            };
+            if (item.monitorName === root.selectedName) {
+                entry.resolution = resolutionField.text;
+                entry.scale = ArrangeLogic.numberField(scaleField.text);
+                entry.transform = ArrangeLogic.integerField(transformField.text);
+                entry.vrr = vrrField.text;
+            }
+            return entry;
+        });
         const merged = ArrangeLogic.mergedOverrides(overridesFile.adapter.root, items);
         overridesFile.setText(JSON.stringify(merged));
         root.close();
+    }
+
+    // The TUI's Ctrl+R: drops the selected monitor's entry from
+    // overrides.json outright, rather than only clearing the form the way
+    // the crate's own Ctrl+R did — this surface has no separate Ctrl+S, so
+    // an immediate, self-contained un-override is the equivalent that does
+    // not need a second keystroke to actually take effect. The window stays
+    // open and the form reloads to reflect the now-absent entry, matching
+    // Enter and Esc's own "the window makes the change, you decide when to
+    // leave" pattern.
+    function reset(): void {
+        if (!root.selectedName)
+            return;
+        const existing = overridesFile.adapter.root;
+        const entries = ((existing && existing.entries) || []).filter(e => e.name !== root.selectedName);
+        overridesFile.setText(JSON.stringify({ entries: entries }));
+        root.loadFormFor(root.selectedName);
     }
     // qmllint enable unresolved-type
 
@@ -185,36 +323,22 @@ Scope {
 
             anchors.centerIn: parent
 
-            width: root.canvasWidth + 2 * padding
+            // Exact, not a guess: the RowLayout below resolves to
+            // canvasWidth + formSpacing + formWidth wide, and Panel's own
+            // padding widens that by the same amount on both the left and
+            // right edge.
+            width: root.canvasWidth + root.formSpacing + root.formWidth + 2 * padding
             // Chrome's own implicitHeight already accounts for the header,
             // the hint footer and this content's natural height (canvas
-            // plus the Save row below it) — no more guessing at what the
-            // chrome costs.
+            // and form column, side by side) — no more guessing at what
+            // the chrome costs.
             height: panel.implicitHeight
 
             padding: 24
+            title: "Arrange Monitors"
+            hints: root.footerHints
 
             focus: true
-
-            title: "Arrange Monitors"
-            hints: [
-                {
-                    key: "↑↓/jk",
-                    label: "select"
-                },
-                {
-                    key: "drag",
-                    label: "reposition"
-                },
-                {
-                    key: "Enter",
-                    label: "save"
-                },
-                {
-                    key: "Esc",
-                    label: "cancel"
-                }
-            ]
 
             Keys.onEscapePressed: root.close()
             Keys.onReturnPressed: root.confirm()
@@ -222,8 +346,13 @@ Scope {
             Keys.onUpPressed: root.moveSelection(-1)
             Keys.onDownPressed: root.moveSelection(1)
 
-            // No focused text field on this surface to steal j/k as literal
-            // characters, so they alias the arrows Vim-style.
+            // A focused Field consumes j/k as literal characters before
+            // this ever sees them (TextInput's own native handling), so
+            // the alias only fires when the canvas/panel itself holds
+            // focus — the same Vim-style aliasing Launcher's own grammar
+            // uses elsewhere. Ctrl+R shares this handler rather than a
+            // second Keys.onPressed, which QML does not allow twice on the
+            // same Item.
             Keys.onPressed: event => {
                 if (event.key === Qt.Key_J) {
                     root.moveSelection(1);
@@ -231,14 +360,17 @@ Scope {
                 } else if (event.key === Qt.Key_K) {
                     root.moveSelection(-1);
                     event.accepted = true;
+                } else if (event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) {
+                    root.reset();
+                    event.accepted = true;
                 }
             }
 
-            ColumnLayout {
+            RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
-                spacing: 12
+                spacing: root.formSpacing
 
                 Item {
                     id: canvas
@@ -255,7 +387,6 @@ Scope {
                             id: rect
 
                             required property var modelData
-                            required property int index
 
                             // The dragged screen-space position, read back by
                             // confirm() through rectRepeater.itemAt(i) — kept
@@ -265,6 +396,7 @@ Scope {
                             // item came from a live drag or was never
                             // touched.
                             readonly property string monitorName: rect.modelData.name
+                            readonly property bool selected: rect.monitorName === root.selectedName
 
                             x: root.screenX(rect.modelData)
                             y: root.screenY(rect.modelData)
@@ -273,8 +405,8 @@ Scope {
 
                             radius: 6
                             color: Theme.bgDark
-                            border.width: rect.index === root.selected ? 3 : 2
-                            border.color: rect.index === root.selected ? Theme.cyan : Theme.accent
+                            border.width: rect.selected ? 3 : 2
+                            border.color: Theme.accent
 
                             Column {
                                 anchors.centerIn: parent
@@ -313,52 +445,162 @@ Scope {
                                 drag.maximumX: canvas.width - rect.width
                                 drag.maximumY: canvas.height - rect.height
 
+                                // Selecting happens on press rather than on
+                                // click: a drag starts with the same press,
+                                // and the form should already be showing the
+                                // dragged monitor's fields by the time the
+                                // drag itself is under way, not only once
+                                // the mouse comes back up.
+                                onPressed: root.selectMonitor(rect.monitorName)
+
                                 onReleased: {
                                     const snapped = ArrangeLogic.snappedPosition(rect, root.rectItems(), root.snapThreshold);
                                     rect.x = snapped.x;
                                     rect.y = snapped.y;
+                                    if (rect.selected)
+                                        positionField.text = ArrangeLogic.toWorldPosition(rect.x, rect.y, root.transform);
                                 }
                             }
                         }
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
+                ColumnLayout {
+                    id: formColumn
 
-                    spacing: 12
+                    Layout.preferredWidth: root.formWidth
+                    Layout.fillHeight: true
 
-                    // Pushes the Save button to the trailing edge now that
-                    // the hint text it used to sit beside lives in Chrome's
-                    // own footer instead.
-                    Item {
-                        Layout.fillWidth: true
+                    spacing: 6
+
+                    Text {
+                        text: "Name"
+                        color: Theme.muted
+
+                        font.family: Theme.fontUi
+                        font.pointSize: 9
                     }
 
-                    Rectangle {
-                        Layout.preferredWidth: 90
-                        Layout.preferredHeight: 32
+                    Text {
+                        Layout.fillWidth: true
 
-                        radius: 8
-                        color: Theme.accent
+                        text: root.selectedName.length > 0 ? root.selectedName : "—"
+                        color: Theme.fg
+                        elide: Text.ElideRight
 
-                        Text {
-                            anchors.centerIn: parent
+                        font.family: Theme.fontUi
+                        font.pointSize: 10
+                    }
 
-                            text: "Save"
-                            color: Theme.bg
+                    Text {
+                        text: "Description"
+                        color: Theme.muted
 
-                            font.family: Theme.fontUi
-                            font.pointSize: 10
-                            font.bold: true
+                        font.family: Theme.fontUi
+                        font.pointSize: 9
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+
+                        text: root.selectedDescription.length > 0 ? root.selectedDescription : "—"
+                        color: Theme.fg
+                        elide: Text.ElideRight
+
+                        font.family: Theme.fontUi
+                        font.pointSize: 10
+                    }
+
+                    Text {
+                        text: "Resolution"
+                        color: Theme.muted
+
+                        font.family: Theme.fontUi
+                        font.pointSize: 9
+                    }
+
+                    Field {
+                        id: resolutionField
+
+                        Layout.fillWidth: true
+
+                        onAccepted: root.confirm()
+                        onEscaped: root.close()
+                    }
+
+                    Text {
+                        text: "Position"
+                        color: Theme.muted
+
+                        font.family: Theme.fontUi
+                        font.pointSize: 9
+                    }
+
+                    Field {
+                        id: positionField
+
+                        Layout.fillWidth: true
+
+                        onAccepted: {
+                            root.applyPositionField(text);
+                            root.confirm();
                         }
+                        onEscaped: root.close()
+                    }
 
-                        MouseArea {
-                            anchors.fill: parent
+                    Text {
+                        text: "Scale"
+                        color: Theme.muted
 
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.confirm()
-                        }
+                        font.family: Theme.fontUi
+                        font.pointSize: 9
+                    }
+
+                    Field {
+                        id: scaleField
+
+                        Layout.fillWidth: true
+
+                        onAccepted: root.confirm()
+                        onEscaped: root.close()
+                    }
+
+                    Text {
+                        text: "Transform"
+                        color: Theme.muted
+
+                        font.family: Theme.fontUi
+                        font.pointSize: 9
+                    }
+
+                    Field {
+                        id: transformField
+
+                        Layout.fillWidth: true
+
+                        onAccepted: root.confirm()
+                        onEscaped: root.close()
+                    }
+
+                    Text {
+                        text: "VRR"
+                        color: Theme.muted
+
+                        font.family: Theme.fontUi
+                        font.pointSize: 9
+                    }
+
+                    Field {
+                        id: vrrField
+
+                        Layout.fillWidth: true
+
+                        onAccepted: root.confirm()
+                        onEscaped: root.close()
+                    }
+
+                    Item {
+                        Layout.fillHeight: true
                     }
                 }
             }

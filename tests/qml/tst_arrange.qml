@@ -104,6 +104,18 @@ TestCase {
                 existingRoot: { entries: [{ name: "DP-9", position: "9999x0" }] },
                 items: [{ name: "DP-1", position: "0x0" }],
                 expected: { entries: [{ name: "DP-9", position: "9999x0" }, { name: "DP-1", position: "0x0" }] }
+            },
+            {
+                tag: "the edit form's other four fields merge in alongside the dragged position",
+                existingRoot: null,
+                items: [{ name: "DP-1", position: "500x0", resolution: "2560x1440@120", scale: 1.25, transform: 1, vrr: "left" }],
+                expected: { entries: [{ name: "DP-1", position: "500x0", resolution: "2560x1440@120", scale: 1.25, transform: 1, vrr: "left" }] }
+            },
+            {
+                tag: "a field this save's form set joins fields an earlier save already carried",
+                existingRoot: { entries: [{ name: "DP-1", resolution: "1920x1080@240", vrr: "left" }] },
+                items: [{ name: "DP-1", position: "1920x0", scale: 1.5 }],
+                expected: { entries: [{ name: "DP-1", resolution: "1920x1080@240", vrr: "left", position: "1920x0", scale: 1.5 }] }
             }
         ];
     }
@@ -116,5 +128,94 @@ TestCase {
             for (const key in want)
                 compare(merged.entries[i][key], want[key]);
         }
+    }
+
+    // The data-driven case above only checks that the keys it expects carry
+    // the right values — it never looks for keys it does not expect, so it
+    // cannot prove a field the form left untouched actually stayed absent.
+    // hasOwnProperty is what a plain compare() against undefined cannot do:
+    // an entry that got `resolution: undefined` written onto it would still
+    // read as undefined through a truthiness check, exactly like a field
+    // that was never assigned at all.
+    function test_mergedOverrides_leaves_untouched_fields_absent() {
+        const merged = ArrangeLogic.mergedOverrides(null, [{ name: "DP-1", position: "0x0" }]);
+        const entry = merged.entries[0];
+
+        verify(!entry.hasOwnProperty("resolution"));
+        verify(!entry.hasOwnProperty("scale"));
+        verify(!entry.hasOwnProperty("transform"));
+        verify(!entry.hasOwnProperty("vrr"));
+    }
+
+    // An empty-string field (a blank form input) must be treated the same
+    // as an absent one — applyOverrides in plan.js tests each field with
+    // `!= null`, which an empty string passes, so writing "" here would
+    // reach hl.monitor as a broken field instead of quietly falling through
+    // to the planned spec's own value.
+    function test_mergedOverrides_ignores_explicit_empty_strings() {
+        const merged = ArrangeLogic.mergedOverrides(null, [{ name: "DP-1", position: "0x0", resolution: "", vrr: "" }]);
+        const entry = merged.entries[0];
+
+        verify(!entry.hasOwnProperty("resolution"));
+        verify(!entry.hasOwnProperty("vrr"));
+    }
+
+    // transform 0 (no rotation) and a zero-ish scale are real, meaningful
+    // override values, not "the form left this blank" — the merge must
+    // keep them, the same falsy-but-real distinction applyOverrides in
+    // plan.js already makes on the read side.
+    function test_mergedOverrides_keeps_falsy_but_real_values() {
+        const merged = ArrangeLogic.mergedOverrides(null, [{ name: "DP-1", position: "0x0", transform: 0, scale: 1.5 }]);
+        const entry = merged.entries[0];
+
+        verify(entry.hasOwnProperty("transform"));
+        compare(entry.transform, 0);
+        compare(entry.scale, 1.5);
+    }
+
+    function test_parseWorldPosition_data() {
+        return [
+            { tag: "parses a plain XxY", text: "1920x0", expectNull: false, x: 1920, y: 0 },
+            { tag: "parses negative coordinates", text: "-100x-50", expectNull: false, x: -100, y: -50 },
+            { tag: "rejects text with no x separator", text: "not-a-position", expectNull: true },
+            { tag: "rejects an empty string", text: "", expectNull: true }
+        ];
+    }
+
+    function test_parseWorldPosition(row) {
+        const result = ArrangeLogic.parseWorldPosition(row.text);
+        if (row.expectNull) {
+            compare(result, null);
+        } else {
+            compare(result.x, row.x);
+            compare(result.y, row.y);
+        }
+    }
+
+    function test_numberField_data() {
+        return [
+            { tag: "parses an integer", text: "1", expected: 1 },
+            { tag: "parses a decimal", text: "1.5", expected: 1.5 },
+            { tag: "keeps a real zero", text: "0", expected: 0 },
+            { tag: "blank text is undefined, not zero", text: "", expected: undefined },
+            { tag: "whitespace-only text is undefined", text: "   ", expected: undefined },
+            { tag: "unparseable text is undefined", text: "abc", expected: undefined }
+        ];
+    }
+
+    function test_numberField(row) {
+        compare(ArrangeLogic.numberField(row.text), row.expected);
+    }
+
+    function test_integerField_data() {
+        return [
+            { tag: "truncates a decimal down", text: "1.9", expected: 1 },
+            { tag: "keeps zero", text: "0", expected: 0 },
+            { tag: "blank text is undefined", text: "", expected: undefined }
+        ];
+    }
+
+    function test_integerField(row) {
+        compare(ArrangeLogic.integerField(row.text), row.expected);
     }
 }
