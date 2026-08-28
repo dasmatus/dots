@@ -5,17 +5,20 @@
 # (app/action) — that indirection is the whole point of the change; see
 # ./actions.nix's header for why the table itself carries no command field.
 #
-# `hyprmon` arrives as a home-manager `extraSpecialArgs` (nix/modules/users.nix),
-# the same way nix/home/hyprmon.nix takes it. `wallpaperTui` is deliberately
-# NOT taken here: the raw binary loses the tint backend (see
-# nix/home/wallpaper-tui.nix's wrapper), so wallpaper-restore below goes
-# through the read-only `config.programs.wallpaper-tui.finalPackage` option
-# that module now exposes instead.
+# This module is WM-agnostic on purpose: it takes no WM-specific argument and
+# reaches for no WM-specific package, so it evaluates on its own with no
+# tiling WM in scope at all. Two `execDefaults` entries this table describes
+# — `reload` and `hyprmon-apply` — are Hyprland-only, and are therefore not
+# defined here; see the `exec` option's description below for where they
+# actually come from. `wallpaperTui` is deliberately NOT taken here either:
+# the raw binary loses the tint backend (see nix/home/wallpaper-tui.nix's
+# wrapper), so wallpaper-restore below goes through the read-only
+# `config.programs.wallpaper-tui.finalPackage` option that module now
+# exposes instead.
 {
   config,
   lib,
   pkgs,
-  hyprmon,
   ...
 }:
 
@@ -28,13 +31,11 @@ let
 
   isDaemonLike = a: a.kind == "daemon" || a.kind == "startup";
 
-  # Repeated store-path lookups, named once. `qs`/`hyprctl` need `getExe'`
-  # rather than `getExe` because quickshell's `meta.mainProgram` is
-  # "quickshell" (the qs binary is a second executable in the same package)
-  # and hyprland's is "Hyprland" (capitalised; `hyprctl` is likewise a
-  # second binary) — verified against the pinned nixpkgs.
+  # Repeated store-path lookups, named once. `qs` needs `getExe'` rather
+  # than `getExe` because quickshell's `meta.mainProgram` is "quickshell"
+  # (the qs binary is a second executable in the same package) — verified
+  # against the pinned nixpkgs.
   qs = lib.getExe' pkgs.quickshell "qs";
-  hyprctl = lib.getExe' pkgs.hyprland "hyprctl";
   systemctl = lib.getExe' pkgs.systemd "systemctl";
 
   # Both screenshot binds are shell pipelines (capture, then notify), so
@@ -80,7 +81,6 @@ let
     nm-applet = "${lib.getExe pkgs.networkmanagerapplet} --indicator";
 
     # startup
-    hyprmon-apply = "${lib.getExe hyprmon} apply";
     wallpaper-restore = "${lib.getExe config.programs.wallpaper-tui.finalPackage} --restore";
 
     # apps
@@ -93,7 +93,6 @@ let
     launcher-toggle = "${qs} ipc call launcher toggle";
     cheatsheet-toggle = "${qs} ipc call cheatsheet toggle";
     settings-toggle = "${qs} ipc call settings toggle";
-    reload = "${hyprctl} reload";
     screenshot-output = "${screenshotOutput}";
     screenshot-region = "${screenshotRegion}";
     volume-mute = "${qs} ipc call osd volumeMute";
@@ -229,13 +228,33 @@ in
   options.dots.session = {
     exec = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
-      default = execDefaults;
+      # NOT `default = execDefaults` here: an option's own inline `default`
+      # is the *weakest* possible definition in the module system (priority
+      # 1500, below even `lib.mkDefault`'s 1000) and a whole ATTRSET is one
+      # definition, not a bag of independently-prioritised keys — so the
+      # moment any other module gives `dots.session.exec` a plain value at
+      # all, that plain value wins outright and the inline default is
+      # discarded WHOLESALE, including keys the other module never
+      # mentioned. `execDefaults` is instead assigned below, in this
+      # module's own `config`, at the same ordinary priority a second
+      # contributor uses — verified with a standalone `lib.evalModules`
+      # probe: two plain per-module attrsets to the same `attrsOf` option
+      # merge by key, but an inline `default` competing against a plain
+      # value from elsewhere does not.
+      default = { };
       description = ''
         Command line for an actions.nix entry, keyed by `name`. Every
         non-dispatch action needs one of `exec` or `commands`; `lock` is the
-        one exception, deliberately absent here (see `commands.lock`). A
-        second WM module (e.g. a future sway.nix) overrides a Hyprland-only
-        entry with `lib.mkForce`.
+        one exception, deliberately absent here (see `commands.lock`).
+        `reload` and `hyprmon-apply` are the two entries this module does
+        not supply: both are Hyprland-only commands (`hyprctl reload`,
+        `hyprmon apply`), so nix/home/hyprland.nix contributes them directly
+        as its own ordinary assignment to this same `attrsOf str` option — see
+        the comment on `default` above for why that has to be a plain
+        assignment on both sides rather than living in either module's
+        inline `default`. A second WM module (e.g. a future sway.nix) does
+        the same for whichever entries it owns, with `lib.mkForce` where it
+        needs to replace one rather than add it.
       '';
     };
 
@@ -285,6 +304,12 @@ in
         '';
       }
     ];
+
+    # A plain assignment, not the `exec` option's inline `default` — see the
+    # comment on that option for why: this has to compete at the same
+    # priority as nix/home/hyprland.nix's own `dots.session.exec` assignment
+    # for the two to merge by key instead of one replacing the other whole.
+    dots.session.exec = execDefaults;
 
     systemd.user.sessionVariables = cfg.sessionVariables;
     systemd.user.services = services;

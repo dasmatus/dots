@@ -2,6 +2,7 @@
   config,
   pkgs,
   lib,
+  hyprmon,
   ...
 }:
 let
@@ -10,6 +11,12 @@ let
   cfg = config.dots.session;
   actions = import ./session/actions.nix;
   keyedActions = builtins.filter (a: a.key != null) actions;
+
+  # `hyprctl`'s `meta.mainProgram` is "Hyprland" (capitalised; `hyprctl` is a
+  # second binary in the same package, same as quickshell's `qs` in
+  # nix/home/session/default.nix) — verified against the pinned nixpkgs,
+  # hence `getExe'` rather than `getExe`.
+  hyprctl = lib.getExe' pkgs.hyprland "hyprctl";
 
   # The dispatcher map: `dispatch` (actions.nix) → the Lua expression that
   # invokes it. This is the WM-specific half of this file — the only part
@@ -112,6 +119,18 @@ let
   };
 in
 {
+  # The two `dots.session.exec` entries that are Hyprland-only (see that
+  # option's description in nix/home/session/default.nix): `reload` shells
+  # out to `hyprctl` directly, and `hyprmon-apply` to the `hyprmon` binary
+  # this module is handed the same way nix/home/hyprmon.nix is. Contributed
+  # here rather than in the WM-agnostic session module so that module stays
+  # evaluable with no tiling WM, and no Hyprland monitor daemon, in scope at
+  # all.
+  dots.session.exec = {
+    reload = "${hyprctl} reload";
+    hyprmon-apply = "${lib.getExe hyprmon} apply";
+  };
+
   systemd.user.services.hyprlock = {
     Unit = {
       Description = "Screen locker for Wayland";
