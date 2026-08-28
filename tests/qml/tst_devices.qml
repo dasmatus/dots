@@ -167,6 +167,83 @@ TestCase {
         return null;
     }
 
+    // A hotplug USB disk carrying LUKS-then-LVM: the partition holds
+    // crypto_LUKS and no mountpoint (locked at the lsblk level would show
+    // no children at all, but here it is already unlocked, so lsblk shows
+    // the mapper device as a child); the crypt mapping is itself an LVM
+    // physical volume with no mountpoint of its own; the logical volume on
+    // top carries the real filesystem and mountpoint. Same node types as
+    // this machine's own internal disk (see lsblk-fixture.json's
+    // nvme0n1p2 chain), reused here to prove the eject path handles them
+    // when they sit on a disk that is hotplug instead of the boot disk.
+    // The crypt and lvm nodes both report hotplug:false on themselves,
+    // exactly as lsblk reports it for real device-mapper nodes regardless
+    // of what bus the disk underneath is on.
+    function luksLvmFixture() {
+        return JSON.stringify({
+            blockdevices: [
+                {
+                    name: "sde",
+                    path: "/dev/sde",
+                    label: null,
+                    size: 1000204886016,
+                    fstype: null,
+                    mountpoint: null,
+                    rm: false,
+                    hotplug: true,
+                    type: "disk",
+                    vendor: "Samsung",
+                    model: "Portable SSD",
+                    children: [
+                        {
+                            name: "sde1",
+                            path: "/dev/sde1",
+                            label: null,
+                            size: 1000202780672,
+                            fstype: "crypto_LUKS",
+                            mountpoint: null,
+                            rm: false,
+                            hotplug: true,
+                            type: "part",
+                            vendor: null,
+                            model: null,
+                            children: [
+                                {
+                                    name: "luks-sde1",
+                                    path: "/dev/mapper/luks-sde1",
+                                    label: null,
+                                    size: 1000185999872,
+                                    fstype: "LVM2_member",
+                                    mountpoint: null,
+                                    rm: false,
+                                    hotplug: false,
+                                    type: "crypt",
+                                    vendor: null,
+                                    model: null,
+                                    children: [
+                                        {
+                                            name: "vgexternal-data",
+                                            path: "/dev/mapper/vgexternal-data",
+                                            label: null,
+                                            size: 1000185999872,
+                                            fstype: "ext4",
+                                            mountpoint: "/run/media/matus/data",
+                                            rm: false,
+                                            hotplug: false,
+                                            type: "lvm",
+                                            vendor: null,
+                                            model: null
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        });
+    }
+
     // If this filtered on rm instead of hotplug, sda1 (rm:false) would be
     // the first thing dropped — it's a real USB hard disk, not "removable
     // media" in the SCSI-bit sense, and the fixture captures it exactly as
@@ -427,5 +504,94 @@ TestCase {
         for (let i = 0; i < plan.length - 1; i++)
             verify(plan[i][1] === "unmount", "every step before the power-off must be an unmount");
         verify(plan[plan.length - 1][1] === "power-off", "the power-off must be the last step");
+    }
+
+    // The regression this whole fixture exists for: automount must stay
+    // narrow even though the disk carrying this LUKS/LVM chain is hotplug.
+    // A careless fix that widens walk()'s push condition to "chase the
+    // eject bug" would light this test up.
+    function test_parse_devices_excludes_luks_and_lvm_even_on_a_hotplug_disk() {
+        const devices = Devices.parseDevices(luksLvmFixture());
+
+        verify(byPath(devices, "/dev/mapper/luks-sde1") === null, "a crypt mapping must never be offered for automount");
+        verify(byPath(devices, "/dev/mapper/vgexternal-data") === null, "an lvm logical volume must never be offered for automount");
+    }
+
+    // parseMounts answers a different question than parseDevices: not
+    // "what should this shell offer to mount" but "what is mounted right
+    // now, under this disk, whatever it is". The lvm leaf is what
+    // ejectPlan needs and parseDevices() would never surface.
+    function test_parse_mounts_finds_the_lvm_node_mounted_under_luks() {
+        const mounts = Devices.parseMounts(luksLvmFixture());
+        const lvm = byPath(mounts, "/dev/mapper/vgexternal-data");
+
+        verify(lvm !== null, "the mounted lvm node must appear in parseMounts' output");
+        compare(lvm.diskPath, "/dev/sde");
+        compare(lvm.mountPoint, "/run/media/matus/data");
+        compare(lvm.type, "lvm");
+    }
+
+    // The crypt mapping under sde1 is itself flagged hotplug:false by
+    // lsblk, same as real device-mapper nodes always are, regardless of
+    // what bus the disk underneath sits on. If ejectPlan's guard read that
+    // per-node flag instead of the flag carried down from the top-level
+    // disk, it would refuse to power off a disk that is genuinely hotplug.
+    function test_parse_mounts_carries_disk_hotplug_not_the_mapped_nodes_own_flag() {
+        const mounts = Devices.parseMounts(luksLvmFixture());
+        const lvm = byPath(mounts, "/dev/mapper/vgexternal-data");
+
+        verify(lvm !== null);
+        compare(lvm.hotplug, true, "hotplug must come from the top-level disk, not the lvm node's own false flag");
+    }
+
+    // The bug itself, reproduced end to end: ejectPlan fed the broad
+    // parseMounts() list must find the mounted lvm node sitting three
+    // levels under the disk it is ejecting and unmount it before cutting
+    // power, not hand back a bare power-off against a live filesystem.
+    function test_eject_plan_unmounts_luks_lvm_chain_before_power_off() {
+        const diskPath = "/dev/sde";
+        const mounts = Devices.parseMounts(luksLvmFixture());
+
+        const plan = Devices.ejectPlan(mounts, diskPath);
+
+        let powerOffIndex = -1;
+        let powerOffCount = 0;
+        for (let i = 0; i < plan.length; i++) {
+            if (plan[i][1] === "power-off") {
+                powerOffCount++;
+                powerOffIndex = i;
+            }
+        }
+        compare(powerOffCount, 1, "power-off must appear exactly once");
+        compare(powerOffIndex, plan.length - 1, "power-off must be the last step");
+
+        for (let i = 0; i < plan.length - 1; i++)
+            verify(plan[i][1] === "unmount", "every step before the power-off must be an unmount");
+
+        const lvmUnmount = Devices.unmountCommand("/dev/mapper/vgexternal-data");
+        let unmountsLvm = false;
+        for (const step of plan) {
+            if (JSON.stringify(step) === JSON.stringify(lvmUnmount))
+                unmountsLvm = true;
+        }
+        verify(unmountsLvm, "the mounted lvm node must be unmounted before the disk loses power");
+        compare(plan[plan.length - 1], Devices.powerOffCommand(diskPath));
+    }
+
+    // Defence in depth: whatever diskPath a caller hands ejectPlan, a
+    // mounted node under it that is known, via the disk-level hotplug flag
+    // parseMounts carries down, to sit on a non-hotplug disk must never
+    // result in a power-off step. This is what stands between a wrong
+    // diskPath and powering off the machine's own NVMe mid-session.
+    function test_eject_plan_never_powers_off_a_non_hotplug_disk() {
+        const diskPath = "/dev/nvme0n1";
+        const mounts = [
+            { path: "/dev/nvme0n1p1", diskPath: diskPath, mountPoint: "/boot", type: "part", hotplug: false }
+        ];
+
+        const plan = Devices.ejectPlan(mounts, diskPath);
+
+        for (const step of plan)
+            verify(step[1] !== "power-off", "a non-hotplug disk must never receive a power-off step");
     }
 }

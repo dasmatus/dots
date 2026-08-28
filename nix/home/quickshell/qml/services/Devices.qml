@@ -86,10 +86,17 @@ Singleton {
     id: root
 
     // Every hotplug partition and hotplug superfloppy disk devices.js's
-    // parseDevices() found, mounted or not. Internal: mountCandidates() and
-    // ejectPlan() both need the unmounted entries too, which is why this is
-    // not what other surfaces read.
+    // parseDevices() found, mounted or not. Internal: mountCandidates()
+    // needs the unmounted entries too, which is why this is not what other
+    // surfaces read.
     property var flat: []
+
+    // Every mounted node under each top-level disk, whatever its type,
+    // from devices.js's parseMounts() reading the same lsblk snapshot that
+    // produced `flat`. eject() needs this broader list, not `flat`,
+    // because unmounting before power-off has to reach LVM and LUKS nodes
+    // automount deliberately leaves alone.
+    property var mounts: []
 
     // Paths this singleton has already queued a mount or an eject step for
     // and does not want offered again until they vanish from lsblk. Keyed
@@ -126,13 +133,18 @@ Singleton {
         root.queueAction(DevicesMath.mountCommand(path));
     }
 
-    // Unmounts every device still mounted on diskPath, then powers it off,
-    // via ejectPlan(). Every device that plan is about to unmount is marked
-    // attempted first, not only devPath, the one whose eject affordance was
-    // actually clicked, because a disk with more than one mounted partition
-    // has udisksctl unmount fire a real udev event per partition, and a
-    // rescan landing between two of eject's own queued steps must not see
-    // an already-unmounted sibling as a fresh mount candidate.
+    // Unmounts every mounted node on diskPath, then powers it off, via
+    // ejectPlan() fed `mounts`, not `flat`: an LVM or LUKS node ejectPlan
+    // needs to unmount never appears in `flat` at all, since that list only
+    // ever holds what automount considers. Every device `flat` knows about
+    // on this disk is still marked attempted first, not only devPath, the
+    // one whose eject affordance was actually clicked, because a disk with
+    // more than one mounted partition has udisksctl unmount fire a real
+    // udev event per partition, and a rescan landing between two of
+    // eject's own queued steps must not see an already-unmounted sibling
+    // as a fresh mount candidate. LVM and LUKS nodes need no such mark:
+    // they were never in `flat` and so were never a mount candidate to
+    // begin with.
     function eject(devPath: string, diskPath: string): void {
         const marks = Object.assign({}, root.attempted, {
             [devPath]: true
@@ -143,7 +155,7 @@ Singleton {
         }
         root.attempted = marks;
 
-        for (const step of DevicesMath.ejectPlan(root.flat, diskPath))
+        for (const step of DevicesMath.ejectPlan(root.mounts, diskPath))
             root.queueAction(step);
     }
 
@@ -168,6 +180,7 @@ Singleton {
             root.mount(candidate.path);
 
         root.flat = parsed;
+        root.mounts = DevicesMath.parseMounts(text);
 
         for (const device of DevicesMath.newlyMounted(root.previousDevices, root.devices))
             root.toast(device);

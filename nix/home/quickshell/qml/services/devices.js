@@ -17,6 +17,19 @@
 // real USB disk; filtering on fstype-without-mountpoint instead of hotplug
 // would try to mount the ESP. Both are here as fixture-backed regression
 // tests, not as a hypothetical.
+//
+// Two different questions get asked of the same tree, and they get two
+// different walkers on purpose. "What should this shell offer to mount" is
+// narrow: walk() pushes only a partition or a childless disk, because an
+// LVM logical volume or a LUKS mapping is plumbing a user never picks off
+// a menu. "What has to come unmounted before this disk loses power" is
+// broad: walkMounts() pushes anything with a mountpoint, whatever its
+// type, because a logical volume mounted on a hotplug USB disk is exactly
+// as mounted as a plain partition, and udisksctl power-off does not care
+// which kind of node was sitting on the filesystem it just cut power to.
+// Answering the second question from the first walker's narrow output is
+// how a live LUKS or LVM external drive used to get powered off with its
+// filesystem still mounted.
 .pragma library
 
 /// lsblk emits native booleans (util-linux >= 2.37) or "0"/"1" strings,
@@ -97,6 +110,56 @@ function parseDevices(text) {
     const out = [];
     for (const disk of top)
         walk(disk, disk.path, flag(disk.hotplug), out);
+    return out;
+}
+
+/// Depth-first walk collecting every mounted node under one top-level disk,
+/// whatever its type. `diskHotplug` is the top-level disk's own flag,
+/// carried down unchanged the same way walk() carries it, and deliberately
+/// not read off each node's own hotplug flag: lsblk reports a
+/// device-mapper node (crypt, lvm) as hotplug:false regardless of what bus
+/// the disk underneath sits on, so a mounted logical volume three levels
+/// under a hotplug USB disk would otherwise look, to this function's
+/// caller, like it belongs to a fixed drive.
+function walkMounts(node, diskPath, diskHotplug, out) {
+    if (orNull(node.mountpoint) !== null) {
+        out.push({
+            path: node.path,
+            diskPath: diskPath,
+            mountPoint: node.mountpoint,
+            type: node.type,
+            hotplug: diskHotplug
+        });
+    }
+
+    if (Array.isArray(node.children)) {
+        for (const child of node.children)
+            walkMounts(child, diskPath, diskHotplug, out);
+    }
+}
+
+/// Every mounted node under each top-level disk, whatever its type,
+/// whatever its own hotplug flag: a logical volume or an unlocked LUKS
+/// mapping sitting on a hotplug USB disk is exactly as mounted as a plain
+/// partition, and ejectPlan needs to find all of them, not only the ones
+/// parseDevices() would also have offered for automount. Loop and rom
+/// devices are not excluded here either, for the same reason: mounted
+/// under the target disk means unmount it before that disk loses power,
+/// full stop. Malformed input yields an empty list rather than throwing,
+/// same as parseDevices, so a bad lsblk read never turns into a plan that
+/// silently unmounts nothing.
+function parseMounts(text) {
+    let root;
+    try {
+        root = JSON.parse(text);
+    } catch (e) {
+        return [];
+    }
+
+    const top = root && Array.isArray(root.blockdevices) ? root.blockdevices : [];
+    const out = [];
+    for (const disk of top)
+        walkMounts(disk, disk.path, flag(disk.hotplug), out);
     return out;
 }
 
@@ -191,17 +254,32 @@ function powerOffCommand(path) {
 }
 
 /// The eject sequence for one disk: unmount every one of its mounted
-/// devices, then power the disk off. "Its mounted devices" is partitions
-/// AND the disk-as-superfloppy case parseDevices also emits — a childless
-/// disk with a filesystem directly on it has diskPath equal to its own
-/// path and type "disk", not "part", so filtering on type "part" alone
-/// skips its unmount and hands udisksctl a power-off for a device that is
-/// still mounted. Unmounting a device that was never mounted is a
-/// udisksctl error the caller doesn't need, so only mounted ones get a
-/// step.
-function ejectPlan(devices, diskPath) {
-    const mountedOnDisk = devices.filter(d => d.diskPath === diskPath && d.mountPoint);
+/// nodes, then power the disk off. `mounts` must come from parseMounts(),
+/// not parseDevices(): parseDevices() only ever emits partitions and
+/// superfloppy disks, the narrow list automount needs, so an LVM logical
+/// volume or an unlocked LUKS mapping mounted on a hotplug external drive
+/// was never in it, EVEN WHILE MOUNTED. Filtering that narrow list here
+/// found nothing mounted on such a drive and handed back a plan whose only
+/// entry was a power-off against a disk with a live, possibly dirty
+/// filesystem. Unmounting a node that was never mounted is a udisksctl
+/// error the caller doesn't need, so only mounted ones get a step.
+///
+/// GUARD: no power-off is appended when any mounted node under diskPath
+/// carries hotplug:false, the top-level-disk flag parseMounts() carries
+/// down to every descendant. This is the one thing stopping a wrong
+/// diskPath, or a future caller that doesn't know better, from asking
+/// udisksctl to power off the machine's own NVMe: unmounting a live root
+/// filesystem is recoverable in a way that the boot disk losing power mid-
+/// session is not. An empty or all-undefined-hotplug mounted set does not
+/// trip the guard, since parseMounts() always fills the field and only a
+/// hand-built fixture would leave it out.
+function ejectPlan(mounts, diskPath) {
+    const mountedOnDisk = mounts.filter(d => d.diskPath === diskPath && d.mountPoint);
     const plan = mountedOnDisk.map(d => unmountCommand(d.path));
-    plan.push(powerOffCommand(diskPath));
+
+    const knownNotHotplug = mountedOnDisk.some(d => d.hotplug === false);
+    if (!knownNotHotplug)
+        plan.push(powerOffCommand(diskPath));
+
     return plan;
 }
