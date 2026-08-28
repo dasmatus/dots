@@ -116,4 +116,9 @@ self: {
 
   iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
   iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
+
+  # Exposed so `nix run .#nix-lint` can force the primer generator to run and
+  # trip its build-time asserts, not because anyone installs this directly.
+  # See nix/dots-skills.nix.
+  dots-skills-primer = (pkgs.callPackage ../nix/dots-skills.nix { }).primer;
 }

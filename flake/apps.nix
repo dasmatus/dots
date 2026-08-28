@@ -148,6 +148,11 @@ in
       cd pg-agentmem && cargo fmt --check && cd ..
       nix build .#pg-agentmem --no-link
 
+      # nix flake check --no-build only evaluates derivations, so it never
+      # realizes dots-skills-primer and never runs dots-skills-primer.py's
+      # asserts. Building it here is the only place in this gate that does.
+      nix build .#dots-skills-primer --no-link
+
       cd dots-memory-mcp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
 
       cd dots-memory-derive && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
