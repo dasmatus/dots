@@ -76,6 +76,11 @@ QtObject {
             title: "Toggle Privacy Mode",
             subtitle: "Mute the microphone",
             argv: ["qs", "ipc", "call", "osd", "privacyToggle"]
+        },
+        {
+            title: "Open File Manager",
+            subtitle: "Browse files, dual-pane, SUPER+SHIFT+F",
+            argv: ["qs", "ipc", "call", "files", "toggle"]
         }
     ]
 
@@ -120,7 +125,7 @@ QtObject {
                     accessory: "open",
                     path: path,
                     provider: "files",
-                    run: () => Quickshell.execDetached(["xdg-open", path])
+                    run: () => PreviewMath.isDirectory(path) ? Devices.requestOpen(path) : Quickshell.execDetached(["xdg-open", path])
                 }));
     }
 
