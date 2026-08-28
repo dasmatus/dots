@@ -24,6 +24,9 @@ Scope {
     readonly property var activePane: root.activeSide === "left" ? leftPane : rightPane
     readonly property var otherPane: root.activeSide === "left" ? rightPane : leftPane
 
+    property string promptMode: ""
+    property string promptText: ""
+
     function open(): void {
         window.visible = true;
     }
@@ -62,6 +65,28 @@ Scope {
     function runOperation(argv: var): void {
         const runner = opRunner.createObject(root, { command: argv });
         runner.running = true;
+    }
+
+    function beginRename(): void {
+        if (!root.activePane.selected)
+            return;
+
+        root.promptMode = "rename";
+        root.promptText = root.activePane.selected.name;
+    }
+
+    function confirmPrompt(): void {
+        if (root.promptMode === "rename") {
+            const oldPath = FilesMath.join(root.activePane.path, root.activePane.selected.name);
+            const newPath = FilesMath.join(root.activePane.path, root.promptText);
+            root.runOperation(Operations.renameArgv(oldPath, newPath));
+        }
+
+        root.promptMode = "";
+    }
+
+    function cancelPrompt(): void {
+        root.promptMode = "";
     }
 
     Component {
@@ -144,6 +169,31 @@ Scope {
                         anchors.fill: parent
                         onClicked: root.moveSelected()
                     }
+                }
+
+                Text {
+                    text: "Rename"
+                    color: Theme.fg
+                    font.family: Theme.fontUi
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: root.beginRename()
+                    }
+                }
+
+                TextInput {
+                    Layout.preferredWidth: 200
+                    visible: root.promptMode !== ""
+                    text: root.promptText
+                    color: Theme.fg
+                    font.family: Theme.fontUi
+
+                    onTextChanged: root.promptText = text
+                    onVisibleChanged: if (visible) forceActiveFocus()
+
+                    Keys.onReturnPressed: root.confirmPrompt()
+                    Keys.onEscapePressed: root.cancelPrompt()
                 }
             }
 
