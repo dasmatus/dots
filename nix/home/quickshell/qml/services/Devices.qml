@@ -5,9 +5,12 @@
 //
 // pragma Singleton, no `Devices {}` line anywhere in shell.qml: this comes
 // alive the same way Theme.qml already does, on its first property read,
-// not on explicit instantiation. The bar pill is what forces that read once
-// it exists; until then this file can sit here fully wired and genuinely
-// inert.
+// not on explicit instantiation. In practice that first read happens before
+// the shell ever paints a frame: shell.qml instantiates Launcher {}
+// unconditionally, and Launcher's `results` binding runs eagerly against
+// the empty startup query, reaching providers.deviceRows("") and, through
+// it, Devices.flat. The bar pill reads it too, but only after the launcher
+// already has.
 //
 // Shaped like qml/monitors/Watcher.qml: a persistent Process tailing a live
 // event stream, a Timer folding a burst of events into one rescan, and the
@@ -22,37 +25,56 @@
 // timer fires, refresh() runs again. Nothing about that chain terminates on
 // its own, so `attempted` is the one thing standing between a single
 // plugged-in stick and udisksctl running in an unbounded loop against it.
-// Every refresh prunes `attempted` first, a path only leaves that set by
-// vanishing from lsblk entirely, which means it was unplugged, computes
-// candidates against the pruned result, and marks each candidate attempted
+// Every refresh runs three steps in this order: pruneAttempts drops a path
+// only by its vanishing from lsblk entirely, which means it was unplugged;
+// seedAttempts then folds every currently-mounted path into what
+// pruneAttempts left, because a device this shell never mounted itself,
+// one already mounted from a previous session or by some other tool before
+// the first scan ever ran, would otherwise have no entry in `attempted` at
+// all; mountCandidates runs last, against that pruned-then-seeded set, so
+// what it offers back is genuinely new. Each candidate is marked attempted
 // in the same call that queues its mount, never after, because a second
 // refresh can land before the first mount's own onExited does, and a
 // same-call mark-then-queue is what keeps that second refresh from seeing
 // the device as still eligible. Only once every candidate this scan found
 // is already marked does the parsed list become the published `devices`.
 // A device that stays plugged in and simply fails to mount stays marked and
-// is left alone rather than retried on every debounced tick forever; a
-// device unmounted from outside this shell on purpose stays marked for the
-// same reason, since it never left lsblk, so a deliberate `udisksctl
-// unmount` is never silently undone. eject() extends the same guard to
-// every device it is about to unmount, not only the one whose eject button
-// was clicked, since the unmount itself is a udev event too and would
-// otherwise re-offer a sibling partition on the same disk as a mount
-// candidate in the gap between eject's own queued steps.
+// is left alone rather than retried on every debounced tick forever. A
+// device unmounted from outside this shell on purpose stays marked too, but
+// for a different reason than merely staying in lsblk: seedAttempts already
+// recorded it attempted back on the first scan that ever saw it mounted, so
+// the mark predates the manual unmount and survives it, and mountCandidates
+// never sees an opening to offer it back. Only unplugging drops the mark,
+// through pruneAttempts, which is what makes a deliberate `udisksctl
+// unmount` stick instead of being mounted straight back on the next
+// debounced tick. eject() extends the same guard to every device it is
+// about to unmount, not only the one whose eject button was clicked, since
+// the unmount itself is a udev event too and would otherwise re-offer a
+// sibling partition on the same disk as a mount candidate in the gap
+// between eject's own queued steps.
 //
 // The udisksctl calls themselves queue through one reused Process in
 // Settings.qml's writer shape, a pending list of argv, next() driven from
 // onExited rather than a chain of ephemeral Process objects, so a mount
 // queued mid-eject waits its turn instead of racing udisksctl against
-// itself. Only the exit code is ever read. udisksctl's own stdout is
-// deliberately never parsed, on this machine it prints German, and every
-// other locale prints something else; a fresh lsblk rescan is the only
-// truth this file trusts about what actually happened.
+// itself. udisksctl's own stdout is deliberately never parsed, on this
+// machine it prints German, and every other locale prints something else;
+// a fresh lsblk rescan is the only truth this file trusts about what a
+// successful action actually did. The exit code is the one thing read off
+// each finished action: a non-zero exit is the only signal this file ever
+// gets that a queued mount, unmount or power-off failed, and a corrupt or
+// unsupported filesystem exits non-zero with nothing on lsblk to show for
+// it, so leaving that code unread would make a failed mount indistinguish-
+// able from a successful one. actionFailed() turns that into an error toast
+// through the same notify-send path toast() uses for success.
 //
-// The mount toast carries x-dunst-stack-tag (Notifications.qml declares
-// extraHints for exactly this), so a drive that mounts, drops and mounts
-// again inside one debounce window replaces its own card instead of
-// stacking a second one under it.
+// Both toasts carry x-dunst-stack-tag (Notifications.qml declares
+// extraHints for exactly this), keyed off the device rather than the
+// action, so a drive that mounts, drops and mounts again inside one
+// debounce window replaces its own success card instead of stacking a
+// second one under it, and a drive that fails the same mount on every
+// retry replaces its own error card the same way rather than papering the
+// screen with duplicates.
 pragma Singleton
 
 import QtQuick
@@ -139,7 +161,8 @@ Singleton {
     function applyScan(text: string): void {
         const parsed = DevicesMath.parseDevices(text);
 
-        root.attempted = DevicesMath.pruneAttempts(root.attempted, parsed);
+        const pruned = DevicesMath.pruneAttempts(root.attempted, parsed);
+        root.attempted = DevicesMath.seedAttempts(pruned, parsed);
 
         for (const candidate of DevicesMath.mountCandidates(parsed, root.attempted))
             root.mount(candidate.path);
@@ -155,6 +178,18 @@ Singleton {
         const label = DevicesMath.displayLabel(device);
 
         Quickshell.execDetached(["notify-send", "--app-name=dots-shell", "--icon=drive-removable-media", "--hint=string:x-dunst-stack-tag:device-" + device.name, "Drive mounted", label + " at " + device.mountPoint]);
+    }
+
+    // command is one of mountCommand/unmountCommand/powerOffCommand's argv,
+    // all three shaped ["udisksctl", verb, "-b", path, "--no-user-interaction"],
+    // so the verb and the path sit at the same two indices regardless of
+    // which of the three actually failed.
+    function actionFailed(command: var, exitCode: int): void {
+        const verb = command[1];
+        const path = command[3];
+        const name = path.split("/").pop();
+
+        Quickshell.execDetached(["notify-send", "--app-name=dots-shell", "--urgency=critical", "--icon=dialog-error", "--hint=string:x-dunst-stack-tag:device-error-" + name, "Drive action failed", `udisksctl ${verb} ${path} exited ${exitCode}`]);
     }
 
     IpcHandler {
@@ -256,6 +291,9 @@ Singleton {
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
+            if (exitCode !== 0)
+                root.actionFailed(action.command, exitCode);
+
             action.next();
         }
         // qmllint enable signal-handler-parameters

@@ -134,6 +134,28 @@ function pruneAttempts(attempted, devices) {
     return pruned;
 }
 
+/// Every device observed mounted counts as already attempted, whether this
+/// shell is the one that mounted it or not. `attempted` used to gain an
+/// entry only from mount() and eject(), both of which act on a device this
+/// singleton itself decided to touch, so a device already mounted the first
+/// time a scan ever saw it, left over from a previous session or mounted by
+/// some other tool before the debounce fired, had no entry at all. A later
+/// `udisksctl unmount` run by hand then looked, to mountCandidates, exactly
+/// like a stick that had simply never been offered: unmounted, hotplug,
+/// carrying an fstype, absent from `attempted`, and got mounted straight
+/// back. Folding every currently-mounted path into `attempted` on every scan
+/// closes that gap: the mark lands while the device is still mounted, so it
+/// is already there by the time anyone unmounts it, and only pruneAttempts,
+/// which fires on unplugging, ever removes it again.
+function seedAttempts(attempted, devices) {
+    const seeded = Object.assign({}, attempted);
+    for (const d of devices) {
+        if (d.mountPoint)
+            seeded[d.path] = true;
+    }
+    return seeded;
+}
+
 /// Records that transitioned from unmounted to mounted between two polls —
 /// the notify-send trigger. A device absent from `previous` counts as
 /// having been unmounted, so a stick that appears already-mounted still

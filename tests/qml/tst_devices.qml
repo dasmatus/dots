@@ -267,6 +267,75 @@ TestCase {
         verify(!Object.prototype.hasOwnProperty.call(pruned, "/dev/sdz1"));
     }
 
+    // Finding 1: a device already mounted the first time a scan ever sees
+    // it, from a previous session or by any tool other than this shell,
+    // never went through mount(), so `attempted` had no entry for it. The
+    // four cases below are the ones the fix must hold simultaneously,
+    // exercised through the same three-step order Devices.qml's applyScan
+    // now runs: pruneAttempts, then seedAttempts, then mountCandidates.
+
+    // A freshly plugged, unmounted disk must still automount: seeding never
+    // touches a path with no mountPoint, so it stays a candidate.
+    function test_seed_attempts_leaves_a_freshly_plugged_unmounted_disk_a_candidate() {
+        const devices = [{ path: "/dev/sda1", mountPoint: null, fstype: "exfat" }];
+
+        const seeded = Devices.seedAttempts({}, devices);
+        const candidates = Devices.mountCandidates(devices, seeded);
+
+        verify(!Object.prototype.hasOwnProperty.call(seeded, "/dev/sda1"));
+        compare(candidates.length, 1);
+    }
+
+    // A disk already mounted when the singleton runs its very first scan,
+    // `attempted` starting out {}, must come out of that scan seeded, not
+    // just skipped for being mounted right now.
+    function test_seed_attempts_marks_a_disk_already_mounted_at_first_scan() {
+        const devices = [{ path: "/dev/sda1", mountPoint: "/run/media/sda1", fstype: "exfat" }];
+
+        const seeded = Devices.seedAttempts({}, devices);
+
+        verify(Object.prototype.hasOwnProperty.call(seeded, "/dev/sda1"));
+    }
+
+    // The bug itself: a device this shell never mounted (so `attempted`
+    // starts empty for it) is seen mounted on scan one, seeded there, then
+    // manually unmounted with `udisksctl unmount` by hand before scan two.
+    // pruneAttempts must not drop it, because the path never left lsblk, so
+    // the seeded mark from scan one survives and mountCandidates must not
+    // offer it back.
+    function test_seed_attempts_keeps_a_manual_unmount_from_being_undone() {
+        const mountedScan = [{ path: "/dev/sda1", mountPoint: "/run/media/sda1", fstype: "exfat" }];
+        const afterManualUnmount = [{ path: "/dev/sda1", mountPoint: null, fstype: "exfat" }];
+
+        let attempted = Devices.seedAttempts({}, mountedScan);
+
+        attempted = Devices.pruneAttempts(attempted, afterManualUnmount);
+        attempted = Devices.seedAttempts(attempted, afterManualUnmount);
+        const candidates = Devices.mountCandidates(afterManualUnmount, attempted);
+
+        compare(candidates.length, 0, "a manually unmounted device must not be re-offered as a mount candidate");
+    }
+
+    // Unplug then replug must mount again: pruneAttempts drops the path
+    // once it vanishes from lsblk entirely, so the seeded mark from before
+    // the unplug does not survive to block the replug.
+    function test_seed_attempts_allows_remount_after_unplug_and_replug() {
+        const mountedScan = [{ path: "/dev/sda1", mountPoint: "/run/media/sda1", fstype: "exfat" }];
+        const unplugged = [];
+        const repluggedUnmounted = [{ path: "/dev/sda1", mountPoint: null, fstype: "exfat" }];
+
+        let attempted = Devices.seedAttempts({}, mountedScan);
+
+        attempted = Devices.pruneAttempts(attempted, unplugged);
+        attempted = Devices.seedAttempts(attempted, unplugged);
+
+        attempted = Devices.pruneAttempts(attempted, repluggedUnmounted);
+        attempted = Devices.seedAttempts(attempted, repluggedUnmounted);
+        const candidates = Devices.mountCandidates(repluggedUnmounted, attempted);
+
+        compare(candidates.length, 1, "a replugged device must be eligible again after it fully vanished from lsblk");
+    }
+
     function test_newly_mounted_detects_transition_ignores_unchanged() {
         const previous = [
             { path: "/dev/sda1", mountPoint: null },

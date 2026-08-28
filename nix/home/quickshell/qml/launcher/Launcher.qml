@@ -43,9 +43,14 @@ Scope {
     // new one.
     onSelectedPillChanged: root.selected = 0
 
-    // The highlighted row's path, or "" for a row that has none. Only the file
-    // provider sets `path`, so this is the whole "is the entry a file" test:
-    // an application, a calculation or an emoji simply has nothing to preview.
+    // The highlighted row's path, or "" for a row that has none. The file
+    // provider sets `path` on every row it returns, and deviceRows sets it
+    // too, deliberately, on a mounted device's open row, so arrowing onto
+    // that row previews the mount root the same way arrowing onto a file
+    // previews the file. An application, a calculation, an emoji, a
+    // device's eject row, none of those set `path`, so previewPath stays ""
+    // for them: this is still the whole "is there something here to
+    // preview" test, just no longer scoped to files alone.
     readonly property string previewPath: root.results[root.selected]?.path ?? ""
 
     readonly property var focusedScreen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? null

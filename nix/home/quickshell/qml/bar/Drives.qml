@@ -3,10 +3,14 @@
 // Devices.qml is a singleton, and a pragma Singleton has no constructor
 // line for shell.qml to call the way Bar.qml instantiates every other
 // module. It stays, in its own words, "genuinely inert" until something
-// reads one of its properties. `mounted` below, aliasing Devices.devices,
-// is that first read anywhere in the tree, and it is what starts the udev
-// watcher and the automount loop. Delete this pill today and the service
-// goes back to sitting there fully wired and doing nothing.
+// reads one of its properties, but that first read belongs to the launcher,
+// not to this pill. shell.qml instantiates Launcher {} unconditionally at
+// startup, and Launcher's own `results` binding evaluates eagerly against
+// the empty startup query, which falls through to providers.deviceRows(""),
+// reading Devices.flat before this bar is ever drawn. `mounted` below,
+// aliasing Devices.devices, is only this pill's own read of an already-
+// running singleton. Delete this pill and the bar loses its summary count;
+// the service itself keeps running regardless, kept awake by the launcher.
 //
 // Hidden while nothing is mounted, the same way Battery.qml hides itself on
 // a machine with no battery: an empty tray has nothing to report.

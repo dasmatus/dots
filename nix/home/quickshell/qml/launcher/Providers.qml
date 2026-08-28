@@ -136,6 +136,17 @@ QtObject {
     //
     // `path` on the open row is what buys the mount root a free preview:
     // PreviewPane keys off it exactly the way fileRows already relies on.
+    //
+    // This is also the read that wakes Devices.qml. shell.qml instantiates
+    // Launcher {} unconditionally, Launcher's `results` binding evaluates
+    // eagerly against the empty startup query, and that empty query still
+    // reaches this line, `for (const device of Devices.flat)`, before the
+    // bar pill or anything else in the tree gets a chance to touch the
+    // singleton. Drives.qml reads Devices.devices too, later, but by then
+    // this call has already had the singleton running for as long as the
+    // shell has been up; do not let Drives.qml's own comment convince a
+    // later change that deleting that pill would put the service back to
+    // sleep, because this read stays here either way.
     function deviceRows(text: string): var {
         const rows = [];
 
