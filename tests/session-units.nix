@@ -20,25 +20,17 @@
   pkgs,
   lib,
   inputs,
-  hyprmon,
-  wallpaperTui,
 }:
 let
   hm = inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
     # `dots.ai.ollama` is the one field nix/home/zed.nix reads (whether to
     # emit the Ollama language-model block); every other module pulled in
-    # below is unconditional. Real values, not stubs: `hyprmon` and
-    # `wallpaperTui` are the actual flake packages
-    # (`dotsFlake.packages.${system}.{hyprmon,wallpaper-tui}` — the very
-    # values `flake/nixos.nix` threads into the real home-manager config),
-    # not `pkgs.hello` placeholders. Nothing here forces either to actually
-    # build: every assertion below reads `Service.ExecStart`/`exec` strings,
-    # and stringifying a derivation into a Nix string only needs its store
-    # path computed, never its build to run — the same reason `agentmem-eval`
-    # in flake/checks.nix can force `finalPackage.name`/`.version` for free.
+    # below is unconditional. No `hyprmon`/`wallpaperTui` args here any
+    # more: both packages are gone from `main` (deleted in favour of QML),
+    # and nix/home/hyprland.nix and nix/home/session/default.nix no longer
+    # reference either.
     extraSpecialArgs = {
-      inherit hyprmon wallpaperTui;
       dots.ai.ollama = false;
     };
     modules = [
@@ -57,7 +49,6 @@ let
       ../nix/home/session
       ../nix/home/hyprland.nix
       ../nix/home/kitty.nix
-      ../nix/home/wallpaper-tui.nix
       ../nix/home/zed.nix
     ];
   };

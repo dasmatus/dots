@@ -1,8 +1,8 @@
 # LiveISO boot oracle — NixOS test framework edition.
 #
 # `iso-boot` boots the (plain, unsigned) LiveISO through OVMF UEFI with an
-# emulated TPM 2.0 and asserts the installer TUI reaches tty1
-# (DOTS_TUI_READY on the serial console). No Secure Boot chain — Secure
+# emulated TPM 2.0 and asserts the cage kiosk's Quickshell session reaches
+# tty1 (DOTS_UI_READY on the serial console). No Secure Boot chain — Secure
 # Boot was removed in favor of TPM2 auto-unlock + a LUKS recovery key.
 #
 # Debug interactively with
@@ -21,11 +21,7 @@ let
   # this file is a heavy `pkgs.testers.runNixOSTest`; this one is here so
   # that contrast is visible at the call site rather than buried next to
   # `iso-boot`. See tests/session-units.nix for what it guards.
-  sessionUnitsTest = import ./session-units.nix {
-    inherit pkgs lib inputs;
-    hyprmon = dotsFlake.packages.${pkgs.system}.hyprmon;
-    wallpaperTui = dotsFlake.packages.${pkgs.system}.wallpaper-tui;
-  };
+  sessionUnitsTest = import ./session-units.nix { inherit pkgs lib inputs; };
 
   # Precomputed `mkpasswd -m yescrypt --stdin` of the literal "test" — the same
   # path the installer's WriteSecrets step uses (rust/installer-tui/src/install.rs).
@@ -392,11 +388,12 @@ let
 
     # Console-only assertions: the ISO carries no test instrumentation, so
     # backdoor-based helpers (wait_for_unit, succeed, shutdown) are off
-    # limits. nix/iso.nix emits DOTS_TUI_READY on the serial console once the
-    # installer TUI starts on tty1.
+    # limits. installer.qml (Quickshell) emits DOTS_UI_READY on the serial
+    # console from Component.onCompleted, once cage has actually mapped its
+    # window on tty1 — nix/iso.nix's unit no longer emits any marker itself.
     testScript = ''
       machine.start()
-      machine.wait_for_console_text("DOTS_TUI_READY", timeout=6600)
+      machine.wait_for_console_text("DOTS_UI_READY", timeout=6600)
     '';
   };
 
