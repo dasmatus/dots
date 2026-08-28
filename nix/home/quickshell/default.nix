@@ -178,6 +178,11 @@ in
       pkgs.wl-clipboard
       pkgs.fd
 
+      # devices.js shells out to both: lsblk for the device list, udisksctl
+      # for mount, unmount and power-off.
+      pkgs.util-linux
+      pkgs.udisks2
+
       # awww (formerly swww) is the wallpaper daemon: hyprland.nix's
       # hyprland.start launches awww-daemon, and Picker.qml/Rotation.qml both
       # shell out to the `awww` client. Moved here from the now-deleted

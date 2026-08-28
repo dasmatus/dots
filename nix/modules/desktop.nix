@@ -66,6 +66,14 @@
           };
           services.udisks2.enable = true;
 
+          # Nothing added for exfat or vfat: both are already in
+          # /proc/filesystems on this machine and udisks mounts them through
+          # the kernel driver without running fsck. ntfs is different.
+          # udisks lists "ntfs" in its SupportedFilesystems D-Bus property,
+          # but it ships no mount.ntfs of its own, so that property is not
+          # proof the kernel can actually mount one.
+          boot.supportedFilesystems.ntfs = true;
+
           # UPower backs the Quickshell bar's battery module. waybar read
           # /sys/class/power_supply itself and so needed nothing here, which is
           # why this was never enabled; Quickshell talks to
