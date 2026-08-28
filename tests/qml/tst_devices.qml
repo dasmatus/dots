@@ -472,7 +472,8 @@ TestCase {
             { path: "/dev/sdb1", diskPath: "/dev/sdb", type: "part", mountPoint: "/run/media/sdb1" }
         ];
 
-        const plan = Devices.ejectPlan(devices, hostile);
+        // hostile is the disk under eject; the caller has to say so.
+        const plan = Devices.ejectPlan(devices, hostile, true);
 
         compare(plan.length, 2);
         compare(plan[0], Devices.unmountCommand("/dev/sda1"));
@@ -488,10 +489,12 @@ TestCase {
     function test_eject_plan_unmounts_a_mounted_superfloppy_before_powering_off() {
         const diskPath = "/dev/sdc";
         const devices = [
-            { path: diskPath, diskPath: diskPath, type: "disk", fstype: "exfat", mountPoint: "/run/media/sdc", hotplug: true }
+            { path: diskPath, diskPath: diskPath, type: "disk", fstype: "exfat", mountPoint: "/run/media/sdc" }
         ];
 
-        const plan = Devices.ejectPlan(devices, diskPath);
+        // The disk itself is the whole node here; the caller still has to
+        // say it is hotplug, the same as for any other disk.
+        const plan = Devices.ejectPlan(devices, diskPath, true);
 
         compare(plan.length, 2);
         compare(plan[0], Devices.unmountCommand(diskPath));
@@ -552,7 +555,11 @@ TestCase {
         const diskPath = "/dev/sde";
         const mounts = Devices.parseMounts(luksLvmFixture());
 
-        const plan = Devices.ejectPlan(mounts, diskPath);
+        // /dev/sde is hotplug in the fixture, proven directly by
+        // test_parse_mounts_carries_disk_hotplug_not_the_mapped_nodes_own_flag
+        // above; ejectPlan itself no longer reads that off `mounts`, so it
+        // has to be told here too.
+        const plan = Devices.ejectPlan(mounts, diskPath, true);
 
         let powerOffIndex = -1;
         let powerOffCount = 0;
@@ -578,20 +585,93 @@ TestCase {
         compare(plan[plan.length - 1], Devices.powerOffCommand(diskPath));
     }
 
-    // Defence in depth: whatever diskPath a caller hands ejectPlan, a
-    // mounted node under it that is known, via the disk-level hotplug flag
-    // parseMounts carries down, to sit on a non-hotplug disk must never
-    // result in a power-off step. This is what stands between a wrong
-    // diskPath and powering off the machine's own NVMe mid-session.
+    // Defence in depth: a caller that positively knows diskPath is not
+    // hotplug, and says so, must never get a power-off step back. This is
+    // what stands between the machine's own NVMe and a caller that read
+    // its own disk-level hotplug flag correctly and passed it straight
+    // through.
     function test_eject_plan_never_powers_off_a_non_hotplug_disk() {
         const diskPath = "/dev/nvme0n1";
         const mounts = [
-            { path: "/dev/nvme0n1p1", diskPath: diskPath, mountPoint: "/boot", type: "part", hotplug: false }
+            { path: "/dev/nvme0n1p1", diskPath: diskPath, mountPoint: "/boot", type: "part" }
         ];
 
-        const plan = Devices.ejectPlan(mounts, diskPath);
+        const plan = Devices.ejectPlan(mounts, diskPath, false);
 
-        for (const step of plan)
-            verify(step[1] !== "power-off", "a non-hotplug disk must never receive a power-off step");
+        verify(!plan.some(step => step[1] === "power-off"), "a non-hotplug disk must never receive a power-off step");
+    }
+
+    // A diskPath that finds no support at all for `true`, whether nothing
+    // in `mounts` matches it, the caller never passes the third argument,
+    // or a stray per-node field on a matched mount merely looks
+    // hotplug-ish, must never be read as permission. The first row is the
+    // live defect this guard used to have, end to end: a diskPath a caller
+    // got wrong used to leave `mountedOnDisk` empty, which made the old
+    // per-mount inference vacuously false, which the old guard read as
+    // "go ahead".
+    function test_eject_plan_refuses_power_off_without_being_told_hotplug_data() {
+        return [
+            {
+                tag: "diskPath matches nothing in mounts at all",
+                mounts: [],
+                diskPath: "/dev/sdz",
+                diskHotplug: undefined
+            },
+            {
+                tag: "a real mount is present but diskHotplug is simply omitted",
+                mounts: [{ path: "/dev/sdz1", diskPath: "/dev/sdz", mountPoint: "/run/media/sdz1", type: "part" }],
+                diskPath: "/dev/sdz",
+                diskHotplug: undefined
+            },
+            {
+                tag: "diskHotplug is explicitly false",
+                mounts: [{ path: "/dev/sdz1", diskPath: "/dev/sdz", mountPoint: "/run/media/sdz1", type: "part" }],
+                diskPath: "/dev/sdz",
+                diskHotplug: false
+            },
+            {
+                tag: "a stray truthy per-node hotplug field must not stand in for the argument",
+                mounts: [{ path: "/dev/sdz1", diskPath: "/dev/sdz", mountPoint: "/run/media/sdz1", type: "part", hotplug: true }],
+                diskPath: "/dev/sdz",
+                diskHotplug: undefined
+            }
+        ];
+    }
+
+    function test_eject_plan_refuses_power_off_without_being_told_hotplug(row) {
+        const plan = Devices.ejectPlan(row.mounts, row.diskPath, row.diskHotplug);
+
+        verify(!plan.some(step => step[1] === "power-off"), row.tag + ": must never receive a power-off step");
+    }
+
+    // The positive path a permissive default was never needed for: told
+    // `true`, ejectPlan still unmounts first and powers off last, exactly
+    // once.
+    function test_eject_plan_emits_power_off_when_positively_told_hotplug() {
+        const diskPath = "/dev/sdz";
+        const mounts = [
+            { path: "/dev/sdz1", diskPath: diskPath, mountPoint: "/run/media/sdz1", type: "part" }
+        ];
+
+        const plan = Devices.ejectPlan(mounts, diskPath, true);
+
+        compare(plan.length, 2);
+        compare(plan[0], Devices.unmountCommand("/dev/sdz1"));
+        compare(plan[1], Devices.powerOffCommand(diskPath));
+    }
+
+    // A hotplug disk with nothing currently mounted under it right now,
+    // every partition already unmounted by hand, or a superfloppy that
+    // never got mounted this session, is still a legitimate eject: no
+    // unmount steps needed, but the power-off still has to run. Being told
+    // hotplug must never collapse into "and something has to be mounted
+    // too".
+    function test_eject_plan_powers_off_a_hotplug_disk_with_nothing_currently_mounted() {
+        const diskPath = "/dev/sdz";
+
+        const plan = Devices.ejectPlan([], diskPath, true);
+
+        compare(plan.length, 1);
+        compare(plan[0], Devices.powerOffCommand(diskPath));
     }
 }

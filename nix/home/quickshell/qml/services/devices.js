@@ -264,21 +264,24 @@ function powerOffCommand(path) {
 /// filesystem. Unmounting a node that was never mounted is a udisksctl
 /// error the caller doesn't need, so only mounted ones get a step.
 ///
-/// GUARD: no power-off is appended when any mounted node under diskPath
-/// carries hotplug:false, the top-level-disk flag parseMounts() carries
-/// down to every descendant. This is the one thing stopping a wrong
-/// diskPath, or a future caller that doesn't know better, from asking
-/// udisksctl to power off the machine's own NVMe: unmounting a live root
-/// filesystem is recoverable in a way that the boot disk losing power mid-
-/// session is not. An empty or all-undefined-hotplug mounted set does not
-/// trip the guard, since parseMounts() always fills the field and only a
-/// hand-built fixture would leave it out.
-function ejectPlan(mounts, diskPath) {
+/// GUARD: the power-off step is appended only when `diskHotplug` is the
+/// literal value `true`. That is the whole check, and no inference from
+/// `mounts` is involved. `diskHotplug` used to be inferred from whichever
+/// mounted nodes happened to match diskPath: a diskPath that matched
+/// nothing at all, a wrong path or a stale one, carried no evidence
+/// either way under that scheme and was read as permission to proceed
+/// anyway. Requiring the caller to state the fact closes that: an
+/// omitted argument and an explicit `false` both fail closed, the same
+/// as a diskPath nothing in `mounts` supports. This is the one thing
+/// stopping a wrong diskPath, or a future caller that doesn't know
+/// better, from asking udisksctl to power off the machine's own NVMe:
+/// unmounting a live root filesystem is recoverable in a way that the
+/// boot disk losing power mid-session is not.
+function ejectPlan(mounts, diskPath, diskHotplug) {
     const mountedOnDisk = mounts.filter(d => d.diskPath === diskPath && d.mountPoint);
     const plan = mountedOnDisk.map(d => unmountCommand(d.path));
 
-    const knownNotHotplug = mountedOnDisk.some(d => d.hotplug === false);
-    if (!knownNotHotplug)
+    if (diskHotplug === true)
         plan.push(powerOffCommand(diskPath));
 
     return plan;

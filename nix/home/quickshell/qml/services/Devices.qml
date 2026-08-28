@@ -155,7 +155,15 @@ Singleton {
         }
         root.attempted = marks;
 
-        for (const step of DevicesMath.ejectPlan(root.mounts, diskPath))
+        // ejectPlan() no longer infers hotplug from `mounts`; it has to be
+        // told. `flat` is the fact to tell it from: parseDevices() only
+        // ever put a node there because walk() had already decided, from
+        // real lsblk data, that node's disk qualified as hotplug, mounted
+        // or not. A diskPath absent from `flat` gets `false`, the same
+        // fail-closed answer a wrong or stale diskPath deserves.
+        const diskHotplug = root.flat.some(device => device.diskPath === diskPath);
+
+        for (const step of DevicesMath.ejectPlan(root.mounts, diskPath, diskHotplug))
             root.queueAction(step);
     }
 
