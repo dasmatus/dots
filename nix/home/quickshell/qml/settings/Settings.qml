@@ -196,7 +196,10 @@ Scope {
             anchors.centerIn: parent
 
             width: Math.min(680, parent.width - 80)
-            height: Math.min(form.implicitHeight + 96, parent.height - 80)
+            // Chrome's own implicitHeight already accounts for the header,
+            // the hint footer and the form's natural height — no more
+            // guessing at what the chrome costs.
+            height: Math.min(panel.implicitHeight, parent.height - 80)
 
             padding: 24
 
@@ -231,7 +234,8 @@ Scope {
             ColumnLayout {
                 id: form
 
-                anchors.fill: parent
+                Layout.fillWidth: true
+                Layout.fillHeight: true
 
                 spacing: 14
 
@@ -287,17 +291,6 @@ Scope {
                                 selectedTextColor: Theme.bg
 
                                 onTextEdited: root.edit(row.modelData.key, text)
-
-                                // TextInput answers Return itself rather than
-                                // letting it bubble to the panel's own
-                                // handler, so the grammar's commit/cancel
-                                // keys are repeated here — the same reason
-                                // Field.qml and Launcher's search box wire
-                                // them on the input directly rather than on
-                                // an ancestor.
-                                Keys.onReturnPressed: root.save()
-                                Keys.onEnterPressed: root.save()
-                                Keys.onEscapePressed: window.visible = false
                             }
                         }
 

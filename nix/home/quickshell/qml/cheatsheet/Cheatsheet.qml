@@ -37,31 +37,16 @@ Scope {
     }
     // qmllint enable unresolved-type
 
-    // The flat index each group's first row starts at, so a row nested two
-    // Repeaters deep can compare itself against `selected` without the
-    // groups themselves being flattened out of the JSON they were loaded
-    // from — Up/Down moves through one continuous list even though the
-    // layout stays grouped.
-    readonly property var groupOffsets: {
-        let offset = 0;
-        return root.groups.map(g => {
-            const start = offset;
-            offset += g.items.length;
-            return start;
-        });
-    }
+    // How far one Up/Down (or j/k) press moves the list — close to one
+    // row's height, so a single press is visible without feeling like a
+    // page flip. There is nothing here to select: this is a read-only
+    // reference with no per-row action, so the keys just move the
+    // viewport, the same thing they'd do to a terminal pager.
+    readonly property real scrollStep: 40
 
-    readonly property int totalItems: root.groups.reduce((sum, g) => sum + g.items.length, 0)
-
-    property int selected: 0
-
-    // Wraps, matching Launcher's own move().
-    function moveSelection(delta: int): void {
-        const count = root.totalItems;
-        if (count === 0)
-            return;
-
-        root.selected = (root.selected + delta % count + count) % count;
+    function scrollBy(delta: real): void {
+        const maxY = Math.max(0, scroll.contentHeight - scroll.height);
+        scroll.contentY = Math.min(maxY, Math.max(0, scroll.contentY + delta));
     }
 
     IpcHandler {
@@ -70,7 +55,7 @@ Scope {
         function toggle(): void {
             window.visible = !window.visible;
             if (window.visible)
-                root.selected = 0;
+                scroll.contentY = 0;
         }
 
         function close(): void {
@@ -115,7 +100,11 @@ Scope {
             anchors.centerIn: parent
 
             width: Math.min(920, parent.width - 80)
-            height: Math.min(scroll.contentHeight + 72, parent.height - 80)
+            // panel.implicitHeight is pure chrome overhead here — the
+            // Flickable body reports no implicitHeight of its own — so this
+            // is the real header+footer cost plus the list's own height,
+            // still capped against the screen the way it always was.
+            height: Math.min(scroll.contentHeight + panel.implicitHeight, parent.height - 80)
 
             padding: 24
 
@@ -138,17 +127,17 @@ Scope {
             // too rather than doing nothing.
             Keys.onReturnPressed: window.visible = false
             Keys.onEnterPressed: window.visible = false
-            Keys.onUpPressed: root.moveSelection(-1)
-            Keys.onDownPressed: root.moveSelection(1)
+            Keys.onUpPressed: root.scrollBy(-root.scrollStep)
+            Keys.onDownPressed: root.scrollBy(root.scrollStep)
 
             // No focused text field on this surface to steal j/k as literal
             // characters, so they alias the arrows Vim-style.
             Keys.onPressed: event => {
                 if (event.key === Qt.Key_J) {
-                    root.moveSelection(1);
+                    root.scrollBy(root.scrollStep);
                     event.accepted = true;
                 } else if (event.key === Qt.Key_K) {
-                    root.moveSelection(-1);
+                    root.scrollBy(-root.scrollStep);
                     event.accepted = true;
                 }
             }
@@ -156,7 +145,8 @@ Scope {
             Flickable {
                 id: scroll
 
-                anchors.fill: parent
+                Layout.fillWidth: true
+                Layout.fillHeight: true
 
                 contentWidth: width
                 contentHeight: column.implicitHeight
@@ -175,7 +165,6 @@ Scope {
                             id: section
 
                             required property var modelData
-                            required property int index
 
                             Layout.fillWidth: true
 
@@ -200,12 +189,6 @@ Scope {
                                     required property var modelData
                                     required property int index
 
-                                    // Where this row sits in root.selected's
-                                    // flat numbering — groupOffsets carries
-                                    // the running total so this doesn't need
-                                    // the groups flattened to compare.
-                                    readonly property int flatIndex: root.groupOffsets[section.index] + row.index
-
                                     Layout.fillWidth: true
 
                                     spacing: 16
@@ -214,12 +197,11 @@ Scope {
                                         // Zebra striping came from eww's
                                         // :nth-child(2n); here it is the row
                                         // index, which survives reordering.
-                                        // The selected row overrides both.
                                         Layout.preferredWidth: 240
                                         Layout.preferredHeight: keyLabel.implicitHeight + 6
 
                                         radius: 6
-                                        color: row.flatIndex === root.selected ? Theme.selection : (row.index % 2 === 0 ? Theme.bgDark : "transparent")
+                                        color: row.index % 2 === 0 ? Theme.bgDark : "transparent"
 
                                         Text {
                                             id: keyLabel

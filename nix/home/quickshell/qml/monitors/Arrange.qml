@@ -186,7 +186,11 @@ Scope {
             anchors.centerIn: parent
 
             width: root.canvasWidth + 2 * padding
-            height: root.canvasHeight + 96
+            // Chrome's own implicitHeight already accounts for the header,
+            // the hint footer and this content's natural height (canvas
+            // plus the Save row below it) — no more guessing at what the
+            // chrome costs.
+            height: panel.implicitHeight
 
             padding: 24
 
@@ -231,7 +235,8 @@ Scope {
             }
 
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
+                Layout.fillHeight: true
 
                 spacing: 12
 

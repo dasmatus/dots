@@ -17,6 +17,12 @@ Item {
 
     default property alias content: body.data
 
+    // Lets a caller size itself off a real number instead of a guessed
+    // constant meant to cover whatever the header and footer cost: a
+    // ColumnLayout's own implicitHeight already sums a hidden footer as
+    // zero, so this needs no separate visibility bookkeeping.
+    implicitHeight: shell.implicitHeight + root.padding * 2
+
     Panel {
         id: panel
 
@@ -24,6 +30,8 @@ Item {
         padding: root.padding
 
         ColumnLayout {
+            id: shell
+
             anchors.fill: parent
 
             spacing: 10
@@ -37,7 +45,10 @@ Item {
                 font.bold: true
             }
 
-            Item {
+            // A real Layout, not a bare Item, so a caller's top-level
+            // content can use Layout.fillWidth/fillHeight the ordinary way
+            // instead of having to know this needs anchors.fill instead.
+            ColumnLayout {
                 id: body
 
                 Layout.fillWidth: true
