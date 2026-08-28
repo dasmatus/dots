@@ -15,6 +15,12 @@
 // holds a direct reference to this component instead of shelling out to its
 // own IPC socket: one implementation, reached in-process by the timer and
 // externally by IPC, rather than either re-deriving what the other does.
+//
+// Ported from rust/wallpaper-tui's App::handle_key (deleted at aa995a4):
+// cursor movement, apply, mode/output/colour cycling and restore all come
+// back here, in picker.js and the key handling below. The TUI's `p` (toggle
+// preview) does not: this grid already renders real thumbnails, which is
+// exactly what `p` existed to fake on a terminal that cannot show an image.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -25,6 +31,7 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 import "../launcher/preview.js" as PreviewMath
 import "accent.js" as Accent
+import "picker.js" as PickerLogic
 import ".."
 import "../common"
 
@@ -42,10 +49,31 @@ Scope {
     property var files: []
     property int selected: -1
 
-    // GridView has no "columns" property of its own; this is the same
-    // divide-and-floor the delegate's own cell sizing implies, read back so
-    // Up/Down can jump a whole row instead of the Left/Right single step.
-    readonly property int gridColumns: Math.max(1, Math.floor(grid.width / grid.cellWidth))
+    // Live picker state, cycled by m/o/c below. config.rs's own defaults —
+    // the TUI started here too when a wallpaper folder had no prior state.
+    property string mode: "fill"
+    property string output: "*"
+    property string fillColor: PickerLogic.DEFAULT_COLOR
+
+    // "Declared" outputs, for cycleOutput() and restore(): every screen
+    // Quickshell currently knows about, not a config-file list — this port
+    // carries no per-output state.json equivalent, so "declared" can only
+    // mean "connected right now".
+    readonly property var outputNames: Quickshell.screens.map(s => s.name)
+
+    // Chrome's own hint-footer shape (a list of { key, label }), wired
+    // straight into the Chrome instance below rather than hand-rolled.
+    // Movement, apply and close are the same grammar every Chrome surface
+    // uses; m/o/c/r are this picker's own, ported from the deleted TUI.
+    readonly property var hints: [
+        { key: "↑↓←→/hjkl", label: "move" },
+        { key: "enter", label: "apply" },
+        { key: "m", label: "mode: " + root.mode },
+        { key: "o", label: "output: " + root.output },
+        { key: "c", label: "color: " + root.fillColor },
+        { key: "r", label: "restore" },
+        { key: "esc", label: "close" }
+    ]
 
     Icons {
         id: icons
@@ -85,28 +113,41 @@ Scope {
         lister.running = true;
     }
 
-    // Clamped rather than wrapped: a flat list wrapping top-to-bottom reads
-    // naturally (Launcher does exactly that), but a row-jump wrap in a 2D
-    // grid can land the cursor in an arbitrary column, which reads as a bug
-    // rather than a shortcut.
-    function moveSelection(delta: int): void {
-        const count = root.files.length;
-        if (count === 0)
-            return;
-
-        const start = root.selected < 0 ? 0 : root.selected;
-        root.selected = Math.min(count - 1, Math.max(0, start + delta));
+    // delta is +-1 for h/l (a column within the current row) or
+    // +-columnsPerRow() for j/k (a row): gridMove itself only clamps, it
+    // has no notion of rows, so the caller supplies whichever step size
+    // matches the key that fired.
+    function moveCursor(delta): void {
+        root.selected = PickerLogic.gridMove(root.selected, delta, root.files.length);
     }
 
-    // The keyboard half of what the grid's click handler already does; task
-    // 2 is the one that changes what apply() itself is called with.
-    function applySelected(): void {
-        const path = root.files[root.selected];
-        if (!path)
-            return;
+    // GridView lays cells out left-to-right, wrapping at its own width —
+    // there is no property that already reports how many fit per row, so
+    // this recomputes it from the same width/cellWidth the layout itself
+    // uses.
+    function columnsPerRow(): int {
+        return Math.max(1, Math.floor(grid.width / grid.cellWidth));
+    }
 
-        root.apply(path, "*", "fill");
-        root.close();
+    // The keyboard half of what the grid's click handler already does —
+    // both funnel through apply() with the live mode/output/fillColor
+    // rather than either hardcoding its own triple.
+    function applySelected(): void {
+        if (root.selected < 0 || root.selected >= root.files.length)
+            return;
+        root.apply(root.files[root.selected], root.output, root.mode, root.fillColor);
+    }
+
+    function cycleMode(): void {
+        root.mode = PickerLogic.cycleMode(root.mode);
+    }
+
+    function cycleColor(): void {
+        root.fillColor = PickerLogic.cycleColor(root.fillColor);
+    }
+
+    function cycleOutput(): void {
+        root.output = PickerLogic.cycleOutput(root.output, root.outputNames);
     }
 
     // -e is case-insensitive in fd, so a stray .JPG is still found. "." is
@@ -158,12 +199,21 @@ Scope {
         return "crop";
     }
 
-    property string pendingPath: ""
     property var pendingTriple: null
 
-    // output/mode default to "*"/"fill" (every output, cropped to fill) —
+    // One awww invocation in flight at a time, everything else queued: awww
+    // itself has no argv for "these N outputs, each with its own path", and
+    // Quickshell's Process ignores a command/running write that lands while
+    // it is still running its previous one — restore()'s per-output loop
+    // would silently drop every entry after the first without this.
+    property var pendingQueue: []
+    property var activeApply: null
+
+    // output/mode/fillColor default to "*"/"fill"/DEFAULT_COLOR (every
+    // output, cropped to fill, the palette's own default swatch) —
     // wallpaper-tui.nix's own defaults — so a caller that only has a path,
-    // like a grid click or Rotation's random pick, does not have to name them.
+    // like a grid click or Rotation's random pick, does not have to name
+    // them.
     //
     // "*" never reaches awww's argv: this awww build takes "every output" by
     // the ABSENCE of --outputs, not by a wildcard, and passing the literal
@@ -171,16 +221,50 @@ Scope {
     // found by actually running the built command rather than trusting
     // awww.rs's own convention, which named "*" a level up, in random_wp.nix,
     // not in the CLI it shells out to.
-    function apply(path, output, mode) {
-        root.pendingPath = path;
+    function apply(path, output, mode, fillColor = PickerLogic.DEFAULT_COLOR) {
+        root.enqueueApply(path, output, mode, fillColor, true);
+    }
 
-        const targetOutput = output && output.length > 0 ? output : "*";
-        const targetMode = awwwResizeMode(mode && mode.length > 0 ? mode : "fill");
+    // r: every declared output gets the currently selected wallpaper, in
+    // the live mode/colour — app.rs's own restore(), minus the per-output
+    // state.json this port never gained. `tint: i === 0` is the QML side of
+    // "tinting from the first": the accent palette is global, so re-running
+    // extraction once per output would just redo the same work N times.
+    function restore() {
+        if (root.selected < 0 || root.selected >= root.files.length)
+            return;
 
-        const args = ["awww", "img", path];
+        const path = root.files[root.selected];
+        const names = root.outputNames;
+        if (names.length === 0) {
+            root.enqueueApply(path, "*", root.mode, root.fillColor, true);
+            return;
+        }
+        for (let i = 0; i < names.length; i++)
+            root.enqueueApply(path, names[i], root.mode, root.fillColor, i === 0);
+    }
+
+    // `tint` marks the one queue entry, out of a possibly-multi-output
+    // restore() batch, allowed to feed the accent extraction Canvas below.
+    function enqueueApply(path, output, mode, fillColor, tint) {
+        root.pendingQueue.push({ path, output, mode, fillColor, tint });
+        root.pumpApplyQueue();
+    }
+
+    function pumpApplyQueue() {
+        if (awwwProc.running || root.pendingQueue.length === 0)
+            return;
+
+        const entry = root.pendingQueue.shift();
+        root.activeApply = entry;
+
+        const targetOutput = entry.output && entry.output.length > 0 ? entry.output : "*";
+        const targetMode = awwwResizeMode(entry.mode && entry.mode.length > 0 ? entry.mode : "fill");
+
+        const args = ["awww", "img", entry.path];
         if (targetOutput !== "*")
             args.push("--outputs", targetOutput);
-        args.push("--resize", targetMode, "--fill-color", "d2a1a1", "--transition-type", "fade", "--transition-duration", "1", "--transition-fps", "60");
+        args.push("--resize", targetMode, "--fill-color", PickerLogic.fillColorArg(entry.fillColor), "--transition-type", "fade", "--transition-duration", "1", "--transition-fps", "60");
 
         awwwProc.command = args;
         awwwProc.running = true;
@@ -191,13 +275,16 @@ Scope {
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
+            const entry = root.activeApply;
+            root.activeApply = null;
+
             // A failed apply leaves the old wallpaper on screen; re-tinting
             // for an image that never actually got applied would just make
             // the bar lie about what is behind it.
-            if (exitCode !== 0)
-                return;
+            if (exitCode === 0 && entry && entry.tint)
+                sizer.source = PreviewMath.fileUrl(entry.path);
 
-            sizer.source = PreviewMath.fileUrl(root.pendingPath);
+            root.pumpApplyQueue();
         }
         // qmllint enable signal-handler-parameters
     }
@@ -361,56 +448,60 @@ Scope {
             focus: true
 
             title: "Wallpapers"
-            hints: [
-                {
-                    key: "↑↓/jk",
-                    label: "row"
-                },
-                {
-                    key: "←→/hl",
-                    label: "column"
-                },
-                {
-                    key: "Enter",
-                    label: "apply"
-                },
-                {
-                    key: "Esc",
-                    label: "close"
-                }
-            ]
+            hints: root.hints
 
             Keys.onEscapePressed: root.close()
-            Keys.onUpPressed: root.moveSelection(-root.gridColumns)
-            Keys.onDownPressed: root.moveSelection(root.gridColumns)
-            Keys.onLeftPressed: root.moveSelection(-1)
-            Keys.onRightPressed: root.moveSelection(1)
-            Keys.onReturnPressed: root.applySelected()
-            Keys.onEnterPressed: root.applySelected()
+            Keys.onUpPressed: root.moveCursor(-root.columnsPerRow())
+            Keys.onDownPressed: root.moveCursor(root.columnsPerRow())
+            Keys.onLeftPressed: root.moveCursor(-1)
+            Keys.onRightPressed: root.moveCursor(1)
+            Keys.onReturnPressed: {
+                root.applySelected();
+                root.close();
+            }
+            Keys.onEnterPressed: {
+                root.applySelected();
+                root.close();
+            }
 
             // No focused text field on this surface to steal j/k/h/l as
             // literal characters, so they alias the arrows Vim-style — the
             // same reasoning Cheatsheet and Arrange apply, and Settings
-            // does not.
+            // does not. m/o/c/r cycle the ported picker state through
+            // picker.js's own pure functions rather than reimplementing
+            // the cycling here. Escape is left out of this switch, the
+            // same way Arrange's own merged handler leaves it out, since
+            // the named handler above already covers it.
             Keys.onPressed: event => {
                 switch (event.key) {
                 case Qt.Key_J:
-                    root.moveSelection(root.gridColumns);
-                    event.accepted = true;
+                    root.moveCursor(root.columnsPerRow());
                     break;
                 case Qt.Key_K:
-                    root.moveSelection(-root.gridColumns);
-                    event.accepted = true;
+                    root.moveCursor(-root.columnsPerRow());
                     break;
                 case Qt.Key_H:
-                    root.moveSelection(-1);
-                    event.accepted = true;
+                    root.moveCursor(-1);
                     break;
                 case Qt.Key_L:
-                    root.moveSelection(1);
-                    event.accepted = true;
+                    root.moveCursor(1);
                     break;
+                case Qt.Key_M:
+                    root.cycleMode();
+                    break;
+                case Qt.Key_C:
+                    root.cycleColor();
+                    break;
+                case Qt.Key_O:
+                    root.cycleOutput();
+                    break;
+                case Qt.Key_R:
+                    root.restore();
+                    break;
+                default:
+                    return;
                 }
+                event.accepted = true;
             }
 
             GridView {
@@ -461,7 +552,7 @@ Scope {
 
                         onClicked: {
                             root.selected = cell.index;
-                            root.apply(cell.modelData, "*", "fill");
+                            root.applySelected();
                             root.close();
                         }
                     }
