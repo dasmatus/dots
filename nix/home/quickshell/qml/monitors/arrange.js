@@ -141,15 +141,19 @@ function integerField(text) {
 // The vrr enum overrides.json allows, exactly. Anything else — a typo like
 // "on", a stray label copy-pasted in, blank text — becomes undefined rather
 // than a value written raw: overrides.rs's own parse_vrr had the same
-// contract, an unparseable vrr silently drops just that field instead of
-// failing the whole save. Without this check, plan.js's own vrrToken would
-// treat an unrecognised string as "off" with no explicit token, so a typo'd
-// override would sit in the file looking correct while quietly never taking
-// effect.
+// contract (trim, lowercase, then match), so this lowercases too — a field
+// this merge-only ever adds to but never clears (see mergedOverrides' own
+// comment) makes a case mismatch worse than an ordinary typo: typing "Off"
+// over an existing "left" would silently drop the field and leave "left" in
+// place, with no error and the value still showing off|left|right|auto in
+// the label as if it worked. Without this check at all, plan.js's own
+// vrrToken would treat an unrecognised string as "off" with no explicit
+// token, so a typo'd override would sit in the file looking correct while
+// quietly never taking effect.
 const VRR_VALUES = ["off", "left", "right", "auto"];
 
 function parseVrr(text) {
-    const trimmed = (text || "").trim();
+    const trimmed = (text || "").trim().toLowerCase();
     return VRR_VALUES.includes(trimmed) ? trimmed : undefined;
 }
 

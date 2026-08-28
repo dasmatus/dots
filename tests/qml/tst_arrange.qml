@@ -118,16 +118,15 @@ TestCase {
                 expected: { entries: [{ name: "DP-1", resolution: "1920x1080@240", vrr: "left", position: "1920x0", scale: 1.5 }] }
             },
             {
-                // The live path: confirm() always sends vrr as a string,
-                // even for a monitor whose vrr field the user never typed
-                // into, so a blank string arriving alongside an existing
-                // "left" is exactly what a real save does, not a
-                // hypothetical only the null/undefined-only case above
-                // covers.
-                tag: "a blank vrr from the form does not clobber an existing override value",
-                existingRoot: { entries: [{ name: "DP-1", vrr: "left" }] },
-                items: [{ name: "DP-1", position: "0x0", vrr: "" }],
-                expected: { entries: [{ name: "DP-1", vrr: "left", position: "0x0" }] }
+                // The live path: confirm() sends resolution straight from
+                // the Field's text, unlike vrr/transform/scale which go
+                // through a parser first — so a monitor whose resolution
+                // field the user never typed into really does send "" here,
+                // not just the null/undefined case the row above covers.
+                tag: "a blank resolution from the form does not clobber an existing override value",
+                existingRoot: { entries: [{ name: "DP-1", resolution: "1920x1080@60" }] },
+                items: [{ name: "DP-1", position: "0x0", resolution: "" }],
+                expected: { entries: [{ name: "DP-1", resolution: "1920x1080@60", position: "0x0" }] }
             }
         ];
     }
@@ -245,7 +244,14 @@ TestCase {
             { tag: "accepts auto", text: "auto", expected: "auto" },
             { tag: "rejects a typo instead of writing it raw", text: "on", expected: undefined },
             { tag: "rejects blank", text: "", expected: undefined },
-            { tag: "trims surrounding whitespace before matching", text: "  left  ", expected: "left" }
+            { tag: "trims surrounding whitespace before matching", text: "  left  ", expected: "left" },
+            // A field this merge only ever adds to, never clears (see
+            // mergedOverrides' own comment), makes a case mismatch worse
+            // than an ordinary typo: a rejected "Off" over an existing
+            // "left" silently leaves "left" in place rather than erroring.
+            { tag: "accepts a capitalised value, matching the label's casing", text: "Off", expected: "off" },
+            { tag: "accepts an all-caps value", text: "AUTO", expected: "auto" },
+            { tag: "accepts mixed case", text: "Left", expected: "left" }
         ];
     }
 
