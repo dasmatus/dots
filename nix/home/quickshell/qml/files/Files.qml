@@ -80,6 +80,8 @@ Scope {
             const oldPath = FilesMath.join(root.activePane.path, root.activePane.selected.name);
             const newPath = FilesMath.join(root.activePane.path, root.promptText);
             root.runOperation(Operations.renameArgv(oldPath, newPath));
+        } else if (root.promptMode === "mkdir") {
+            root.runOperation(Operations.mkdirArgv(FilesMath.join(root.activePane.path, root.promptText)));
         }
 
         root.promptMode = "";
@@ -87,6 +89,11 @@ Scope {
 
     function cancelPrompt(): void {
         root.promptMode = "";
+    }
+
+    function beginMkdir(): void {
+        root.promptMode = "mkdir";
+        root.promptText = "";
     }
 
     Component {
@@ -179,6 +186,17 @@ Scope {
                     MouseArea {
                         anchors.fill: parent
                         onClicked: root.beginRename()
+                    }
+                }
+
+                Text {
+                    text: "New Folder"
+                    color: Theme.fg
+                    font.family: Theme.fontUi
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: root.beginMkdir()
                     }
                 }
 
