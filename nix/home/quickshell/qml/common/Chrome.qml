@@ -53,6 +53,12 @@ Item {
 
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                // Without this, a real ColumnLayout's default minimum
+                // height (its implicitHeight) refuses to shrink body below
+                // its natural size, so a caller squeezed by its own
+                // `parent.height - 80` cap overflows instead of
+                // compressing the way the old bare Item silently did.
+                Layout.minimumHeight: 0
             }
 
             Text {

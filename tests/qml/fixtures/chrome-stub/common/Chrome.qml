@@ -1,0 +1,1 @@
+../../../../../nix/home/quickshell/qml/common/Chrome.qml
