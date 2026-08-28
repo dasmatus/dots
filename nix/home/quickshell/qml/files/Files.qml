@@ -26,6 +26,18 @@ Scope {
 
     property string promptMode: ""
     property string promptText: ""
+    // Captured by Operations.beginPrompt() when a rename/mkdir/trash-confirm
+    // prompt opens, and the only thing confirmPrompt() resolves an argv
+    // from — never the live activePane/selected, which can point somewhere
+    // else entirely by the time the user presses Enter. See beginPrompt's
+    // own comment in operations.js for why.
+    property var promptSnapshot: null
+
+    // Set by opRunner's onExited below when a write operation's exit code
+    // is non-zero, so a refused gio trash or an mv/mkdir failure has
+    // somewhere to surface instead of the panes just quietly re-listing as
+    // if nothing happened. Cleared at the start of the next operation.
+    property string lastError: ""
 
     function open(): void {
         window.visible = true;
@@ -63,6 +75,7 @@ Scope {
     }
 
     function runOperation(argv: var): void {
+        root.lastError = "";
         const runner = opRunner.createObject(root, { command: argv });
         runner.running = true;
     }
@@ -71,29 +84,36 @@ Scope {
         if (!root.activePane.selected)
             return;
 
+        root.promptSnapshot = Operations.beginPrompt("rename", root.activePane.path, root.activePane.selected.name);
         root.promptMode = "rename";
         root.promptText = root.activePane.selected.name;
     }
 
+    // Resolves strictly from promptSnapshot (captured when the prompt
+    // opened) plus the live promptText, never from activePane/selected —
+    // see promptSnapshot's own comment above for why. resolvePromptArgv
+    // returns null for an unrecognised mode or, for rename/mkdir, a typed
+    // name isValidEntryName rejects; that surfaces through lastError the
+    // same as a failed operation rather than silently doing nothing, and
+    // either way the prompt closes, so nothing is left stuck on screen.
     function confirmPrompt(): void {
-        if (root.promptMode === "rename") {
-            const oldPath = FilesMath.join(root.activePane.path, root.activePane.selected.name);
-            const newPath = FilesMath.join(root.activePane.path, root.promptText);
-            root.runOperation(Operations.renameArgv(oldPath, newPath));
-        } else if (root.promptMode === "mkdir") {
-            root.runOperation(Operations.mkdirArgv(FilesMath.join(root.activePane.path, root.promptText)));
-        } else if (root.promptMode === "trash-confirm") {
-            root.runOperation(Operations.trashArgv(FilesMath.join(root.activePane.path, root.activePane.selected.name)));
-        }
+        const argv = Operations.resolvePromptArgv(root.promptSnapshot, root.promptText);
+        if (argv)
+            root.runOperation(argv);
+        else
+            root.lastError = "Invalid name: cannot be empty, contain \"/\", or be \"..\"";
 
         root.promptMode = "";
+        root.promptSnapshot = null;
     }
 
     function cancelPrompt(): void {
         root.promptMode = "";
+        root.promptSnapshot = null;
     }
 
     function beginMkdir(): void {
+        root.promptSnapshot = Operations.beginPrompt("mkdir", root.activePane.path, null);
         root.promptMode = "mkdir";
         root.promptText = "";
     }
@@ -109,6 +129,7 @@ Scope {
         if (!root.activePane.selected)
             return;
 
+        root.promptSnapshot = Operations.beginPrompt("trash-confirm", root.activePane.path, root.activePane.selected.name);
         root.promptMode = "trash-confirm";
         root.promptText = root.activePane.selected.name;
     }
@@ -119,6 +140,7 @@ Scope {
         Process {
             // qmllint disable signal-handler-parameters
             onExited: (exitCode, exitStatus) => {
+                root.lastError = exitCode === 0 ? "" : ("\"" + this.command.join(" ") + "\" failed (exit " + exitCode + ")");
                 leftPane.list();
                 rightPane.list();
                 destroy();
@@ -256,6 +278,26 @@ Scope {
 
                     Keys.onReturnPressed: root.confirmPrompt()
                     Keys.onEscapePressed: root.cancelPrompt()
+                }
+            }
+
+            // A failed mv/cp/mkdir/gio only shows up here: the panes below
+            // re-list unconditionally on every operation exit, success or
+            // not, since a partial failure still needs whatever DID change
+            // reflected. Without this a refused gio trash (e.g. across a
+            // filesystem boundary it won't cross) looked identical to a
+            // trash that actually happened.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 4
+                visible: root.lastError !== ""
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.lastError
+                    color: Theme.red
+                    font.family: Theme.fontUi
+                    elide: Text.ElideRight
                 }
             }
 

@@ -31,11 +31,20 @@ Rectangle {
     border.width: root.active ? 2 : 0
     border.color: Theme.accent
 
-    onPathChanged: root.list()
+    // A stale `selected` pointing at an entry the list no longer shows is
+    // how a write operation can land on something the UI never highlighted:
+    // navigating away (onPathChanged) drops it immediately, and every
+    // completed listing (list()'s own async completion, below) drops it
+    // again regardless of why list() ran — including a post-operation
+    // refresh that Files.qml triggers with no path change at all.
+    onPathChanged: {
+        root.selected = null;
+        root.list();
+    }
     Component.onCompleted: root.list()
 
     function list(): void {
-        lsProc.command = ["ls", "-1Ap", "--group-directories-first", root.path];
+        lsProc.command = ["ls", "-1Ap", "--group-directories-first", "--", root.path];
         lsProc.running = true;
     }
 
@@ -45,7 +54,7 @@ Rectangle {
         if (entry.isDir) {
             root.navigate(child);
         } else {
-            Quickshell.execDetached(["xdg-open", child]);
+            Quickshell.execDetached(["xdg-open", "--", child]);
         }
     }
 
@@ -53,7 +62,10 @@ Rectangle {
         id: lsProc
 
         stdout: StdioCollector {
-            onStreamFinished: root.entries = FilesMath.parseListing(this.text)
+            onStreamFinished: {
+                root.selected = null;
+                root.entries = FilesMath.parseListing(this.text);
+            }
         }
     }
 
