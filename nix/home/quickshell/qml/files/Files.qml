@@ -53,6 +53,11 @@ Scope {
         function toggle(): void {
             root.toggle();
         }
+
+        function openPath(path: string): void {
+            root.path = path;
+            root.open();
+        }
     }
 
     FloatingWindow {
