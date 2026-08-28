@@ -21,7 +21,7 @@ let
 
   # The shell's QML tree, linted below. Built rather than read from
   # nix/home/quickshell/qml because Theme.qml is generated from
-  # rust/palette.json and only exists in the built tree.
+  # nix/palette.json and only exists in the built tree.
   quickshellConfig = self.packages.${pkgs.stdenv.hostPlatform.system}.quickshell-config;
 
   # Build a LiveISO closure into result-iso. Plain (unsigned) — Secure Boot
@@ -102,7 +102,13 @@ in
       # everything it reports here is a warning. Without it the gate prints the
       # problem, returns success, and gets ignored, which is worse than not
       # running it.
-      find "${quickshellConfig}" -name '*.qml' -print0 | xargs -0 -r qmllint \
+      #
+      # -o -name '*.js' too: qmllint lints .pragma library files the same as
+      # .qml (confirmed against common/hls.js — it catches a real syntax
+      # error there, not a silent skip). Without it, common/'s .js helpers
+      # sit outside the gate entirely and nothing here would have caught a
+      # broken one.
+      find "${quickshellConfig}" \( -name '*.qml' -o -name '*.js' \) -print0 | xargs -0 -r qmllint \
         --max-warnings 0 \
         --uncreatable-type disable \
         -I "${pkgs.quickshell}/lib/qt-6/qml" \
@@ -114,15 +120,18 @@ in
       # fraction and the pill wants whole percent, which type-checks either
       # way and shows an empty battery on a half-full one. Offscreen because
       # the runner still wants a QPA plugin with nothing to draw.
-      QT_QPA_PLATFORM=offscreen qmltestrunner \
+      #
+      # QML_XHR_ALLOW_FILE_READ=1 because tst_monitor_parity.qml reads its
+      # fixtures/ JSON via a synchronous XMLHttpRequest — QtQml refuses GET on
+      # a file:// URL by default and the test would throw "Invalid state"
+      # rather than run without this.
+      QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 qmltestrunner \
         -import "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
         -input tests/qml
 
       nix flake check --no-build
 
       cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-      cd ../wallpaper-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-      cd ../hyprmon && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../settings-global && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ..
 
@@ -138,6 +147,11 @@ in
       # extension in nixpkgs already relies on.
       cd pg-agentmem && cargo fmt --check && cd ..
       nix build .#pg-agentmem --no-link
+
+      # nix flake check --no-build only evaluates derivations, so it never
+      # realizes dots-skills-primer and never runs dots-skills-primer.py's
+      # asserts. Building it here is the only place in this gate that does.
+      nix build .#dots-skills-primer --no-link
 
       cd dots-memory-mcp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
 

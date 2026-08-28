@@ -61,7 +61,7 @@ Three things worth knowing:
   config in `nix/home/quickshell/`. The bar, the notification daemon, the
   volume and brightness OSD, the launcher on SUPER+Space, the keybind
   cheatsheet on SUPER+/ and the settings form on SUPER+comma are QML in a
-  single process, reading one palette out of `rust/palette.json`. That replaces
+  single process, reading one palette out of `nix/palette.json`. That replaces
   a waybar bar, a dunst daemon, an eww window, a mostly-retired rofi and a Rust
   launcher wrapping a ten-patch fork of bemenu's C renderer, which between them
   had five theme paths and five ways of being told what colour to be.
@@ -77,10 +77,13 @@ Three things worth knowing:
   `nix/home/dokumente/`). The directory tree under `dokumente/` *is* the data.
   haumea loads it, and home-manager activation `mkdir -p`s every leaf into
   `~/Dokumente` on login, idempotently.
-- **Wallhaven wallpaper service** (`nix/home/random_wp.nix`). A user timer that
-  pulls a random wallpaper from the Wallhaven API on login and every hour after,
-  applied through `wallpaper-tui` and the awww daemon under Hyprland or
-  `gsettings` under GNOME.
+- **Wallpaper picker and rotation** (`nix/home/quickshell/qml/wallpaper/`). The
+  shell itself: SUPER+W opens a thumbnail grid over `Wallpapers/`, and
+  `Rotation.qml` picks a random file from the same tree on an hourly timer
+  (and once at shell startup, so a fresh login is never blank). Either path
+  runs `awww` directly, re-derives the accent from the applied image, and
+  retints the MoreWaita icon theme in place — no separate TUI or systemd
+  timer involved.
 
 ## Testing
 

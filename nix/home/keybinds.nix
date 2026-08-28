@@ -244,6 +244,8 @@ let
       "editor"
       "cheatsheet-toggle"
       "settings-toggle"
+      "wallpaper-toggle"
+      "arrange-toggle"
     ];
     window =
       map (n: { one = n; }) [

@@ -1,7 +1,7 @@
 # home-manager profile aggregator — fully native modules; the raw files/
 # dotfile tree is gone (git history). Every former dotfile is either a native
 # module imported below (kitty.nix, zellij.nix, fastfetch.nix, fish.nix,
-# claude.nix, hyprland.nix, wallpaper-tui.nix, quickshell/, nixvim.nix,
+# claude.nix, hyprland.nix, quickshell/, nixvim.nix,
 # librewolf.nix, dots-repo.nix) or was deliberately dropped (BetterDiscord —
 # Vesktop covers it; gtk-2.0 filechooser state). GUI apps that used to be
 # flatpaks live in pkgs.nix with their configs. The only generated
@@ -37,9 +37,6 @@
     ./session
     ./quickshell
     ./claude-desktop.nix
-    ./hyprmon.nix
-    ./wallpaper-tui.nix
-    ./random_wp.nix
     ./librewolf.nix
     ./settings-menu.nix
     ./git.nix
@@ -91,10 +88,6 @@
   };
 
   home.packages = with pkgs; [
-    # The wallpaper daemon is awww (nix/home/wallpaper-tui.nix puts it on
-    # PATH and hyprland.start launches awww-daemon); wallpaper-tui talks to
-    # it over its IPC socket, and random_wp.nix routes through wallpaper-tui
-    # so it inherits the same daemon.
     brightnessctl
     # Haskell toolchain — shared by Neovim (nixvim lsp.servers.hls) and Zed
     # (the `haskell` extension finds these on PATH) plus the shell. Installed
@@ -121,25 +114,14 @@
     fourmolu
   ];
 
-  # Declarative wallpaper config consumed by wallpaper-tui.nix. Runtime picks
-  # made in the TUI override these per output in writable state; to make a
-  # pick permanent, edit `outputs.eDP-1.path` here and rebuild.
-  programs.wallpaper-tui = {
-    enable = true;
-    currentOutput = "eDP-1";
-    outputs.eDP-1.path = "${config.home.homeDirectory}/Dokumente/codeberg/personal/dots/Wallpapers/wh/wallhaven-k81776.jpg";
-  };
   gtk = {
     enable = true;
     # adw-gtk3 (the libadwaita look for GTK3 apps), dark variant. The previous
     # tokyonight-gtk-theme was dropped from nixpkgs — it depended on
     # gtk-engine-murrine, which was removed upstream as unmaintained GTK 2.
-    # The Tokyonight accent tints still apply on top via the extraCss
-    # @imports below (wallpaper-tui's @define-color overrides are theme-agnostic
-    # wiring), and the macOS traffic-light window buttons (close/min/max on
-    # the left) come from the dconf `button-layout` key above, not from a
-    # theme-side tweak — so nothing is lost dropping the tokyonight macos
-    # tweak variant.
+    # The macOS traffic-light window buttons (close/min/max on the left) come
+    # from the dconf `button-layout` key above, not from a theme-side tweak —
+    # so nothing is lost dropping the tokyonight macos tweak variant.
     theme = {
       name = "adw-gtk3-dark";
       package = pkgs.adw-gtk3;
@@ -148,19 +130,12 @@
     # default; without this no gtk-4.0/gtk.css @import is emitted and
     # libadwaita apps silently stay Adwaita.
     gtk4.theme = config.gtk.theme;
-    # wallpaper-tui accent tint: each extraCss @imports a runtime-state file
-    # (~/.local/state/wallpaper-tui/tint/gtkN.css) that the Python script
-    # writes after every wallpaper change. HM appends extraCss AFTER the
-    # Tokyonight theme @import, so the @define-color overrides win. If the
-    # state file doesn't exist yet (fresh boot, before the first tint), GTK
-    # logs a CSS warning and falls back to the base theme — corrected within
-    # seconds by the wallhaven-wallpaper login service / wallpaper-tui --restore.
-    gtk3.extraCss = ''
-      @import url("file://${config.xdg.stateHome}/wallpaper-tui/tint/gtk3.css");
-    '';
-    gtk4.extraCss = ''
-      @import url("file://${config.xdg.stateHome}/wallpaper-tui/tint/gtk4.css");
-    '';
+    # The old TUI's accent tint (@imports of a runtime-state gtkN.css that
+    # its tint.rs regenerated on every wallpaper change) is gone with the
+    # crate — Picker.qml and Rotation.qml only carry the icon
+    # theme (Icons.qml) and the bar's own accent (tint/current.json) so far.
+    # GTK stays plain adw-gtk3-dark, not pointed at a file nothing writes
+    # anymore, until a later plan ports the GTK/Kvantum/rofi tint writers too.
     iconTheme = {
       name = "MoreWaita";
       package = pkgs.morewaita-icon-theme;

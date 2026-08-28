@@ -3,8 +3,6 @@
 #
 # Stage 1: capture the installer TUI (welcome + disk picker) in a sized,
 #           Tokyonight-themed alacritty window.
-# Stage 2: capture the wallpaper-tui selector once rust/wallpaper-tui/src/main.rs
-#           exists and builds.
 #
 # Safety: this script refuses to run unless DOTS_INSTALLER_DRY_RUN=1 is exported
 # in the environment; the installer binary honours it and never touches disks.
@@ -30,7 +28,6 @@ WINDOW_CLASS="screenshot-installer"
 WINDOW_TITLE="Dots Installer"
 INSTALLER_WELCOME="$SHOT_DIR/installer-welcome.png"
 INSTALLER_DISK="$SHOT_DIR/installer-disk.png"
-WALLPAPER_TUI_SHOT="$SHOT_DIR/wallpaper-tui.png"
 
 # ── Safety gate ───────────────────────────────────────────────────────────────
 if [[ "${DOTS_INSTALLER_DRY_RUN:-}" != "1" ]]; then
@@ -134,11 +131,6 @@ update_readme_screenshots_section() {
         echo ""
         echo "<!-- screenshot:installer-disk -->"
         echo "![Installer disk selection](./docs/screenshots/installer-disk.png)"
-        if [[ -f "$WALLPAPER_TUI_SHOT" ]]; then
-            echo ""
-            echo "<!-- screenshot:wallpaper-tui -->"
-            echo "![Wallpaper TUI](./docs/screenshots/wallpaper-tui.png)"
-        fi
     } >> "$tmp"
 
     mv "$tmp" "$README"
@@ -199,67 +191,12 @@ sleep 0.5
 kill "$INSTALLER_PID" 2>/dev/null || true
 wait "$INSTALLER_PID" 2>/dev/null || true
 
-# ── Stage 2: wallpaper-tui screenshot (gated) ─────────────────────────────────
-if [[ -f "$REPO_ROOT/rust/wallpaper-tui/src/main.rs" ]]; then
-    info "wallpaper-tui main.rs found; attempting to build and screenshot"
-    if (cd "$REPO_ROOT/rust/wallpaper-tui" && cargo build --release 2>/dev/null); then
-        WALLPAPER_TUI_CLASS="screenshot-wallpaper-tui"
-        WALLPAPER_TUI_TITLE="Wallpaper TUI"
-
-        for p in $(hyprctl clients -j 2>/dev/null | jq -r --arg cls "$WALLPAPER_TUI_CLASS" '.[] | select(.class == $cls or .initialClass == $cls) | .pid'); do
-            [[ -n "$p" ]] && kill "$p" 2>/dev/null || true
-        done
-        sleep 0.5
-
-        alacritty \
-            --class "$WALLPAPER_TUI_CLASS" \
-            --title "$WALLPAPER_TUI_TITLE" \
-            -o "window.dimensions.columns=140" \
-            -o "window.dimensions.lines=40" \
-            -o "window.position.x=150" \
-            -o "window.position.y=100" \
-            -o "window.padding.x=16" \
-            -o "window.padding.y=16" \
-            -o "colors.primary.background=\"#1a1b26\"" \
-            -o "colors.primary.foreground=\"#c0caf5\"" \
-            -o "font.size=11.0" \
-            -e bash -c "cd '$REPO_ROOT/rust/wallpaper-tui'; ./target/release/wallpaper-tui '$REPO_ROOT/Wallpapers/night'" \
-            >/dev/null 2>&1 &
-
-        WALLPAPER_PID=$!
-        sleep 1
-
-        if hyprctl clients -j 2>/dev/null | jq -e --arg cls "$WALLPAPER_TUI_CLASS" '.[] | select(.class == $cls or .initialClass == $cls)' >/dev/null; then
-            WINDOW_CLASS="$WALLPAPER_TUI_CLASS"
-            float_window
-            focus_window
-            sleep 1.0
-            capture_window "$WALLPAPER_TUI_SHOT" "$WINDOW_CLASS"
-            send_key -k q
-            sleep 0.3
-        else
-            info "wallpaper-tui window did not appear; skipping"
-        fi
-
-        kill "$WALLPAPER_PID" 2>/dev/null || true
-        wait "$WALLPAPER_PID" 2>/dev/null || true
-    else
-        info "wallpaper-tui build failed; skipping stage 2"
-    fi
-else
-    info "rust/wallpaper-tui/src/main.rs not found; skipping stage 2"
-fi
-
-# ── Stage 3: update README links ──────────────────────────────────────────────
+# ── Stage 2: update README links ──────────────────────────────────────────────
 if [[ -f "$README" ]]; then
     info "updating README links"
     update_readme_link "installer-welcome.png" "<!-- screenshot:installer-welcome -->" "Installer welcome screen" "installer-welcome.png"
     update_readme_link "installer-disk.png" "<!-- screenshot:installer-disk -->" "Installer disk selection" "installer-disk.png"
-    if [[ -f "$WALLPAPER_TUI_SHOT" ]]; then
-        update_readme_link "wallpaper-tui.png" "<!-- screenshot:wallpaper-tui -->" "Wallpaper TUI" "wallpaper-tui.png"
-    fi
 fi
 
 info "done. Generated files:"
 ls -lh "$INSTALLER_WELCOME" "$INSTALLER_DISK" 2>/dev/null || true
-[[ -f "$WALLPAPER_TUI_SHOT" ]] && ls -lh "$WALLPAPER_TUI_SHOT"

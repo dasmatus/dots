@@ -1,0 +1,171 @@
+// Per-target accent tint writers, ported from rust/wallpaper-tui/src/tint.rs.
+// Pure (string/array in -> string/array out): nothing here touches the
+// filesystem, spawns a process or repaints the live desktop the way
+// tint.rs's tree tinters and apply_tint_ctx orchestrator do — those stay in
+// the crate, which still owns the wallpaper. Kept a second port rather than
+// shared code so this task can prove the maths without an FFI boundary to
+// the crate; the two are exercised against the same fixtures, not the same
+// source, the same way common/hls.js relates to accent.rs.
+.pragma library
+.import "../common/hls.js" as Hls
+
+// Adwaita-blue family used by MoreWaita folder/place icons. Each is
+// recolored to the accent's hue/saturation while keeping its own lightness,
+// so the icon's gradient shading survives the tint.
+var ADWAITA_BLUE_HEXES = ["#1c71d8", "#438de6", "#3584e4", "#62a0ea", "#99c1f1", "#afd4ff"];
+
+// Catppuccin-Frappe-Blue accents used by the Kvantum base theme; replaced
+// verbatim (case-insensitive), 7-char body only, so a trailing alpha hex
+// (e.g. "#8caaee4D") survives untouched.
+var KVANTUM_ACCENT_HEXES = ["#8caaee", "#839edd", "#98b2ef"];
+
+// None of '#' or a hex digit is a regex metacharacter today, but the three
+// hex families above are data, not literal patterns chosen for this code —
+// escaping keeps a future accent format change (e.g. an 8-char literal) from
+// silently turning into a broken RegExp instead of a loud one.
+function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// "#rrggbb" -> 0-1 floats per channel, mirroring accent.rs's hex_to_rgb
+// composed with the /255 in hex_to_hls. Only the first 6 hex digits after
+// the '#' are read, so a trailing alpha byte is ignored here rather than
+// rejected, the same way Rust's fixed-width `h[0..2]` etc. slicing is.
+function hexToRgb(hex) {
+    const h = hex.replace(/^#/, "");
+    return {
+        r: parseInt(h.slice(0, 2), 16) / 255.0,
+        g: parseInt(h.slice(2, 4), 16) / 255.0,
+        b: parseInt(h.slice(4, 6), 16) / 255.0
+    };
+}
+
+// Rust's f64::round is half-away-from-zero; JS's Math.round is half-towards
+// +Infinity, so the two disagree on negative halves (Math.round(-0.5) is 0,
+// not -1). clampByte's input never actually goes negative for any accent
+// this file is fed, but rgb_to_hex's doc calls out the rounding rule by name,
+// so matching it exactly here — rather than relying on the difference never
+// being reachable — is what keeps this a faithful port instead of a
+// look-alike one.
+function roundHalfAwayFromZero(x) {
+    return x < 0 ? -Math.round(-x) : Math.round(x);
+}
+
+function clampByte(c) {
+    const v = roundHalfAwayFromZero(c * 255.0);
+    return Math.max(0, Math.min(255, v));
+}
+
+function toHexByte(n) {
+    const s = n.toString(16);
+    return s.length < 2 ? "0" + s : s;
+}
+
+// (r, g, b) 0-1 floats -> "#rrggbb", lowercase, matching accent.rs's
+// rgb_to_hex format string exactly.
+function rgbToHex(rgb) {
+    return "#" + toHexByte(clampByte(rgb.r)) + toHexByte(clampByte(rgb.g)) + toHexByte(clampByte(rgb.b));
+}
+
+// "#rrggbb" -> {h, l, s}, the hex_to_rgb + rgb_to_hls composition accent.rs's
+// hex_to_hls does.
+function hexToHls(hex) {
+    const rgb = hexToRgb(hex);
+    return Hls.rgbToHls(rgb.r, rgb.g, rgb.b);
+}
+
+// (h, l, s) -> "#rrggbb", the hls_to_rgb + rgb_to_hex composition accent.rs's
+// hls_to_hex does.
+function hlsToHex(h, l, s) {
+    return rgbToHex(Hls.hlsToRgb(h, l, s));
+}
+
+// Substitute the `accent:` and `selected-bg:` rasi vars in the base text;
+// every other line (fonts, window geometry, untouched colour vars) survives
+// verbatim because only these two patterns ever match.
+function rofiRasiText(base, accent, accentDark) {
+    let out = base.replace(/(accent:\s*)#[0-9a-fA-F]{6};/g, (m, p1) => p1 + accent + ";");
+    out = out.replace(/(selected-bg:\s*)#[0-9a-fA-F]{6};/g, (m, p1) => p1 + accentDark + ";");
+    return out;
+}
+
+// `@define-color` overrides loaded after the Tokyonight theme import. This
+// GENERATES a stylesheet from scratch — unlike rofiRasiText it does not
+// rewrite a base string, because GTK's own base theme already ships the
+// selectors this only needs to override. version is 3 or 4; accentLight is
+// accepted for signature parity with tint.rs's gtk_css but unused, because
+// neither GTK version's accent story needs a third shade.
+function gtkCss(accent, accentDark, accentLight, version) {
+    if (version === 4) {
+        return "/* wallpaper-tui accent tint — overrides Tokyonight accent. */\n"
+            + "@define-color theme_selected_bg_color " + accent + ";\n"
+            + "@define-color theme_selected_fg_color #ffffff;\n"
+            + "@define-color accent_color " + accent + ";\n"
+            + "@define-color accent_bg_color " + accent + ";\n"
+            + "@define-color accent_fg_color #ffffff;\n";
+    }
+    return "/* wallpaper-tui accent tint — overrides Tokyonight selection. */\n"
+        + "@define-color theme_selected_bg_color " + accent + ";\n"
+        + "@define-color theme_selected_fg_color #ffffff;\n"
+        + "@define-color theme_selected_borders_color " + accentDark + ";\n"
+        + "@define-color theme_unfocused_selected_bg_color " + accentDark + ";\n";
+}
+
+// `hyprctl eval` argv setting both border colors through one
+// `hl.config({...})` call with flat dotted string keys, e.g.
+// `["general.col.active_border"]` — the HL.ConfigKey vocabulary
+// `hl.get_config` reads back, not the nested `HL.ConfigOpt` shape
+// `hl.config`'s own declared parameter type uses (both apply at runtime; the
+// flat form needs no intermediate table construction). Deliberately never
+// the legacy `hyprctl keyword` IPC: Hyprland 0.55+'s Lua config parser turns
+// that into a silent no-op (exits 0, changes nothing). `rgba()` takes bare
+// hex, so the accents' leading '#' is stripped. Returns null when Hyprland
+// is not running (his is null/undefined), mirroring tint.rs's
+// `Option<Vec<Vec<String>>>`.
+function hyprlandBorderCommands(his, accent, accentDark) {
+    if (his === null || his === undefined) {
+        return null;
+    }
+    const active = accent.replace(/^#/, "");
+    const inactive = accentDark.replace(/^#/, "");
+    return [[
+        "hyprctl",
+        "eval",
+        "hl.config({ [\"general.col.active_border\"] = \"rgba(" + active + "ff)\", "
+            + "[\"general.col.inactive_border\"] = \"rgba(" + inactive + "ff)\" })"
+    ]];
+}
+
+// Replace the Catppuccin-Frappe accent family; case-insensitive, matching
+// only the 7-char `#rrggbb` body, so any characters immediately after a hit
+// (a trailing alpha byte such as "4D") are never part of the match and land
+// back in the output untouched. Pairs are applied in order and sequentially,
+// same as tint.rs's loop over the same triples.
+function recolorKvantumText(text, accent, accentDark, accentLight) {
+    const pairs = [
+        [KVANTUM_ACCENT_HEXES[0], accent],
+        [KVANTUM_ACCENT_HEXES[1], accentDark],
+        [KVANTUM_ACCENT_HEXES[2], accentLight]
+    ];
+    let out = text;
+    for (const pair of pairs) {
+        const re = new RegExp(escapeRegExp(pair[0]), "gi");
+        out = out.replace(re, () => pair[1]);
+    }
+    return out;
+}
+
+// Recolor the Adwaita-blue family to the accent's hue/saturation, keeping
+// each matched hex's own lightness — so a folder icon's gradient shading
+// (several Adwaita blues at different lightness) survives the tint instead
+// of collapsing onto one flat colour. Anything outside the family (a status
+// colour like ruby's black) never matches and is left alone.
+function recolorIconText(text, accent) {
+    const accentHls = hexToHls(accent);
+    const pattern = ADWAITA_BLUE_HEXES.map(escapeRegExp).join("|");
+    const re = new RegExp(pattern, "gi");
+    return text.replace(re, (match) => {
+        const matchedHls = hexToHls(match);
+        return hlsToHex(accentHls.h, matchedHls.l, accentHls.s);
+    });
+}

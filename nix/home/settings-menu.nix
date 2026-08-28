@@ -1,6 +1,6 @@
 # Settings menu (rust/settings-global, built at the flake level as
 # packages.${system}.settings and handed in via extraSpecialArgs like
-# wallpaperTui/hyprmon): edits the installer answers in
+# claudeDesktop): edits the installer answers in
 # /var/lib/dots/settings.nix. The shell draws the form
 # (nix/home/quickshell/qml/settings) over `dump` and `set`, reached from the
 # SUPER+comma bind in hyprland.nix; cheatsheet entry in keybinds.nix.

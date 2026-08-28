@@ -34,13 +34,18 @@ let
         import urllib.request
 
         from mcp.server.fastmcp import FastMCP
+        from mcp.types import ToolAnnotations
 
         SEARXNG = "http://127.0.0.1:8888"
 
         mcp = FastMCP("searxng")
 
 
-        @mcp.tool()
+        # readOnlyHint defaults to false — "this tool may change state" — and plan mode
+        # denies any MCP tool that says so, whatever the allow-list holds. Read-only is
+        # necessary but not sufficient there: a matching permissions.allow entry is the
+        # other half.
+        @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True))
         def web_search(query: str, pageno: int = 1, time_range: str = "", categories: str = "") -> str:
             """Search the web through the local SearXNG metasearch instance.
 

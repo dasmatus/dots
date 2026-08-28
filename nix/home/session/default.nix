@@ -7,14 +7,23 @@
 #
 # This module is WM-agnostic on purpose: it takes no WM-specific argument and
 # reaches for no WM-specific package, so it evaluates on its own with no
-# tiling WM in scope at all. Two `execDefaults` entries this table describes
-# — `reload` and `hyprmon-apply` — are Hyprland-only, and are therefore not
-# defined here; see the `exec` option's description below for where they
-# actually come from. `wallpaperTui` is deliberately NOT taken here either:
-# the raw binary loses the tint backend (see nix/home/wallpaper-tui.nix's
-# wrapper), so wallpaper-restore below goes through the read-only
-# `config.programs.wallpaper-tui.finalPackage` option that module now
-# exposes instead.
+# tiling WM in scope at all. One `execDefaults` entry this table describes —
+# `reload` — is Hyprland-only, and is therefore not defined here; see the
+# `exec` option's description below for where it actually comes from.
+#
+# Quickshell is deliberately NOT one of the daemons this module generates a
+# unit for, even though it is exactly the kind of long-running, no-key thing
+# `actions.nix` otherwise tables. `nix/home/quickshell/default.nix` owns its
+# own `systemd.user.services.quickshell` outside this table, carrying an
+# `X-Restart-Triggers = [ "${tree}" ]` that ties its restart to the built QML
+# tree rather than to a package bump — this generator's `mkUnit` has no
+# concept of a per-unit restart trigger, only the blanket `PartOf`/`After`
+# every row gets, so absorbing quickshell here would silently drop that and
+# leave the shell serving stale QML after a config-only rebuild. hyprmon and
+# wallpaper-tui, which used to back the `hyprmon-apply` and
+# `wallpaper-restore` rows below (the latter via `config.programs.wallpaper-
+# tui.finalPackage`), are gone outright — deleted on `main` in favour of QML —
+# rather than ported, so neither name appears in this module any more.
 {
   config,
   lib,
@@ -73,15 +82,13 @@ let
   };
 
   # The command line for every non-dispatch, non-`lock` action that has one.
-  # Keyed by `name` (actions.nix's join key), never by `dispatch`.
+  # Keyed by `name` (actions.nix's join key), never by `dispatch`. No
+  # `quickshell` entry: that daemon's unit lives in
+  # nix/home/quickshell/default.nix instead (see the module header above).
   execDefaults = {
     # daemons
     awww-daemon = lib.getExe' pkgs.awww "awww-daemon";
-    quickshell = qs;
     nm-applet = "${lib.getExe pkgs.networkmanagerapplet} --indicator";
-
-    # startup
-    wallpaper-restore = "${lib.getExe config.programs.wallpaper-tui.finalPackage} --restore";
 
     # apps
     terminal = lib.getExe config.programs.kitty.package;
@@ -93,6 +100,8 @@ let
     launcher-toggle = "${qs} ipc call launcher toggle";
     cheatsheet-toggle = "${qs} ipc call cheatsheet toggle";
     settings-toggle = "${qs} ipc call settings toggle";
+    wallpaper-toggle = "${qs} ipc call wallpaper toggle";
+    arrange-toggle = "${qs} ipc call arrange toggle";
     screenshot-output = "${screenshotOutput}";
     screenshot-region = "${screenshotRegion}";
     volume-mute = "${qs} ipc call osd volumeMute";
@@ -156,12 +165,6 @@ let
   # one entry with no `exec` and therefore no unit at all.
   unitActions = builtins.filter (a: cfg.exec ? ${a.name}) nonDispatchActions;
 
-  # `dots-awww-daemon.service` is what the naming rule below produces for the
-  # `awww-daemon` action (kind = "daemon" → `dots-<name>.service`). Spelled
-  # out as a literal, rather than re-deriving it, because it has exactly one
-  # caller.
-  awwwDaemonUnit = "dots-awww-daemon.service";
-
   unitName = a: if isDaemonLike a then "dots-${a.name}" else "dots-${a.name}@";
 
   # A behaviour change from the old `exec-once` world, worth flagging where
@@ -170,7 +173,7 @@ let
   # until the next login. Every `daemon`/`startup` action below is instead a
   # systemd --user unit `WantedBy = [ "graphical-session.target" ]`, so
   # home-manager activation's `sd-switch` now restarts any of them that are
-  # active and whose unit file changed — `awww-daemon`, `qs` and `nm-applet`
+  # active and whose unit file changed — `awww-daemon` and `nm-applet`
   # included, mid-session, on an otherwise unrelated package bump. This is
   # deliberate: a declarative unit taking effect the moment `home-manager
   # switch` runs is the point of making it a unit at all, not a regression to
@@ -178,9 +181,9 @@ let
   # instead has `X-SwitchMethod` (sd-switch's own escape hatch, set in a
   # unit's `[Install]`/`[Service]` section) available to reach for — nothing
   # here sets it on any unit, since the repo's other WantedBy-graphical-
-  # session units (`hyprmon.service`, `protonvpn-app.service`) already
-  # restart on switch too with no opt-out, and picking a unit to exempt is a
-  # call for whoever owns that unit, not a default this generator imposes.
+  # session units (`protonvpn-app.service`) already restart on switch too
+  # with no opt-out, and picking a unit to exempt is a call for whoever owns
+  # that unit, not a default this generator imposes.
   mkUnit =
     a:
     {
@@ -189,38 +192,6 @@ let
         PartOf = [ "graphical-session.target" ];
         After = [ "graphical-session.target" ];
         ConditionEnvironment = "WAYLAND_DISPLAY";
-      }
-      // lib.optionalAttrs (a.name == "wallpaper-restore") {
-        # awww-daemon must be up before `wallpaper-tui --restore` talks to
-        # it. `After` on a Type=simple daemon only waits for the fork, not
-        # for readiness, and `awww img` retries on its own anyway, so this
-        # is ordering rather than a race fix.
-        After = [
-          "graphical-session.target"
-          awwwDaemonUnit
-        ];
-        Wants = [ awwwDaemonUnit ];
-        # awww-daemon can now restart mid-session on a routine switch (see
-        # the comment above `mkUnit`), which drops the wallpaper it was
-        # holding — and this oneshot has already run and exited by then, so
-        # nothing would otherwise put it back. `PartOf` is one-way and
-        # propagates a *stop or restart of the listed unit* onto the unit
-        # that declares it (systemd.unit(5): "When systemd stops or restarts
-        # the units listed here, the action is propagated to this unit"),
-        # so listing awww-daemon here makes its restart re-run the restore.
-        # Confirmed this also fires on a currently-exited oneshot rather
-        # than no-op'ing: systemctl(1)'s `restart` "stop[s] and then
-        # start[s]" a unit and explicitly starts it "if the unit[]
-        # [is] not running yet" — an inactive oneshot included.
-        #
-        # Listed alongside "graphical-session.target", not instead of it —
-        # `//` is a shallow merge, so a `PartOf` here with only
-        # `awwwDaemonUnit` would silently drop the base `Unit.PartOf` above
-        # rather than add to it.
-        PartOf = [
-          "graphical-session.target"
-          awwwDaemonUnit
-        ];
       };
       Service = {
         ExecStart = cfg.exec.${a.name};
@@ -284,15 +255,14 @@ in
         Command line for an actions.nix entry, keyed by `name`. Every
         non-dispatch action needs one of `exec` or `commands`; `lock` is the
         one exception, deliberately absent here (see `commands.lock`).
-        `reload` and `hyprmon-apply` are the two entries this module does
-        not supply: both are Hyprland-only commands (`hyprctl reload`,
-        `hyprmon apply`), so nix/home/hyprland.nix contributes them directly
-        as its own ordinary assignment to this same `attrsOf str` option — see
-        the comment on `default` above for why that has to be a plain
-        assignment on both sides rather than living in either module's
-        inline `default`. A second WM module (e.g. a future sway.nix) does
-        the same for whichever entries it owns, with `lib.mkForce` where it
-        needs to replace one rather than add it.
+        `reload` is the one entry this module does not supply: it is a
+        Hyprland-only command (`hyprctl reload`), so nix/home/hyprland.nix
+        contributes it directly as its own ordinary assignment to this same
+        `attrsOf str` option — see the comment on `default` above for why
+        that has to be a plain assignment on both sides rather than living
+        in either module's inline `default`. A second WM module (e.g. a
+        future sway.nix) does the same for whichever entries it owns, with
+        `lib.mkForce` where it needs to replace one rather than add it.
       '';
     };
 

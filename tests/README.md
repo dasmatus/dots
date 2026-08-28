@@ -9,13 +9,40 @@ swtpm — no libvirt, no host packages, no root. Defined in
 | Check | What it proves |
 |-------|----------------|
 | `session-units` | eval-only, no VM, no build (see [`session-units.nix`](session-units.nix)): a standalone home-manager evaluation of the Hyprland/session refactor (`nix/home/session/actions.nix`, `nix/home/session/default.nix`, `nix/home/hyprland.nix`) never produces a relative `ExecStart`, gives every `app`/`action` bind a `dots-<name>@.service` template rather than a plain unit, strands no non-dispatch action without a unit or a `dots.session.commands` entry, keeps the rendered `hyprland.lua` free of any command line that isn't a `systemctl` call (and free of the old `hyprland.start` exec-once hook), and keeps the eight portable session variables separate from the two the Hyprland module owns |
-| `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the `dots-installer` TUI reaches tty1 — `DOTS_TUI_READY` on the serial console |
+| `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the cage kiosk's Quickshell session reaches tty1 — `DOTS_UI_READY` on the serial console |
 | `userborn-reboot-login` | under userborn + mutable `/etc` (with `passwordFilesLocation` pinned to `/var/lib/nixos`), the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
 | `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting the TPM2-unlocked LUKS root reaches `multi-user.target` — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
 | `agentmem-postgres` | the agentmem cluster (`nix/modules/agentmem.nix`) is reachable over its unix socket by peer auth, a written row survives a real `nix/modules/impermanence.nix` reboot cycle (bind-mounted `/var/lib/postgresql` on a formatted `/persist` disk), `postgresqlBackup` produces a dump under the persisted parent, and that dump actually restores — known rows are written, backed up, truncated away, then brought back by replaying the dump as the postgres superuser |
 
 Also in `checks`: `nix-lint`-fast eval checks (`settings-eval`,
-`facter-*-eval`) and the `dots-installer` package build — see `flake.nix`.
+`facter-*-eval`, `hm-activation-eval`, `shell-service-eval`) and the
+`dots-installer` package build — see `flake.nix`.
+
+`hm-activation-eval` is the odd one out and worth knowing about.
+home-manager concatenates every `home.activation` entry into a single bash
+script, so an `exit` in any one of them ends the run — `linkGeneration`
+included, which is the step that puts `~/.config` on disk. The script still
+exits 0 and systemd still reports success, and `home.packages` still switch
+because `useUserPackages` installs those through the NixOS closure instead.
+That combination once left the Quickshell config sitting in the store, with
+`qs` on `$PATH` and no `shell.qml` for it to read, while `~/.config` went on
+tracking a generation from days earlier. The check reads the activation DAG
+at eval time and fails on any entry that calls `exit`, naming it;
+`checkLinkTargets` is exempt, because stopping on a file collision before
+anything is linked is the whole job of that one.
+
+`shell-service-eval` guards the other half of the same story: how the shell
+gets *started*. `hyprland.start` fires once at compositor boot, so a `qs`
+launched from that hook cannot come back on a rebuild — it sits dead until
+the next login while the new QML waits in `~/.config`. The shell is a
+systemd user unit for that reason, and the check asserts the parts that make
+it work: wanted by `graphical-session.target` (starts it at login), the
+config tree named in `X-Restart-Triggers` (nothing else in the unit changes
+when the QML does, so without it sd-switch sees an identical file and
+restarts only on a quickshell package bump), a bare `ExecStart` with no
+`--path` (the instance has to be keyed to `~/.config/quickshell/shell.qml`,
+which is where `qs ipc call` clients look), and no `hl.exec_cmd("qs")` left
+in the hook to race a second shell onto the same socket at login.
 
 ## QML unit tests — `qml/`
 
@@ -65,7 +92,7 @@ with the boot VM defined
 
 ```python
 >>> machine.start()
->>> machine.wait_for_console_text("DOTS_TUI_READY")
+>>> machine.wait_for_console_text("DOTS_UI_READY")
 ```
 
 The booted ISO has **no test instrumentation** (no backdoor shell), so

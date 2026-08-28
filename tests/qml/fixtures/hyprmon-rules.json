@@ -1,0 +1,1 @@
+{"rules":[{"match_name":"^eDP-1$","name":"laptop-edp","scale":1.0,"vrr":"off"},{"match_description":"VG279QM","match_name":"^DP-1$","name":"primary-240hz","resolution":"1920x1080@240","scale":1.0,"vrr":"left"},{"match_description":"25UM58","match_name":"^HDMI-A-1$","name":"secondary-60hz","resolution":"2560x1200","scale":1.0,"vrr":"off"},{"name":"*","scale":1.0,"vrr":"off"}]}

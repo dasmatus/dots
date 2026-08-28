@@ -2,7 +2,6 @@
   config,
   pkgs,
   lib,
-  hyprmon,
   ...
 }:
 let
@@ -119,16 +118,15 @@ let
   };
 in
 {
-  # The two `dots.session.exec` entries that are Hyprland-only (see that
+  # The one `dots.session.exec` entry that is Hyprland-only (see that
   # option's description in nix/home/session/default.nix): `reload` shells
-  # out to `hyprctl` directly, and `hyprmon-apply` to the `hyprmon` binary
-  # this module is handed the same way nix/home/hyprmon.nix is. Contributed
-  # here rather than in the WM-agnostic session module so that module stays
-  # evaluable with no tiling WM, and no Hyprland monitor daemon, in scope at
-  # all.
+  # out to `hyprctl` directly. Contributed here rather than in the
+  # WM-agnostic session module so that module stays evaluable with no tiling
+  # WM in scope at all. `hyprmon-apply` used to be a second entry here; it is
+  # gone along with hyprmon itself, not ported — the monitor layout is
+  # applied by qml/monitors/Watcher.qml now.
   dots.session.exec = {
     reload = "${hyprctl} reload";
-    hyprmon-apply = "${lib.getExe hyprmon} apply";
   };
 
   systemd.user.services.hyprlock = {
@@ -169,17 +167,23 @@ in
       };
 
       # No static `monitor` block: Hyprland 0.55+ retired the hyprlang
-      # `keyword` IPC for the Lua ("non-legacy") parser, so the
-      # `hyprctl keyword monitor …` calls hyprmon shells out to are now a
-      # silent no-op (exit 0 with an error string). The scale is therefore
-      # applied at runtime by the hyprmon daemon (nix/home/hyprmon.nix) via
+      # `keyword` IPC for the Lua ("non-legacy") parser, so a
+      # `hyprctl keyword monitor …` call is a silent no-op (exit 0 with an
+      # error string). The scale is therefore applied at runtime by the
+      # shell's own monitor watcher
+      # (nix/home/quickshell/qml/monitors/Watcher.qml) via
       # `hyprctl eval 'hl.monitor({...})'`, not from this config file.
 
-      # No exec-once / hl.on("hyprland.start", ...) block. The five commands
-      # it used to run at compositor start (awww-daemon, qs, hyprmon apply,
-      # nm-applet, wallpaper-tui --restore) are now systemd --user units
-      # WantedBy graphical-session.target (nix/home/session/default.nix), so
-      # nothing needs to launch them from the Lua DSL any more.
+      # No exec-once / hl.on("hyprland.start", ...) block. `awww-daemon` and
+      # `nm-applet` are systemd --user units instead, WantedBy
+      # graphical-session.target (nix/home/session/default.nix), so nothing
+      # needs to launch them from the Lua DSL any more. `hyprmon apply` and
+      # `wallpaper-tui --restore` are gone rather than ported: `main` deleted
+      # both hyprmon and wallpaper-tui outright, in favour of
+      # qml/monitors/Watcher.qml and qml/wallpaper/{Picker,Rotation}.qml.
+      # Quickshell's own unit is deliberately not one of this module's
+      # generated ones either — see the comment on `execDefaults` in
+      # nix/home/session/default.nix for why.
 
       # env = [ "X,24" … ] (hyprlang comma-strings) → one hl.env(name, val)
       # call per pair, via _args. The eight portable variables come from

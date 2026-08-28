@@ -67,9 +67,10 @@
 # follows the source.
 let
   entries = [
-    # awww-daemon must be up before wallpaper-tui --restore talks to it; awww
-    # img blocks briefly and retries, so the ordering here is belt and braces
-    # rather than a race fix.
+    # awww-daemon must be up before anything that talks to it over its IPC
+    # socket (the shell's Picker.qml/Rotation.qml, now that wallpaper-tui is
+    # gone); awww img blocks briefly and retries, so the ordering matters at
+    # most for that first call, not for this row itself.
     {
       name = "awww-daemon";
       mods = [ ];
@@ -77,28 +78,6 @@ let
       desc = "Wallpaper daemon (awww)";
       category = "session";
       kind = "daemon";
-      dispatch = null;
-      repeating = false;
-      mouse = false;
-    }
-    {
-      name = "quickshell";
-      mods = [ ];
-      key = null;
-      desc = "Quickshell shell (bar, launcher, OSD, cheatsheet)";
-      category = "session";
-      kind = "daemon";
-      dispatch = null;
-      repeating = false;
-      mouse = false;
-    }
-    {
-      name = "hyprmon-apply";
-      mods = [ ];
-      key = null;
-      desc = "Apply monitor layout (hyprmon)";
-      category = "session";
-      kind = "startup";
       dispatch = null;
       repeating = false;
       mouse = false;
@@ -113,17 +92,6 @@ let
       desc = "Network manager tray applet";
       category = "session";
       kind = "daemon";
-      dispatch = null;
-      repeating = false;
-      mouse = false;
-    }
-    {
-      name = "wallpaper-restore";
-      mods = [ ];
-      key = null;
-      desc = "Restore last wallpaper (wallpaper-tui)";
-      category = "session";
-      kind = "startup";
       dispatch = null;
       repeating = false;
       mouse = false;
@@ -234,6 +202,35 @@ let
       mods = [ "SUPER" ];
       key = "comma";
       desc = "Settings (git identity, hostname, AI tools)";
+      category = "launchers";
+      kind = "action";
+      dispatch = null;
+      repeating = false;
+      mouse = false;
+    }
+    # The wallpaper picker (nix/home/quickshell/qml/wallpaper/Picker.qml).
+    # Toggled the same way the launcher and settings form are: it is already
+    # open inside the shell process, so there is nothing to spawn.
+    {
+      name = "wallpaper-toggle";
+      mods = [ "SUPER" ];
+      key = "W";
+      desc = "Wallpaper picker";
+      category = "launchers";
+      kind = "action";
+      dispatch = null;
+      repeating = false;
+      mouse = false;
+    }
+    # The monitor arrange surface (nix/home/quickshell/qml/monitors/
+    # Arrange.qml), hyprmon.nix's old "Monitors" desktop entry replaced by a
+    # direct bind — one door in, like the settings form and the wallpaper
+    # picker above.
+    {
+      name = "arrange-toggle";
+      mods = [ "SUPER" ];
+      key = "M";
+      desc = "Arrange monitors (drag to reposition)";
       category = "launchers";
       kind = "action";
       dispatch = null;

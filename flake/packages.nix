@@ -16,25 +16,6 @@ self: {
     src = ../rust/installer-tui;
     cargoLock.lockFile = ../rust/installer-tui/Cargo.lock;
   };
-  # Built once at the flake level (was inline in nix/home/wallpaper-tui.nix)
-  # so `nix build .#wallpaper-tui` works, the cache key is shared, and the
-  # home module just wraps the store path instead of re-evaluating the crate.
-  wallpaper-tui = pkgs.rustPlatform.buildRustPackage {
-    pname = "wallpaper-tui";
-    version = "0.1.0";
-    src = ../rust/wallpaper-tui;
-    cargoLock.lockFile = ../rust/wallpaper-tui/Cargo.lock;
-    # The launcher entry's icon (nix/home/wallpaper-tui.nix names it
-    # `wallpaper-tui`, unqualified). It ships here rather than as a home file
-    # because the launcher resolves an `Icon=` name through the icon themes on
-    # XDG_DATA_DIRS, and hicolor in the profile is what puts it there — the
-    # same lookup the GNOME app grid makes.
-    postInstall = ''
-      install -Dm444 ${../rust/wallpaper-tui/wallpaper-tui.svg} \
-        "$out/share/icons/hicolor/scalable/apps/wallpaper-tui.svg"
-    '';
-    meta.mainProgram = "wallpaper-tui";
-  };
   settings = pkgs.rustPlatform.buildRustPackage {
     pname = "settings";
     version = "0.1.0";
@@ -44,28 +25,11 @@ self: {
     # binary spelled out.
     meta.mainProgram = "global-settings";
   };
-  # hyprmon — the declarative multi-monitor auto-detection daemon. Built at
-  # the flake level for the same reasons as wallpaper-tui (cache key sharing,
-  # `nix build .#hyprmon`); nix/home/hyprmon.nix wraps the store path and
-  # wires the systemd user service.
-  hyprmon = pkgs.rustPlatform.buildRustPackage {
-    pname = "hyprmon";
-    version = "0.1.0";
-    src = ../rust/hyprmon;
-    cargoLock.lockFile = ../rust/hyprmon/Cargo.lock;
-    # See wallpaper-tui above for why the icon ships with the package. Named
-    # as a Nix path rather than a relative one: cargoInstallHook does not run
-    # with the unpacked source as its cwd.
-    postInstall = ''
-      install -Dm444 ${../rust/hyprmon/hyprmon.svg} \
-        "$out/share/icons/hicolor/scalable/apps/hyprmon.svg"
-    '';
-    meta.mainProgram = "hyprmon";
-  };
   # dots-memory-mcp — the stateless stdio MCP server over the agentmem
   # Postgres schema (plans 0-2). Built at the flake level for the same
-  # reasons as hyprmon; `rmcp` has no nixpkgs package, so it is vendored
-  # straight through Cargo.lock like every other crate here.
+  # reasons as the other crates here — a shared cache key and a working
+  # `nix build .#dots-memory-mcp`; `rmcp` has no nixpkgs package, so it is
+  # vendored straight through Cargo.lock like every other crate here.
   dots-memory-mcp = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-memory-mcp";
     version = "0.1.0";
@@ -98,7 +62,7 @@ self: {
     meta.mainProgram = "dots-memory-derive";
   };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
-  # rust/palette.json. nix/home/quickshell/default.nix builds the same thing
+  # nix/palette.json. nix/home/quickshell/default.nix builds the same thing
   # with the real state directory; this one exists so `nix run .#nix-lint` has
   # something to point qmllint at, and so a broken palette fails the flake
   # rather than the next login. The stateHome here only reaches a FileView
@@ -152,4 +116,9 @@ self: {
 
   iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
   iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
+
+  # Exposed so `nix run .#nix-lint` can force the primer generator to run and
+  # trip its build-time asserts, not because anyone installs this directly.
+  # See nix/dots-skills.nix.
+  dots-skills-primer = (pkgs.callPackage ../nix/dots-skills.nix { }).primer;
 }

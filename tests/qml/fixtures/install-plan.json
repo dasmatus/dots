@@ -1,0 +1,163 @@
+[
+  {
+    "action": {
+      "args": [
+        "-c",
+        "umask 077; head -c 64 /dev/urandom > /tmp/dots-luks-pass"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "sh",
+      "stdin": null
+    },
+    "title": "Write LUKS keyfile"
+  },
+  {
+    "action": {
+      "args": [
+        "--mode",
+        "destroy,format,mount",
+        "--yes-wipe-all-disks",
+        "--arg",
+        "disks",
+        "[ \"/dev/vda\" \"/dev/vdb\" ]",
+        "--argstr",
+        "swapSize",
+        "16G",
+        "/etc/dots/nix/disko.nix"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "disko",
+      "stdin": null
+    },
+    "title": "Partition, encrypt and mount (disko)"
+  },
+  {
+    "action": {
+      "args": [
+        "-c",
+        "rm -rf /tmp/dots-flake /tmp/dots-flake.new && mkdir -p /tmp/dots-flake.new && cp -a /etc/dots/. /tmp/dots-flake.new/ && find /tmp/dots-flake.new -type l -exec sh -c 'for link do tgt=$(readlink -f \"$link\" 2>/dev/null || true); if [ -n \"$tgt\" ] && [ -e \"$tgt\" ]; then rm -f \"$link\" && cp -a \"$tgt\" \"$link\"; else rm -f \"$link\"; fi; done' sh {} + && chmod -R u+w /tmp/dots-flake.new && ln -sfn /var/lib/dots/settings.nix /tmp/dots-flake.new/nix/settings.nix && mv /tmp/dots-flake.new /tmp/dots-flake"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "sh",
+      "stdin": null
+    },
+    "title": "Stage flake for install"
+  },
+  {
+    "action": {
+      "args": [
+        "-o",
+        "/tmp/dots-flake/nix/facter.json"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "nixos-facter",
+      "stdin": null
+    },
+    "title": "Detect hardware (nixos-facter)"
+  },
+  {
+    "action": {
+      "contents": "{\n  username = \"alice\";\n  hostname = \"myhost\";\n  disks = [ \"/dev/vda\" \"/dev/vdb\" ];\n  swapSize = \"16G\";\n  gitName = \"Alice Q\";\n  gitEmail = \"alice@example.org\";\n  aiClaude = true;\n  aiCodex = true;\n  aiOllama = true;\n}\n",
+      "kind": "WriteFile",
+      "mode": 420,
+      "path": "/tmp/dots-flake/nix/settings.nix"
+    },
+    "title": "Write install answers (settings.nix)"
+  },
+  {
+    "action": {
+      "kind": "WriteSecrets",
+      "path": "/tmp/dots-flake/nix/secrets.nix",
+      "userPassword": "usersecret"
+    },
+    "title": "Write password hashes (secrets.nix)"
+  },
+  {
+    "action": {
+      "args": [
+        "-c",
+        "mkdir -p /mnt/persist/var/lib/dots/nix && cp /tmp/dots-flake/nix/facter.json /mnt/persist/var/lib/dots/ && cp /tmp/dots-flake/nix/settings.nix /mnt/persist/var/lib/dots/"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "sh",
+      "stdin": null
+    },
+    "title": "Stash install answers on target"
+  },
+  {
+    "action": {
+      "args": [
+        "-c",
+        "if [ -d /etc/NetworkManager/system-connections ]; then mkdir -p /mnt/persist/etc/NetworkManager && cp -a /etc/NetworkManager/system-connections /mnt/persist/etc/NetworkManager/; fi"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "sh",
+      "stdin": null
+    },
+    "title": "Copy network profiles to target"
+  },
+  {
+    "action": {
+      "args": [
+        "--root",
+        "/mnt",
+        "--no-root-passwd",
+        "--flake",
+        "/tmp/dots-flake#tokyonight"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "nixos-install",
+      "stdin": null
+    },
+    "title": "Install NixOS (this takes a while)"
+  },
+  {
+    "action": {
+      "args": [
+        "--unlock-key-file=/tmp/dots-luks-pass",
+        "--tpm2-device=auto",
+        "--tpm2-pcrs=7",
+        "/dev/tokyonightvg/root"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "systemd-cryptenroll",
+      "stdin": null
+    },
+    "title": "Enroll TPM2 unlock (PCR 7)"
+  },
+  {
+    "action": {
+      "args": [
+        "--unlock-key-file=/tmp/dots-luks-pass",
+        "--recovery-key",
+        "/dev/tokyonightvg/root"
+      ],
+      "capture": "RecoveryKey",
+      "kind": "Command",
+      "program": "systemd-cryptenroll",
+      "stdin": null
+    },
+    "title": "Enroll recovery key"
+  },
+  {
+    "action": {
+      "args": [
+        "-u",
+        "/tmp/dots-luks-pass"
+      ],
+      "capture": "Stream",
+      "kind": "Command",
+      "program": "shred",
+      "stdin": null
+    },
+    "title": "Scrub LUKS keyfile"
+  }
+]
