@@ -164,6 +164,23 @@ let
 
   unitName = a: if isDaemonLike a then "dots-${a.name}" else "dots-${a.name}@";
 
+  # A behaviour change from the old `exec-once` world, worth flagging where
+  # anyone editing a unit here will see it: `exec-once` children of the
+  # compositor were invisible to home-manager and untouched by a rebuild
+  # until the next login. Every `daemon`/`startup` action below is instead a
+  # systemd --user unit `WantedBy = [ "graphical-session.target" ]`, so
+  # home-manager activation's `sd-switch` now restarts any of them that are
+  # active and whose unit file changed — `awww-daemon`, `qs` and `nm-applet`
+  # included, mid-session, on an otherwise unrelated package bump. This is
+  # deliberate: a declarative unit taking effect the moment `home-manager
+  # switch` runs is the point of making it a unit at all, not a regression to
+  # route around. Anyone who wants a specific unit left alone across a switch
+  # instead has `X-SwitchMethod` (sd-switch's own escape hatch, set in a
+  # unit's `[Install]`/`[Service]` section) available to reach for — nothing
+  # here sets it on any unit, since the repo's other WantedBy-graphical-
+  # session units (`hyprmon.service`, `protonvpn-app.service`) already
+  # restart on switch too with no opt-out, and picking a unit to exempt is a
+  # call for whoever owns that unit, not a default this generator imposes.
   mkUnit =
     a:
     {
@@ -183,6 +200,27 @@ let
           awwwDaemonUnit
         ];
         Wants = [ awwwDaemonUnit ];
+        # awww-daemon can now restart mid-session on a routine switch (see
+        # the comment above `mkUnit`), which drops the wallpaper it was
+        # holding — and this oneshot has already run and exited by then, so
+        # nothing would otherwise put it back. `PartOf` is one-way and
+        # propagates a *stop or restart of the listed unit* onto the unit
+        # that declares it (systemd.unit(5): "When systemd stops or restarts
+        # the units listed here, the action is propagated to this unit"),
+        # so listing awww-daemon here makes its restart re-run the restore.
+        # Confirmed this also fires on a currently-exited oneshot rather
+        # than no-op'ing: systemctl(1)'s `restart` "stop[s] and then
+        # start[s]" a unit and explicitly starts it "if the unit[]
+        # [is] not running yet" — an inactive oneshot included.
+        #
+        # Listed alongside "graphical-session.target", not instead of it —
+        # `//` is a shallow merge, so a `PartOf` here with only
+        # `awwwDaemonUnit` would silently drop the base `Unit.PartOf` above
+        # rather than add to it.
+        PartOf = [
+          "graphical-session.target"
+          awwwDaemonUnit
+        ];
       };
       Service = {
         ExecStart = cfg.exec.${a.name};
