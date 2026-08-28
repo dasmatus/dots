@@ -5,7 +5,7 @@
 
 **Goal:** A plugged-in USB/SD device automounts with no daemon but the shell
 itself, and becomes visible on the bar and in the launcher. No file manager
-yet — that is Plan 1.
+yet, that is Plan 1.
 **Architecture:** `qml/services/Devices.qml`, a `pragma Singleton` shaped
 like `qml/monitors/Watcher.qml`: a persistent `udevadm monitor` `Process`
 debounces into an `lsblk -J -b` rescan, which drives `udisksctl mount` for
@@ -18,32 +18,47 @@ instantiates it explicitly, because reading it is what constructs it.
 
 ## Global Constraints
 - `lsblk` is invoked only as `-J -b -o <columns>`. Never bare `lsblk`, never
-  without `-b` — this machine's locale prints `"1,8T"` with a comma.
+  without `-b`, this machine's locale prints `"1,8T"` with a comma.
 - `udisksctl`'s stdout is read for nothing. Only its exit code, followed by
   a fresh `lsblk` rescan to learn the real resulting state.
-- The automount filter is `hotplug === true && fstype !== null &&
-  mountpoint === null`. Never `rm` (a USB hard disk reports `rm: false`),
-  never "has an fstype and isn't mounted" alone (the EFI System Partition
-  has exactly that shape with `hotplug: false`).
+- The automount filter is two stages, matching what `devices.js` actually
+  exports. `parseDevices(text)` walks the raw `lsblk` tree and keeps only
+  hotplug partitions and hotplug superfloppy disks that carry an `fstype`,
+  so `hotplug` is the clause that keeps the EFI System Partition out of the
+  parsed list at all: `/dev/nvme0n1p1` reports `fstype: "vfat", mountpoint:
+  "/boot", hotplug: false`, always mounted, so without a hotplug clause it
+  would still show up as a device on every scan. Never `rm` either:
+  `/dev/sda1`, the real USB disk's partition, reports `rm: false` too, so
+  an rm-based filter would wrongly drop it while still excluding the ESP
+  the same way, which is not a distinction rm can make.
+  `mountCandidates(devices, attempted)` then narrows that already-hotplug
+  list to `!mountPoint && fstype && !attempted[path]`: still needs
+  mounting, and not already the target of a mount this singleton started
+  and is still waiting on.
 - `qmllint --max-warnings 0` over the whole tree, unchanged gate
   (`nix run .#nix-lint`).
 - `Devices` is a `pragma Singleton`. No `Devices {}` line is ever added to
-  `shell.qml` — the point of Task 2 is proving the singleton comes alive
+  `shell.qml`, the point of Task 2 is proving the singleton comes alive
   from being *read*, the same way `Theme.qml` already does.
 
 ---
 
-### Task 1: `devices.js` — pure classification, TDD against the real fixture
+### Task 1: `devices.js`, pure classification, TDD against the real fixture
 
 **Files:**
 - Create: `tests/qml/fixtures/lsblk-devices.json`
 - Create: `nix/home/quickshell/qml/services/devices.js`
 - Create: `tests/qml/tst_devices.qml`
 
-**Produces:** `devices.js` exporting `flatten(json)`, `candidates(flat)`,
-`mounted(flat)`, `displayLabel(device)`, `parentPath(flat, path)`. Reuses
-`qml/installer/disks.js`'s `parentDisk(path)` as `parentPath`'s fallback
-when a device carries no `PKNAME` — one heuristic, not two.
+**Produces:** `devices.js` exporting `parseDevices(text)`,
+`displayLabel(device)`, `mountCandidates(devices, attempted)`,
+`pruneAttempts(attempted, devices)`, `newlyMounted(previous, next)`,
+`mountCommand(path)`, `unmountCommand(path)`, `powerOffCommand(path)`,
+`ejectPlan(devices, diskPath)`. No `PKNAME` lookup and no reuse of
+`qml/installer/disks.js`'s `parentDisk(path)`: the same tree walk that
+builds the parsed list already knows which top-level disk each partition
+descends from, so every record carries its own `diskPath`, and `ejectPlan`
+reads it straight off the record instead of resolving it a second way.
 
 - [ ] **1** `cp .superpowers/sdd/rosy-zooming-lemon/lsblk-fixture.json tests/qml/fixtures/lsblk-devices.json`
       Expected: `git status` shows the new file under `tests/qml/fixtures/`
@@ -51,14 +66,15 @@ when a device carries no `PKNAME` — one heuristic, not two.
 - [ ] **2** Write `tests/qml/tst_devices.qml`:
 
 ```qml
-// Proves the ESP-exclusion rule end to end: a filter of "has an fstype and
-// isn't mounted" would try to mount /dev/nvme0n1p1, the EFI System
-// Partition. Only `hotplug` tells it apart from /dev/sda1, the real USB
-// disk, and this fixture is a genuine `lsblk -J -b` capture carrying both
-// side by side.
+// Proves the hotplug clause exists at all: /dev/nvme0n1p1, the EFI System
+// Partition, has an fstype and is always mounted at /boot with hotplug
+// false. Drop the hotplug clause and it would still pass every other
+// check and land in the device list next to /dev/sda1, the real USB disk.
+// This fixture is a genuine `lsblk -J -b` capture carrying both side by
+// side.
 //
 // Reading the fixture needs QML_XHR_ALLOW_FILE_READ=1 (flake/apps.nix
-// already sets it on the qmltestrunner invocation — see tst_installer.qml).
+// already sets it on the qmltestrunner invocation, see tst_installer.qml).
 import QtQuick
 import QtTest
 import "../../nix/home/quickshell/qml/services/devices.js" as Devices
@@ -76,73 +92,85 @@ TestCase {
         fixtureJson = xhr.responseText;
     }
 
-    function test_flatten_walks_every_nesting_level() {
-        const names = Devices.flatten(fixtureJson).map(d => d.name);
-
-        // loop0 (top level), sda1 (one level down), cryptroot (four levels
-        // deep under nvme0n1p2 -> LVM -> LUKS) — proof this walks children
-        // recursively rather than only reading blockdevices[*].
-        verify(names.includes("loop0"));
-        verify(names.includes("sda1"));
-        verify(names.includes("cryptroot"));
+    function byPath(devices, path) {
+        for (const d of devices) {
+            if (d.path === path)
+                return d;
+        }
+        return null;
     }
 
-    function test_candidates_excludes_the_esp() {
-        const flat = Devices.flatten(fixtureJson);
-        const paths = Devices.candidates(flat).map(d => d.path);
+    function test_real_usb_disk_with_rm_false_is_included() {
+        const devices = Devices.parseDevices(fixtureJson);
+        const sda1 = byPath(devices, "/dev/sda1");
 
-        verify(!paths.includes("/dev/nvme0n1p1"), "must not offer to mount the ESP, got " + JSON.stringify(paths));
+        verify(sda1 !== null, "sda1 (rm:false, hotplug:true) must be included, got " + JSON.stringify(devices.map(d => d.path)));
+        compare(sda1.diskPath, "/dev/sda");
     }
 
-    function test_candidates_includes_the_real_usb_partition() {
-        const flat = Devices.flatten(fixtureJson);
-        const paths = Devices.candidates(flat).map(d => d.path);
-
-        verify(paths.includes("/dev/sda1"));
+    function test_efi_system_partition_is_excluded() {
+        const devices = Devices.parseDevices(fixtureJson);
+        verify(byPath(devices, "/dev/nvme0n1p1") === null, "must not offer to mount the ESP");
     }
 
-    function test_candidates_excludes_the_whole_disk_with_no_filesystem_of_its_own() {
-        const flat = Devices.flatten(fixtureJson);
-        const paths = Devices.candidates(flat).map(d => d.path);
-
-        // sda has fstype:null; only its child sda1 carries one.
-        verify(!paths.includes("/dev/sda"));
-    }
-
-    function test_mounted_shapes_the_public_device_list() {
-        // The fixture's sda1 is unmounted; this stands in for what a
-        // rescan sees once udisksctl mount has actually run.
-        const flat = Devices.flatten(fixtureJson).map(d => d.path === "/dev/sda1" ? Object.assign({}, d, { mountpoint: "/run/media/matus/BACKUP" }) : d);
-        const devices = Devices.mounted(flat);
-
+    function test_lvm_and_crypt_plumbing_is_excluded() {
+        // cryptroot sits four levels deep under nvme0n1p2 -> LVM -> LUKS.
+        // parseDevices walks that deep but keeps nothing from the chain: it
+        // is neither hotplug nor type "part" nor a childless "disk", the
+        // same reason loop0 at the top level is also excluded. Asserting
+        // the whole list is exactly sda1 proves the walk descends past the
+        // one candidate without also picking up the plumbing beside it.
+        const devices = Devices.parseDevices(fixtureJson);
         compare(devices.length, 1);
         compare(devices[0].path, "/dev/sda1");
-        compare(devices[0].mountpoint, "/run/media/matus/BACKUP");
     }
 
     function test_displaylabel_falls_back_from_label_to_model_to_name() {
-        compare(Devices.displayLabel({ name: "sda1", label: "BACKUP", model: "WDC WD20SDZW" }), "BACKUP");
-        compare(Devices.displayLabel({ name: "sda1", label: null, model: "WDC WD20SDZW-59Z3CS0" }), "WDC WD20SDZW-59Z3CS0");
-        compare(Devices.displayLabel({ name: "sda1", label: null, model: null }), "sda1");
+        compare(Devices.displayLabel({ name: "sda1", label: "BACKUP", vendor: null, model: "WDC WD20SDZW" }), "BACKUP");
+        compare(Devices.displayLabel({ name: "sda1", label: null, vendor: null, model: "WDC WD20SDZW-59Z3CS0" }), "WDC WD20SDZW-59Z3CS0");
+        compare(Devices.displayLabel({ name: "sda1", label: null, vendor: null, model: null }), "sda1");
     }
 
-    function test_parentpath_prefers_pkname() {
-        const flat = [
-            { name: "sda", path: "/dev/sda", pkname: null },
-            { name: "sda1", path: "/dev/sda1", pkname: "sda" }
+    function test_mount_candidates_skips_mounted_and_attempted() {
+        const devices = [
+            { path: "/dev/sda1", mountPoint: null, fstype: "exfat" },
+            { path: "/dev/sdb1", mountPoint: "/run/media/sdb1", fstype: "ext4" },
+            { path: "/dev/sdc1", mountPoint: null, fstype: "ext4" }
         ];
+        const attempted = { "/dev/sdc1": true };
 
-        compare(Devices.parentPath(flat, "/dev/sda1"), "/dev/sda");
+        const candidates = Devices.mountCandidates(devices, attempted);
+
+        compare(candidates.length, 1);
+        compare(candidates[0].path, "/dev/sda1");
     }
 
-    // A whole disk formatted directly has no partition and so no PKNAME
-    // anywhere in the scan — eject() must still resolve to a real device.
-    function test_parentpath_falls_back_to_the_devices_own_path() {
-        const flat = [
-            { name: "sda", path: "/dev/sda", pkname: null }
+    function test_prune_attempts_drops_unplugged_keeps_present() {
+        const attempted = { "/dev/sda1": true, "/dev/sdz1": true };
+        const devices = [{ path: "/dev/sda1" }];
+
+        const pruned = Devices.pruneAttempts(attempted, devices);
+
+        verify(Object.prototype.hasOwnProperty.call(pruned, "/dev/sda1"));
+        verify(!Object.prototype.hasOwnProperty.call(pruned, "/dev/sdz1"));
+    }
+
+    // A superfloppy (a flash drive with a filesystem directly on the disk,
+    // no partition table) has no PKNAME anywhere to resolve and no parent
+    // node to look up. parseDevices already set its diskPath to its own
+    // path during the walk, so ejectPlan needs nothing else to build a
+    // correct unmount-then-power-off sequence for it.
+    function test_eject_plan_unmounts_a_mounted_superfloppy_before_powering_off() {
+        const diskPath = "/dev/sdc";
+        const devices = [
+            { path: diskPath, diskPath: diskPath, type: "disk", mountPoint: "/run/media/sdc" }
         ];
 
-        compare(Devices.parentPath(flat, "/dev/sda"), "/dev/sda");
+        const plan = Devices.ejectPlan(devices, diskPath);
+
+        compare(plan.length, 2);
+        compare(plan[0], Devices.unmountCommand(diskPath));
+        compare(plan[1], Devices.powerOffCommand(diskPath));
     }
 }
 ```
@@ -153,87 +181,192 @@ TestCase {
 - [ ] **4** Write `nix/home/quickshell/qml/services/devices.js`:
 
 ```js
-// Pure classification over an `lsblk -J -b -o
-// NAME,PATH,LABEL,SIZE,FSTYPE,MOUNTPOINT,RM,HOTPLUG,TYPE,VENDOR,MODEL,PKNAME`
-// snapshot. Split out of Devices.qml so tests/qml/tst_devices.qml can drive
-// it against a captured fixture with no udev, no D-Bus and no live block
-// device anywhere near the test.
+// Pure classification over an `lsblk -J -b` snapshot: which block devices
+// are worth offering a mount button for, which are already mounted, and
+// the udisksctl argv for each step. Split out of Devices.qml so
+// tests/qml/tst_devices.qml can drive it against a captured fixture with no
+// udev, no D-Bus and no live block device anywhere near the test.
 //
-// `hotplug`, never `rm`: the USB hard disk this was written against
-// reports rm:false, so filtering on rm would silently ignore it. `hotplug`,
-// never "has an fstype and isn't mounted" either: the EFI System Partition
-// has exactly that shape with hotplug:false, and that filter would try to
-// mount the ESP on every scan.
+// lsblk's "rm" column is the SCSI removable-media bit. A USB hard disk
+// answers that bit "no", it is a fixed drive that merely lives behind a
+// USB bridge, while the NVMe boot disk's EFI System Partition answers
+// "hotplug" false and sits there with a filesystem and no mountpoint,
+// looking exactly like a candidate to offer up for mounting. "hotplug" is
+// the bit that means "arrived after boot, on a bus meant for that"; "rm" is
+// a different question this file never asks. Filtering on rm would drop
+// the real USB disk; filtering on fstype-without-mountpoint instead of
+// hotplug would try to mount the ESP. Both are fixture-backed regression
+// tests in tst_devices.qml, not a hypothetical.
 .pragma library
-.import "../installer/disks.js" as Disks
 
-function flatten(json) {
-    const root = JSON.parse(json);
-    const out = [];
+/// lsblk emits native booleans (util-linux >= 2.37) or "0"/"1" strings,
+/// same ambiguity qml/installer/disks.js guards against for the same field.
+function flag(v) {
+    if (typeof v === "boolean")
+        return v;
+    if (typeof v === "string")
+        return v === "1" || v === "true";
+    if (typeof v === "number")
+        return v === 1;
+    return false;
+}
 
-    function walk(nodes) {
-        for (const node of nodes) {
-            const copy = {};
-            for (const key in node) {
-                if (key !== "children")
-                    copy[key] = node[key];
-            }
-            out.push(copy);
-            walk(node.children ?? []);
-        }
+function sizeOf(v) {
+    if (typeof v === "number")
+        return v;
+    if (typeof v === "string") {
+        const n = parseInt(v.trim(), 10);
+        return Number.isNaN(n) ? 0 : n;
+    }
+    return 0;
+}
+
+function orNull(v) {
+    return v === undefined ? null : v;
+}
+
+/// Depth-first walk of one top-level lsblk entry. `diskPath` and
+/// `diskHotplug` are fixed at the top-level disk and carried unchanged into
+/// every descendant, because "on itself OR on its parent disk" means the
+/// disk that owns the partition, not whichever node sits one level up,
+/// relevant for a logical partition nested inside an extended one.
+function walk(node, diskPath, diskHotplug, out) {
+    const excludedType = node.type === "loop" || node.type === "rom";
+    const ownHotplug = flag(node.hotplug);
+    const hotplug = ownHotplug || diskHotplug;
+    const fstype = orNull(node.fstype);
+    const isPartition = node.type === "part";
+    const isSuperfloppy = node.type === "disk" && (!Array.isArray(node.children) || node.children.length === 0);
+
+    if (!excludedType && hotplug && fstype !== null && (isPartition || isSuperfloppy)) {
+        out.push({
+            name: node.name,
+            path: node.path,
+            diskPath: isPartition ? diskPath : node.path,
+            label: orNull(node.label),
+            sizeBytes: sizeOf(node.size),
+            fstype: fstype,
+            mountPoint: orNull(node.mountpoint),
+            type: node.type,
+            vendor: orNull(node.vendor),
+            model: orNull(node.model),
+            hotplug: ownHotplug
+        });
     }
 
-    walk(root.blockdevices ?? []);
+    if (Array.isArray(node.children)) {
+        for (const child of node.children)
+            walk(child, diskPath, diskHotplug, out);
+    }
+}
+
+/// Parse `lsblk -J -b` output into a flat array of mountable devices: hotplug
+/// partitions and hotplug superfloppy disks, everything else, internal
+/// disks, the ESP, loop and rom devices, LVM/crypt plumbing, left out.
+/// Malformed input yields an empty list rather than throwing, since this
+/// runs on every udev poll and one bad read must not crash the shell.
+function parseDevices(text) {
+    let root;
+    try {
+        root = JSON.parse(text);
+    } catch (e) {
+        return [];
+    }
+
+    const top = root && Array.isArray(root.blockdevices) ? root.blockdevices : [];
+    const out = [];
+    for (const disk of top)
+        walk(disk, disk.path, flag(disk.hotplug), out);
     return out;
 }
 
-function candidates(flat) {
-    return flat.filter(d => d.hotplug === true && d.fstype !== null && d.mountpoint === null);
-}
-
-function mounted(flat) {
-    return flat.filter(d => d.hotplug === true && d.fstype !== null && d.mountpoint !== null).map(d => ({
-                path: d.path,
-                label: displayLabel(d),
-                mountpoint: d.mountpoint,
-                fstype: d.fstype,
-                size: d.size
-            }));
-}
-
+/// label, else vendor+model trimmed (lsblk right-pads vendor to 8 columns),
+/// else the kernel name, always something to put on the menu row.
 function displayLabel(device) {
     if (device.label)
         return device.label;
 
-    if (device.model && device.model.trim() !== "")
-        return device.model.trim();
+    const parts = [device.vendor, device.model].map(p => (p || "").trim()).filter(p => p.length > 0);
 
-    return device.name;
+    return parts.length > 0 ? parts.join(" ") : device.name;
 }
 
-// Resolves the whole disk behind a partition, for eject()'s udisksctl
-// power-off target. PKNAME is the authoritative column when the scan
-// carried it; Disks.parentDisk's suffix-stripping heuristic — already
-// proven by the installer's own disk autodetection — is the fallback, and
-// it hands back a whole disk's own path unchanged when there is no
-// partition suffix to strip, which is also the right answer here.
-function parentPath(flat, path) {
-    const device = flat.find(d => d.path === path);
-    if (!device)
-        return path;
+/// Devices worth offering a mount button for: unmounted, have a filesystem,
+/// and not already the target of an in-flight mount this menu started.
+function mountCandidates(devices, attempted) {
+    const seen = attempted || {};
+    return devices.filter(d => !d.mountPoint && !!d.fstype && !Object.prototype.hasOwnProperty.call(seen, d.path));
+}
 
-    if (device.pkname) {
-        const parent = flat.find(d => d.name === device.pkname);
-        if (parent)
-            return parent.path;
+/// Drop attempted-mount entries for paths that vanished from the last poll,
+/// so unplugging and replugging the same stick makes it eligible again
+/// instead of being remembered as permanently attempted.
+function pruneAttempts(attempted, devices) {
+    const present = {};
+    for (const d of devices)
+        present[d.path] = true;
+
+    const pruned = {};
+    for (const path of Object.keys(attempted || {})) {
+        if (present[path])
+            pruned[path] = attempted[path];
     }
+    return pruned;
+}
 
-    return Disks.parentDisk(path);
+/// Records that transitioned from unmounted to mounted between two polls,
+/// the notify-send trigger. A device absent from `previous` counts as
+/// having been unmounted, so a stick that appears already-mounted still
+/// fires the notification once.
+function newlyMounted(previous, next) {
+    const before = {};
+    for (const d of previous)
+        before[d.path] = d;
+
+    return next.filter(d => {
+        const prior = before[d.path];
+        const wasUnmounted = !prior || !prior.mountPoint;
+        return wasUnmounted && !!d.mountPoint;
+    });
+}
+
+/// argv for `udisksctl mount`. The path is always its own array element,
+/// see previewCommand in qml/launcher/preview.js for why that discipline
+/// matters: a label or mountpoint under attacker control is legal ext4/exfat
+/// metadata, and it must never be able to reach a shell as text.
+function mountCommand(path) {
+    return ["udisksctl", "mount", "-b", path, "--no-user-interaction"];
+}
+
+/// argv for `udisksctl unmount`. See mountCommand for the argv discipline.
+function unmountCommand(path) {
+    return ["udisksctl", "unmount", "-b", path, "--no-user-interaction"];
+}
+
+/// argv for `udisksctl power-off`. See mountCommand for the argv discipline.
+function powerOffCommand(path) {
+    return ["udisksctl", "power-off", "-b", path, "--no-user-interaction"];
+}
+
+/// The eject sequence for one disk: unmount every one of its mounted
+/// devices, then power the disk off. "Its mounted devices" is partitions
+/// AND the disk-as-superfloppy case parseDevices also emits, a childless
+/// disk with a filesystem directly on it has diskPath equal to its own
+/// path and type "disk", not "part", so filtering on type "part" alone
+/// skips its unmount and hands udisksctl a power-off for a device that is
+/// still mounted. Unmounting a device that was never mounted is a
+/// udisksctl error the caller doesn't need, so only mounted ones get a
+/// step.
+function ejectPlan(devices, diskPath) {
+    const mountedOnDisk = devices.filter(d => d.diskPath === diskPath && d.mountPoint);
+    const plan = mountedOnDisk.map(d => unmountCommand(d.path));
+    plan.push(powerOffCommand(diskPath));
+    return plan;
 }
 ```
 
 - [ ] **5** Run QtTest again
-      Expected: PASS, 8/8
+      Expected: PASS, 7/7
 
 - [ ] **6** `nix run .#nix-lint`
       Expected: green
@@ -243,7 +376,7 @@ function parentPath(flat, path) {
 
 ---
 
-### Task 2: `Devices.qml` — the singleton, wired live through the bar pill
+### Task 2: `Devices.qml`, the singleton, wired live through the bar pill
 
 **Files:**
 - Create: `nix/home/quickshell/qml/services/qmldir`
@@ -251,11 +384,13 @@ function parentPath(flat, path) {
 - Create: `nix/home/quickshell/qml/bar/Drives.qml`
 - Modify: `nix/home/quickshell/qml/bar/Bar.qml`
 
-**Produces:** `Devices.devices` (readonly, `{path, label, mountpoint,
-fstype, size}[]`), `Devices.rescan()`, `Devices.eject(path)`, `signal
-requestOpen(string path)`. `bar/Drives.qml` is what forces the singleton
-alive at shell startup and is this task's only way to prove any of it runs,
-since nothing else in the tree reads `Devices` yet.
+**Produces:** `Devices.devices` (readonly, `devices.js`'s `parseDevices()`
+shape narrowed to `mountPoint !== null`: `{name, path, diskPath, label,
+sizeBytes, fstype, mountPoint, type, vendor, model, hotplug}[]`),
+`Devices.rescan()`, `Devices.eject(path)`, `signal requestOpen(string
+path)`. `bar/Drives.qml` is what forces the singleton alive at shell
+startup and is this task's only way to prove any of it runs, since nothing
+else in the tree reads `Devices` yet.
 
 - [ ] **1** Write `nix/home/quickshell/qml/services/qmldir`:
 
@@ -268,22 +403,22 @@ singleton Devices 1.0 Devices.qml
 ```qml
 // The devices service: watches udev for block-device hotplug, automounts
 // anything that qualifies, and exposes the result to every surface that
-// shows a drive — the bar pill, the launcher's device rows and (Plan 1)
+// shows a drive: the bar pill, the launcher's device rows and (Plan 1)
 // directory hits, and the file manager's sidebar.
 //
 // Same shape as qml/monitors/Watcher.qml: a persistent Process watching a
 // live event stream, a Timer debouncing a burst of events into one rescan,
 // and the rescan reading a fresh JSON snapshot rather than reconstructing
-// state from the event stream's own text — unplugging a hub fires several
+// state from the event stream's own text. Unplugging a hub fires several
 // udev lines at once, the same way unplugging a monitor dock fires several
 // Hyprland events at once.
 //
 // No explicit instantiation anywhere: this is a pragma Singleton, the same
 // shape as Theme.qml, and it depends on the same guarantee Theme.qml's own
-// live FileView already relies on — the first read of a property here
+// live FileView already relies on, the first read of a property here
 // constructs it. bar/Drives.qml reads `Devices.devices` in a `visible`
 // binding, and Bar.qml is built for every screen the instant shell.qml
-// loads, so this — and the persistent udevadm Process inside it — is alive
+// loads, so this, and the persistent udevadm Process inside it, is alive
 // before the first frame is on screen.
 pragma Singleton
 
@@ -296,12 +431,13 @@ Singleton {
     id: root
 
     property var flat: []
+    property var attempted: ({})
 
-    readonly property var devices: DevicesMath.mounted(root.flat)
+    readonly property var devices: root.flat.filter(d => d.mountPoint !== null)
 
     signal requestOpen(string path)
 
-    readonly property string lsblkColumns: "NAME,PATH,LABEL,SIZE,FSTYPE,MOUNTPOINT,RM,HOTPLUG,TYPE,VENDOR,MODEL,PKNAME"
+    readonly property string lsblkColumns: "NAME,PATH,LABEL,SIZE,FSTYPE,MOUNTPOINT,HOTPLUG,TYPE,VENDOR,MODEL"
 
     function rescan(): void {
         scanProc.running = false;
@@ -309,18 +445,22 @@ Singleton {
     }
 
     function eject(path: string): void {
-        const controller = ejectController.createObject(root, { path: path });
+        const device = root.flat.find(d => d.path === path);
+        const diskPath = device ? device.diskPath : path;
+        const controller = ejectController.createObject(root, { plan: DevicesMath.ejectPlan(root.flat, diskPath) });
         controller.start();
     }
 
     function applyScan(json: string): void {
-        root.flat = DevicesMath.flatten(json);
+        root.flat = DevicesMath.parseDevices(json);
+        root.attempted = DevicesMath.pruneAttempts(root.attempted, root.flat);
         root.mountPending();
     }
 
     function mountPending(): void {
-        for (const device of DevicesMath.candidates(root.flat)) {
-            const runner = mountRunner.createObject(root, { command: ["udisksctl", "mount", "-b", device.path] });
+        for (const device of DevicesMath.mountCandidates(root.flat, root.attempted)) {
+            root.attempted = Object.assign({}, root.attempted, { [device.path]: true });
+            const runner = mountRunner.createObject(root, { command: DevicesMath.mountCommand(device.path) });
             runner.running = true;
         }
     }
@@ -335,7 +475,7 @@ Singleton {
 
     // The one live udev read: any line on the block subsystem means the
     // topology might have changed. The trigger does not try to parse which
-    // device or which action — that is what the rescan below is for.
+    // device or which action, that is what the rescan below is for.
     Process {
         id: udevWatch
 
@@ -380,51 +520,86 @@ Singleton {
         }
     }
 
+    // ejectPlan(flat, diskPath) is a list of argv steps, not a fixed
+    // unmount-then-power-off pair: a disk with more than one mounted
+    // partition needs one unmount per partition ahead of the single
+    // power-off. ctrl walks that list one Process at a time instead of
+    // hardcoding two.
     Component {
         id: ejectController
 
         Item {
             id: ctrl
 
-            property string path: ""
-            readonly property string diskPath: DevicesMath.parentPath(root.flat, ctrl.path)
+            property var plan: []
+            property int step: 0
 
             function start(): void {
-                unmount.running = true;
+                ctrl.runStep();
             }
 
-            Process {
-                id: unmount
-
-                command: ["udisksctl", "unmount", "-b", ctrl.path]
-
-                // qmllint disable signal-handler-parameters
-                onExited: (exitCode, exitStatus) => powerOff.running = true
-                // qmllint enable signal-handler-parameters
-            }
-
-            Process {
-                id: powerOff
-
-                command: ["udisksctl", "power-off", "-b", ctrl.diskPath]
-
-                // qmllint disable signal-handler-parameters
-                onExited: (exitCode, exitStatus) => {
+            function runStep(): void {
+                if (ctrl.step >= ctrl.plan.length) {
                     root.rescan();
                     ctrl.destroy();
+                    return;
                 }
-                // qmllint enable signal-handler-parameters
+
+                const runner = ejectStep.createObject(ctrl, { command: ctrl.plan[ctrl.step] });
+                runner.running = true;
+            }
+
+            Component {
+                id: ejectStep
+
+                Process {
+                    // qmllint disable signal-handler-parameters
+                    onExited: (exitCode, exitStatus) => {
+                        ctrl.step += 1;
+                        destroy();
+                        ctrl.runStep();
+                    }
+                    // qmllint enable signal-handler-parameters
+                }
             }
         }
     }
 }
 ```
 
+`mountPending()`'s three orderings each guard something a slightly different
+sketch would get wrong.
+
+`applyScan()` runs `pruneAttempts` before `mountPending` ever calls
+`mountCandidates`, not after: `attempted` has to already be unplug-accurate
+before it is used to decide what still needs offering, or a device that was
+unplugged and replugged under the same path would stay wrongly excluded by
+an attempt entry this scan can no longer justify.
+
+`mountPending()` marks `device.path` attempted before `runner.running =
+true`, never after. A burst of udev lines from one hotplug event can
+debounce into more than one rescan tick, and `onExited` itself triggers
+another rescan; queuing the mount first and marking it attempted afterward
+would leave a window where a second, concurrent `mountPending()` call sees
+the same still-unmounted device and queues a second `udisksctl mount`
+racing the first. Marking first closes that window before the `Process`
+object it guards even exists.
+
+`attempted` clears one entry only when its path drops out of the next
+`lsblk` scan entirely, which is what unplugging means. A device that stays
+plugged in and merely fails to mount stays marked, so a corrupt or
+unsupported filesystem is offered once and then left alone rather than
+retried on every debounced rescan forever. The same rule keeps a deliberate
+`udisksctl unmount` run from outside this shell from being treated as "try
+again": the unmounted device is still present in the next scan under the
+same path, so it stays in `attempted` and is not silently re-mounted out
+from under whoever unmounted it on purpose.
+
 - [ ] **3** Write `nix/home/quickshell/qml/bar/Drives.qml`:
 
 ```qml
 // The removable-media pill: a live count of currently-mounted devices,
-// hidden entirely when nothing is plugged in — the same "hide when there's
+// hidden entirely when nothing is plugged in, the same "hide when there's
 // nothing to say" rule Battery.qml already follows for a desktop with no
 // battery.
 //
@@ -464,7 +639,7 @@ Pill {
       Expected: `singleton Devices 1.0 Devices.qml`
 
 - [ ] **6** `nix run .#nix-lint`
-      Expected: green — this is what proves `import "../services"` resolves
+      Expected: green. This is what proves `import "../services"` resolves
       through the hand-written `qmldir` with no `tree.nix` change; if it
       does not, fall back to teaching `tree.nix` to write this `qmldir` the
       way it writes the root one (see the spec's Decisions section)
@@ -476,7 +651,7 @@ Pill {
       the bar pill on every monitor reads `💾 1`
 
 - [ ] **8** `qs ipc call devices rescan`
-      Expected: exits 0 — proof the `devices` IPC target is registered,
+      Expected: exits 0, proof the `devices` IPC target is registered,
       which only happens because step 7 already forced the singleton alive
 
 - [ ] **9** `git add nix/home/quickshell/qml/services/qmldir nix/home/quickshell/qml/services/Devices.qml nix/home/quickshell/qml/bar/Drives.qml nix/home/quickshell/qml/bar/Bar.qml`
@@ -493,25 +668,39 @@ absent-or-unmounted to mounted.
 - [ ] **1** Replace `applyScan` and add `toast`:
 
 ```qml
-    property var previousMountedPaths: []
+    property var previousDevices: []
 
     function applyScan(json: string): void {
-        root.flat = DevicesMath.flatten(json);
+        root.flat = DevicesMath.parseDevices(json);
+        root.attempted = DevicesMath.pruneAttempts(root.attempted, root.flat);
 
-        const nextPaths = root.devices.map(d => d.path);
-        for (const device of root.devices) {
-            if (!root.previousMountedPaths.includes(device.path))
-                root.toast(device);
-        }
-        root.previousMountedPaths = nextPaths;
+        for (const device of DevicesMath.newlyMounted(root.previousDevices, root.devices))
+            root.toast(device);
+        root.previousDevices = root.devices;
 
         root.mountPending();
     }
 
     function toast(device: var): void {
-        Quickshell.execDetached(["notify-send", "--app-name=dots-shell", "--icon=drive-removable-media", "Drive mounted", `${device.label} at ${device.mountpoint}`]);
+        Quickshell.execDetached(["notify-send", "--app-name=dots-shell", "--icon=drive-removable-media", "Drive mounted", `${device.label} at ${device.mountPoint}`]);
     }
 ```
+
+`applyScan` no longer hand-rolls the mounted-path diff `newlyMounted`
+already exists to do: `devices.js` exports exactly this transition check,
+so the toast trigger reuses it instead of tracking a second, parallel
+`previousMountedPaths` array that could drift out of sync with `attempted`
+or `devices` itself.
+
+`toast()`'s last argv element interpolates `device.label` and
+`device.mountPoint` into one string, unlike `mountCommand`, `unmountCommand`
+and `powerOffCommand`, which always keep a path as its own element. That is
+not the same rule broken twice. `notify-send`, like every libnotify client,
+takes summary and body as two positional arguments, so the body is one
+display string by the tool's own API, not a shell string built by
+concatenation. There is no argv boundary here for a label or a mountpoint
+to cross, and so no injection surface the one-path-per-element rule exists
+to close.
 
 - [ ] **2** `nix run .#nix-lint`
       Expected: green
@@ -555,10 +744,10 @@ import "../services"
 
             rows.push({
                 title: device.label,
-                subtitle: device.mountpoint,
+                subtitle: device.mountPoint,
                 icon: "",
                 accessory: "open",
-                run: () => Devices.requestOpen(device.mountpoint)
+                run: () => Devices.requestOpen(device.mountPoint)
             });
         }
 
@@ -581,7 +770,7 @@ import "../services"
       (e.g. "WD")
       Expected: a row appears with accessory "open"; activating it currently
       does nothing visible (`Devices.requestOpen` has no listener until
-      Plan 1's `Files.qml` connects to it) — that is the expected,
+      Plan 1's `Files.qml` connects to it), that is the expected,
       forward-compatible state this task leaves behind, not a bug
 
 - [ ] **6** `git add nix/home/quickshell/qml/launcher/Providers.qml nix/home/quickshell/qml/launcher/Launcher.qml`

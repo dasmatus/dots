@@ -4,38 +4,38 @@
 > superpowers:subagent-driven-development or superpowers:executing-plans.
 
 **Goal:** A real, single-pane file manager: browse, open, eject. Every dead
-end the spec's Why section names — the nautilus keybind, the cheatsheet
-entry, the launcher's directory hits — now lands here instead of nowhere.
+end the spec's Why section names, the nautilus keybind, the cheatsheet
+entry, the launcher's directory hits, now lands here instead of nowhere.
 **Architecture:** `qml/files/Files.qml`, a `Scope` holding one
-`FloatingWindow` (not `PanelWindow` — this is a tiled application window,
-not a dismiss-on-click overlay), toggled the same way the launcher is. One
-`Pane.qml` lists a directory via `ls -1Ap` as direct argv. A `Sidebar.qml`
-lists `Devices.devices` (built in Plan 0) and reuses its `requestOpen`
-signal for navigation — the same signal the launcher's device rows already
-call.
+`FloatingWindow`. Not `PanelWindow`, since this is a tiled application
+window, not a dismiss-on-click overlay, toggled the same way the launcher
+is. One `Pane.qml` lists a directory via `ls -1Ap` as direct argv. A
+`Sidebar.qml` lists `Devices.devices` (built in Plan 0) and reuses its
+`requestOpen` signal for navigation, the same signal the launcher's device
+rows already call.
 **Tech Stack:** Quickshell 0.3, Qt 6.11, coreutils `ls`/`xdg-open`, QtTest.
 **Spec:** `docs/superpowers/specs/2026-08-27-devices-files-design.md`
 
 ## Global Constraints
-- `Files.qml`'s window is a `FloatingWindow`. Not `PanelWindow` — this
+- `Files.qml`'s window is a `FloatingWindow`. Not `PanelWindow`: this
   surface is meant to be tiled and alt-tabbed to like any other
   application, unlike every other overlay in this tree.
 - Directory listing runs `ls` as a direct argv array, never through
-  `sh -c`. There is no shell in this feature's listing path at all — unlike
+  `sh -c`. There is no shell in this feature's listing path at all, unlike
   `preview.js`, which needed one only for its `[ -d ... ]` branch.
 - `Devices.requestOpen(path)` is the single navigation entrypoint into this
   module. The launcher's device rows (Plan 0), the launcher's directory
   hits (Task 5 below) and the sidebar (Task 3) all call it; `Files.qml` is
   the only thing that ever connects to it.
 - `openPath(path: string)` on the `files` IPC target is this feature's one
-  deliberately-proven argument-taking IPC call — proven with a literal
+  deliberately-proven argument-taking IPC call, proven with a literal
   `qs ipc call files openPath <path>`, not assumed from the wallpaper
   picker's own unexercised `apply(path, output, mode)`.
 - `qmllint --max-warnings 0` (`nix run .#nix-lint`), unchanged gate.
 
 ---
 
-### Task 1: `files.js`, `Pane.qml`, `Files.qml` — one window, one pane
+### Task 1: `files.js`, `Pane.qml`, `Files.qml`, one window, one pane
 
 **Files:**
 - Create: `nix/home/quickshell/qml/files/files.js`
@@ -47,7 +47,7 @@ call.
 **Produces:** `files.js` exporting `parseListing(text)`, `join(dir, name)`,
 `parentOf(path)`. `Pane`'s `path` property and `navigate(string path)`
 signal. `Files`'s `open()`/`close()`/`toggle()` and its `path` property,
-which `Connections { target: Devices }` already drives — so every
+which `Connections { target: Devices }` already drives, so every
 `Devices.requestOpen()` call left dormant by Plan 0 Task 4 starts actually
 opening something the moment this task lands.
 
@@ -55,7 +55,7 @@ opening something the moment this task lands.
 
 ```qml
 // Pure listing-and-path arithmetic for Pane.qml, driven with captured
-// `ls -1Ap --group-directories-first` output — no Process, no filesystem,
+// `ls -1Ap --group-directories-first` output. No Process, no filesystem,
 // no compositor.
 import QtQuick
 import QtTest
@@ -132,7 +132,7 @@ function parentOf(path) {
 
 ```qml
 // One directory's listing. `ls -1Ap --group-directories-first` runs as
-// direct argv with no shell — nothing on this path interpolates a path
+// direct argv with no shell. Nothing on this path interpolates a path
 // into a command string, so there is nothing here for a shell to need.
 pragma ComponentBehavior: Bound
 
@@ -250,7 +250,7 @@ Item {
 // Sidebar itself (Task 3) is the next task in this one.
 //
 // Devices.requestOpen(path) is the single way anything outside this file
-// tells it where to go — the launcher's device rows (Plan 0), the
+// tells it where to go: the launcher's device rows (Plan 0), the
 // launcher's directory hits and this window's own Sidebar (both later in
 // this plan) all call it, and this Connections block is the only listener.
 pragma ComponentBehavior: Bound
@@ -337,7 +337,7 @@ Scope {
 - [ ] **10** With the real USB disk still mounted from Plan 0, open the
       launcher (SUPER+Space), type its label, and activate the device row
       Expected: the file manager opens (or is reused if already open) and
-      navigates to the disk's mountpoint — this is Plan 0 Task 4's
+      navigates to the disk's mountpoint. This is Plan 0 Task 4's
       `Devices.requestOpen()` call, dormant until now, working for the
       first time
 
@@ -346,7 +346,7 @@ Scope {
 
 ---
 
-### Task 2: `openPath` — the proven argument-taking IPC call
+### Task 2: `openPath`, the proven argument-taking IPC call
 
 **Files:** Modify `nix/home/quickshell/qml/files/Files.qml`.
 **Produces:** `openPath(path: string)` on the `files` IPC target.
@@ -366,7 +366,7 @@ Scope {
 - [ ] **3** `mkdir -p /tmp/probe-openpath && touch /tmp/probe-openpath/proof.txt`
       `qs ipc call files openPath /tmp/probe-openpath`
       Expected: the file manager opens showing `/tmp/probe-openpath` with
-      `proof.txt` listed — the first time in this repo's history a
+      `proof.txt` listed. This is the first time in this repo's history a
       string-argument `IpcHandler` function has been called from outside
       the process and observed to work, closing the gap the spec's
       Decisions section names against `wallpaper`'s `apply()`
@@ -378,7 +378,7 @@ Scope {
 
 ---
 
-### Task 3: Sidebar — devices, Home, and eject
+### Task 3: Sidebar, devices, Home, and eject
 
 **Files:**
 - Create: `nix/home/quickshell/qml/files/Sidebar.qml`
@@ -391,8 +391,8 @@ one eject control per row.
 
 ```qml
 // Home plus every currently-mounted device. Navigation reuses
-// Devices.requestOpen — the same signal the launcher's device rows and
-// directory hits call — so Files.qml needs no extra wiring for this file
+// Devices.requestOpen, the same signal the launcher's device rows and
+// directory hits call, so Files.qml needs no extra wiring for this file
 // to work. Eject is a direct in-process call on the singleton instead: it
 // is an immediate action, not something another surface needs to react to.
 pragma ComponentBehavior: Bound
@@ -438,7 +438,7 @@ ColumnLayout {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: Devices.requestOpen(entry.modelData.mountpoint)
+                    onClicked: Devices.requestOpen(entry.modelData.mountPoint)
                 }
             }
 
@@ -490,8 +490,8 @@ ColumnLayout {
 
 - [ ] **5** Click the disk's `⏏`
       Expected: `lsblk -J -b -o NAME,PATH` no longer lists `sda` or `sda1`
-      at all — `power-off` removes the USB device node, not merely its
-      mount — and the bar pill from Plan 0 goes back to hidden
+      at all. `power-off` removes the USB device node, not merely its
+      mount, and the bar pill from Plan 0 goes back to hidden
 
 - [ ] **6** Physically replug the disk
       Expected: it reappears, remounts and re-lists in the sidebar with no
@@ -515,7 +515,7 @@ cheatsheet stops naming software that was never installed.
 - [ ] **1** In `nix/home/hyprland.nix`, replace:
 
 ```nix
-        # Nautilus directly (GNOME Files, services.gnome.core-apps) — the
+        # Nautilus directly (GNOME Files, services.gnome.core-apps). The
         # rofi-files.sh dmenu browser retired with the HyprTile conversion.
         {
           _args = [
@@ -528,7 +528,7 @@ cheatsheet stops naming software that was never installed.
   with:
 
 ```nix
-        # The shell's own file manager (qml/files) — nautilus was never
+        # The shell's own file manager (qml/files). Nautilus was never
         # installed (no services.gnome.core-apps anywhere in this tree),
         # so this bind did nothing from the day it was written until this.
         {
@@ -547,7 +547,7 @@ cheatsheet stops naming software that was never installed.
 
 - [ ] **4** `nix run .#nix-lint`
       Expected: green (this is a flake-eval check on `hyprland.nix` and
-      `keybinds.nix`, not a QML one — a Lua-string or Nix syntax mistake in
+      `keybinds.nix`, not a QML one, a Lua-string or Nix syntax mistake in
       either file fails it)
 
 - [ ] **5** `nix build .#quickshell-config && grep -n "File manager" result/cheatsheet/keybinds.json`
@@ -563,7 +563,7 @@ cheatsheet stops naming software that was never installed.
 
 ---
 
-### Task 5: Launcher — spawn row and the directory-hit fix
+### Task 5: Launcher, spawn row and the directory-hit fix
 
 **Files:** Modify `nix/home/quickshell/qml/launcher/Providers.qml`.
 **Produces:** an "Open File Manager" launcher row; `fileRows()`'s directory
@@ -574,7 +574,7 @@ branch stops calling `xdg-open`.
 ```qml
         {
             title: "Open File Manager",
-            subtitle: "Browse files — dual-pane, SUPER+SHIFT+F",
+            subtitle: "Browse files, dual-pane, SUPER+SHIFT+F",
             argv: ["qs", "ipc", "call", "files", "toggle"]
         }
 ```
@@ -603,9 +603,9 @@ branch stops calling `xdg-open`.
 
 - [ ] **5** Type a few characters of a real subdirectory name under `$HOME`
       Expected: the directory hit shows a trailing `/`; activating it
-      opens the file manager navigated into that directory — the fix this
-      task exists for, replacing the `xdg-open` call that never had
-      anywhere correct to resolve to
+      opens the file manager navigated into that directory. This is the
+      fix this task exists for, replacing the `xdg-open` call that never
+      had anywhere correct to resolve to
 
 - [ ] **6** Type a few characters of a real file's name under `$HOME`
       Expected: activating it still runs `xdg-open` on the file, unchanged

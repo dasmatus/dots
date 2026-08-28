@@ -18,13 +18,13 @@ established for this tree.
 
 ## Global Constraints
 - Every `operations.js` builder returns an argv array with `--` before the
-  path and the path as its own element — never a shell string, and never a
+  path and the path as its own element, never a shell string, and never a
   bare path a leading `-` could turn into a flag.
 - `active` lives on `Files.qml`, not on `Pane.qml` itself: only one side
   may be active, and a property a `Pane` set on itself could not enforce
   that across its sibling. A `Pane` asks for focus via `focusRequested()`
   instead of claiming it.
-- No conflict resolution for copy/move onto an existing name — `cp`/`mv`'s
+- No conflict resolution for copy/move onto an existing name: `cp`/`mv`'s
   own default behaviour is accepted as-is (see the spec's Open risks).
 - `qmllint --max-warnings 0` (`nix run .#nix-lint`), unchanged gate.
 
@@ -45,7 +45,7 @@ call instead of writing a single `path`.
 
 ```qml
 // One directory's listing. `ls -1Ap --group-directories-first` runs as
-// direct argv with no shell — nothing on this path interpolates a path
+// direct argv with no shell. Nothing on this path interpolates a path
 // into a command string, so there is nothing here for a shell to need.
 //
 // `active` is owned by Files.qml, not by this file: only one side may be
@@ -182,7 +182,7 @@ Rectangle {
 // The file manager's outer shell, now two Panes: leftPath/rightPath persist
 // independently, and activeSide says which one write operations (added
 // later in this plan) act on. Devices.requestOpen and openPath both target
-// whichever side is active, through setActivePath — the same single
+// whichever side is active, through setActivePath, the same single
 // entrypoint Plan 1 established, extended rather than replaced.
 pragma ComponentBehavior: Bound
 
@@ -331,7 +331,7 @@ pane's current directory.
 
 ```qml
 // Every builder returns an array with the path as its own element and
-// "--" ahead of it — the same argv-not-a-shell-string discipline
+// "--" ahead of it, the same argv-not-a-shell-string discipline
 // tst_preview.qml already proves for previewCommand, extended to a name
 // that could otherwise be parsed as a flag.
 import QtQuick
@@ -380,8 +380,8 @@ TestCase {
 
 ```js
 // Argv builders for the write operations Files.qml's toolbar drives. Every
-// one ends "--" before the path — the coreutils/gio convention that stops
-// a name starting with "-" being parsed as a flag — and every path is its
+// one ends "--" before the path, the coreutils/gio convention that stops
+// a name starting with "-" being parsed as a flag, and every path is its
 // own array element, never concatenated into a shell string, because
 // nothing on this path ever runs through sh -c.
 .pragma library
@@ -704,7 +704,7 @@ which nothing in this shell configuration pulled in before this task.
       "Trash"
       Expected: `probe-trash.txt` is gone from the pane and from
       `$HOME`, and `ls ~/.local/share/Trash/files/ | grep probe-trash.txt`
-      finds it — recoverable, not `rm`'d
+      finds it, recoverable, not `rm`'d
 
 - [ ] **7** `rm -f ~/.local/share/Trash/files/probe-trash.txt`
 
