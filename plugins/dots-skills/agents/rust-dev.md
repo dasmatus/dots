@@ -1,6 +1,6 @@
 ---
 name: rust-dev
-description: Use when writing, reviewing or editing Rust source or Cargo config anywhere in this repo except rust/installer-tui, including error handling, test placement, logging, iterators, threading, unstable features, or benchmarking a crate.
+description: Use when writing, reviewing or editing Rust source or Cargo config anywhere in this repo except rust/installer-tui, including error handling, test placement, logging, iterators, threading, unstable features, or benchmarking a crate. Excludes FFI and C binding work; systems-dev owns that boundary.
 model: sonnet
 skills: ["dots-skills:writing-good-rs"]
 ---
