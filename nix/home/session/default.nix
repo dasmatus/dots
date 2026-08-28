@@ -92,12 +92,12 @@ let
 
     # apps
     terminal = lib.getExe config.programs.kitty.package;
-    file-manager = lib.getExe pkgs.nautilus;
     notes = lib.getExe pkgs.obsidian;
     editor = lib.getExe config.programs.zed-editor.package;
 
     # actions — everything but `lock`, which has no unit at all (see below)
     launcher-toggle = "${qs} ipc call launcher toggle";
+    file-manager = "${qs} ipc call files toggle";
     cheatsheet-toggle = "${qs} ipc call cheatsheet toggle";
     settings-toggle = "${qs} ipc call settings toggle";
     wallpaper-toggle = "${qs} ipc call wallpaper toggle";

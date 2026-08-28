@@ -135,8 +135,13 @@ let
       repeating = false;
       mouse = false;
     }
-    # Nautilus directly (GNOME Files, services.gnome.core-apps) — the
-    # rofi-files.sh dmenu browser retired with the HyprTile conversion.
+    # The shell's own file manager (nix/home/quickshell/qml/files), reached
+    # by IPC into the already-running shell rather than by spawning
+    # anything. This bind ran `nautilus` until the shell grew a file manager
+    # of its own. `kind` reads "action" and not "app" for the same reason
+    # every other `qs ipc call … toggle` row here does: the command returns
+    # immediately, so its unit wants `Type = "oneshot"`, which
+    # nix/home/session/default.nix grants to `action` and not to `app`.
     {
       name = "file-manager";
       mods = [
@@ -144,9 +149,9 @@ let
         "SHIFT"
       ];
       key = "F";
-      desc = "File manager (Nautilus)";
+      desc = "File manager";
       category = "launchers";
-      kind = "app";
+      kind = "action";
       dispatch = null;
       repeating = false;
       mouse = false;
