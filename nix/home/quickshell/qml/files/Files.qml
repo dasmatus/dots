@@ -9,7 +9,10 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import "files.js" as FilesMath
+import "operations.js" as Operations
 import "../services"
+import ".."
 
 Scope {
     id: root
@@ -38,6 +41,41 @@ Scope {
             root.leftPath = path;
         else
             root.rightPath = path;
+    }
+
+    function copySelected(): void {
+        const pane = root.activePane;
+        if (!pane.selected)
+            return;
+
+        root.runOperation(Operations.copyArgv(FilesMath.join(pane.path, pane.selected.name), root.otherPane.path));
+    }
+
+    function moveSelected(): void {
+        const pane = root.activePane;
+        if (!pane.selected)
+            return;
+
+        root.runOperation(Operations.moveArgv(FilesMath.join(pane.path, pane.selected.name), root.otherPane.path));
+    }
+
+    function runOperation(argv: var): void {
+        const runner = opRunner.createObject(root, { command: argv });
+        runner.running = true;
+    }
+
+    Component {
+        id: opRunner
+
+        Process {
+            // qmllint disable signal-handler-parameters
+            onExited: (exitCode, exitStatus) => {
+                leftPane.list();
+                rightPane.list();
+                destroy();
+            }
+            // qmllint enable signal-handler-parameters
+        }
     }
 
     Connections {
@@ -80,6 +118,34 @@ Scope {
         ColumnLayout {
             anchors.fill: parent
             spacing: 0
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 4
+                spacing: 12
+
+                Text {
+                    text: "Copy →"
+                    color: Theme.fg
+                    font.family: Theme.fontUi
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: root.copySelected()
+                    }
+                }
+
+                Text {
+                    text: "Move →"
+                    color: Theme.fg
+                    font.family: Theme.fontUi
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: root.moveSelected()
+                    }
+                }
+            }
 
             RowLayout {
                 Layout.fillWidth: true
