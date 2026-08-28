@@ -17,14 +17,37 @@
 # manifest next to the skill folders would be at the wrong depth and would
 # need a skills/skills/ underneath it.
 {
+  lib,
   runCommand,
   writers,
 }:
 let
-  # dodging-cdb is the one skill the primer inlines whole rather than leaving
-  # to its trigger line. It is the only one whose cost of firing late is a
-  # push that already happened.
-  alwaysInline = "dodging-cdb";
+  # The orchestrating session routes work to five specialized agents, so it
+  # needs every writing-good body in force from its first turn rather than
+  # left to a trigger line it might not match. A subagent does not: it
+  # spawns with its own `skills:` frontmatter already preloading the one
+  # body its task needs, so its payload stays down to dodging-cdb, the one
+  # skill whose cost of firing late is a push that already happened.
+  sessionInline = [
+    "dodging-cdb"
+    "writing-good-code"
+    "writing-good-rs"
+    "writing-good-cpp"
+    "writing-good-web"
+    "writing-good-installer"
+  ];
+  subagentInline = [ "dodging-cdb" ];
+
+  # The five specialized agents this plugin ships. Named here rather than
+  # discovered by globbing, so a typo in an agent's frontmatter name still
+  # fails a `test -e` instead of quietly not being checked at all.
+  agentNames = [
+    "rust-dev"
+    "cpp-dev"
+    "web-dev"
+    "installer-dev"
+    "systems-dev"
+  ];
 
   # flake8 gates this the same way it gates searxng-mcp in nix/home/claude.nix.
   # A skill whose frontmatter is missing, unclosed, or disagrees with its own
@@ -40,7 +63,12 @@ let
     cp -r ${../skills}/. $out/skills/
     chmod -R u+w $out
     test -e $out/.claude-plugin/plugin.json
-    test -e $out/skills/${alwaysInline}/SKILL.md
+    for name in ${lib.concatStringsSep " " (lib.unique (sessionInline ++ subagentInline))}; do
+      test -e $out/skills/$name/SKILL.md
+    done
+    for name in ${lib.concatStringsSep " " agentNames}; do
+      test -e $out/agents/$name.md
+    done
   '';
 in
 {
@@ -54,6 +82,6 @@ in
   # Built beside the plugin rather than inside it so what Claude Code scans is
   # exactly a plugin and nothing else.
   primer = runCommand "dots-skills-primer-payloads" { } ''
-    ${primerGen} ${plugin} $out ${alwaysInline}
+    ${primerGen} ${plugin} $out ${lib.concatStringsSep "," sessionInline} ${lib.concatStringsSep "," subagentInline}
   '';
 }
