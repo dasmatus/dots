@@ -62,6 +62,8 @@ PanelWindow {
 
             Battery {}
 
+            Drives {}
+
             Clock {}
 
             Tray {}

@@ -17,6 +17,8 @@ import Quickshell.Io
 import Quickshell.Hyprland
 import "preview.js" as PreviewMath
 import "status.js" as StatusMath
+import "../services"
+import "../services/devices.js" as DevicesMath
 
 QtObject {
     id: root
@@ -120,6 +122,59 @@ QtObject {
                     provider: "files",
                     run: () => Quickshell.execDetached(["xdg-open", path])
                 }));
+    }
+
+    // Reads Devices.flat rather than the mounted-only Devices.devices: a
+    // device automount left unmounted, a filesystem udisksctl refuses, a
+    // mount that failed and is not retried, is exactly the row this
+    // provider exists to offer a manual mount button for, and the
+    // mounted-only list drops it on purpose. Matching and the title both go
+    // through DevicesMath.displayLabel rather than the raw `label` field,
+    // which lsblk leaves null for a superfloppy with no filesystem label,
+    // so typing the volume name still finds a drive that only has a vendor
+    // and a model to go by.
+    //
+    // `path` on the open row is what buys the mount root a free preview:
+    // PreviewPane keys off it exactly the way fileRows already relies on.
+    function deviceRows(text: string): var {
+        const rows = [];
+
+        for (const device of Devices.flat) {
+            const label = DevicesMath.displayLabel(device);
+            if (!root.matches(label, text))
+                continue;
+
+            const subtitle = PreviewMath.formatSize(device.sizeBytes);
+
+            if (device.mountPoint) {
+                rows.push({
+                    title: label,
+                    subtitle: subtitle,
+                    icon: "",
+                    accessory: "open",
+                    path: device.mountPoint,
+                    run: () => Quickshell.execDetached(["xdg-open", device.mountPoint])
+                });
+
+                rows.push({
+                    title: `${label}: Eject`,
+                    subtitle: subtitle,
+                    icon: "",
+                    accessory: "eject",
+                    run: () => Devices.eject(device.path, device.diskPath)
+                });
+            } else {
+                rows.push({
+                    title: label,
+                    subtitle: subtitle,
+                    icon: "",
+                    accessory: "mount",
+                    run: () => Devices.mount(device.path)
+                });
+            }
+        }
+
+        return rows;
     }
 
     function matches(haystack: string, needle: string): bool {
