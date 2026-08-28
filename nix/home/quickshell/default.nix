@@ -188,6 +188,12 @@ in
       # shell out to the `awww` client. Moved here from the now-deleted
       # wallpaper-tui.nix, which used to be the only consumer.
       pkgs.awww
+
+      # gio trash (files/operations.js's trashArgv) needs `gio` on PATH.
+      # glib, not trash-cli: it is already pulled in by this desktop's own
+      # GTK closure, and both honour the same .Trash-$uid convention on a
+      # removable filesystem's own top level.
+      pkgs.glib
     ];
 
     # Lands at $XDG_CONFIG_HOME/quickshell, which is where a bare `qs` looks

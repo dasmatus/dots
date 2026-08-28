@@ -82,6 +82,8 @@ Scope {
             root.runOperation(Operations.renameArgv(oldPath, newPath));
         } else if (root.promptMode === "mkdir") {
             root.runOperation(Operations.mkdirArgv(FilesMath.join(root.activePane.path, root.promptText)));
+        } else if (root.promptMode === "trash-confirm") {
+            root.runOperation(Operations.trashArgv(FilesMath.join(root.activePane.path, root.activePane.selected.name)));
         }
 
         root.promptMode = "";
@@ -94,6 +96,21 @@ Scope {
     function beginMkdir(): void {
         root.promptMode = "mkdir";
         root.promptText = "";
+    }
+
+    // Trash is the one operation here that destroys data by itself, rather
+    // than merely relocating it within reach of the two panes, so it is the
+    // one operation gated on a confirmation rather than firing straight off
+    // the toolbar click. Reuses promptMode's state machine rather than a
+    // second one: promptText carries the selected entry's name for the
+    // confirm label below, never as editable input — the rename/mkdir
+    // TextInput stays hidden for this mode, a separate Text shows instead.
+    function trashSelected(): void {
+        if (!root.activePane.selected)
+            return;
+
+        root.promptMode = "trash-confirm";
+        root.promptText = root.activePane.selected.name;
     }
 
     Component {
@@ -200,14 +217,41 @@ Scope {
                     }
                 }
 
+                Text {
+                    text: "Trash"
+                    color: Theme.red
+                    font.family: Theme.fontUi
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: root.trashSelected()
+                    }
+                }
+
                 TextInput {
                     Layout.preferredWidth: 200
-                    visible: root.promptMode !== ""
+                    visible: root.promptMode === "rename" || root.promptMode === "mkdir"
                     text: root.promptText
                     color: Theme.fg
                     font.family: Theme.fontUi
 
                     onTextChanged: root.promptText = text
+                    onVisibleChanged: if (visible) forceActiveFocus()
+
+                    Keys.onReturnPressed: root.confirmPrompt()
+                    Keys.onEscapePressed: root.cancelPrompt()
+                }
+
+                // Trash needs no free-text entry, only a yes/no, so it gets
+                // its own label rather than sharing the TextInput above —
+                // that field's own text is bound to promptText and would let
+                // the confirm turn into an accidental rename.
+                Text {
+                    visible: root.promptMode === "trash-confirm"
+                    text: "Trash \"" + root.promptText + "\"? Enter / Esc"
+                    color: Theme.red
+                    font.family: Theme.fontUi
+
                     onVisibleChanged: if (visible) forceActiveFocus()
 
                     Keys.onReturnPressed: root.confirmPrompt()
