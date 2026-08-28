@@ -1,14 +1,15 @@
-// The file manager's outer shell: one FloatingWindow around one Pane. The
-// second Pane and the Sidebar's write operations arrive in later plans;
-// Sidebar itself (Task 3) is the next task in this one.
+// The file manager's outer shell: one FloatingWindow holding a Sidebar and
+// a Pane side by side in a RowLayout. A second Pane for dual-pane browsing
+// arrives in a later plan.
 //
 // Devices.requestOpen(path) is the single way anything outside this file
-// tells it where to go: the launcher's device rows (Plan 0), the
-// launcher's directory hits and this window's own Sidebar (both later in
-// this plan) all call it, and this Connections block is the only listener.
+// tells it where to go: this window's own Sidebar calls it, the launcher's
+// directory hits will too once a later task in this plan wires them up,
+// and this Connections block is the only listener.
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import "../services"
@@ -67,11 +68,22 @@ Scope {
         implicitWidth: 900
         implicitHeight: 600
 
-        Pane {
+        RowLayout {
             anchors.fill: parent
+            spacing: 0
 
-            path: root.path
-            onNavigate: (path) => root.path = path
+            Sidebar {
+                Layout.fillHeight: true
+                Layout.preferredWidth: 200
+            }
+
+            Pane {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                path: root.path
+                onNavigate: (path) => root.path = path
+            }
         }
     }
 }
