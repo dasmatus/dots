@@ -47,7 +47,12 @@ Scope {
                     return;
 
                 const pick = files[Math.floor(Math.random() * files.length)];
-                root.picker.apply(pick, "*", "fill");
+                // record: false — a random rotation stamping over
+                // outputs.json on every trigger would mean Picker's `r`
+                // replays the rotation's latest guess instead of the
+                // user's own last deliberate pick, which is what
+                // "restore" is supposed to mean.
+                root.picker.apply(pick, "*", "fill", undefined, false);
             }
         }
     }

@@ -28,6 +28,9 @@
 // reloads a newly selected output's own mode/colour from it, and `r`
 // replays every output's own last-recorded wallpaper, rather than either
 // only ever seeing the live cycling state this session happened to be on.
+// Rotation.qml's hourly pick is the one apply() caller that opts out of
+// recording — restoring the rotation's latest random guess instead of
+// what the user last actually chose is not what `r` is for.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -76,8 +79,17 @@ Scope {
     // through the FileView's own adapter, rather than a local copy, keeps
     // cycleOutput()'s reload and restore()'s replay both looking at
     // whatever the last successful apply actually wrote.
+    //
+    // Wrapped in { entries: ... } rather than read as a bare array:
+    // JsonAdapter has no `root` — quickshell-io.qmltypes declares it (and
+    // its FileViewAdapter prototype) with not one property, only a
+    // declared property on the adapter instance itself gets populated
+    // from the file. outputStateFile.adapter.entries below is that
+    // property; this wraps it back into the { entries } shape
+    // mergeOutputState()/effectiveOutput()/restoreEntries() already take,
+    // so nothing downstream of this property needed to change.
     // qmllint disable unresolved-type
-    readonly property var outputRecords: outputStateFile.adapter.root ?? ({ entries: [] })
+    readonly property var outputRecords: ({ entries: outputStateFile.adapter.entries })
     // qmllint enable unresolved-type
 
     // Chrome's own hint-footer shape (a list of { key, label }), wired
@@ -172,12 +184,21 @@ Scope {
     }
 
     // config.rs's cycle_output reloaded fill_mode/current_color through
-    // effective_output the moment the selection moved, rather than leaving
-    // whatever mode/colour the previous output happened to be on — an
-    // output nothing has ever been applied to reads back "fill"/
-    // DEFAULT_COLOR, effectiveOutput()'s own fallback.
+    // effective_output the moment the selection moved, but only ever had
+    // to fall back to "fill"/DEFAULT_COLOR when NOTHING — no state, no
+    // declarative config either — had an opinion on that output. This port
+    // has no declarative layer, so effectiveOutput()'s own fallback is the
+    // ONLY thing standing behind an output nothing has ever been applied
+    // to, and reloading unconditionally would silently overwrite whatever
+    // the user had just cycled m/c to with that fallback the moment they
+    // landed on such an output (or on "*", which never gets its own
+    // record — see recordOutputState()). hasOutputRecord() distinguishes
+    // "found, reload from it" from "nothing recorded, leave the live
+    // cycling state alone".
     function cycleOutput(): void {
         root.output = PickerLogic.cycleOutput(root.output, root.outputNames);
+        if (!PickerLogic.hasOutputRecord(root.outputRecords, root.output))
+            return;
 
         const effective = PickerLogic.effectiveOutput(root.outputRecords, root.output);
         root.mode = effective.mode;
@@ -236,14 +257,18 @@ Scope {
     property var pendingTriple: null
 
     // Queued awww invocations, and whether one is currently in flight.
-    // `applyBusy` is set and cleared entirely by pumpApplyQueue()/onExited
-    // below — never read back off awwwProc.running — because nothing here
-    // can confirm Quickshell 0.3.0 clears `running` before `exited` fires
-    // rather than after; a pump gated on that ordering would be either
-    // correct or permanently stalled depending on an assumption nobody
-    // could check. awww itself has no argv for "these N outputs, each with
-    // its own path", so restore()'s per-output loop still needs the queue
-    // regardless.
+    // `pumpApplyQueue()`'s own decision to start the next entry is gated
+    // entirely on this flag, never on awwwProc.running directly — nothing
+    // here can confirm Quickshell 0.3.0 clears `running` before `exited`
+    // fires rather than after, so a pump gated on that ordering would be
+    // either correct or permanently stalled depending on an assumption
+    // nobody could check. `applyBusy` is set by pumpApplyQueue() itself
+    // and cleared from two places on awwwProc below — onExited for a
+    // normal completion, and onRunningChanged as a fallback for a process
+    // that never started at all, which never fires onExited — see that
+    // Process's own comments for why. awww itself has no argv for "these
+    // N outputs, each with its own path", so restore()'s per-output loop
+    // still needs the queue regardless.
     property var pendingQueue: []
     property bool applyBusy: false
     property var activeApply: null
@@ -261,8 +286,15 @@ Scope {
     // found by actually running the built command rather than trusting
     // awww.rs's own convention, which named "*" a level up, in random_wp.nix,
     // not in the CLI it shells out to.
-    function apply(path, output, mode, fillColor = PickerLogic.DEFAULT_COLOR) {
-        root.enqueueApply(path, output, mode, fillColor, true);
+    // `record` is false only for Rotation.qml's own hourly pick: outputs.json
+    // is meant to answer "what did the user last deliberately choose",
+    // and a random rotation stamping over that on every shell start would
+    // mean `r` replays the rotation's latest guess instead of the pick it
+    // is actually supposed to restore. Every other caller — a grid click,
+    // Enter, the IPC entry point, restore() itself replaying an existing
+    // record — leaves it at the default.
+    function apply(path, output, mode, fillColor = PickerLogic.DEFAULT_COLOR, record = true) {
+        root.enqueueApply(path, output, mode, fillColor, true, record);
     }
 
     // r: every output that has ever had a wallpaper applied to it by name
@@ -274,13 +306,16 @@ Scope {
     function restore() {
         const entries = PickerLogic.restoreEntries(root.outputRecords, root.outputNames);
         for (let i = 0; i < entries.length; i++)
-            root.enqueueApply(entries[i].path, entries[i].name, entries[i].mode, entries[i].fillColor, i === 0);
+            root.enqueueApply(entries[i].path, entries[i].name, entries[i].mode, entries[i].fillColor, i === 0, true);
     }
 
     // `tint` marks the one queue entry, out of a possibly-multi-output
     // restore() batch, allowed to feed the accent extraction Canvas below.
-    function enqueueApply(path, output, mode, fillColor, tint) {
-        root.pendingQueue.push({ path, output, mode, fillColor, tint });
+    // `record` marks whether a successful run should be written back to
+    // outputRecords at all — see apply()'s own comment for why Rotation's
+    // entries carry false.
+    function enqueueApply(path, output, mode, fillColor, tint, record) {
+        root.pendingQueue.push({ path, output, mode, fillColor, tint, record });
         root.pumpApplyQueue();
     }
 
@@ -345,12 +380,43 @@ Scope {
         path: Theme.tintStateDir + "/outputs.json"
         watchChanges: true
         onFileChanged: reload()
-        adapter: JsonAdapter {}
+
+        // A bare `JsonAdapter {}` has nothing for the parsed JSON to land
+        // on — this declared property is what actually gets populated
+        // from the file's top-level "entries" key; see outputRecords'
+        // own comment above for why a plain `.adapter.root` read never
+        // worked here at all.
+        adapter: JsonAdapter {
+            property var entries: []
+        }
     }
     // qmllint enable unresolved-type
 
     Process {
         id: awwwProc
+
+        // Quickshell 0.3.0 does not emit exited when the binary itself
+        // cannot be found (an `awww` missing from PATH logs "Process
+        // failed to start" and only ever drops `running`) — confirmed by
+        // running it. applyBusy cleared solely in onExited would then
+        // latch true forever, queuing every future apply behind a
+        // process that already failed and is never coming back.
+        //
+        // This does not also call pumpApplyQueue(): onExited is still the
+        // only place that does, since it alone knows whether this run
+        // actually reached the point of having an exit code to check —
+        // calling pumpApplyQueue() from here too could start the next
+        // queued entry (reassigning activeApply) before a still-pending
+        // onExited for THIS entry has run, corrupting which entry that
+        // handler ends up recording/tinting. A start-failure's own
+        // queue therefore only resumes on the next independent apply
+        // (a click, Enter, r, Rotation, IPC) rather than draining
+        // immediately — acceptable, since a missing binary fails every
+        // later attempt identically, and none of them stay stuck.
+        onRunningChanged: {
+            if (!awwwProc.running)
+                root.applyBusy = false;
+        }
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
@@ -363,7 +429,8 @@ Scope {
             // it or re-tinting from it would just make the state file and
             // the bar both lie about what is actually behind it.
             if (exitCode === 0 && entry) {
-                root.recordOutputState(entry);
+                if (entry.record)
+                    root.recordOutputState(entry);
                 if (entry.tint)
                     sizer.source = PreviewMath.fileUrl(entry.path);
             }

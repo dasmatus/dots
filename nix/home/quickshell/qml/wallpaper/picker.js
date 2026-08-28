@@ -106,6 +106,18 @@ function effectiveOutput(outputState, name) {
     };
 }
 
+// Whether `name` has a record at all — effectiveOutput()'s own fallback
+// triple cannot answer this, since a real record of exactly fill/
+// DEFAULT_COLOR is indistinguishable from no record once both have gone
+// through the same fallback. cycleOutput() needs the distinction: landing
+// on an output nothing has ever been applied to must leave the user's
+// live mode/colour cycling alone rather than stomping it with a fallback
+// that was never actually chosen for that output.
+function hasOutputRecord(outputState, name) {
+    const entries = (outputState && outputState.entries) || [];
+    return entries.some(e => e.name === name);
+}
+
 // app.rs's restore(): every output that has ever had a wallpaper applied
 // gets its OWN stored path/mode/fillColor back, in `outputNames`' order —
 // not the current grid selection replayed onto everything. An output with

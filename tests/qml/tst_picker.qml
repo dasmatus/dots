@@ -175,6 +175,23 @@ TestCase {
         compare(effective.fillColor, row.expected.fillColor);
     }
 
+    // effectiveOutput() alone cannot tell "recorded exactly the fallback
+    // values" from "never recorded at all" — hasOutputRecord() is what
+    // cycleOutput() actually gates on before overwriting the user's live
+    // mode/colour cycling.
+    function test_hasOutputRecord_data() {
+        return [
+            { tag: "no state file yet", outputState: null, name: "DP-1", expected: false },
+            { tag: "an empty entries list", outputState: { entries: [] }, name: "DP-1", expected: false },
+            { tag: "a differently named entry only", outputState: { entries: [{ name: "DP-2", path: "/a.png", mode: "fill", fillColor: "#d2a1a1" }] }, name: "DP-1", expected: false },
+            { tag: "a matching entry", outputState: { entries: [{ name: "DP-1", path: "/a.png", mode: "fill", fillColor: "#d2a1a1" }] }, name: "DP-1", expected: true }
+        ];
+    }
+
+    function test_hasOutputRecord(row) {
+        compare(PickerLogic.hasOutputRecord(row.outputState, row.name), row.expected);
+    }
+
     function test_restoreEntries_only_replays_outputs_with_a_recorded_path() {
         const outputState = {
             entries: [
