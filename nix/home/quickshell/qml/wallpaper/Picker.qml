@@ -21,6 +21,13 @@
 // back here, in picker.js and the key handling below. The TUI's `p` (toggle
 // preview) does not: this grid already renders real thumbnails, which is
 // exactly what `p` existed to fake on a terminal that cannot show an image.
+//
+// A successful apply also records which path/mode/fillColor just went to
+// which output(s), in outputs.json next to Theme.tintStatePath's own
+// current.json — this port's stand-in for config.rs's state.json. `o`
+// reloads a newly selected output's own mode/colour from it, and `r`
+// replays every output's own last-recorded wallpaper, rather than either
+// only ever seeing the live cycling state this session happened to be on.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -55,11 +62,23 @@ Scope {
     property string output: "*"
     property string fillColor: PickerLogic.DEFAULT_COLOR
 
-    // "Declared" outputs, for cycleOutput() and restore(): every screen
-    // Quickshell currently knows about, not a config-file list — this port
-    // carries no per-output state.json equivalent, so "declared" can only
-    // mean "connected right now".
+    // Every screen Quickshell currently knows about — cycleOutput()'s own
+    // list, and restore()'s notion of which outputs are worth asking
+    // outputRecords about at all.
     readonly property var outputNames: Quickshell.screens.map(s => s.name)
+
+    // Persisted per-output state — path/mode/fillColor last successfully
+    // applied to each output by name — under the same directory
+    // Theme.tintStatePath already lives in. This is the state.json
+    // config.rs's effective_output and awww.rs's restore_groups read from;
+    // this port carries no declarative config.outputs layer, only this
+    // runtime half. recordOutputState() below is the only writer; reading
+    // through the FileView's own adapter, rather than a local copy, keeps
+    // cycleOutput()'s reload and restore()'s replay both looking at
+    // whatever the last successful apply actually wrote.
+    // qmllint disable unresolved-type
+    readonly property var outputRecords: outputStateFile.adapter.root ?? ({ entries: [] })
+    // qmllint enable unresolved-type
 
     // Chrome's own hint-footer shape (a list of { key, label }), wired
     // straight into the Chrome instance below rather than hand-rolled.
@@ -99,6 +118,12 @@ Scope {
 
     function close(): void {
         window.visible = false;
+
+        // Entries queued by a restore() the user never waited out
+        // otherwise keep firing after the picker is gone — awww has
+        // already committed to whichever apply is actually in flight, but
+        // nothing queued behind it needs to run once nobody is looking.
+        root.pendingQueue = [];
     }
 
     function toggle(): void {
@@ -146,8 +171,17 @@ Scope {
         root.fillColor = PickerLogic.cycleColor(root.fillColor);
     }
 
+    // config.rs's cycle_output reloaded fill_mode/current_color through
+    // effective_output the moment the selection moved, rather than leaving
+    // whatever mode/colour the previous output happened to be on — an
+    // output nothing has ever been applied to reads back "fill"/
+    // DEFAULT_COLOR, effectiveOutput()'s own fallback.
     function cycleOutput(): void {
         root.output = PickerLogic.cycleOutput(root.output, root.outputNames);
+
+        const effective = PickerLogic.effectiveOutput(root.outputRecords, root.output);
+        root.mode = effective.mode;
+        root.fillColor = effective.fillColor;
     }
 
     // -e is case-insensitive in fd, so a stray .JPG is still found. "." is
@@ -201,13 +235,19 @@ Scope {
 
     property var pendingTriple: null
 
-    // One awww invocation in flight at a time, everything else queued: awww
-    // itself has no argv for "these N outputs, each with its own path", and
-    // Quickshell's Process ignores a command/running write that lands while
-    // it is still running its previous one — restore()'s per-output loop
-    // would silently drop every entry after the first without this.
+    // Queued awww invocations, and whether one is currently in flight.
+    // `applyBusy` is set and cleared entirely by pumpApplyQueue()/onExited
+    // below — never read back off awwwProc.running — because nothing here
+    // can confirm Quickshell 0.3.0 clears `running` before `exited` fires
+    // rather than after; a pump gated on that ordering would be either
+    // correct or permanently stalled depending on an assumption nobody
+    // could check. awww itself has no argv for "these N outputs, each with
+    // its own path", so restore()'s per-output loop still needs the queue
+    // regardless.
     property var pendingQueue: []
+    property bool applyBusy: false
     property var activeApply: null
+    property var pendingOutputState: null
 
     // output/mode/fillColor default to "*"/"fill"/DEFAULT_COLOR (every
     // output, cropped to fill, the palette's own default swatch) —
@@ -225,23 +265,16 @@ Scope {
         root.enqueueApply(path, output, mode, fillColor, true);
     }
 
-    // r: every declared output gets the currently selected wallpaper, in
-    // the live mode/colour — app.rs's own restore(), minus the per-output
-    // state.json this port never gained. `tint: i === 0` is the QML side of
-    // "tinting from the first": the accent palette is global, so re-running
+    // r: every output that has ever had a wallpaper applied to it by name
+    // gets its OWN recorded path/mode/fillColor back — app.rs's own
+    // restore(), now that outputRecords gives this port the state.json
+    // half it was missing. `tint: i === 0` is the QML side of "tinting
+    // from the first": the accent palette is global, so re-running
     // extraction once per output would just redo the same work N times.
     function restore() {
-        if (root.selected < 0 || root.selected >= root.files.length)
-            return;
-
-        const path = root.files[root.selected];
-        const names = root.outputNames;
-        if (names.length === 0) {
-            root.enqueueApply(path, "*", root.mode, root.fillColor, true);
-            return;
-        }
-        for (let i = 0; i < names.length; i++)
-            root.enqueueApply(path, names[i], root.mode, root.fillColor, i === 0);
+        const entries = PickerLogic.restoreEntries(root.outputRecords, root.outputNames);
+        for (let i = 0; i < entries.length; i++)
+            root.enqueueApply(entries[i].path, entries[i].name, entries[i].mode, entries[i].fillColor, i === 0);
     }
 
     // `tint` marks the one queue entry, out of a possibly-multi-output
@@ -252,14 +285,22 @@ Scope {
     }
 
     function pumpApplyQueue() {
-        if (awwwProc.running || root.pendingQueue.length === 0)
+        const decision = PickerLogic.nextApply(root.applyBusy, root.pendingQueue);
+        root.pendingQueue = decision.queue;
+        if (!decision.entry)
             return;
 
-        const entry = root.pendingQueue.shift();
-        root.activeApply = entry;
-
+        const entry = decision.entry;
         const targetOutput = entry.output && entry.output.length > 0 ? entry.output : "*";
         const targetMode = awwwResizeMode(entry.mode && entry.mode.length > 0 ? entry.mode : "fill");
+
+        // Resolved to concrete output names now, before either awww or
+        // outputRecords ever sees this entry: a "*" apply is, from the
+        // record's point of view, the same event as applying to every
+        // currently connected output one at a time.
+        entry.recordOutputs = targetOutput === "*" ? root.outputNames : [targetOutput];
+        root.activeApply = entry;
+        root.applyBusy = true;
 
         const args = ["awww", "img", entry.path];
         if (targetOutput !== "*")
@@ -270,19 +311,62 @@ Scope {
         awwwProc.running = true;
     }
 
+    // Folds `entry`'s path/mode/fillColor into every output name it
+    // resolved to, then writes the merged record back — mkdir first,
+    // same as applyAccent()'s own stateDir/stateWriter pair below, since
+    // outputs.json lives in that same not-yet-guaranteed-to-exist
+    // directory and is otherwise a completely independent write.
+    function recordOutputState(entry) {
+        const records = entry.recordOutputs.map(name => ({
+            name: name,
+            path: entry.path,
+            mode: entry.mode,
+            fillColor: entry.fillColor
+        }));
+        root.pendingOutputState = PickerLogic.mergeOutputState(root.outputRecords, records);
+        outputStateDir.command = ["mkdir", "-p", Theme.tintStateDir];
+        outputStateDir.running = true;
+    }
+
+    Process {
+        id: outputStateDir
+
+        // qmllint disable signal-handler-parameters
+        onExited: (exitCode, exitStatus) => {
+            outputStateFile.setText(JSON.stringify(root.pendingOutputState));
+        }
+        // qmllint enable signal-handler-parameters
+    }
+
+    // qmllint disable unresolved-type
+    FileView {
+        id: outputStateFile
+
+        path: Theme.tintStateDir + "/outputs.json"
+        watchChanges: true
+        onFileChanged: reload()
+        adapter: JsonAdapter {}
+    }
+    // qmllint enable unresolved-type
+
     Process {
         id: awwwProc
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
+            root.applyBusy = false;
+
             const entry = root.activeApply;
             root.activeApply = null;
 
-            // A failed apply leaves the old wallpaper on screen; re-tinting
-            // for an image that never actually got applied would just make
-            // the bar lie about what is behind it.
-            if (exitCode === 0 && entry && entry.tint)
-                sizer.source = PreviewMath.fileUrl(entry.path);
+            // A failed apply leaves the old wallpaper on screen; recording
+            // it or re-tinting from it would just make the state file and
+            // the bar both lie about what is actually behind it.
+            if (exitCode === 0 && entry) {
+                root.recordOutputState(entry);
+                if (entry.tint)
+                    sizer.source = PreviewMath.fileUrl(entry.path);
+            }
 
             root.pumpApplyQueue();
         }
