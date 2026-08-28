@@ -1,6 +1,6 @@
 ---
 name: systems-dev
-description: Use when starting or reviewing any compiled or systems code task, before picking a language for new work, before touching an existing C or C++ codebase, or when a task spans more than one of Rust, C++ and C.
+description: Use when a compiled task spans more than one of Rust, C++ and C, or when new systems work still needs its language picked, or when writing FFI bindings across that boundary. Routes and selects; cpp-dev owns C/C++ source, rust-dev owns Rust.
 model: sonnet
 skills: ["dots-skills:writing-good-code", "dots-skills:c-compiler-preference"]
 ---
