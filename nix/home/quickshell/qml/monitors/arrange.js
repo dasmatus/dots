@@ -102,8 +102,8 @@ function snappedPosition(rect, others, threshold) {
 const SETTABLE_FIELDS = ["resolution", "position", "scale", "transform", "vrr"];
 
 // A field counts as set by the form when it is neither absent nor an empty
-// string. 0 and other falsy-but-real values (transform 0, the not-yet-typed
-// case aside) must still count as set, which is why this isn't a plain
+// string. 0 must still count as set (transform 0 is a real, meaningful
+// value, not "the form left this blank"), which is why this isn't a plain
 // truthiness check — applyOverrides in plan.js already relies on the same
 // distinction the other direction, testing each field with `!= null`.
 function isSet(value) {
@@ -116,7 +116,10 @@ function isSet(value) {
 
 // Text -> number for the scale/transform fields, or undefined for blank or
 // unparseable text. undefined rather than NaN or 0 so isSet() above treats
-// an untouched field as absent instead of writing a bogus 0.
+// an untouched field as absent instead of writing a bogus 0. Number.isFinite
+// rather than Number.isNaN: a bare Number.isNaN check lets "Infinity" and
+// "-Infinity" through as real values, and JSON.stringify renders either as
+// `null` — the exact thing this function exists to keep out of an entry.
 function numberField(text) {
     if (text === undefined || text === null)
         return undefined;
@@ -124,13 +127,40 @@ function numberField(text) {
     if (trimmed.length === 0)
         return undefined;
     const n = Number(trimmed);
-    return Number.isNaN(n) ? undefined : n;
+    return Number.isFinite(n) ? n : undefined;
 }
 
-// numberField, truncated to an integer — the transform field's own type.
+// numberField, truncated to an integer — used as-is for a generic integer
+// field; transform's own narrower 0-7 range is enforced by parseTransform
+// below, not here.
 function integerField(text) {
     const n = numberField(text);
     return n === undefined ? undefined : Math.trunc(n);
+}
+
+// The vrr enum overrides.json allows, exactly. Anything else — a typo like
+// "on", a stray label copy-pasted in, blank text — becomes undefined rather
+// than a value written raw: overrides.rs's own parse_vrr had the same
+// contract, an unparseable vrr silently drops just that field instead of
+// failing the whole save. Without this check, plan.js's own vrrToken would
+// treat an unrecognised string as "off" with no explicit token, so a typo'd
+// override would sit in the file looking correct while quietly never taking
+// effect.
+const VRR_VALUES = ["off", "left", "right", "auto"];
+
+function parseVrr(text) {
+    const trimmed = (text || "").trim();
+    return VRR_VALUES.includes(trimmed) ? trimmed : undefined;
+}
+
+// Transform, restricted to Hyprland's own 0-7 range — overrides.rs's own
+// s.parse::<u8>().ok() plus this schema's tighter bound (u8 alone would
+// still let 200 through). An out-of-range value is worth dropping rather
+// than forwarding: Hyprland rejects a bad transform outright and takes the
+// whole monitor's config down with it, not just this one field.
+function parseTransform(text) {
+    const n = integerField(text);
+    return (n !== undefined && n >= 0 && n <= 7) ? n : undefined;
 }
 
 // Every currently-connected monitor's dragged position, merged over
@@ -145,6 +175,14 @@ function integerField(text) {
 // always present (rendered as "XxY" by toWorldPosition), the rest present
 // only when the form actually set them, already carrying the types
 // overrides.json wants (see numberField/integerField above).
+//
+// This one-way merge means a blank field can never clear a value an earlier
+// save already wrote — isSet() treats "" the same as "the form never
+// touched this", so an existing entry's field survives untouched rather
+// than being erased. That is deliberate (see isSet()'s own comment), but it
+// means the only way to actually remove a field, short of hand-editing the
+// JSON, is Arrange.qml's reset(), which drops the whole entry rather than
+// one field at a time.
 function mergedOverrides(existingRoot, items) {
     const byName = {};
     const existingEntries = (existingRoot && existingRoot.entries) || [];

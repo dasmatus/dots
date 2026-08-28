@@ -116,6 +116,18 @@ TestCase {
                 existingRoot: { entries: [{ name: "DP-1", resolution: "1920x1080@240", vrr: "left" }] },
                 items: [{ name: "DP-1", position: "1920x0", scale: 1.5 }],
                 expected: { entries: [{ name: "DP-1", resolution: "1920x1080@240", vrr: "left", position: "1920x0", scale: 1.5 }] }
+            },
+            {
+                // The live path: confirm() always sends vrr as a string,
+                // even for a monitor whose vrr field the user never typed
+                // into, so a blank string arriving alongside an existing
+                // "left" is exactly what a real save does, not a
+                // hypothetical only the null/undefined-only case above
+                // covers.
+                tag: "a blank vrr from the form does not clobber an existing override value",
+                existingRoot: { entries: [{ name: "DP-1", vrr: "left" }] },
+                items: [{ name: "DP-1", position: "0x0", vrr: "" }],
+                expected: { entries: [{ name: "DP-1", vrr: "left", position: "0x0" }] }
             }
         ];
     }
@@ -199,7 +211,13 @@ TestCase {
             { tag: "keeps a real zero", text: "0", expected: 0 },
             { tag: "blank text is undefined, not zero", text: "", expected: undefined },
             { tag: "whitespace-only text is undefined", text: "   ", expected: undefined },
-            { tag: "unparseable text is undefined", text: "abc", expected: undefined }
+            { tag: "unparseable text is undefined", text: "abc", expected: undefined },
+            // Number("Infinity") is a real, finite-looking JS number until
+            // it hits JSON.stringify, which renders it as `null` — the
+            // exact null isSet()/mergedOverrides exist to keep out of a
+            // saved entry.
+            { tag: "Infinity is undefined, not a value JSON would silently null out", text: "Infinity", expected: undefined },
+            { tag: "-Infinity is undefined for the same reason", text: "-Infinity", expected: undefined }
         ];
     }
 
@@ -217,5 +235,36 @@ TestCase {
 
     function test_integerField(row) {
         compare(ArrangeLogic.integerField(row.text), row.expected);
+    }
+
+    function test_parseVrr_data() {
+        return [
+            { tag: "accepts off", text: "off", expected: "off" },
+            { tag: "accepts left", text: "left", expected: "left" },
+            { tag: "accepts right", text: "right", expected: "right" },
+            { tag: "accepts auto", text: "auto", expected: "auto" },
+            { tag: "rejects a typo instead of writing it raw", text: "on", expected: undefined },
+            { tag: "rejects blank", text: "", expected: undefined },
+            { tag: "trims surrounding whitespace before matching", text: "  left  ", expected: "left" }
+        ];
+    }
+
+    function test_parseVrr(row) {
+        compare(ArrangeLogic.parseVrr(row.text), row.expected);
+    }
+
+    function test_parseTransform_data() {
+        return [
+            { tag: "accepts the low end of the range", text: "0", expected: 0 },
+            { tag: "accepts the high end of the range", text: "7", expected: 7 },
+            { tag: "rejects one above the range", text: "8", expected: undefined },
+            { tag: "rejects a negative value", text: "-1", expected: undefined },
+            { tag: "rejects blank", text: "", expected: undefined },
+            { tag: "rejects unparseable text", text: "abc", expected: undefined }
+        ];
+    }
+
+    function test_parseTransform(row) {
+        compare(ArrangeLogic.parseTransform(row.text), row.expected);
     }
 }

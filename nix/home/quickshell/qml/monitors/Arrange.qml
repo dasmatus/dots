@@ -43,10 +43,11 @@ Scope {
     readonly property real canvasWidth: 720
     readonly property real canvasHeight: 420
 
-    // The edit form column's width — named rather than read back off
-    // formColumn.width, which would make Chrome's own width a binding loop
-    // (Chrome's width feeding the RowLayout that determines formColumn's
-    // width, which would be feeding back into Chrome's width).
+    // The edit form column's width — named rather than read back off the
+    // ColumnLayout's own resolved width, which would make Chrome's own
+    // width a binding loop (Chrome's width feeding the RowLayout that
+    // determines the form column's width, which would be feeding back into
+    // Chrome's width).
     readonly property real formWidth: 220
 
     // The RowLayout's own spacing between the canvas and the form column —
@@ -81,6 +82,33 @@ Scope {
     // instead of relying on one to keep re-syncing the other.
     property string selectedName: ""
 
+    // Keyed by monitor name: whatever the four optional fields held the
+    // last time this session moved away from that monitor. Without this, a
+    // click on a second rectangle silently discards whatever the first
+    // monitor's fields held — confirm() only ever read the currently
+    // selected monitor's Fields, and loadFormFor() overwrites them on every
+    // selection change, so an edit made and then abandoned by a click
+    // elsewhere was gone before Enter ever ran. flushSelectedIntoPending()
+    // is what populates this; confirm() reads it for every monitor, not
+    // only the one currently selected.
+    property var pendingEdits: ({})
+
+    // The value Hyprland is reporting right now for the selected monitor's
+    // resolution/scale/transform — shown as PLACEHOLDER text on an empty
+    // field (see loadFormFor()), never written into the field's real text,
+    // so a blind Enter can never promote it into a standing override. Read
+    // live rather than from monitorsSnapshot on purpose: unlike the
+    // snapshot (frozen so the canvas doesn't fight a drag), these three
+    // don't drive canvas geometry, so there's nothing for a live read to
+    // fight. vrr has no equivalent: Hyprland's own monitor JSON reports vrr
+    // as a plain on/off boolean, which cannot be mapped back to this
+    // schema's off/left/right/auto without guessing which "on" submode is
+    // active, so its placeholder stays the legal-values hint on the label
+    // instead (see the VRR Text below).
+    property string effectiveResolution: ""
+    property string effectiveScale: ""
+    property string effectiveTransform: ""
+
     readonly property var footerHints: [
         { key: "↑↓/jk", label: "Select" },
         { key: "Drag", label: "Reposition" },
@@ -104,6 +132,10 @@ Scope {
     function open(): void {
         root.refreshSnapshot();
         root.selectedName = "";
+        root.pendingEdits = {};
+        root.effectiveResolution = "";
+        root.effectiveScale = "";
+        root.effectiveTransform = "";
         resolutionField.text = "";
         positionField.text = "";
         scaleField.text = "";
@@ -170,30 +202,63 @@ Scope {
     }
 
     // qmllint disable unresolved-type
-    // Selecting a rectangle loads the form from whatever overrides.json
-    // already holds for that monitor, never from Hyprland's live-reported
-    // state: pre-filling a rule-derived default would mean an untouched
-    // Save silently promoting that rule's value into a standing override,
-    // which the surface's own job description forbids (overrides stay a
-    // separate document from the Nix-managed rules). Every field but
-    // position reads back as "" when the monitor has no override yet;
-    // position always has a real value, because a monitor always sits
-    // somewhere — it comes from the rectangle's own dragged position, not
-    // the override entry, so it stays in step with the canvas.
+    // Selecting a rectangle first banks the outgoing monitor's typed
+    // fields into pendingEdits (see that property's own comment), then
+    // loads the form for the newly selected one. The order matters: the
+    // Fields still hold the OUTGOING monitor's text at the moment this
+    // runs, so flushing has to happen before selectedName changes.
     function selectMonitor(name: string): void {
+        root.flushSelectedIntoPending();
         root.selectedName = name;
         root.loadFormFor(name);
     }
 
+    function flushSelectedIntoPending(): void {
+        if (!root.selectedName)
+            return;
+        root.pendingEdits[root.selectedName] = {
+            resolution: resolutionField.text,
+            scale: scaleField.text,
+            transform: transformField.text,
+            vrr: vrrField.text
+        };
+    }
+
+    // Priority per field: a pending edit from earlier this session (the
+    // most recent thing the user actually did) beats the override entry
+    // (an earlier save's chosen value) beats blank. Pre-filling from
+    // Hyprland's live-reported state was deliberately left out of both —
+    // that would mean an untouched Save silently promoting a rule-derived
+    // value into a standing override, which the surface's own job
+    // description forbids (overrides stay a separate document from the
+    // Nix-managed rules). The live value is still shown, just as
+    // refreshEffectiveValues()'s placeholder text rather than as the
+    // field's real text, so a blind Enter can never pick it up. Position
+    // reads neither map: it always comes from the rectangle's own dragged
+    // position, so it stays in step with the canvas regardless of either.
     function loadFormFor(name: string): void {
+        const pending = root.pendingEdits[name];
         const entries = (overridesFile.adapter.root && overridesFile.adapter.root.entries) || [];
         const entry = entries.find(e => e.name === name) || {};
         const rect = root.rectItems().find(item => item.monitorName === name);
-        resolutionField.text = entry.resolution != null ? String(entry.resolution) : "";
+        resolutionField.text = pending ? pending.resolution : (entry.resolution != null ? String(entry.resolution) : "");
+        scaleField.text = pending ? pending.scale : (entry.scale != null ? String(entry.scale) : "");
+        transformField.text = pending ? pending.transform : (entry.transform != null ? String(entry.transform) : "");
+        vrrField.text = pending ? pending.vrr : (entry.vrr != null ? String(entry.vrr) : "");
         positionField.text = rect ? ArrangeLogic.toWorldPosition(rect.x, rect.y, root.transform) : (entry.position != null ? String(entry.position) : "");
-        scaleField.text = entry.scale != null ? String(entry.scale) : "";
-        transformField.text = entry.transform != null ? String(entry.transform) : "";
-        vrrField.text = entry.vrr != null ? String(entry.vrr) : "";
+        root.refreshEffectiveValues(name);
+    }
+
+    // The three live-derived placeholder values — see effectiveResolution's
+    // own comment for what "live" means here and why vrr has no equivalent.
+    // lastIpcObject's shape is documented only as "last json returned for
+    // this monitor" with no schema, so transform's read is defensive (a
+    // plain typeof check) rather than assumed.
+    function refreshEffectiveValues(name: string): void {
+        const live = Hyprland.monitors.values.find(m => m.name === name);
+        root.effectiveResolution = live ? `${live.width}x${live.height}` : "";
+        root.effectiveScale = live ? String(live.scale) : "";
+        root.effectiveTransform = (live && live.lastIpcObject && typeof live.lastIpcObject.transform === "number") ? String(live.lastIpcObject.transform) : "";
     }
     // qmllint enable unresolved-type
 
@@ -218,21 +283,31 @@ Scope {
     // qmllint disable unresolved-type
     // Every rectangle's dragged position saves, unconditionally — the drag
     // canvas stays live for every monitor whether or not it is the selected
-    // one. Only the selected monitor's item also carries the other four form
-    // fields, which is what "alongside the dragged position" (not instead of
-    // it) means for confirm().
+    // one. Every monitor that has a pendingEdits entry (this session's
+    // selected one included — flushSelectedIntoPending() banks its current
+    // Field text first) also carries whichever of the other four fields it
+    // set, which is what "alongside the dragged position" (not instead of
+    // it) means for confirm(). Reading from pendingEdits rather than only
+    // the live Fields is what keeps a monitor's edits from being discarded
+    // by clicking a second rectangle before pressing Enter. scale/transform/
+    // vrr all go through arrange.js's own parsers rather than being written
+    // raw, so a typo drops just that field (becomes absent) instead of
+    // either corrupting the entry or reaching Hyprland as a value it
+    // rejects outright.
     function confirm(): void {
         root.applyPositionField(positionField.text);
+        root.flushSelectedIntoPending();
         const items = root.rectItems().map(item => {
             const entry = {
                 name: item.monitorName,
                 position: ArrangeLogic.toWorldPosition(item.x, item.y, root.transform)
             };
-            if (item.monitorName === root.selectedName) {
-                entry.resolution = resolutionField.text;
-                entry.scale = ArrangeLogic.numberField(scaleField.text);
-                entry.transform = ArrangeLogic.integerField(transformField.text);
-                entry.vrr = vrrField.text;
+            const pending = root.pendingEdits[item.monitorName];
+            if (pending) {
+                entry.resolution = pending.resolution;
+                entry.scale = ArrangeLogic.numberField(pending.scale);
+                entry.transform = ArrangeLogic.parseTransform(pending.transform);
+                entry.vrr = ArrangeLogic.parseVrr(pending.vrr);
             }
             return entry;
         });
@@ -245,17 +320,30 @@ Scope {
     // overrides.json outright, rather than only clearing the form the way
     // the crate's own Ctrl+R did — this surface has no separate Ctrl+S, so
     // an immediate, self-contained un-override is the equivalent that does
-    // not need a second keystroke to actually take effect. The window stays
-    // open and the form reloads to reflect the now-absent entry, matching
-    // Enter and Esc's own "the window makes the change, you decide when to
-    // leave" pattern.
+    // not need a second keystroke to actually take effect. Also drops any
+    // pendingEdits for this monitor — Ctrl+R means "forget this monitor's
+    // configuration", which should include whatever was typed and not yet
+    // saved, not just what was already on disk.
+    //
+    // The four optional fields are set to "" directly here rather than by
+    // calling loadFormFor() (which would re-read overridesFile.adapter.root)
+    // — Quickshell's own FileView docs do not say whether the adapter
+    // reparses synchronously with setText() or on a later tick, and this
+    // monitor's entry is gone by construction (filtered out of `entries`
+    // right above), so there is nothing to read back that isn't already
+    // known here.
     function reset(): void {
         if (!root.selectedName)
             return;
+        delete root.pendingEdits[root.selectedName];
         const existing = overridesFile.adapter.root;
         const entries = ((existing && existing.entries) || []).filter(e => e.name !== root.selectedName);
         overridesFile.setText(JSON.stringify({ entries: entries }));
-        root.loadFormFor(root.selectedName);
+        resolutionField.text = "";
+        scaleField.text = "";
+        transformField.text = "";
+        vrrField.text = "";
+        root.refreshEffectiveValues(root.selectedName);
     }
     // qmllint enable unresolved-type
 
@@ -466,8 +554,6 @@ Scope {
                 }
 
                 ColumnLayout {
-                    id: formColumn
-
                     Layout.preferredWidth: root.formWidth
                     Layout.fillHeight: true
 
@@ -519,13 +605,41 @@ Scope {
                         font.pointSize: 9
                     }
 
-                    Field {
-                        id: resolutionField
-
+                    // Each optional field sits under an Item the same size
+                    // as the Field, with a second Text layered on top —
+                    // painted after the Field in this Item's own child
+                    // list, so it draws over it — showing the live value as
+                    // a placeholder exactly while the field is empty. A
+                    // plain Text has no mouse handling of its own, so a
+                    // click still reaches the Field underneath and starts
+                    // typing normally.
+                    Item {
                         Layout.fillWidth: true
+                        Layout.preferredHeight: resolutionField.implicitHeight
 
-                        onAccepted: root.confirm()
-                        onEscaped: root.close()
+                        Field {
+                            id: resolutionField
+
+                            anchors.fill: parent
+
+                            onAccepted: root.confirm()
+                            onEscaped: root.close()
+                        }
+
+                        Text {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+
+                            visible: resolutionField.text.length === 0
+                            text: root.effectiveResolution
+                            color: Theme.muted
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+
+                            font.family: Theme.fontMono
+                            font.pixelSize: Theme.fontSize
+                        }
                     }
 
                     Text {
@@ -556,34 +670,79 @@ Scope {
                         font.pointSize: 9
                     }
 
-                    Field {
-                        id: scaleField
-
+                    Item {
                         Layout.fillWidth: true
+                        Layout.preferredHeight: scaleField.implicitHeight
 
-                        onAccepted: root.confirm()
-                        onEscaped: root.close()
+                        Field {
+                            id: scaleField
+
+                            anchors.fill: parent
+
+                            onAccepted: root.confirm()
+                            onEscaped: root.close()
+                        }
+
+                        Text {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+
+                            visible: scaleField.text.length === 0
+                            text: root.effectiveScale
+                            color: Theme.muted
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+
+                            font.family: Theme.fontMono
+                            font.pixelSize: Theme.fontSize
+                        }
                     }
 
+                    // The legal-values hint lives on the label rather than
+                    // as placeholder text: the placeholder slot on these
+                    // two fields is reserved for the live effective value
+                    // (transform) or is empty because there is no honest
+                    // one to show (vrr — see effectiveResolution's comment).
                     Text {
-                        text: "Transform"
+                        text: "Transform (0-7)"
                         color: Theme.muted
 
                         font.family: Theme.fontUi
                         font.pointSize: 9
                     }
 
-                    Field {
-                        id: transformField
-
+                    Item {
                         Layout.fillWidth: true
+                        Layout.preferredHeight: transformField.implicitHeight
 
-                        onAccepted: root.confirm()
-                        onEscaped: root.close()
+                        Field {
+                            id: transformField
+
+                            anchors.fill: parent
+
+                            onAccepted: root.confirm()
+                            onEscaped: root.close()
+                        }
+
+                        Text {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+
+                            visible: transformField.text.length === 0
+                            text: root.effectiveTransform
+                            color: Theme.muted
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+
+                            font.family: Theme.fontMono
+                            font.pixelSize: Theme.fontSize
+                        }
                     }
 
                     Text {
-                        text: "VRR"
+                        text: "VRR (off|left|right|auto)"
                         color: Theme.muted
 
                         font.family: Theme.fontUi
@@ -601,6 +760,32 @@ Scope {
 
                     Item {
                         Layout.fillHeight: true
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 32
+
+                        radius: 8
+                        color: Theme.accent
+
+                        Text {
+                            anchors.centerIn: parent
+
+                            text: "Save"
+                            color: Theme.bg
+
+                            font.family: Theme.fontUi
+                            font.pointSize: 10
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.confirm()
+                        }
                     }
                 }
             }
