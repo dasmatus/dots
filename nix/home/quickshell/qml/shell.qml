@@ -9,9 +9,9 @@
 // focused monitor, rather than one per screen. Two monitors showing the same
 // notification is a duplicate, not a feature.
 //
-// The launcher, cheatsheet, settings form, wallpaper picker and monitor
-// arrange surface are single instances too: only one can be open, and it
-// belongs where you are looking.
+// The launcher, cheatsheet, settings form, wallpaper picker, monitor
+// arrange surface and file manager are single instances too: only one can
+// be open, and it belongs where you are looking.
 //
 // Rotation has no window of its own; it holds a reference to the one
 // Picker instance so its hourly random pick can drive the same apply() a
@@ -25,6 +25,7 @@
 import Quickshell
 import "bar"
 import "cheatsheet"
+import "files"
 import "launcher"
 import "monitors"
 import "notifications"
@@ -48,6 +49,8 @@ ShellRoot {
     Cheatsheet {}
 
     Settings {}
+
+    Files {}
 
     Picker {
         id: picker
