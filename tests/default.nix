@@ -16,6 +16,17 @@
   inputs,
 }:
 let
+  # session-units — eval-only, costs nothing (no VM, no build): a standalone
+  # home-manager evaluation checked with five `assert`s. Everything else in
+  # this file is a heavy `pkgs.testers.runNixOSTest`; this one is here so
+  # that contrast is visible at the call site rather than buried next to
+  # `iso-boot`. See tests/session-units.nix for what it guards.
+  sessionUnitsTest = import ./session-units.nix {
+    inherit pkgs lib inputs;
+    hyprmon = dotsFlake.packages.${pkgs.system}.hyprmon;
+    wallpaperTui = dotsFlake.packages.${pkgs.system}.wallpaper-tui;
+  };
+
   # Precomputed `mkpasswd -m yescrypt --stdin` of the literal "test" — the same
   # path the installer's WriteSecrets step uses (rust/installer-tui/src/install.rs).
   # Hardcoded (not generated) so the test is pure and reproducible; a $y$ hash
@@ -609,6 +620,8 @@ let
   };
 in
 {
+  # Eval-only — no VM, no build. See the comment on sessionUnitsTest above.
+  session-units = sessionUnitsTest;
   iso-boot = isoBootTest;
   userborn-reboot-login = userbornRebootLogin;
   limine-install-boot = limineInstallBootTest;

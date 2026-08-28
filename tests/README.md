@@ -8,6 +8,7 @@ swtpm — no libvirt, no host packages, no root. Defined in
 
 | Check | What it proves |
 |-------|----------------|
+| `session-units` | eval-only, no VM, no build (see [`session-units.nix`](session-units.nix)): a standalone home-manager evaluation of the Hyprland/session refactor (`nix/home/session/actions.nix`, `nix/home/session/default.nix`, `nix/home/hyprland.nix`) never produces a relative `ExecStart`, gives every `app`/`action` bind a `dots-<name>@.service` template rather than a plain unit, strands no non-dispatch action without a unit or a `dots.session.commands` entry, keeps the rendered `hyprland.lua` free of any command line that isn't a `systemctl` call (and free of the old `hyprland.start` exec-once hook), and keeps the eight portable session variables separate from the two the Hyprland module owns |
 | `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the `dots-installer` TUI reaches tty1 — `DOTS_TUI_READY` on the serial console |
 | `userborn-reboot-login` | under userborn + mutable `/etc` (with `passwordFilesLocation` pinned to `/var/lib/nixos`), the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
 | `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting the TPM2-unlocked LUKS root reaches `multi-user.target` — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
