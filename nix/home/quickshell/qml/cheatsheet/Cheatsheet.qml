@@ -28,12 +28,18 @@ Scope {
 
     readonly property var focusedScreen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? null
 
+    // JsonAdapter has no `root` property on this Quickshell build — reading a
+    // bare `root` off it is silently always undefined, which is why SUPER+/
+    // used to render an empty sheet. Only a property DECLARED on the adapter
+    // instance gets populated from the file; `groups` below is that property.
     // qmllint disable unresolved-type
-    readonly property var groups: keybindsFile.adapter.root?.groups ?? []
+    readonly property var groups: keybindsFile.adapter.groups
 
     property var keybindsFile: FileView {
         path: `${Quickshell.shellDir}/cheatsheet/keybinds.json`
-        adapter: JsonAdapter {}
+        adapter: JsonAdapter {
+            property var groups: []
+        }
     }
     // qmllint enable unresolved-type
 

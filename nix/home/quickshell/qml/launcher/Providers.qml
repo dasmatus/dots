@@ -256,7 +256,7 @@ QtObject {
 
     function quicklinkRows(text: string): var {
         const rows = [];
-        const links = root.quicklinksFile.adapter.root?.items ?? [];
+        const links = root.quicklinksFile.adapter.items;
 
         for (const link of links) {
             if (!root.matches(link.name, text))
@@ -276,7 +276,7 @@ QtObject {
 
     function snippetRows(text: string): var {
         const rows = [];
-        const snippets = root.snippetsFile.adapter.root?.items ?? [];
+        const snippets = root.snippetsFile.adapter.items;
 
         for (const snippet of snippets) {
             if (!root.matches(snippet.name, text))
@@ -317,9 +317,14 @@ QtObject {
     }
 
     // Quickshell types FileView.adapter as FileViewAdapter without exporting
-    // that type, so the linter cannot resolve anything reached through it. The
-    // bindings work; only the linter is blind, so it is suppressed here rather
-    // than across the whole tree.
+    // that type, so the linter cannot resolve anything reached through it —
+    // the category is suppressed here for that reason, not because the
+    // bindings below ever read through it correctly on their own. JsonAdapter
+    // has no `root` property on this Quickshell build (quickshell-io.qmltypes
+    // declares zero properties on it); every optional-chained read off it
+    // below was silently `[]` forever. Only a property DECLARED on the
+    // adapter instance gets populated from the file, which is why each
+    // FileView below declares its own `items`.
     // qmllint disable unresolved-type
 
     // All three live inside the shell tree, which is a read-only store path:
@@ -332,21 +337,27 @@ QtObject {
         path: `${Quickshell.shellDir}/launcher/quicklinks.json`
         watchChanges: true
         onFileChanged: reload()
-        adapter: JsonAdapter {}
+        adapter: JsonAdapter {
+            property var items: []
+        }
     }
 
     property var snippetsFile: FileView {
         path: `${Quickshell.shellDir}/launcher/snippets.json`
         watchChanges: true
         onFileChanged: reload()
-        adapter: JsonAdapter {}
+        adapter: JsonAdapter {
+            property var items: []
+        }
     }
 
     property var emojiFile: FileView {
         path: `${Quickshell.shellDir}/launcher/emoji.json`
-        adapter: JsonAdapter {}
+        adapter: JsonAdapter {
+            property var items: []
+        }
 
-        onAdapterUpdated: root.emojiData = root.emojiFile.adapter.root?.items ?? []
+        onAdapterUpdated: root.emojiData = root.emojiFile.adapter.items
     }
     // qmllint enable unresolved-type
 

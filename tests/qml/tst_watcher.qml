@@ -67,4 +67,33 @@ TestCase {
         compare(commands.length, 1);
         verify(commands[0].argv[2].indexOf("position=\"1920x0\"") !== -1, "expected the override's position in the rendered command, got " + commands[0].argv[2]);
     }
+
+    // Reachability test, tst_tint_wiring.qml's own readSource-plus-indexOf
+    // idiom: qmltestrunner cannot instantiate Watcher.qml — it reaches
+    // Quickshell.Io's FileView/Process, whose plugin is linked into the
+    // quickshell binary rather than loadable standalone — so the adapter
+    // wiring `rules`/`overrides` depend on has no live test; this reads the
+    // shipped source instead. Motivating bug: both used to read a bare
+    // `root` off their adapter, which does not exist anywhere on Quickshell
+    // 0.3.0's JsonAdapter (confirmed against quickshell-io.qmltypes), so
+    // `rules`/`overrides` were silently the empty fallback forever and no
+    // `hl.monitor` call was ever made.
+    function readSource(relPath) {
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", Qt.resolvedUrl(relPath), false);
+        xhr.send();
+        compare(xhr.status, 200, relPath + " must be readable (needs QML_XHR_ALLOW_FILE_READ=1)");
+        return xhr.responseText;
+    }
+
+    function test_watcher_never_reads_the_nonexistent_adapter_root() {
+        const watcher = readSource("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        verify(watcher.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading a bare root off it is silently always undefined");
+    }
+
+    function test_watcher_declares_a_property_for_each_adapter_to_populate() {
+        const watcher = readSource("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        verify(watcher.indexOf("property var rules") !== -1, "JsonAdapter only populates a property declared on the adapter instance itself — rulesFile's adapter needs a declared `rules` property");
+        verify(watcher.indexOf("property var entries") !== -1, "JsonAdapter only populates a property declared on the adapter instance itself — overridesFile's adapter needs a declared `entries` property");
+    }
 }

@@ -52,9 +52,19 @@ Scope {
     // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
     // without exporting it, the same gap Theme.qml's own tintState works
     // around — see that file's header.
+    //
+    // JsonAdapter has no `root`: quickshell-io.qmltypes declares it (and its
+    // FileViewAdapter prototype) with not one property, so reading a bare
+    // `root` off it was silently undefined forever — matchRule/matchOverride
+    // never saw a real rule and every hyprctl call this file exists to make
+    // was skipped. Only a property DECLARED on the adapter instance below
+    // gets populated from the file; `rules` and `overrides` are those two
+    // properties, rewrapped into the { rules }/{ entries } shape
+    // planFor()/applyOverrides() already take so neither function had to
+    // change.
     // qmllint disable unresolved-type
-    readonly property var rules: rulesFile.adapter.root ?? ({ rules: [] })
-    readonly property var overrides: overridesFile.adapter.root ?? ({ entries: [] })
+    readonly property var rules: ({ rules: rulesFile.adapter.rules })
+    readonly property var overrides: ({ entries: overridesFile.adapter.entries })
 
     FileView {
         id: rulesFile
@@ -63,7 +73,9 @@ Scope {
         watchChanges: true
         onFileChanged: reload()
         onLoaded: root.apply()
-        adapter: JsonAdapter {}
+        adapter: JsonAdapter {
+            property var rules: []
+        }
     }
 
     FileView {
@@ -73,7 +85,9 @@ Scope {
         watchChanges: true
         onFileChanged: reload()
         onLoaded: root.apply()
-        adapter: JsonAdapter {}
+        adapter: JsonAdapter {
+            property var entries: []
+        }
     }
     // qmllint enable unresolved-type
 

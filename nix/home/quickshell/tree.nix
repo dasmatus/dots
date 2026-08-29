@@ -114,15 +114,21 @@ let
 
         // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
         // without exporting it, so qmllint cannot resolve anything reached
-        // through it. The bindings work; only the linter is blind, so the
-        // category is suppressed here rather than across the whole tree.
+        // through it, which is the actual reason the category is suppressed
+        // here. It is not, as this comment used to claim, that the bindings
+        // below worked and only the linter was confused: JsonAdapter has no
+        // `root` property on this Quickshell build, so reading a bare `root`
+        // off tintState's adapter was silently undefined forever, and the
+        // suppression is exactly what kept that dead read from ever being
+        // flagged. Only a property DECLARED on the adapter instance gets
+        // populated from the file; `accent` below is that property.
         // qmllint disable unresolved-type
 
         // A missing file, an unreadable one and a null accent all land on the
         // fallback. The shell has to paint before any wallpaper has ever been
         // set, which is the state a fresh install boots into.
         readonly property color accent: {
-            const live = tintState.adapter.root?.accent;
+            const live = tintState.adapter.accent;
             return live ? live : accentFallback;
         }
 
@@ -132,7 +138,9 @@ let
             path: "${tintStateDir}/current.json"
             watchChanges: true
             onFileChanged: reload()
-            adapter: JsonAdapter { }
+            adapter: JsonAdapter {
+                property var accent: null
+            }
         }
         // qmllint enable unresolved-type
     }
