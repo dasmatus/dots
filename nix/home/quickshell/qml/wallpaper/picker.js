@@ -69,6 +69,23 @@ function nextApply(busy, queue) {
     return { entry: queue[0], queue: queue.slice(1) };
 }
 
+// flushPendingOutputRecords()'s own decision, pulled out the same way
+// nextApply() was: given whatever recordOutputState() queued while
+// outputStateFile's first load attempt was still unresolved, what should
+// actually get written (null if nothing was queued) and what the queue
+// becomes afterward (always empty — everything queued flushes in one
+// merge, not one record at a time). Exists so the double-fire safety
+// flushPendingOutputRecords() promises — a second call, from whichever
+// of onLoaded/onLoadFailed did not resolve first, finding nothing left
+// to flush — is a property of this function rather than something only
+// true by construction: draining an already-empty queue has to return
+// null, and that is exactly what running this twice in a row does.
+function drainPending(queue) {
+    if (queue.length === 0)
+        return { records: null, queue: queue };
+    return { records: queue, queue: [] };
+}
+
 // One record's on-disk shape: config.rs's OutputOverride, whose three
 // fields are all `#[serde(default, skip_serializing_if = "Option::is_none")]`
 // — present-and-meaningful or entirely absent, never null and never an

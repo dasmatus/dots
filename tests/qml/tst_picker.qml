@@ -119,6 +119,38 @@ TestCase {
         compare(decision.queue[0].path, "/b.png");
     }
 
+    function test_drainPending_an_empty_queue_has_nothing_to_flush() {
+        const decision = PickerLogic.drainPending([]);
+
+        compare(decision.records, null);
+        compare(decision.queue.length, 0);
+    }
+
+    function test_drainPending_a_nonEmpty_queue_flushes_everything_and_empties() {
+        const queue = [{ name: "DP-1" }, { name: "DP-2" }];
+        const decision = PickerLogic.drainPending(queue);
+
+        compare(decision.records.length, 2);
+        compare(decision.records[0].name, "DP-1");
+        compare(decision.records[1].name, "DP-2");
+        compare(decision.queue.length, 0);
+    }
+
+    // This is the double-fire safety flushPendingOutputRecords() promises:
+    // draining what an earlier drain already emptied must find nothing
+    // left, which is the only way a second onLoaded/onLoadFailed firing
+    // for the same file can be a no-op rather than a second write. The
+    // live probes that motivated this fix could only ever exercise one
+    // of loaded/loadFailed per run, never both, so this is the only place
+    // that actually establishes it.
+    function test_drainPending_draining_an_already_drained_queue_is_a_no_op() {
+        const first = PickerLogic.drainPending([{ name: "DP-1" }]);
+        const second = PickerLogic.drainPending(first.queue);
+
+        compare(second.records, null);
+        compare(second.queue.length, 0);
+    }
+
     // config.rs's State.outputs was a BTreeMap<String, OutputOverride> —
     // an object keyed by output name, not a list with the name inside
     // each entry — so these all exercise that shape directly.
@@ -277,5 +309,42 @@ TestCase {
     function test_picker_declares_a_property_for_the_adapter_to_populate() {
         const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
         verify(picker.indexOf("property var outputs") !== -1, "JsonAdapter only populates a property declared on the adapter instance itself — a bare JsonAdapter {} has nothing for the parsed JSON to land on");
+    }
+
+    // Slices out recordOutputState()'s own body, so a `outputStateKnown`
+    // mention anywhere ELSE in the file (this comment included, if it
+    // said the word directly) cannot satisfy this test.
+    function recordOutputStateBody() {
+        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const start = picker.indexOf("function recordOutputState(");
+        verify(start !== -1, "Picker.qml must define recordOutputState(entry)");
+        const end = picker.indexOf("\n    }", start);
+        verify(end !== -1, "recordOutputState(entry)'s closing brace must be found");
+        return picker.slice(start, end);
+    }
+
+    // Motivating bug: recordOutputState() gated on outputStateFile.loaded,
+    // which a missing outputs.json never sets — Quickshell resolves that
+    // case through loadFailed instead, so a fresh install's first apply
+    // queued forever and the file it was waiting on never got created to
+    // unstick it. Pins the fix at the one call site that actually matters
+    // — a revert back to `.loaded` here reintroduces the deadlock even if
+    // onLoadFailed elsewhere in the file is left wired up.
+    function test_recordOutputState_gates_on_outputStateKnown_not_loaded() {
+        const body = recordOutputStateBody();
+
+        verify(body.indexOf("outputStateKnown") !== -1, "recordOutputState() must gate on outputStateKnown, not a re-added .loaded check");
+        verify(body.indexOf(".loaded") === -1, "recordOutputState() must not go back to gating on outputStateFile.loaded — that deadlocks on a fresh install, since a missing file resolves through loadFailed, never loaded");
+    }
+
+    // A missing outputs.json resolves through loadFailed, never loaded —
+    // confirmed live, not assumed (see task-2-report.md). Without this
+    // handler wired up, recordOutputState()'s queue above is internally
+    // consistent but nothing ever calls flushPendingOutputRecords() on a
+    // fresh install, so the deadlock returns even with the gate itself
+    // fixed.
+    function test_picker_flushes_on_both_loaded_and_loadFailed() {
+        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        verify(picker.indexOf("onLoadFailed") !== -1, "a missing outputs.json resolves through loadFailed, never loaded — the flush must be wired to both");
     }
 }

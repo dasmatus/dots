@@ -408,19 +408,22 @@ Scope {
     // Marks the first load attempt resolved and writes whatever
     // recordOutputState() queued while waiting on it — called from both
     // outputStateFile's onLoaded and onLoadFailed below, since a missing
-    // outputs.json fires the latter, never the former. Setting
-    // outputStateKnown unconditionally, and clearing the queue before
-    // acting on it, makes a second call (if both signals somehow fired
-    // for the same file) a no-op rather than a double write: the queue
-    // it would drain is already empty.
+    // outputs.json fires the latter, never the former. outputStateKnown
+    // is set unconditionally before the drain, so a second call (should
+    // both signals somehow fire for the same file) still gates
+    // recordOutputState() correctly either way; drainPending() itself is
+    // what makes that second call a no-op rather than a double write —
+    // see its own comment in picker.js, and tst_picker.qml's tests on it,
+    // for why that is a tested property rather than an assumption.
     function flushPendingOutputRecords() {
         root.outputStateKnown = true;
-        if (root.pendingOutputRecords.length === 0)
+
+        const decision = PickerLogic.drainPending(root.pendingOutputRecords);
+        root.pendingOutputRecords = decision.queue;
+        if (!decision.records)
             return;
 
-        const records = root.pendingOutputRecords;
-        root.pendingOutputRecords = [];
-        root.writeOutputRecords(records);
+        root.writeOutputRecords(decision.records);
     }
 
     // The merge-then-write recordOutputState() (or flushPendingOutputRecords())
@@ -466,9 +469,7 @@ Scope {
         // reload too (an external edit, or watchChanges catching this
         // file's own write); a no-op past the first flush either way.
         onLoaded: root.flushPendingOutputRecords()
-        // qmllint disable signal-handler-parameters
-        onLoadFailed: error => root.flushPendingOutputRecords()
-        // qmllint enable signal-handler-parameters
+        onLoadFailed: root.flushPendingOutputRecords()
 
         // A bare `JsonAdapter {}` has nothing for the parsed JSON to land
         // on — this declared property is what actually gets populated
@@ -633,16 +634,17 @@ Scope {
         // qmllint enable signal-handler-parameters
     }
 
-    // No adapter: this side only ever writes, and a plain string is one
-    // fewer schema to keep in sync with what tree.nix's generated
-    // Theme.qml reads back — a property declared on its own JsonAdapter
-    // instance, the same idiom outputStateFile's own adapter above uses
-    // (JsonAdapter has no generic `.root` for either side to read
-    // through; see outputRecords' own comment above for where that gap
-    // was confirmed). Setting `path` loads eagerly, so the very first
-    // ever pick logs one "file does not exist" warning for a file this
-    // same call is about to create — the same fresh-install warning
-    // tree.nix's own tintState reader already accepts, not a sign either
+    // No adapter: this side only ever writes, and a plain string needs no
+    // schema of its own to keep in sync with whatever reads current.json
+    // back — this file does not need to know what that reader does.
+    // (If it did use one: outputStateFile's own adapter above is this
+    // file's own idiom for reading a JsonAdapter-backed file back — a
+    // property DECLARED on the adapter instance, since JsonAdapter has no
+    // generic `.root` to read through; see outputRecords' own comment for
+    // where that gap was confirmed.) Setting `path` loads eagerly, so the
+    // very first ever pick logs one "file does not exist" warning for a
+    // file this same call is about to create — the same warning any
+    // FileView pointed at a not-yet-written path logs, not a sign either
     // side is broken.
     FileView {
         id: stateWriter
