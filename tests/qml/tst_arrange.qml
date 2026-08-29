@@ -319,9 +319,10 @@ TestCase {
     }
 
     // mergedOverrides copies rather than aliases every entry it reads, so
-    // the caller's own existingRoot (Arrange.qml's overridesFile.adapter.root)
-    // must come back exactly as it went in — a merge that mutated its input
-    // in place would be indistinguishable from a correct one by this
+    // the caller's own existingRoot (Arrange.qml's own overridesRoot,
+    // wrapping overridesFile.adapter's declared entries property) must
+    // come back exactly as it went in — a merge that mutated its input in
+    // place would be indistinguishable from a correct one by this
     // function's own return value alone, so this checks the input
     // separately.
     function test_mergedOverrides_does_not_mutate_its_existingRoot_argument() {
@@ -463,11 +464,30 @@ TestCase {
     // that never declared anything on the adapter at all.
     function jsonAdapterBlock() {
         const source = readArrangeSource();
-        const start = source.indexOf("adapter: JsonAdapter {");
+        const marker = "adapter: JsonAdapter {";
+        const start = source.indexOf(marker);
         verify(start !== -1, "overridesFile must declare adapter: JsonAdapter { ... }");
-        const end = source.indexOf("\n        }", start);
-        verify(end !== -1, "the JsonAdapter block's closing brace must be found");
-        return source.slice(start, end);
+        // Brace-counted from the JsonAdapter's own opening brace to its
+        // matching close, rather than a fixed-indentation "\n        }"
+        // search — that would silently widen the slice (and so the scope
+        // of the check below) if the declaration were ever reformatted
+        // onto one line: the intended close would no longer sit at that
+        // exact indentation, and the search would instead land on some
+        // later, unrelated closing brace, weakening the scoping rather
+        // than failing outright.
+        let depth = 0;
+        let i = start + marker.length - 1;
+        for (; i < source.length; i++) {
+            if (source[i] === "{")
+                depth++;
+            else if (source[i] === "}") {
+                depth--;
+                if (depth === 0)
+                    break;
+            }
+        }
+        verify(depth === 0, "the JsonAdapter block's closing brace must be found");
+        return source.slice(start, i + 1);
     }
 
     function test_Arrange_qml_declares_the_adapter_shape_it_actually_reads() {

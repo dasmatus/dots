@@ -133,12 +133,25 @@ Scope {
     // shape directly on the JsonAdapter instance (the `entries` property
     // below, on `overridesFile`) and reading that declared property
     // instead — its own QML default ([]) is what a missing file falls
-    // back to, since there is nothing on disk yet to overwrite it with;
-    // Array.isArray guards against anything else unexpected reaching here
-    // without throwing.
+    // back to, since there is nothing on disk yet to overwrite it with.
+    //
+    // Do NOT use Array.isArray here — once a real file loads successfully,
+    // `entries` is Qt's V4Sequence wrapper around a QVariantList, not a
+    // native JS array, and Array.isArray is spec'd to return true only for
+    // genuine Array exotic objects. It returns false for a V4Sequence,
+    // which would silently throw away every successfully loaded document
+    // and keep the empty default — verified live against the real
+    // quickshell binary reading this machine's actual overrides.json (see
+    // this task's own report for the transcript). `instanceof Array` is
+    // true for both a V4Sequence and a plain QML-declared array, and false
+    // for anything else (an `entries` key of the wrong JSON type, say),
+    // so it is the one that actually distinguishes "a sequence, treat it
+    // as one" from "not a sequence, fall back". Array.from decouples the
+    // merged result from the live adapter sequence rather than aliasing
+    // it.
     readonly property var overridesRoot: {
         const raw = overridesFile.adapter.entries;
-        return { entries: Array.isArray(raw) ? raw : [] };
+        return { entries: raw instanceof Array ? Array.from(raw) : [] };
     }
 
     // $XDG_CONFIG_HOME, falling back to ~/.config — see Watcher.qml's own
