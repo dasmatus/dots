@@ -122,6 +122,25 @@ Scope {
         return m ? m.description : "";
     }
 
+    // FileView.adapter's declared type is FileViewAdapter, and neither it
+    // nor JsonAdapter (its own subtype) has a `root` property in this
+    // Quickshell version — confirmed against the shipped
+    // quickshell-io.qmltypes, which declares qs::io::JsonAdapter with zero
+    // Property entries. Reading `root` off it was always undefined, so every
+    // read through it silently fell through to an empty base and every
+    // save from this surface discarded whatever overrides.json already
+    // held instead of merging onto it. The working idiom is declaring the
+    // shape directly on the JsonAdapter instance (the `entries` property
+    // below, on `overridesFile`) and reading that declared property
+    // instead — its own QML default ([]) is what a missing file falls
+    // back to, since there is nothing on disk yet to overwrite it with;
+    // Array.isArray guards against anything else unexpected reaching here
+    // without throwing.
+    readonly property var overridesRoot: {
+        const raw = overridesFile.adapter.entries;
+        return { entries: Array.isArray(raw) ? raw : [] };
+    }
+
     // $XDG_CONFIG_HOME, falling back to ~/.config — see Watcher.qml's own
     // property of the same name for why this isn't just "$HOME/.config".
     readonly property string configHome: {
@@ -238,7 +257,7 @@ Scope {
     // position, so it stays in step with the canvas regardless of either.
     function loadFormFor(name: string): void {
         const pending = root.pendingEdits[name];
-        const entries = (overridesFile.adapter.root && overridesFile.adapter.root.entries) || [];
+        const entries = root.overridesRoot.entries;
         const entry = entries.find(e => e.name === name) || {};
         const rect = root.rectItems().find(item => item.monitorName === name);
         resolutionField.text = pending ? pending.resolution : (entry.resolution != null ? String(entry.resolution) : "");
@@ -311,7 +330,7 @@ Scope {
             }
             return entry;
         });
-        const merged = ArrangeLogic.mergedOverrides(overridesFile.adapter.root, items);
+        const merged = ArrangeLogic.mergedOverrides(root.overridesRoot, items);
         overridesFile.setText(JSON.stringify(merged));
         root.close();
     }
@@ -326,18 +345,17 @@ Scope {
     // saved, not just what was already on disk.
     //
     // The four optional fields are set to "" directly here rather than by
-    // calling loadFormFor() (which would re-read overridesFile.adapter.root)
-    // — Quickshell's own FileView docs do not say whether the adapter
-    // reparses synchronously with setText() or on a later tick, and this
-    // monitor's entry is gone by construction (filtered out of `entries`
-    // right above), so there is nothing to read back that isn't already
-    // known here.
+    // calling loadFormFor() (which would re-read overridesFile.adapter's
+    // declared entries property) — Quickshell's own FileView docs do not
+    // say whether the adapter reparses synchronously with setText() or on
+    // a later tick, and this monitor's entry is gone by construction
+    // (filtered out of `entries` right above), so there is nothing to
+    // read back that isn't already known here.
     function reset(): void {
         if (!root.selectedName)
             return;
         delete root.pendingEdits[root.selectedName];
-        const existing = overridesFile.adapter.root;
-        const entries = ((existing && existing.entries) || []).filter(e => e.name !== root.selectedName);
+        const entries = root.overridesRoot.entries.filter(e => e.name !== root.selectedName);
         overridesFile.setText(JSON.stringify({ entries: entries }));
         resolutionField.text = "";
         scaleField.text = "";
@@ -368,7 +386,9 @@ Scope {
         id: overridesFile
 
         path: root.configHome + "/dots-shell/overrides.json"
-        adapter: JsonAdapter {}
+        adapter: JsonAdapter {
+            property var entries: []
+        }
     }
     // qmllint enable unresolved-type
 

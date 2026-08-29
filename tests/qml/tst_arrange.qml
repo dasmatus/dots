@@ -433,4 +433,50 @@ TestCase {
     function test_parseTransform(row) {
         compare(ArrangeLogic.parseTransform(row.text), row.expected);
     }
+
+    // Regression guard for a dead read that was never caught by unit
+    // tests on mergedOverrides itself: JsonAdapter has no `root` property
+    // in this Quickshell version (confirmed against the shipped
+    // quickshell-io.qmltypes, which declares qs::io::JsonAdapter with zero
+    // Property entries), so Arrange.qml's own `.adapter.root` reads were
+    // always undefined — every save silently discarded whatever
+    // overrides.json already held, which is exactly the class of bug
+    // every mergedOverrides test in this file could never see, since they
+    // all call mergedOverrides directly with an explicit existingRoot and
+    // never go through the live adapter at all. Reads Arrange.qml as text
+    // (same idiom as tst_tint_wiring.qml, which qmltestrunner cannot
+    // instantiate the component to check directly — this one CAN be
+    // instantiated, but doing so would need a live Hyprland singleton and
+    // PanelWindow, exactly what this file's own header says to avoid).
+    function readArrangeSource() {
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", Qt.resolvedUrl("../../nix/home/quickshell/qml/monitors/Arrange.qml"), false);
+        xhr.send();
+        compare(xhr.status, 200, "Arrange.qml must be readable (needs QML_XHR_ALLOW_FILE_READ=1)");
+        return xhr.responseText;
+    }
+
+    // Scoped to the JsonAdapter block itself, not a bare indexOf over the
+    // whole file: this file already declares several other `property var`
+    // fields (monitorsSnapshot, transform, pendingEdits), so an unscoped
+    // check for the substring "property var" would pass against source
+    // that never declared anything on the adapter at all.
+    function jsonAdapterBlock() {
+        const source = readArrangeSource();
+        const start = source.indexOf("adapter: JsonAdapter {");
+        verify(start !== -1, "overridesFile must declare adapter: JsonAdapter { ... }");
+        const end = source.indexOf("\n        }", start);
+        verify(end !== -1, "the JsonAdapter block's closing brace must be found");
+        return source.slice(start, end);
+    }
+
+    function test_Arrange_qml_declares_the_adapter_shape_it_actually_reads() {
+        const block = jsonAdapterBlock();
+        verify(block.indexOf("property var entries") !== -1, "JsonAdapter must declare an entries property — it has no root property to fall back on");
+    }
+
+    function test_Arrange_qml_never_reads_the_nonexistent_adapter_root() {
+        const source = readArrangeSource();
+        verify(source.indexOf(".adapter.root") === -1, "Arrange.qml must never read .adapter.root — JsonAdapter has no such property in this Quickshell version, so every such read is silently undefined");
+    }
 }
