@@ -277,9 +277,19 @@ Scope {
 
     // recordOutputState() calls queued here instead of written straight
     // through, for the window between the shell starting (Rotation.qml's
-    // triggeredOnStart can fire immediately) and outputStateFile finishing
-    // its own first load — see recordOutputState()'s own comment.
+    // triggeredOnStart can fire immediately) and outputStateFile resolving
+    // its own first load attempt — see recordOutputState()'s own comment.
     property var pendingOutputRecords: []
+
+    // True once outputStateFile's first load attempt has resolved, one
+    // way or the other. A missing outputs.json (the fresh-install case)
+    // makes Quickshell emit loadFailed rather than loaded — confirmed
+    // live — so gating solely on outputStateFile.loaded would mean that
+    // first apply queues and nothing ever un-queues it: outputs.json has
+    // exactly one writer in this file, so nothing else would ever bring
+    // it into existence to make a real `loaded` happen. Both onLoaded and
+    // onLoadFailed below set this the same way.
+    property bool outputStateKnown: false
 
     // output/mode/fillColor default to "*"/"fill"/DEFAULT_COLOR (every
     // output, cropped to fill, the palette's own default swatch) —
@@ -371,13 +381,14 @@ Scope {
 
     // Folds `entry`'s path/mode/fillColor into every output name it
     // resolved to. Rotation.qml's triggeredOnStart can fire the instant
-    // the shell starts, well before outputStateFile finishes reading
-    // outputs.json for the first time — merging onto outputRecords before
-    // that load lands would merge onto its declared property's own empty
+    // the shell starts, well before outputStateFile resolves its own
+    // first load attempt — merging onto outputRecords before that
+    // resolves would merge onto its declared property's own empty
     // default rather than what is actually on disk, and the write below
     // would silently drop every other output's real record. Queued
-    // instead until outputStateFile reports loaded; see its own onLoaded
-    // for where a queued record actually gets written.
+    // instead until outputStateKnown says that first attempt is done;
+    // see flushPendingOutputRecords() for where a queued record actually
+    // gets written.
     function recordOutputState(entry) {
         const records = entry.recordOutputs.map(name => ({
             name: name,
@@ -386,7 +397,7 @@ Scope {
             fillColor: entry.fillColor
         }));
 
-        if (!outputStateFile.loaded) {
+        if (!root.outputStateKnown) {
             root.pendingOutputRecords = root.pendingOutputRecords.concat(records);
             return;
         }
@@ -394,12 +405,32 @@ Scope {
         root.writeOutputRecords(records);
     }
 
-    // The merge-then-write recordOutputState() (or outputStateFile's own
-    // onLoaded, flushing what recordOutputState() queued) actually wants
-    // — split out only so both have one place to call. mkdir first, same
-    // as applyAccent()'s own stateDir/stateWriter pair below, since
-    // outputs.json lives in that same not-yet-guaranteed-to-exist
-    // directory and is otherwise a completely independent write.
+    // Marks the first load attempt resolved and writes whatever
+    // recordOutputState() queued while waiting on it — called from both
+    // outputStateFile's onLoaded and onLoadFailed below, since a missing
+    // outputs.json fires the latter, never the former. Setting
+    // outputStateKnown unconditionally, and clearing the queue before
+    // acting on it, makes a second call (if both signals somehow fired
+    // for the same file) a no-op rather than a double write: the queue
+    // it would drain is already empty.
+    function flushPendingOutputRecords() {
+        root.outputStateKnown = true;
+        if (root.pendingOutputRecords.length === 0)
+            return;
+
+        const records = root.pendingOutputRecords;
+        root.pendingOutputRecords = [];
+        root.writeOutputRecords(records);
+    }
+
+    // The merge-then-write recordOutputState() (or flushPendingOutputRecords())
+    // actually wants — split out only so both have one place to call.
+    // mkdir first, same as applyAccent()'s own stateDir/stateWriter pair
+    // below, since outputs.json lives in that same
+    // not-yet-guaranteed-to-exist directory and is otherwise a completely
+    // independent write. root.outputRecords reads {} here in the
+    // loadFailed case exactly as it would for an empty file — the merge
+    // below does not need to know which one it was.
     function writeOutputRecords(records) {
         root.pendingOutputState = PickerLogic.mergeOutputState(root.outputRecords, records);
         outputStateDir.command = ["mkdir", "-p", Theme.tintStateDir];
@@ -424,20 +455,20 @@ Scope {
         watchChanges: true
         onFileChanged: reload()
 
-        // Flushes whatever recordOutputState() queued while this
-        // FileView's own first load was still in flight — see
-        // pendingOutputRecords' and recordOutputState()'s own comments.
-        // Fires again on every later reload too (an external edit, or
-        // watchChanges catching this file's own write); a no-op then,
-        // since nothing is ever left queued past the first flush.
-        onLoaded: {
-            if (root.pendingOutputRecords.length === 0)
-                return;
-
-            const records = root.pendingOutputRecords;
-            root.pendingOutputRecords = [];
-            root.writeOutputRecords(records);
-        }
+        // Both flush whatever recordOutputState() queued while this
+        // FileView's own first load attempt was still in flight — see
+        // pendingOutputRecords', recordOutputState()'s and
+        // flushPendingOutputRecords()'s own comments. A file that does
+        // not exist yet — the fresh-install case, and outputs.json has no
+        // writer anywhere else — resolves through onLoadFailed, never
+        // onLoaded; confirmed live rather than assumed, the same way the
+        // adapter.root gap above was. Both fire again on every later
+        // reload too (an external edit, or watchChanges catching this
+        // file's own write); a no-op past the first flush either way.
+        onLoaded: root.flushPendingOutputRecords()
+        // qmllint disable signal-handler-parameters
+        onLoadFailed: error => root.flushPendingOutputRecords()
+        // qmllint enable signal-handler-parameters
 
         // A bare `JsonAdapter {}` has nothing for the parsed JSON to land
         // on — this declared property is what actually gets populated
@@ -603,12 +634,16 @@ Scope {
     }
 
     // No adapter: this side only ever writes, and a plain string is one
-    // fewer schema to keep in sync with what tree.nix's tintState reads
-    // back through JsonAdapter's generic `.root`. Setting `path` loads
-    // eagerly, so the very first ever pick logs one "file does not exist"
-    // warning for a file this same call is about to create — the same
-    // fresh-install warning tree.nix's own tintState reader already accepts,
-    // not a sign either side is broken.
+    // fewer schema to keep in sync with what tree.nix's generated
+    // Theme.qml reads back — a property declared on its own JsonAdapter
+    // instance, the same idiom outputStateFile's own adapter above uses
+    // (JsonAdapter has no generic `.root` for either side to read
+    // through; see outputRecords' own comment above for where that gap
+    // was confirmed). Setting `path` loads eagerly, so the very first
+    // ever pick logs one "file does not exist" warning for a file this
+    // same call is about to create — the same fresh-install warning
+    // tree.nix's own tintState reader already accepts, not a sign either
+    // side is broken.
     FileView {
         id: stateWriter
     }
