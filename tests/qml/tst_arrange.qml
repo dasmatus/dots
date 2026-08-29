@@ -200,6 +200,29 @@ TestCase {
                         { name: "HDMI-A-1", position: "3000x0" }
                     ]
                 }
+            },
+            {
+                // overrides.rs's own doc comment makes the FIRST matching
+                // entry the one that governs, and Arrange.qml's own
+                // form-loading code (entries.find(...)) likewise reads the
+                // first — so on a malformed duplicate-name file, a drag has
+                // to land on that first occurrence, not the last. Landing
+                // on the last would mean the form shows one entry while the
+                // save silently writes onto a different, inert one.
+                tag: "a duplicate name resolves to the first occurrence, not the last",
+                existingRoot: {
+                    entries: [
+                        { name: "DP-1", position: "0x0", resolution: "FIRST" },
+                        { name: "DP-1", position: "100x0", resolution: "SECOND" }
+                    ]
+                },
+                items: [{ name: "DP-1", position: "999x0" }],
+                expected: {
+                    entries: [
+                        { name: "DP-1", position: "999x0", resolution: "FIRST" },
+                        { name: "DP-1", position: "100x0", resolution: "SECOND" }
+                    ]
+                }
             }
         ];
     }
@@ -293,6 +316,21 @@ TestCase {
         compare(merged.entries[0].position, "9x9");
         compare(Object.prototype.toString, before);
         compare(typeof Object.prototype.toString, "function");
+    }
+
+    // mergedOverrides copies rather than aliases every entry it reads, so
+    // the caller's own existingRoot (Arrange.qml's overridesFile.adapter.root)
+    // must come back exactly as it went in — a merge that mutated its input
+    // in place would be indistinguishable from a correct one by this
+    // function's own return value alone, so this checks the input
+    // separately.
+    function test_mergedOverrides_does_not_mutate_its_existingRoot_argument() {
+        const existingRoot = { entries: [{ name: "DP-1", position: "0x0", resolution: "1920x1080@60" }] };
+        const snapshot = JSON.parse(JSON.stringify(existingRoot));
+
+        ArrangeLogic.mergedOverrides(existingRoot, [{ name: "DP-1", position: "999x0", scale: 1.5 }]);
+
+        compare(JSON.stringify(existingRoot), JSON.stringify(snapshot));
     }
 
     // The data-driven row above checks the fields a description-only entry

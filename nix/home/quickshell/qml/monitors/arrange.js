@@ -196,14 +196,12 @@ function parseTransform(text) {
 // an array index (a bare non-negative integer, as a string) in ascending
 // numeric order ahead of every other key, regardless of insertion order.
 // `byName` is Object.create(null) rather than a plain {} for the same
-// "hand-edited JSON only" reason: a plain object's prototype chain makes
-// "constructor" in {}, "toString" in {} and friends true even when nothing
-// was ever assigned to them, which would make an existing entry named
-// exactly one of those look like a duplicate and get lost, and would make
-// an item named one of those silently overwrite the real
-// Object.prototype method of that name instead of getting a fresh entry.
-// Object.create(null) has no prototype, so a lookup or an assignment here
-// means exactly what it looks like and nothing more.
+// "hand-edited JSON only" reason: a plain object's prototype chain would
+// make an item named "toString"/"constructor"/etc. silently overwrite the
+// real Object.prototype method of that name, through the "not found, make
+// a fresh entry" branch below never firing. Object.create(null) has no
+// prototype, so a lookup or an assignment here means exactly what it looks
+// like and nothing more.
 //
 // A description-only entry (overrides.rs's own `name` is `Option<String>`,
 // and match_override's description-fallback pass is a real, documented
@@ -223,7 +221,17 @@ function mergedOverrides(existingRoot, items) {
             continue;
         }
         const copy = Object.assign({}, entry);
-        byName[entry.name] = copy;
+        // Only the first occurrence of a given name is ever put in
+        // byName — a duplicate-name file is a malformed one, but
+        // overrides.rs's own "first match wins" doc comment (see this
+        // function's own header) makes the first occurrence the one that
+        // actually governs, and Arrange.qml's own form-loading code reads
+        // entries.find(...), which likewise returns the first. Keying on
+        // the last occurrence instead (as an earlier version of this
+        // function did) would have let the form show one entry while
+        // confirm() silently wrote onto a different, inert one.
+        if (byName[entry.name] === undefined)
+            byName[entry.name] = copy;
         entries.push(copy);
     }
     for (const item of items) {
