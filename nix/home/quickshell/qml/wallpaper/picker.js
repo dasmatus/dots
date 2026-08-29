@@ -69,40 +69,68 @@ function nextApply(busy, queue) {
     return { entry: queue[0], queue: queue.slice(1) };
 }
 
-// Upserts one record per {name, path, mode, fillColor} in `records` into
-// `existingRoot`'s `entries`, keyed by name — arrange.js's own
-// mergedOverrides, minus the position-only partial update, since a
-// wallpaper apply always replaces every field of an output's record at
-// once. An entry whose name is absent from `records` (a disconnected
-// output, or simply not part of this apply) is carried over untouched.
-function mergeOutputState(existingRoot, records) {
-    const byName = {};
-    const existingEntries = (existingRoot && existingRoot.entries) || [];
-    for (const entry of existingEntries) {
-        if (entry.name)
-            byName[entry.name] = Object.assign({}, entry);
-    }
-    for (const record of records) {
-        const entry = byName[record.name] || { name: record.name };
+// One record's on-disk shape: config.rs's OutputOverride, whose three
+// fields are all `#[serde(default, skip_serializing_if = "Option::is_none")]`
+// — present-and-meaningful or entirely absent, never null and never an
+// empty string. A wallpaper apply always has a real path/mode/fillColor,
+// so this rarely drops anything in practice; it exists so a future caller
+// that only knows a subset can still write a valid partial entry, and so
+// this never accidentally writes a key whose value is "".
+function outputEntry(record) {
+    const entry = {};
+    if (record.path)
         entry.path = record.path;
+    if (record.mode)
         entry.mode = record.mode;
-        entry.fillColor = record.fillColor;
-        byName[record.name] = entry;
-    }
-    return { entries: Object.values(byName) };
+    // fill_color, not fillColor: the on-disk field is config.rs's own
+    // OutputOverride::fill_color, serde's default snake_case rename of
+    // the Rust field name. Every other function here trades in the
+    // app's own camelCase fillColor; this is the one place that name
+    // crosses over to the file's own naming.
+    if (record.fillColor)
+        entry.fill_color = record.fillColor;
+    return entry;
+}
+
+// config.rs's State: `{ outputs: BTreeMap<String, OutputOverride> }`, the
+// output name as the map KEY rather than a field inside the value.
+// `outputs` here is that map (not the `{ outputs: ... }` envelope — the
+// caller adds that once, at the file boundary), so every function in this
+// file trades in the map directly.
+//
+// A BTreeMap serialises with its keys sorted; this sorts on every merge
+// so two writes of the same data produce byte-identical JSON rather than
+// churning a diff on insertion order alone.
+//
+// Each record fully replaces the named output's entry — a wallpaper apply
+// is a single "this output is now this path/mode/fillColor" event, not a
+// set of independent field patches — so an existing entry for a name in
+// `records` is discarded wholesale rather than merged field-by-field. An
+// entry whose name is absent from `records` (a disconnected output, or
+// simply not part of this apply) is carried over untouched.
+function mergeOutputState(existingOutputs, records) {
+    const merged = Object.assign({}, existingOutputs || {});
+    for (const record of records)
+        merged[record.name] = outputEntry(record);
+
+    const sorted = {};
+    for (const name of Object.keys(merged).sort())
+        sorted[name] = merged[name];
+    return sorted;
 }
 
 // config.rs's effective_output, minus the declarative config.outputs layer
 // this port never gained — only the runtime-state half survives, so a
-// field falls back the moment it is missing or empty rather than checking
-// a second, declarative source first.
-function effectiveOutput(outputState, name) {
-    const entries = (outputState && outputState.entries) || [];
-    const found = entries.find(e => e.name === name);
+// field falls back the moment it is missing (this port never writes null
+// or "" — see outputEntry() — but a hand-edited file could, and a falsy
+// check treats that the same as absent) rather than checking a second,
+// declarative source first.
+function effectiveOutput(outputs, name) {
+    const found = outputs && outputs[name];
     return {
         path: (found && found.path) || "",
         mode: (found && found.mode) || "fill",
-        fillColor: (found && found.fillColor) || DEFAULT_COLOR
+        fillColor: (found && found.fill_color) || DEFAULT_COLOR
     };
 }
 
@@ -113,9 +141,8 @@ function effectiveOutput(outputState, name) {
 // on an output nothing has ever been applied to must leave the user's
 // live mode/colour cycling alone rather than stomping it with a fallback
 // that was never actually chosen for that output.
-function hasOutputRecord(outputState, name) {
-    const entries = (outputState && outputState.entries) || [];
-    return entries.some(e => e.name === name);
+function hasOutputRecord(outputs, name) {
+    return !!(outputs && Object.prototype.hasOwnProperty.call(outputs, name));
 }
 
 // app.rs's restore(): every output that has ever had a wallpaper applied
@@ -123,10 +150,10 @@ function hasOutputRecord(outputState, name) {
 // not the current grid selection replayed onto everything. An output with
 // no recorded path (never applied to by name) is left out rather than
 // restoring an empty apply.
-function restoreEntries(outputState, outputNames) {
+function restoreEntries(outputs, outputNames) {
     const entries = [];
     for (const name of outputNames) {
-        const effective = effectiveOutput(outputState, name);
+        const effective = effectiveOutput(outputs, name);
         if (effective.path.length > 0)
             entries.push({ name: name, path: effective.path, mode: effective.mode, fillColor: effective.fillColor });
     }

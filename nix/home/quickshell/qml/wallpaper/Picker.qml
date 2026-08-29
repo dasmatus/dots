@@ -24,10 +24,12 @@
 //
 // A successful apply also records which path/mode/fillColor just went to
 // which output(s), in outputs.json next to Theme.tintStatePath's own
-// current.json — this port's stand-in for config.rs's state.json. `o`
-// reloads a newly selected output's own mode/colour from it, and `r`
-// replays every output's own last-recorded wallpaper, rather than either
-// only ever seeing the live cycling state this session happened to be on.
+// current.json — config.rs's own state.json schema (an object of output
+// name -> { path, mode, fill_color }, every field optional), just at this
+// port's own path rather than the deleted crate's. `o` reloads a newly
+// selected output's own mode/colour from it, and `r` replays every
+// output's own last-recorded wallpaper, rather than either only ever
+// seeing the live cycling state this session happened to be on.
 // Rotation.qml's hourly pick is the one apply() caller that opts out of
 // recording — restoring the rotation's latest random guess instead of
 // what the user last actually chose is not what `r` is for.
@@ -70,26 +72,25 @@ Scope {
     // outputRecords about at all.
     readonly property var outputNames: Quickshell.screens.map(s => s.name)
 
-    // Persisted per-output state — path/mode/fillColor last successfully
-    // applied to each output by name — under the same directory
-    // Theme.tintStatePath already lives in. This is the state.json
-    // config.rs's effective_output and awww.rs's restore_groups read from;
-    // this port carries no declarative config.outputs layer, only this
-    // runtime half. recordOutputState() below is the only writer; reading
-    // through the FileView's own adapter, rather than a local copy, keeps
+    // Persisted per-output state — config.rs's own on-disk schema, kept
+    // under the same directory Theme.tintStatePath already lives in:
+    // { "outputs": { "<name>": { "path", "mode", "fill_color" } } }, an
+    // object keyed by output name (config.rs's State.outputs was a
+    // BTreeMap<String, OutputOverride>, not a list), every field optional
+    // and omitted — never null, never "" — the moment it is unset.
+    // recordOutputState() below is the only writer; reading through the
+    // FileView's own adapter, rather than a local copy, keeps
     // cycleOutput()'s reload and restore()'s replay both looking at
     // whatever the last successful apply actually wrote.
     //
-    // Wrapped in { entries: ... } rather than read as a bare array:
     // JsonAdapter has no `root` — quickshell-io.qmltypes declares it (and
-    // its FileViewAdapter prototype) with not one property, only a
-    // declared property on the adapter instance itself gets populated
-    // from the file. outputStateFile.adapter.entries below is that
-    // property; this wraps it back into the { entries } shape
-    // mergeOutputState()/effectiveOutput()/restoreEntries() already take,
-    // so nothing downstream of this property needed to change.
+    // its FileViewAdapter prototype) with not one property — only a
+    // property DECLARED on the adapter instance gets populated from the
+    // file. outputStateFile.adapter.outputs below is that property, and
+    // is already the bare map picker.js's functions take; there is
+    // nothing left to unwrap.
     // qmllint disable unresolved-type
-    readonly property var outputRecords: ({ entries: outputStateFile.adapter.entries })
+    readonly property var outputRecords: outputStateFile.adapter.outputs
     // qmllint enable unresolved-type
 
     // Chrome's own hint-footer shape (a list of { key, label }), wired
@@ -274,6 +275,12 @@ Scope {
     property var activeApply: null
     property var pendingOutputState: null
 
+    // recordOutputState() calls queued here instead of written straight
+    // through, for the window between the shell starting (Rotation.qml's
+    // triggeredOnStart can fire immediately) and outputStateFile finishing
+    // its own first load — see recordOutputState()'s own comment.
+    property var pendingOutputRecords: []
+
     // output/mode/fillColor default to "*"/"fill"/DEFAULT_COLOR (every
     // output, cropped to fill, the palette's own default swatch) —
     // wallpaper-tui.nix's own defaults — so a caller that only has a path,
@@ -326,8 +333,24 @@ Scope {
             return;
 
         const entry = decision.entry;
-        const targetOutput = entry.output && entry.output.length > 0 ? entry.output : "*";
-        const targetMode = awwwResizeMode(entry.mode && entry.mode.length > 0 ? entry.mode : "fill");
+
+        // Normalized onto the entry itself, not just a local — so
+        // recordOutputState() below persists what actually got applied —
+        // before applyBusy flips true. An unguarded fillColor reaching
+        // fillColorArg()'s .startsWith('#') would throw between that write
+        // and awwwProc.running = true a few lines down, latching applyBusy
+        // with no process ever started and no runningChanged ever coming
+        // to clear it: the same failure the onRunningChanged handler below
+        // exists to route around, through a different door. Legacy
+        // fill_color is optional and omitted rather than defaulted on
+        // disk (see outputEntry() in picker.js), so an output record
+        // missing it is the normal case now, not a hypothetical.
+        entry.output = entry.output && entry.output.length > 0 ? entry.output : "*";
+        entry.mode = entry.mode && entry.mode.length > 0 ? entry.mode : "fill";
+        entry.fillColor = entry.fillColor && entry.fillColor.length > 0 ? entry.fillColor : PickerLogic.DEFAULT_COLOR;
+
+        const targetOutput = entry.output;
+        const targetMode = awwwResizeMode(entry.mode);
 
         // Resolved to concrete output names now, before either awww or
         // outputRecords ever sees this entry: a "*" apply is, from the
@@ -347,10 +370,14 @@ Scope {
     }
 
     // Folds `entry`'s path/mode/fillColor into every output name it
-    // resolved to, then writes the merged record back — mkdir first,
-    // same as applyAccent()'s own stateDir/stateWriter pair below, since
-    // outputs.json lives in that same not-yet-guaranteed-to-exist
-    // directory and is otherwise a completely independent write.
+    // resolved to. Rotation.qml's triggeredOnStart can fire the instant
+    // the shell starts, well before outputStateFile finishes reading
+    // outputs.json for the first time — merging onto outputRecords before
+    // that load lands would merge onto its declared property's own empty
+    // default rather than what is actually on disk, and the write below
+    // would silently drop every other output's real record. Queued
+    // instead until outputStateFile reports loaded; see its own onLoaded
+    // for where a queued record actually gets written.
     function recordOutputState(entry) {
         const records = entry.recordOutputs.map(name => ({
             name: name,
@@ -358,6 +385,22 @@ Scope {
             mode: entry.mode,
             fillColor: entry.fillColor
         }));
+
+        if (!outputStateFile.loaded) {
+            root.pendingOutputRecords = root.pendingOutputRecords.concat(records);
+            return;
+        }
+
+        root.writeOutputRecords(records);
+    }
+
+    // The merge-then-write recordOutputState() (or outputStateFile's own
+    // onLoaded, flushing what recordOutputState() queued) actually wants
+    // — split out only so both have one place to call. mkdir first, same
+    // as applyAccent()'s own stateDir/stateWriter pair below, since
+    // outputs.json lives in that same not-yet-guaranteed-to-exist
+    // directory and is otherwise a completely independent write.
+    function writeOutputRecords(records) {
         root.pendingOutputState = PickerLogic.mergeOutputState(root.outputRecords, records);
         outputStateDir.command = ["mkdir", "-p", Theme.tintStateDir];
         outputStateDir.running = true;
@@ -368,7 +411,7 @@ Scope {
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
-            outputStateFile.setText(JSON.stringify(root.pendingOutputState));
+            outputStateFile.setText(JSON.stringify({ outputs: root.pendingOutputState }));
         }
         // qmllint enable signal-handler-parameters
     }
@@ -381,13 +424,28 @@ Scope {
         watchChanges: true
         onFileChanged: reload()
 
+        // Flushes whatever recordOutputState() queued while this
+        // FileView's own first load was still in flight — see
+        // pendingOutputRecords' and recordOutputState()'s own comments.
+        // Fires again on every later reload too (an external edit, or
+        // watchChanges catching this file's own write); a no-op then,
+        // since nothing is ever left queued past the first flush.
+        onLoaded: {
+            if (root.pendingOutputRecords.length === 0)
+                return;
+
+            const records = root.pendingOutputRecords;
+            root.pendingOutputRecords = [];
+            root.writeOutputRecords(records);
+        }
+
         // A bare `JsonAdapter {}` has nothing for the parsed JSON to land
         // on — this declared property is what actually gets populated
-        // from the file's top-level "entries" key; see outputRecords'
-        // own comment above for why a plain `.adapter.root` read never
-        // worked here at all.
+        // from the file's top-level "outputs" key; see outputRecords'
+        // own comment above for why reading a `root` off the adapter
+        // never worked here at all.
         adapter: JsonAdapter {
-            property var entries: []
+            property var outputs: ({})
         }
     }
     // qmllint enable unresolved-type
