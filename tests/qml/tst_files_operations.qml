@@ -127,11 +127,58 @@ TestCase {
     // always seeds it from a real ls listing — but beginPrompt() itself
     // takes name as a plain argument with no shape guarantee, so nothing
     // stopped this from resolving to a traversal outside what
-    // isValidEntryName's own reuse here now closes.
+    // escapesDirectory's own check here now closes.
     function test_resolvepromptargv_trash_confirm_rejects_a_traversal_in_the_snapshot_name() {
         const snapshot = Operations.beginPrompt("trash-confirm", "/home/matus", "../../etc/passwd");
 
         compare(Operations.resolvePromptArgv(snapshot, "irrelevant"), null);
+    }
+
+    // The actual bug this round fixes: a real file already named " ", "  "
+    // or a bare tab lists, copies, moves and renames fine, since none of
+    // those validate the name at all — only Trash used to refuse it, by
+    // running isValidEntryName's CREATE-time blank rule over a name that
+    // was never typed. escapesDirectory has no such rule, so all three
+    // resolve to an ordinary trashArgv now, same as any other filename.
+    function test_resolvepromptargv_trash_confirm_accepts_blank_and_tab_snapshot_names() {
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("trash-confirm", "/home/matus", " "), "irrelevant"), ["gio", "trash", "--", "/home/matus/ "]);
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("trash-confirm", "/home/matus", "  "), "irrelevant"), ["gio", "trash", "--", "/home/matus/  "]);
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("trash-confirm", "/home/matus", "\t"), "irrelevant"), ["gio", "trash", "--", "/home/matus/\t"]);
+    }
+
+    // trashSelected() never produces a null name — mkdir is the only mode
+    // that does, and mkdir never reaches the trash-confirm branch — but
+    // resolvePromptArgv has to stay total against a future caller's
+    // mistake rather than throw out of confirmPrompt() and leave the
+    // confirm label stuck on screen with promptMode never reset.
+    function test_resolvepromptargv_trash_confirm_returns_null_for_a_non_string_snapshot_name() {
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("trash-confirm", "/home/matus", null), "irrelevant"), null);
+    }
+
+    function test_escapesdirectory_rejects_a_bare_dotdot() {
+        verify(Operations.escapesDirectory(".."));
+    }
+
+    function test_escapesdirectory_rejects_a_path_separator_anywhere_in_the_name() {
+        verify(Operations.escapesDirectory("sub/escaped"));
+        verify(Operations.escapesDirectory("../../etc/passwd"));
+    }
+
+    function test_escapesdirectory_rejects_non_string_input() {
+        verify(Operations.escapesDirectory(null));
+        verify(Operations.escapesDirectory(undefined));
+        verify(Operations.escapesDirectory(42));
+    }
+
+    // The properties CREATE-time hygiene rejects (blank, newline) are not
+    // escape properties: none of these can leave the directory they are
+    // joined against, so escapesDirectory — the check trash-confirm uses
+    // for a name that already exists — accepts every one of them.
+    function test_escapesdirectory_accepts_blank_and_newline_carrying_names() {
+        verify(!Operations.escapesDirectory(""));
+        verify(!Operations.escapesDirectory("   "));
+        verify(!Operations.escapesDirectory("\t"));
+        verify(!Operations.escapesDirectory("two\nlines"));
     }
 
     function test_isvalidentryname_accepts_a_name_that_merely_starts_with_a_dash() {
@@ -151,5 +198,55 @@ TestCase {
         verify(!Operations.isValidEntryName(""));
         verify(!Operations.isValidEntryName("   "));
         verify(!Operations.isValidEntryName("two\nlines"));
+    }
+
+    // openArgv/isAbsolutePath/promptErrorMessage were previously inline
+    // QML in Pane.qml/Files.qml with no test anywhere referencing them —
+    // exactly the gap a review found after the round that had to revert a
+    // "--" added to this call. Pulling each into a pure function here is
+    // what makes a future regression on any of the three fail a test
+    // instead of needing another manual xdg-open invocation to catch.
+
+    function test_openargv_carries_no_end_of_options_marker() {
+        // The one builder in this file that must NOT have one: xdg-open's
+        // own argument loop rejects "--" outright and exits 1.
+        compare(Operations.openArgv("/home/matus/notes.txt"), ["xdg-open", "/home/matus/notes.txt"]);
+        verify(!Operations.openArgv("-rf").includes("--"));
+    }
+
+    function test_isabsolutepath_accepts_only_a_leading_slash() {
+        verify(Operations.isAbsolutePath("/home/matus"));
+        verify(Operations.isAbsolutePath("/"));
+        verify(!Operations.isAbsolutePath("-foo"));
+        verify(!Operations.isAbsolutePath("relative/path"));
+        verify(!Operations.isAbsolutePath(""));
+    }
+
+    function test_isabsolutepath_rejects_non_string_input() {
+        verify(!Operations.isAbsolutePath(null));
+        verify(!Operations.isAbsolutePath(undefined));
+        verify(!Operations.isAbsolutePath(42));
+    }
+
+    function test_isknownpromptmode_accepts_exactly_the_three_modes_this_file_produces() {
+        verify(Operations.isKnownPromptMode("rename"));
+        verify(Operations.isKnownPromptMode("mkdir"));
+        verify(Operations.isKnownPromptMode("trash-confirm"));
+        verify(!Operations.isKnownPromptMode("no-such-mode"));
+    }
+
+    function test_promptErrorMessage_blames_the_name_only_for_a_known_mode() {
+        const nameMessage = Operations.promptErrorMessage(Operations.beginPrompt("rename", "/home/matus", "old.txt"));
+        verify(nameMessage.includes("Invalid name"));
+
+        compare(Operations.promptErrorMessage(Operations.beginPrompt("mkdir", "/home/matus", null)), nameMessage);
+        compare(Operations.promptErrorMessage(Operations.beginPrompt("trash-confirm", "/home/matus", "x")), nameMessage);
+    }
+
+    function test_promptErrorMessage_is_generic_for_a_falsy_or_unrecognised_snapshot() {
+        const genericMessage = Operations.promptErrorMessage(null);
+
+        verify(!genericMessage.includes("Invalid name"));
+        compare(Operations.promptErrorMessage({ mode: "no-such-mode", dirPath: "/home/matus", name: "x" }), genericMessage);
     }
 }

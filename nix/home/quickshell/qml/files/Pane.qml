@@ -13,6 +13,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import "files.js" as FilesMath
+import "operations.js" as Operations
 import ".."
 
 Rectangle {
@@ -54,16 +55,18 @@ Rectangle {
         if (entry.isDir) {
             root.navigate(child);
         } else {
-            // No "--" here, unlike list()'s ls call: xdg-open's own
-            // argument loop rejects it outright ("unexpected option
-            // '--'", exit 1), so adding one does not harden this call, it
-            // breaks every ordinary file, every time — confirmed against
-            // the exact binary this service resolves from PATH. The
-            // leading-dash exposure this would have guarded against is
-            // closed at its source instead: Files.qml's setActivePath
-            // refuses a non-absolute root.path, so `child` can never
-            // start with anything but "/".
-            Quickshell.execDetached(["xdg-open", child]);
+            // Operations.openArgv, not an inline array literal: it has no
+            // "--" and must never grow one — xdg-open's own argument loop
+            // rejects it outright ("unexpected option '--'", exit 1),
+            // confirmed against the exact binary this service resolves
+            // from PATH, and broken that way once already by a "--" added
+            // here in an earlier pass over this file. Being a pure
+            // builder now means a test pins that shape directly. The
+            // leading-dash exposure that earlier "--" was guarding
+            // against is closed at its source instead: Files.qml's
+            // setActivePath refuses a non-absolute root.path, so `child`
+            // can never start with anything but "/".
+            Quickshell.execDetached(Operations.openArgv(child));
         }
     }
 

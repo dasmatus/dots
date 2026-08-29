@@ -62,9 +62,11 @@ Scope {
     // PATH), so a relative-looking path handed to it would be read as an
     // option, not a path. Rejecting outright rather than coercing (e.g.
     // prefixing "./"): a malformed IPC call should do nothing, not land
-    // somewhere the caller did not ask for.
+    // somewhere the caller did not ask for. Operations.isAbsolutePath is
+    // pure, so this specific guard is unit-tested with no live Files.qml
+    // anywhere near the test.
     function setActivePath(path: string): void {
-        if (!path.startsWith("/"))
+        if (!Operations.isAbsolutePath(path))
             return;
 
         if (root.activeSide === "left")
@@ -104,30 +106,22 @@ Scope {
         root.promptText = root.activePane.selected.name;
     }
 
-    // Every mode this file ever puts into a snapshot, so confirmPrompt()
-    // below can tell "isValidEntryName rejected something" apart from
-    // "there was never a valid snapshot to resolve" without duplicating
-    // operations.js's own mode dispatch.
-    readonly property var promptModes: ["rename", "mkdir", "trash-confirm"]
-
     // Resolves strictly from promptSnapshot (captured when the prompt
     // opened) plus the live promptText, never from activePane/selected —
-    // see promptSnapshot's own comment above for why. resolvePromptArgv
-    // returns null either because isValidEntryName rejected a name (the
-    // typed text for rename/mkdir, or the snapshot's own name for
-    // trash-confirm) or because the snapshot itself is falsy or carries a
-    // mode none of beginRename/beginMkdir/trashSelected ever produces — a
-    // should-never-happen case kept generic rather than blamed on a name,
-    // since no name was involved. Either way the prompt closes, so nothing
-    // is left stuck on screen.
+    // see promptSnapshot's own comment above for why. On rejection,
+    // Operations.promptErrorMessage picks a naming-specific message for a
+    // mode that actually validates a name (rename/mkdir's typed text,
+    // trash-confirm's own snapshot.name) and a generic one for a falsy
+    // snapshot or an unrecognised mode, neither of which has a name to
+    // blame — that choice is pure and lives in operations.js, testable
+    // with no live prompt, rather than duplicated as QML here. Either way
+    // the prompt closes, so nothing is left stuck on screen.
     function confirmPrompt(): void {
         const argv = Operations.resolvePromptArgv(root.promptSnapshot, root.promptText);
         if (argv)
             root.runOperation(argv);
-        else if (root.promptSnapshot && root.promptModes.includes(root.promptSnapshot.mode))
-            root.lastError = "Invalid name: cannot be empty or whitespace-only, contain \"/\" or a newline, or be \"..\"";
         else
-            root.lastError = "Nothing to confirm";
+            root.lastError = Operations.promptErrorMessage(root.promptSnapshot);
 
         root.promptMode = "";
         root.promptSnapshot = null;
