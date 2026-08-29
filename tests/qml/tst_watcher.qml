@@ -86,6 +86,48 @@ TestCase {
         return xhr.responseText;
     }
 
+    // Slices out each `JsonAdapter { ... }` body in source order, the same
+    // scoping tst_tint_wiring.qml's applyAccentBody() uses on a function
+    // body and for the same reason: `rulesFile`'s adapter and root.rules
+    // both happen to be named `rules`, so an unscoped
+    // `indexOf("property var rules")` is satisfied by the OUTER
+    // `readonly property var rules: ...` line even when the adapter itself
+    // never declares anything — exactly the pre-fix shape, where the block
+    // was a bare `JsonAdapter {}`. Only a check confined to the block body
+    // can tell "the adapter declares it" from "some other line nearby
+    // happens to contain the same words".
+    function jsonAdapterBlocks(source) {
+        const marker = "JsonAdapter {";
+        const blocks = [];
+        let searchFrom = 0;
+
+        while (true) {
+            const start = source.indexOf(marker, searchFrom);
+            if (start === -1)
+                break;
+
+            let depth = 0;
+            let end = -1;
+            for (let i = start + marker.length - 1; i < source.length; i++) {
+                if (source[i] === "{")
+                    depth++;
+                else if (source[i] === "}") {
+                    depth--;
+                    if (depth === 0) {
+                        end = i;
+                        break;
+                    }
+                }
+            }
+            verify(end !== -1, "JsonAdapter block starting at " + start + " must have a matching closing brace");
+
+            blocks.push(source.slice(start, end + 1));
+            searchFrom = end + 1;
+        }
+
+        return blocks;
+    }
+
     function test_watcher_never_reads_the_nonexistent_adapter_root() {
         const watcher = readSource("../../nix/home/quickshell/qml/monitors/Watcher.qml");
         verify(watcher.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading a bare root off it is silently always undefined");
@@ -93,7 +135,26 @@ TestCase {
 
     function test_watcher_declares_a_property_for_each_adapter_to_populate() {
         const watcher = readSource("../../nix/home/quickshell/qml/monitors/Watcher.qml");
-        verify(watcher.indexOf("property var rules") !== -1, "JsonAdapter only populates a property declared on the adapter instance itself — rulesFile's adapter needs a declared `rules` property");
-        verify(watcher.indexOf("property var entries") !== -1, "JsonAdapter only populates a property declared on the adapter instance itself — overridesFile's adapter needs a declared `entries` property");
+        const blocks = jsonAdapterBlocks(watcher);
+
+        compare(blocks.length, 2, "rulesFile and overridesFile must each declare their own JsonAdapter { ... }");
+        verify(blocks[0].indexOf("property var rules") !== -1, "rulesFile's own JsonAdapter block needs a declared `rules` property — JsonAdapter only populates a property declared on the adapter instance itself");
+        verify(blocks[1].indexOf("property var entries") !== -1, "overridesFile's own JsonAdapter block needs a declared `entries` property — JsonAdapter only populates a property declared on the adapter instance itself");
+    }
+
+    // planFor()/applyOverrides() (plan.js) take { rules: [...] } / {
+    // entries: [...] }, never a bare array — plan.js's own matchRule does
+    // `(rules && rules.rules) || []`. A "simplification" to
+    // `readonly property var rules: rulesFile.adapter.rules` (dropping the
+    // wrapper) would satisfy both tests above AND keep reading real data
+    // off the adapter, yet silently restore the exact bug this task fixed:
+    // `rules.rules` on a bare array is undefined, matchRule falls back to
+    // `[]`, and no `hl.monitor` call is ever made again. This is the
+    // assertion that would have caught the original defect, so it is the
+    // one guarding against its return.
+    function test_watcher_rewraps_the_adapter_reads_into_the_shape_planFor_expects() {
+        const watcher = readSource("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        verify(watcher.indexOf("({ rules: rulesFile.adapter.rules })") !== -1, "root.rules must rewrap rulesFile.adapter.rules as { rules: [...] } — planFor() reads rules.rules, not a bare array");
+        verify(watcher.indexOf("({ entries: overridesFile.adapter.entries })") !== -1, "root.overrides must rewrap overridesFile.adapter.entries as { entries: [...] } — applyOverrides() reads overrides.entries, not a bare array");
     }
 }

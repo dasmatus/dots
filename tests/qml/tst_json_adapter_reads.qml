@@ -26,8 +26,46 @@ TestCase {
         return xhr.responseText;
     }
 
-    function countOccurrences(haystack, needle) {
-        return haystack.split(needle).length - 1;
+    // Slices out each `JsonAdapter { ... }` body in source order, the same
+    // scoping tst_tint_wiring.qml's applyAccentBody() uses on a function
+    // body and for the same reason: Cheatsheet.qml's `groups` property and
+    // its adapter's own declared `groups` property share a name, so an
+    // unscoped `indexOf("property var groups")` is satisfied by the OUTER
+    // `readonly property var groups: ...` line even when the adapter itself
+    // never declares anything — exactly the pre-fix shape, where the block
+    // was a bare `JsonAdapter {}`. Only a check confined to the block body
+    // can tell "the adapter declares it" from "some other line nearby
+    // happens to contain the same words".
+    function jsonAdapterBlocks(source) {
+        const marker = "JsonAdapter {";
+        const blocks = [];
+        let searchFrom = 0;
+
+        while (true) {
+            const start = source.indexOf(marker, searchFrom);
+            if (start === -1)
+                break;
+
+            let depth = 0;
+            let end = -1;
+            for (let i = start + marker.length - 1; i < source.length; i++) {
+                if (source[i] === "{")
+                    depth++;
+                else if (source[i] === "}") {
+                    depth--;
+                    if (depth === 0) {
+                        end = i;
+                        break;
+                    }
+                }
+            }
+            verify(end !== -1, "JsonAdapter block starting at " + start + " must have a matching closing brace");
+
+            blocks.push(source.slice(start, end + 1));
+            searchFrom = end + 1;
+        }
+
+        return blocks;
     }
 
     function test_providers_never_reads_the_nonexistent_adapter_root() {
@@ -41,7 +79,11 @@ TestCase {
     // an option here since each FileView owns a different JSON file.
     function test_providers_declares_a_property_on_every_adapter() {
         const providers = readSource("../../nix/home/quickshell/qml/launcher/Providers.qml");
-        compare(countOccurrences(providers, "property var items"), 3, "quicklinksFile, snippetsFile and emojiFile must each declare their own `items` property for JsonAdapter to populate");
+        const blocks = jsonAdapterBlocks(providers);
+
+        compare(blocks.length, 3, "quicklinksFile, snippetsFile and emojiFile must each declare their own JsonAdapter { ... }");
+        for (let i = 0; i < blocks.length; i++)
+            verify(blocks[i].indexOf("property var items") !== -1, "adapter block " + i + " needs a declared `items` property — JsonAdapter only populates a property declared on the adapter instance itself");
     }
 
     function test_cheatsheet_never_reads_the_nonexistent_adapter_root() {
@@ -51,7 +93,10 @@ TestCase {
 
     function test_cheatsheet_declares_a_property_for_the_adapter_to_populate() {
         const cheatsheet = readSource("../../nix/home/quickshell/qml/cheatsheet/Cheatsheet.qml");
-        verify(cheatsheet.indexOf("property var groups") !== -1, "JsonAdapter only populates a property declared on the adapter instance itself — keybindsFile's adapter needs a declared `groups` property");
+        const blocks = jsonAdapterBlocks(cheatsheet);
+
+        compare(blocks.length, 1, "keybindsFile must declare exactly one JsonAdapter { ... }");
+        verify(blocks[0].indexOf("property var groups") !== -1, "keybindsFile's own JsonAdapter block needs a declared `groups` property — JsonAdapter only populates a property declared on the adapter instance itself");
     }
 
     // tree.nix, not Theme.qml: the generated file only exists inside a Nix
@@ -67,6 +112,9 @@ TestCase {
 
     function test_tree_nix_declares_a_property_for_the_adapter_to_populate() {
         const tree = readSource("../../nix/home/quickshell/tree.nix");
-        verify(tree.indexOf("property var accent") !== -1, "JsonAdapter only populates a property declared on the adapter instance itself — tintState's adapter needs a declared `accent` property");
+        const blocks = jsonAdapterBlocks(tree);
+
+        compare(blocks.length, 1, "tintState must declare exactly one JsonAdapter { ... }");
+        verify(blocks[0].indexOf("property var accent") !== -1, "tintState's own JsonAdapter block needs a declared `accent` property — JsonAdapter only populates a property declared on the adapter instance itself");
     }
 }

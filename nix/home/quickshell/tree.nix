@@ -114,14 +114,11 @@ let
 
         // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
         // without exporting it, so qmllint cannot resolve anything reached
-        // through it, which is the actual reason the category is suppressed
-        // here. It is not, as this comment used to claim, that the bindings
-        // below worked and only the linter was confused: JsonAdapter has no
-        // `root` property on this Quickshell build, so reading a bare `root`
-        // off tintState's adapter was silently undefined forever, and the
-        // suppression is exactly what kept that dead read from ever being
-        // flagged. Only a property DECLARED on the adapter instance gets
-        // populated from the file; `accent` below is that property.
+        // through it — that is why the category is suppressed here. Separately,
+        // JsonAdapter has no `root` property on this Quickshell build: only a
+        // property DECLARED on the adapter instance gets populated from the
+        // file, which is why `accent` below is declared directly on tintState's
+        // adapter rather than read off a `root` that does not exist.
         // qmllint disable unresolved-type
 
         // A missing file, an unreadable one and a null accent all land on the
