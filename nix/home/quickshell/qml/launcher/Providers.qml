@@ -16,6 +16,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
 import "preview.js" as PreviewMath
+import "status.js" as StatusMath
 
 QtObject {
     id: root
@@ -116,6 +117,7 @@ QtObject {
                     icon: "",
                     accessory: "open",
                     path: path,
+                    provider: "files",
                     run: () => Quickshell.execDetached(["xdg-open", path])
                 }));
     }
@@ -153,6 +155,7 @@ QtObject {
                 subtitle: entry.comment || entry.genericName,
                 icon: entry.icon ? Quickshell.iconPath(entry.icon, true) : "",
                 accessory: "",
+                provider: "apps",
                 // execute() rather than execDetached(entry.command): it honours
                 // Terminal=true and the entry's working directory, which a raw
                 // argv spawn silently drops.
@@ -165,6 +168,7 @@ QtObject {
                     subtitle: entry.comment || entry.genericName,
                     icon: entry.icon ? Quickshell.iconPath(entry.icon, true) : "",
                     accessory: "action",
+                    provider: "apps",
                     run: () => action.execute()
                 });
             }
@@ -185,6 +189,7 @@ QtObject {
                 subtitle: command.subtitle,
                 icon: "",
                 accessory: "system",
+                provider: "system",
                 run: () => Quickshell.execDetached(command.argv)
             });
         }
@@ -206,6 +211,7 @@ QtObject {
                 subtitle: toplevel.lastIpcObject?.class ?? "",
                 icon: "",
                 accessory: `workspace ${toplevel.workspace?.name ?? "?"}`,
+                provider: "windows",
                 run: () => Hyprland.dispatch(`focuswindow address:${toplevel.address}`)
             });
         }
@@ -225,6 +231,7 @@ QtObject {
                 subtitle: "",
                 icon: "",
                 accessory: "copy",
+                provider: "clipboard",
                 run: () => root.copy(item)
             });
         }
@@ -247,6 +254,7 @@ QtObject {
                 subtitle: entry.keywords,
                 icon: "",
                 accessory: "copy",
+                provider: "emoji",
                 run: () => root.copy(entry.glyph)
             });
         }
@@ -267,6 +275,7 @@ QtObject {
                 subtitle: link.target,
                 icon: "",
                 accessory: link.command ? "run" : "open",
+                provider: "quicklinks",
                 run: () => Quickshell.execDetached(link.command ? ["sh", "-c", link.target] : ["xdg-open", link.target])
             });
         }
@@ -287,6 +296,7 @@ QtObject {
                 subtitle: root.preview(snippet.text, 72),
                 icon: "",
                 accessory: "copy",
+                provider: "snippets",
                 run: () => root.copy(snippet.text)
             });
         }
@@ -311,9 +321,20 @@ QtObject {
                 subtitle: "SearXNG on 127.0.0.1:8888",
                 icon: "",
                 accessory: "web",
+                provider: "websearch",
                 run: () => Quickshell.execDetached(["xdg-open", url])
             }
         ];
+    }
+
+    // Live system readouts, restoring rust/beamenu/src/providers/status.rs's
+    // Memory and Disk rows. The cost split that file's header insisted on is
+    // preserved here rather than in status.js: meminfoFile.text() below is a
+    // plain file read done fresh on every call, because /proc is microseconds;
+    // diskSnapshot is never read here, only handed over, because df costs a
+    // subprocess and is confined to diskTimer instead.
+    function statusRows(text: string): var {
+        return StatusMath.statusRows(text, root.meminfoFile.text(), root.diskSnapshot, root.copy);
     }
 
     // Quickshell types FileView.adapter as FileViewAdapter without exporting
@@ -361,6 +382,21 @@ QtObject {
     }
     // qmllint enable unresolved-type
 
+    // /proc/meminfo, read fresh on every statusRows() call rather than once.
+    // blockAllReads forces text() to hit the file every time it is called
+    // instead of caching the first read: meminfo's numbers change constantly
+    // and never fire an inotify event to say so, so a normal FileView would
+    // otherwise show the reading from the moment the launcher first opened
+    // for as long as it stayed open. It is still a plain read(), not a
+    // subprocess, which is the half of status.rs's cost split this can pay on
+    // every keystroke.
+    property var meminfoFile: FileView {
+        path: "/proc/meminfo"
+        blockLoading: true
+        blockAllReads: true
+        printErrors: false
+    }
+
     property var fileDebounce: Timer {
         interval: 120
 
@@ -400,6 +436,35 @@ QtObject {
                 const next = [text].concat(root.clipboardHistory.filter(existing => existing !== text));
                 root.clipboardHistory = next.slice(0, root.clipboardLimit);
             }
+        }
+    }
+
+    // The Disk rows' snapshot. Every mount is asked for in one `df`
+    // invocation — still one fork per tick, not one per mount — and the
+    // result is parsed once here rather than in statusRows, so a keystroke
+    // that never touches a Disk row still costs nothing beyond the array
+    // filter status.js already does for every provider.
+    readonly property var diskPaths: ["/home", "/nix/store"]
+
+    property var diskSnapshot: []
+
+    // 15s: often enough that a df run finishing while the launcher is open
+    // still catches up, rarely enough that it stays a timer tick and not
+    // something felt as launcher latency — the distinction status.rs's
+    // header draws between "microseconds" and "tens of milliseconds apiece".
+    property var diskTimer: Timer {
+        interval: 15000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.diskProbe.running = true
+    }
+
+    property var diskProbe: Process {
+        command: ["df", "-B1", "--output=used,size,pcent"].concat(root.diskPaths)
+
+        stdout: StdioCollector {
+            onStreamFinished: root.diskSnapshot = StatusMath.parseDf(this.text, root.diskPaths)
         }
     }
 }
