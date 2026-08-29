@@ -105,10 +105,51 @@ TestCase {
         compare(Operations.resolvePromptArgv(Operations.beginPrompt("mkdir", "/home/matus", null), ".."), null);
     }
 
+    // Neither of these escapes the directory the prompt opened in — join()
+    // is dir + "/" + name, and a name with no "/" and no ".." segment
+    // cannot leave dir, whitespace or not. Rejected anyway because each is
+    // a working-as-designed footgun elsewhere: " " mints a directory that
+    // looks empty in a listing and is easy to lose track of, and a
+    // newline byte survives mkdir/mv just fine but breaks files.js's
+    // line-based ls parsing the next time either pane re-lists — one
+    // directory becomes two phantom rows.
+    function test_resolvepromptargv_rejects_a_whitespace_only_typed_name() {
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("rename", "/home/matus", "old.txt"), "   "), null);
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("mkdir", "/home/matus", null), "   "), null);
+    }
+
+    function test_resolvepromptargv_rejects_a_typed_name_containing_a_newline() {
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("rename", "/home/matus", "old.txt"), "two\nlines"), null);
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("mkdir", "/home/matus", null), "two\nlines"), null);
+    }
+
+    // trash-confirm's name never comes from typed text — trashSelected()
+    // always seeds it from a real ls listing — but beginPrompt() itself
+    // takes name as a plain argument with no shape guarantee, so nothing
+    // stopped this from resolving to a traversal outside what
+    // isValidEntryName's own reuse here now closes.
+    function test_resolvepromptargv_trash_confirm_rejects_a_traversal_in_the_snapshot_name() {
+        const snapshot = Operations.beginPrompt("trash-confirm", "/home/matus", "../../etc/passwd");
+
+        compare(Operations.resolvePromptArgv(snapshot, "irrelevant"), null);
+    }
+
     function test_isvalidentryname_accepts_a_name_that_merely_starts_with_a_dash() {
         // "-rf" is still one ordinary path segment; rejecting it would be
         // conflating "looks like a flag" (operations.js's own "--" already
         // handles that) with "escapes the directory" (this function's job).
         verify(Operations.isValidEntryName("-rf"));
+    }
+
+    function test_isvalidentryname_accepts_a_name_with_internal_but_not_only_whitespace() {
+        // Only rejects a name that is NOTHING but whitespace; padding
+        // around real content is somebody's legitimate file.
+        verify(Operations.isValidEntryName(" leading and trailing "));
+    }
+
+    function test_isvalidentryname_rejects_whitespace_only_and_newline_carrying_names() {
+        verify(!Operations.isValidEntryName(""));
+        verify(!Operations.isValidEntryName("   "));
+        verify(!Operations.isValidEntryName("two\nlines"));
     }
 }

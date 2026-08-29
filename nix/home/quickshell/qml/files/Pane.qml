@@ -54,7 +54,16 @@ Rectangle {
         if (entry.isDir) {
             root.navigate(child);
         } else {
-            Quickshell.execDetached(["xdg-open", "--", child]);
+            // No "--" here, unlike list()'s ls call: xdg-open's own
+            // argument loop rejects it outright ("unexpected option
+            // '--'", exit 1), so adding one does not harden this call, it
+            // breaks every ordinary file, every time — confirmed against
+            // the exact binary this service resolves from PATH. The
+            // leading-dash exposure this would have guarded against is
+            // closed at its source instead: Files.qml's setActivePath
+            // refuses a non-absolute root.path, so `child` can never
+            // start with anything but "/".
+            Quickshell.execDetached(["xdg-open", child]);
         }
     }
 

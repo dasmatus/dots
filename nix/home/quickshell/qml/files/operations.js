@@ -28,16 +28,23 @@ function trashArgv(path) {
 
 // A rename's new name and a new folder's name are free text the user
 // typed, unlike every other argument on this path, which comes straight
-// off a real `ls` listing. An empty string joins to the parent directory
-// itself (mkdir -- $dir, not a new one at all), and a name carrying "/" or
-// a ".." segment escapes the directory the prompt was opened in — a
-// rename or mkdir dialog opened on one directory must never be able to
-// write outside it.
+// off a real `ls` listing. A blank (empty or whitespace-only) name joins
+// to the parent directory itself (mkdir -- $dir, not a new one at all,
+// or a directory literally named " ", which is legal but not what anyone
+// meant to type); a name carrying "/" or a ".." segment escapes the
+// directory the prompt was opened in, which a rename or mkdir dialog must
+// never be able to do; a name carrying a newline byte is syntactically a
+// valid filename on Linux, but files.js's parseListing splits `ls -1Ap`
+// output on "\n", so minting one turns into two phantom rows the next
+// time either pane lists this directory. None of these are optional —
+// resolvePromptArgv below also runs this over a name that never came from
+// typed text at all, so it has to reject everything that could go wrong
+// with an arbitrary string, not just what a keyboard is likely to produce.
 function isValidEntryName(name) {
-    if (name === "" || name === "..")
+    if (name.trim() === "" || name === "..")
         return false;
 
-    return !name.includes("/");
+    return !name.includes("/") && !name.includes("\n");
 }
 
 // Captures what a pending rename/mkdir/trash-confirm needs to resolve its
@@ -78,8 +85,20 @@ function resolvePromptArgv(snapshot, promptText) {
         return mkdirArgv(FilesMath.join(snapshot.dirPath, promptText));
     }
 
-    if (snapshot.mode === "trash-confirm")
+    // snapshot.name here always comes off a real ls listing today (via
+    // trashSelected()), and a POSIX filename cannot itself contain "/", so
+    // this validates something unreachable through the running UI. It
+    // stays anyway: beginPrompt takes name as a plain argument with no
+    // shape guarantee of its own, so the only thing that made this branch
+    // safe before was every caller's discipline, not this function's own
+    // contract. beginPrompt("trash-confirm", dir, "../../etc/passwd")
+    // resolved to a traversal until this check existed.
+    if (snapshot.mode === "trash-confirm") {
+        if (!isValidEntryName(snapshot.name))
+            return null;
+
         return trashArgv(FilesMath.join(snapshot.dirPath, snapshot.name));
+    }
 
     return null;
 }
