@@ -163,6 +163,43 @@ TestCase {
                 existingRoot: { entries: [{ name: "DP-1", description: "Dell U2720Q", resolution: "1920x1080@60" }] },
                 items: [{ name: "DP-1", position: "0x0", scale: 1.5 }],
                 expected: { entries: [{ name: "DP-1", description: "Dell U2720Q", resolution: "1920x1080@60", position: "0x0", scale: 1.5 }] }
+            },
+            {
+                // A plain {} used as the name-keyed working set has a
+                // prototype: "constructor" in {} is true even though
+                // nothing was ever assigned to it, which made this entry
+                // look like a name already seen and drop it entirely. Only
+                // reachable from a hand-edited overrides.json (Hyprland
+                // itself never names an output this), same as the
+                // numeric-name case above, but the file does not forbid it.
+                tag: "an existing entry named after an Object.prototype method survives a save",
+                existingRoot: { entries: [{ name: "DP-1", position: "0x0" }, { name: "constructor", position: "77x0", scale: 2 }] },
+                items: [],
+                expected: { entries: [{ name: "DP-1", position: "0x0" }, { name: "constructor", position: "77x0", scale: 2 }] }
+            },
+            {
+                // description-only entries (no name — overrides.rs's own
+                // `name` is optional, and match_override has a documented
+                // description-fallback pass) have nothing in `items` that
+                // could ever address them, so a save touching its
+                // neighbours on both sides must still leave this one
+                // exactly where and what it was.
+                tag: "a description-only entry survives untouched even when both its neighbours are saved",
+                existingRoot: {
+                    entries: [
+                        { name: "DP-1", position: "0x0" },
+                        { description: "VG279QM", resolution: "2560x1440@144" },
+                        { name: "HDMI-A-1", position: "2560x0" }
+                    ]
+                },
+                items: [{ name: "DP-1", position: "999x0" }, { name: "HDMI-A-1", position: "3000x0" }],
+                expected: {
+                    entries: [
+                        { name: "DP-1", position: "999x0" },
+                        { description: "VG279QM", resolution: "2560x1440@144" },
+                        { name: "HDMI-A-1", position: "3000x0" }
+                    ]
+                }
             }
         ];
     }
@@ -237,6 +274,36 @@ TestCase {
 
         compare(typeof entry.scale, "number");
         compare(typeof entry.transform, "number");
+    }
+
+    // A plain {} used as the name-keyed working set would let an item
+    // named "toString" (or any other real Object.prototype member) find
+    // and silently overwrite that method through the "not found, use the
+    // inherited one" fallback a bare `byName[item.name] || {...}` used to
+    // have — this is the write-side counterpart to the read-side survival
+    // rows above. Checking the real global is what proves the fix actually
+    // stops the write, not just that a normal-looking entry comes back.
+    function test_mergedOverrides_does_not_pollute_Object_prototype() {
+        const before = Object.prototype.toString;
+
+        const merged = ArrangeLogic.mergedOverrides(null, [{ name: "toString", position: "9x9" }]);
+
+        compare(merged.entries.length, 1);
+        compare(merged.entries[0].name, "toString");
+        compare(merged.entries[0].position, "9x9");
+        compare(Object.prototype.toString, before);
+        compare(typeof Object.prototype.toString, "function");
+    }
+
+    // The data-driven row above checks the fields a description-only entry
+    // is expected to keep, but "for (const key in want)" only checks keys
+    // `want` names — it cannot prove `name` stayed absent. hasOwnProperty
+    // is what can: this entry's `name` was never set, so it must never
+    // silently gain one on the way through the merge.
+    function test_mergedOverrides_description_only_entry_never_gains_a_name() {
+        const merged = ArrangeLogic.mergedOverrides({ entries: [{ description: "VG279QM", resolution: "2560x1440@144" }] }, []);
+
+        verify(!merged.entries[0].hasOwnProperty("name"));
     }
 
     function test_parseWorldPosition_data() {

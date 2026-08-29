@@ -188,35 +188,55 @@ function parseTransform(text) {
 // JSON, is Arrange.qml's reset(), which drops the whole entry rather than
 // one field at a time.
 //
-// Order is carried explicitly in `order` rather than read back off byName's
-// own key iteration order: overrides.rs's own doc comment calls this file
-// an ordered list where "first match wins", so a save must not reorder
-// entries it never touched, but a plain object cannot be trusted for that.
-// JS iterates any key that looks like an array index (a bare non-negative
-// integer, as a string) in ascending numeric order ahead of every other
-// key, regardless of when it was inserted — Hyprland never actually names
-// an output a bare digit, but nothing here enforces that, so the merge
-// itself has to not depend on it either.
+// `entries` is built by direct array push, in file order, rather than by
+// reading a name-keyed object's own key order back out — overrides.rs's own
+// doc comment calls this file an ordered list where "first match wins", so
+// a save must not reorder entries it never touched, and a plain object's
+// key order cannot be trusted for that: JS iterates any key that looks like
+// an array index (a bare non-negative integer, as a string) in ascending
+// numeric order ahead of every other key, regardless of insertion order.
+// `byName` is Object.create(null) rather than a plain {} for the same
+// "hand-edited JSON only" reason: a plain object's prototype chain makes
+// "constructor" in {}, "toString" in {} and friends true even when nothing
+// was ever assigned to them, which would make an existing entry named
+// exactly one of those look like a duplicate and get lost, and would make
+// an item named one of those silently overwrite the real
+// Object.prototype method of that name instead of getting a fresh entry.
+// Object.create(null) has no prototype, so a lookup or an assignment here
+// means exactly what it looks like and nothing more.
+//
+// A description-only entry (overrides.rs's own `name` is `Option<String>`,
+// and match_override's description-fallback pass is a real, documented
+// path — this user's own monitors.json matches by description, so an
+// override keyed the same way is a thing they would plausibly write) has
+// nothing in `items` that could ever address it: every item this function
+// receives comes from a dragged canvas rectangle, which always carries the
+// monitor's live Hyprland name. It is carried through untouched, in its
+// original position, rather than being matched against anything.
 function mergedOverrides(existingRoot, items) {
-    const byName = {};
-    const order = [];
+    const entries = [];
+    const byName = Object.create(null);
     const existingEntries = (existingRoot && existingRoot.entries) || [];
     for (const entry of existingEntries) {
-        if (!entry.name)
+        if (!entry.name) {
+            entries.push(Object.assign({}, entry));
             continue;
-        if (!(entry.name in byName))
-            order.push(entry.name);
-        byName[entry.name] = Object.assign({}, entry);
+        }
+        const copy = Object.assign({}, entry);
+        byName[entry.name] = copy;
+        entries.push(copy);
     }
     for (const item of items) {
-        if (!(item.name in byName))
-            order.push(item.name);
-        const entry = byName[item.name] || { name: item.name };
+        let entry = byName[item.name];
+        if (!entry) {
+            entry = { name: item.name };
+            byName[item.name] = entry;
+            entries.push(entry);
+        }
         for (const field of SETTABLE_FIELDS) {
             if (isSet(item[field]))
                 entry[field] = item[field];
         }
-        byName[item.name] = entry;
     }
-    return { entries: order.map(name => byName[name]) };
+    return { entries: entries };
 }
