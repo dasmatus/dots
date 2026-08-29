@@ -1,8 +1,10 @@
 // Argv builders for the write operations Files.qml's toolbar drives. Every
-// one ends "--" before the path, the coreutils/gio convention that stops
-// a name starting with "-" being parsed as a flag, and every path is its
-// own array element, never concatenated into a shell string, because
-// nothing on this path ever runs through sh -c.
+// coreutils/gio one (copyArgv/moveArgv/renameArgv/mkdirArgv/trashArgv)
+// ends "--" before the path, the convention that stops a name starting
+// with "-" being parsed as a flag, and every path is its own array
+// element, never concatenated into a shell string, because nothing on
+// this path ever runs through sh -c. openArgv is the one exception to
+// the "--" rule, deliberately — see its own comment for why.
 .pragma library
 .import "files.js" as FilesMath
 
@@ -26,35 +28,39 @@ function trashArgv(path) {
     return ["gio", "trash", "--", path];
 }
 
-// Whether `name` could resolve outside the directory it gets joined
-// against — the only property that matters for a name nobody typed, e.g.
-// an existing entry's name off a real `ls` listing. `join` is
-// `dir + "/" + name`, so a name with no "/" and not exactly ".." cannot
-// leave `dir`; those are the two properties checked here, nothing more.
-// `typeof name !== "string"` comes first so a non-string (a future
-// caller's mistake, not anything trashSelected() produces today) is
-// rejected rather than reaching `.includes` and throwing — this function
-// has to stay total, since a throw here would skip confirmPrompt()'s own
-// cleanup and leave a prompt stuck open exactly the way a live-selection
-// read used to.
+// Whether `name` could resolve to somewhere other than a real, distinct
+// entry inside the directory it gets joined against — the only property
+// that matters for a name nobody typed, e.g. an existing entry's name off
+// a real `ls` listing. `join` is `dir + "/" + name`, so an empty name or
+// "." both resolve to `dir` itself (join(dir, "") is "dir/", join(dir,
+// ".") is "dir/."), and a name with "/" or exactly ".." can point outside
+// `dir` entirely — those four are checked here, nothing more, and nothing
+// less: an empty snapshot.name used to pass this function (neither ".."
+// nor containing "/"), so a trash-confirm on one resolved to trashing the
+// pane's own directory, exit 0, silently. `typeof name !== "string"`
+// comes first so a non-string (a future caller's mistake, not anything
+// trashSelected() produces today) is rejected rather than reaching
+// `.includes` and throwing — this function has to stay total, since a
+// throw here would skip confirmPrompt()'s own cleanup and leave a prompt
+// stuck open exactly the way a live-selection read used to.
 function escapesDirectory(name) {
-    return typeof name !== "string" || name === ".." || name.includes("/");
+    return typeof name !== "string" || name === "" || name === "." || name === ".." || name.includes("/");
 }
 
 // A rename's new name and a new folder's name are free text the user
 // typed, unlike an existing entry's name, which is a fact about the disk
-// (see escapesDirectory above, used for that case instead). Beyond the
-// two escape properties, a name about to be CREATED gets two more rules a
-// name that already exists does not need, because both are about picking
-// a bad name rather than escaping anywhere: a blank (empty or
-// whitespace-only) name joins to the parent directory itself (mkdir --
-// $dir, not a new one at all, or a directory literally named " ", which
-// is legal but not what anyone meant to type), and a name carrying a
-// newline byte is syntactically valid but files.js's parseListing splits
-// `ls -1Ap` output on "\n", so minting one turns into two phantom rows
-// the next time either pane lists this directory. A real file already
-// named " " or containing a tab predates this dialog and lists, copies
-// and moves just fine; only creating a new one that way is refused.
+// (see escapesDirectory above, used for that case instead, and which
+// already rejects an empty name on its own). Beyond escapesDirectory's
+// four properties, a name about to be CREATED gets two more rules a name
+// that already exists does not need, because both are about picking a
+// bad name rather than escaping anywhere: a whitespace-only (but
+// non-empty) name mints a directory literally named " ", which is legal
+// but not what anyone meant to type, and a name carrying a newline byte
+// is syntactically valid but files.js's parseListing splits `ls -1Ap`
+// output on "\n", so minting one turns into two phantom rows the next
+// time either pane lists this directory. A real file already named " "
+// or containing a tab predates this dialog and lists, copies and moves
+// just fine; only creating a new one that way is refused.
 function isValidEntryName(name) {
     if (escapesDirectory(name))
         return false;
@@ -101,15 +107,17 @@ function resolvePromptArgv(snapshot, promptText) {
     }
 
     // snapshot.name here always comes off a real ls listing today (via
-    // trashSelected()), which is exactly why this checks escapesDirectory
-    // rather than isValidEntryName: a file already named " ", "  " or a
-    // literal tab is a real, existing, trashable file, and rejecting it
-    // for being "blank" applied a create-time hygiene rule to a name
-    // nobody typed — the trash button was refusing files copy, move and
-    // rename all left alone. beginPrompt takes name as a plain argument
-    // with no shape guarantee of its own regardless, so the escape check
-    // stays: beginPrompt("trash-confirm", dir, "../../etc/passwd")
-    // resolved to a traversal until it existed.
+    // trashSelected(), and parseListing never emits an empty or "."
+    // entry), which is exactly why this checks escapesDirectory rather
+    // than isValidEntryName: a file already named " ", "  " or a literal
+    // tab is a real, existing, trashable file, and rejecting it for being
+    // "blank" applied a create-time hygiene rule to a name nobody typed —
+    // the trash button was refusing files copy, move and rename all left
+    // alone. beginPrompt takes name as a plain argument with no shape
+    // guarantee of its own regardless, so the escape check stays:
+    // beginPrompt("trash-confirm", dir, "../../etc/passwd") resolved to a
+    // traversal, and beginPrompt("trash-confirm", dir, "") resolved to
+    // trashing dir itself, until escapesDirectory covered both.
     if (snapshot.mode === "trash-confirm") {
         if (escapesDirectory(snapshot.name))
             return null;
@@ -129,16 +137,21 @@ function isKnownPromptMode(mode) {
 
 // Which lastError text a failed confirmPrompt() should show, given the
 // snapshot resolvePromptArgv() just rejected. Pulled out of Files.qml so
-// it is testable without a live prompt: a naming-specific message only
-// for a snapshot whose mode actually validates a name (isKnownPromptMode
-// — rename/mkdir's typed text, trash-confirm's own snapshot.name), a
-// generic one for a falsy snapshot or an unrecognised mode, neither of
-// which has a name to blame.
+// it is testable without a live prompt: a generic message for a falsy
+// snapshot or an unrecognised mode, neither of which has a name to blame,
+// and otherwise a naming-specific message scoped to what that mode can
+// actually reject — trash-confirm only ever fails escapesDirectory (a
+// "/", an empty name, or "." or ".." exactly), never isValidEntryName's
+// extra CREATE-time rules, so its message must not claim a blank or
+// newline name would be refused when trash-confirm accepts both.
 function promptErrorMessage(snapshot) {
-    if (snapshot && isKnownPromptMode(snapshot.mode))
-        return "Invalid name: cannot be empty or whitespace-only, contain \"/\" or a newline, or be \"..\"";
+    if (!snapshot || !isKnownPromptMode(snapshot.mode))
+        return "Nothing to confirm";
 
-    return "Nothing to confirm";
+    if (snapshot.mode === "trash-confirm")
+        return "Invalid name: cannot contain \"/\", or be \"..\" or \".\"";
+
+    return "Invalid name: cannot be empty or whitespace-only, contain \"/\" or a newline, or be \"..\" or \".\"";
 }
 
 // Pane.qml's activate() opens a non-directory hit through this. A pure

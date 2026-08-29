@@ -44,6 +44,9 @@ TestCase {
     // guards the paths or trails uselessly after them. indexOf() pins the
     // actual position, which is what "end of options" means: everything
     // from here to the end of the array is a path, nothing before it is.
+    // Deliberately does not cover openArgv: that builder must NOT carry
+    // "--" at all (xdg-open rejects it outright), so it has its own
+    // dedicated test below asserting the opposite.
     function test_every_builder_places_the_marker_immediately_before_the_paths() {
         compare(Operations.copyArgv("-rf", "dst").indexOf("--"), 2);
         compare(Operations.moveArgv("-rf", "dst").indexOf("--"), 1);
@@ -134,6 +137,17 @@ TestCase {
         compare(Operations.resolvePromptArgv(snapshot, "irrelevant"), null);
     }
 
+    // join(dir, "") is "dir/" and join(dir, ".") is "dir/." — both name
+    // the directory itself, not a distinct entry inside it. Before
+    // escapesDirectory covered these, beginPrompt("trash-confirm", dir,
+    // "") resolved to trashArgv("dir/"), exit 0, the whole directory
+    // gone, silently, with no traversal and no "/" or ".." in sight —
+    // exactly the shape the previous round's fix did not close.
+    function test_resolvepromptargv_trash_confirm_rejects_an_empty_or_dot_snapshot_name() {
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("trash-confirm", "/home/matus", ""), "irrelevant"), null);
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("trash-confirm", "/home/matus", "."), "irrelevant"), null);
+    }
+
     // The actual bug this round fixes: a real file already named " ", "  "
     // or a bare tab lists, copies, moves and renames fine, since none of
     // those validate the name at all — only Trash used to refuse it, by
@@ -170,12 +184,32 @@ TestCase {
         verify(Operations.escapesDirectory(42));
     }
 
-    // The properties CREATE-time hygiene rejects (blank, newline) are not
-    // escape properties: none of these can leave the directory they are
-    // joined against, so escapesDirectory — the check trash-confirm uses
-    // for a name that already exists — accepts every one of them.
-    function test_escapesdirectory_accepts_blank_and_newline_carrying_names() {
-        verify(!Operations.escapesDirectory(""));
+    // join(dir, "") and join(dir, ".") both resolve to dir itself, not a
+    // distinct entry inside it — indistinguishable in effect from "..":
+    // all three make the operation land somewhere other than the entry
+    // the caller meant. Neither "" nor "." contains "/" or equals "..",
+    // which is exactly how an empty snapshot.name passed this function
+    // before this round's fix.
+    function test_escapesdirectory_rejects_empty_and_single_dot_names() {
+        verify(Operations.escapesDirectory(""));
+        verify(Operations.escapesDirectory("."));
+    }
+
+    // Mutation-tested: changing escapesDirectory's `name === ".."` to a
+    // `startsWith("..")` check survives every other assertion in this
+    // file, since nothing here previously typed a name starting with but
+    // not equal to "..". A real, listed dotfile named this way must stay
+    // trashable — "..hidden" does not equal ".." and does not leave dir.
+    function test_escapesdirectory_accepts_a_dotdot_prefixed_name_that_is_not_exactly_dotdot() {
+        verify(!Operations.escapesDirectory("..hidden"));
+    }
+
+    // The properties CREATE-time hygiene rejects beyond escapesDirectory
+    // (whitespace-only, newline) are not escape properties: neither can
+    // leave the directory they are joined against, so escapesDirectory —
+    // the check trash-confirm uses for a name that already exists —
+    // accepts both.
+    function test_escapesdirectory_accepts_whitespace_only_and_newline_carrying_names() {
         verify(!Operations.escapesDirectory("   "));
         verify(!Operations.escapesDirectory("\t"));
         verify(!Operations.escapesDirectory("two\nlines"));
@@ -198,6 +232,13 @@ TestCase {
         verify(!Operations.isValidEntryName(""));
         verify(!Operations.isValidEntryName("   "));
         verify(!Operations.isValidEntryName("two\nlines"));
+    }
+
+    // Inherited from escapesDirectory: renaming a file to "." (or
+    // creating a folder named ".") is nonsensical the same way an empty
+    // name is — both would collapse onto the directory itself.
+    function test_isvalidentryname_rejects_a_single_dot() {
+        verify(!Operations.isValidEntryName("."));
     }
 
     // openArgv/isAbsolutePath/promptErrorMessage were previously inline
@@ -235,12 +276,29 @@ TestCase {
         verify(!Operations.isKnownPromptMode("no-such-mode"));
     }
 
-    function test_promptErrorMessage_blames_the_name_only_for_a_known_mode() {
-        const nameMessage = Operations.promptErrorMessage(Operations.beginPrompt("rename", "/home/matus", "old.txt"));
-        verify(nameMessage.includes("Invalid name"));
+    function test_promptErrorMessage_gives_rename_and_mkdir_the_same_message() {
+        const renameMessage = Operations.promptErrorMessage(Operations.beginPrompt("rename", "/home/matus", "old.txt"));
+        const mkdirMessage = Operations.promptErrorMessage(Operations.beginPrompt("mkdir", "/home/matus", null));
 
-        compare(Operations.promptErrorMessage(Operations.beginPrompt("mkdir", "/home/matus", null)), nameMessage);
-        compare(Operations.promptErrorMessage(Operations.beginPrompt("trash-confirm", "/home/matus", "x")), nameMessage);
+        verify(renameMessage.includes("Invalid name"));
+        compare(mkdirMessage, renameMessage);
+    }
+
+    // Mutant M29: the wording was not pinned by any assertion, only
+    // `.includes("Invalid name")`. trash-confirm's only reachable
+    // rejections are "/", "." and ".." (escapesDirectory) plus a
+    // non-string — it never runs isValidEntryName's extra CREATE-time
+    // rules, so its message must not claim empty/whitespace/newline would
+    // be refused, unlike rename/mkdir's.
+    function test_promptErrorMessage_trash_confirm_message_is_narrower_than_rename_mkdirs() {
+        const trashMessage = Operations.promptErrorMessage(Operations.beginPrompt("trash-confirm", "/home/matus", "x"));
+        const renameMessage = Operations.promptErrorMessage(Operations.beginPrompt("rename", "/home/matus", "old.txt"));
+
+        verify(trashMessage.includes("Invalid name"));
+        verify(!trashMessage.includes("empty"));
+        verify(!trashMessage.includes("whitespace"));
+        verify(!trashMessage.includes("newline"));
+        verify(trashMessage !== renameMessage);
     }
 
     function test_promptErrorMessage_is_generic_for_a_falsy_or_unrecognised_snapshot() {
