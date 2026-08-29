@@ -91,8 +91,20 @@ let
     # us, so pointing nix there skips the passwd lookup entirely. Only
     # override when the inherited $HOME is unusable (unset, or an existing
     # dir not owned by us).
+    # `getExe'` rather than a bare `''${pkgs.mktemp}`: the package's store path
+    # is a directory, so interpolating the derivation itself produces
+    # `/nix/store/…-mktemp-1.7 -d`, which bash rejects with "Is a directory".
+    #
+    # And the result is assigned in two steps rather than the obvious
+    # `export HOME="$(mktemp -d)"`, because `export` is a builtin whose own exit
+    # status masks a failing command substitution: under `set -e` that one-liner
+    # runs on with HOME set to the empty string — precisely the unset-HOME
+    # hazard this block exists to prevent, and silently, so nothing in the
+    # install log says the mitigation misfired. A plain assignment propagates
+    # the failure and aborts, which is what the `set -e` at the top is for.
     if [ -z "''${HOME:-}" ] || { [ -e "''$HOME" ] && [ ! -O "''$HOME" ]; }; then
-      export HOME="$(${pkgs.mktemp} -d)"
+      ownedHome="$(${lib.getExe' pkgs.mktemp "mktemp"} -d)"
+      export HOME="''$ownedHome"
     fi
 
     # Hazard 2 — missing system profile. The upstream installer reads

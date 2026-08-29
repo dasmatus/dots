@@ -45,6 +45,22 @@ let
         # assertions 1-3 below. The production system gets this from
         # useGlobalPkgs; a standalone evaluation needs it spelled out.
         nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "obsidian" ];
+        # Mirrors the `qt` block in nix/home/default.nix, and is load-bearing
+        # for assertion 6 rather than decoration: home-manager's own qt module
+        # writes `systemd.user.sessionVariables.QT_QPA_PLATFORMTHEME` (`qt5ct`,
+        # from `platformTheme.name = "qtct"`), so a `dots.session.sessionVariables`
+        # entry for that same key is a module conflict that aborts evaluation
+        # outright — not a default something else overrides. Without this block
+        # the harness leaves qt disabled, the key is unclaimed, and the exact
+        # collision that broke `nixos-rebuild` evaluates clean here.
+        # nix/home/default.nix is not imported wholesale instead because it
+        # drags in the entire home (claude, librewolf, the aipage packages
+        # threaded through specialArgs) for the sake of three Qt settings.
+        qt = {
+          enable = true;
+          platformTheme.name = "qtct";
+          style.name = "kvantum";
+        };
       }
       ../nix/home/session
       ../nix/home/hyprland.nix
@@ -134,7 +150,6 @@ let
     "XCURSOR_THEME"
     "XDG_SESSION_TYPE"
     "QT_QPA_PLATFORM"
-    "QT_QPA_PLATFORMTHEME"
     "MOZ_ENABLE_WAYLAND"
     "NIXOS_OZONE_WL"
     "GDK_BACKEND"
@@ -146,6 +161,23 @@ let
     "XDG_SESSION_DESKTOP"
   ];
   wmOwnedVarsPresentMsg = lib.concatStringsSep ", " wmOwnedVarsPresent;
+
+  # --- 6. `QT_QPA_PLATFORMTHEME` stays home-manager's to define. ------------
+  # `QT_QPA_PLATFORM` above is genuinely session-owned; its `…THEME` sibling
+  # is not, and the difference is not cosmetic. The qt block in the harness
+  # module above makes home-manager's qt module claim the key, so a
+  # `dots.session.sessionVariables` entry for it does not lose an override
+  # race — it aborts the evaluation with "has conflicting definition values",
+  # which is precisely how `nixos-rebuild switch` broke: the key used to be a
+  # Hyprland `env` entry (compositor environment, a separate namespace that
+  # merely disagreed at runtime) and moving it into this module put both
+  # definitions in one place.
+  #
+  # Asserting the value rather than mere presence pins the winner too. `gtk3`
+  # — the value this module used to carry — makes Qt load the GTK platform
+  # theme, which ignores qt6ct and Kvantum outright and would silently strand
+  # the wallpaper-accent retint in nix/home/quickshell/qml/wallpaper/Kvantum.qml.
+  qtPlatformTheme = sessionVars.QT_QPA_PLATFORMTHEME or null;
 in
 assert lib.assertMsg (relativeExecStarts == { })
   "tests/session-units.nix: dots-* systemd unit(s) with a non-absolute ExecStart: ${relativeExecStartsMsg}. systemd refuses a relative ExecStart, so this unit never runs.";
@@ -165,10 +197,19 @@ assert lib.assertMsg (missingSessionVars == [ ])
   "tests/session-units.nix: systemd.user.sessionVariables is missing portable variable(s): ${missingSessionVarsMsg}.";
 assert lib.assertMsg (wmOwnedVarsPresent == [ ])
   "tests/session-units.nix: systemd.user.sessionVariables carries WM-owned variable(s) that belong only to nix/home/hyprland.nix: ${wmOwnedVarsPresentMsg}.";
+assert lib.assertMsg (qtPlatformTheme == "qt5ct") ''
+  tests/session-units.nix: systemd.user.sessionVariables.QT_QPA_PLATFORMTHEME is ${
+    if qtPlatformTheme == null then "unset" else ''"${qtPlatformTheme}"''
+  }, expected "qt5ct" from home-manager's qt module.
+  That key belongs to `qt.platformTheme.name` in nix/home/default.nix, not to
+  dots.session.sessionVariables — defining it in both is an eval conflict that
+  takes the whole `nixos-rebuild` down, and "gtk3" in particular bypasses
+  qt6ct and Kvantum and breaks the wallpaper retint.'';
 pkgs.writeText "session-units-ok" ''
   execstart-absolute
   app-action-templated
   no-stranded-actions
   hyprland-lua-clean
   session-variables-intact
+  qt-platform-theme-unclaimed
 ''

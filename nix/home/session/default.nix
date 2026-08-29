@@ -151,11 +151,24 @@ let
     # `XDG_CURRENT_DESKTOP`/`XDG_SESSION_DESKTOP` are excluded on purpose:
     # both are always "Hyprland", so that pair belongs to the WM module, not
     # to this WM-agnostic one.
+    #
+    # `QT_QPA_PLATFORMTHEME` is excluded for a different reason: home-manager's
+    # own `qt` module already owns that key, and nix/home/default.nix enables it
+    # (`platformTheme.name = "qtct"`, `style.name = "kvantum"`), so the qt module
+    # writes `qt5ct` into this very attrset. Defining it here too is a hard eval
+    # conflict, not a shadowed default — the module system refuses to pick a
+    # winner and the rebuild dies. It only became an error when this table
+    # absorbed the value: it used to be a Hyprland `env` entry, which is
+    # compositor environment rather than `systemd.user.sessionVariables`, so the
+    # two sat in separate namespaces and merely disagreed at runtime (Hyprland's
+    # children saw `gtk3`, systemd units saw `qt5ct`). `qt5ct` is the value the
+    # repo actually wants: `gtk3` makes Qt load the GTK platform theme, which
+    # ignores qt6ct and Kvantum entirely and would silently kill the
+    # wallpaper-accent retint that quickshell's wallpaper/Kvantum.qml performs.
     XCURSOR_SIZE = "24";
     XCURSOR_THEME = "Adwaita";
     XDG_SESSION_TYPE = "wayland";
     QT_QPA_PLATFORM = "wayland";
-    QT_QPA_PLATFORMTHEME = "gtk3";
     MOZ_ENABLE_WAYLAND = "1";
     NIXOS_OZONE_WL = "1";
     GDK_BACKEND = "wayland,x11";
