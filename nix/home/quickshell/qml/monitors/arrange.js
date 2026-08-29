@@ -187,14 +187,30 @@ function parseTransform(text) {
 // means the only way to actually remove a field, short of hand-editing the
 // JSON, is Arrange.qml's reset(), which drops the whole entry rather than
 // one field at a time.
+//
+// Order is carried explicitly in `order` rather than read back off byName's
+// own key iteration order: overrides.rs's own doc comment calls this file
+// an ordered list where "first match wins", so a save must not reorder
+// entries it never touched, but a plain object cannot be trusted for that.
+// JS iterates any key that looks like an array index (a bare non-negative
+// integer, as a string) in ascending numeric order ahead of every other
+// key, regardless of when it was inserted — Hyprland never actually names
+// an output a bare digit, but nothing here enforces that, so the merge
+// itself has to not depend on it either.
 function mergedOverrides(existingRoot, items) {
     const byName = {};
+    const order = [];
     const existingEntries = (existingRoot && existingRoot.entries) || [];
     for (const entry of existingEntries) {
-        if (entry.name)
-            byName[entry.name] = Object.assign({}, entry);
+        if (!entry.name)
+            continue;
+        if (!(entry.name in byName))
+            order.push(entry.name);
+        byName[entry.name] = Object.assign({}, entry);
     }
     for (const item of items) {
+        if (!(item.name in byName))
+            order.push(item.name);
         const entry = byName[item.name] || { name: item.name };
         for (const field of SETTABLE_FIELDS) {
             if (isSet(item[field]))
@@ -202,5 +218,5 @@ function mergedOverrides(existingRoot, items) {
         }
         byName[item.name] = entry;
     }
-    return { entries: Object.values(byName) };
+    return { entries: order.map(name => byName[name]) };
 }

@@ -127,6 +127,42 @@ TestCase {
                 existingRoot: { entries: [{ name: "DP-1", resolution: "1920x1080@60" }] },
                 items: [{ name: "DP-1", position: "0x0", resolution: "" }],
                 expected: { entries: [{ name: "DP-1", resolution: "1920x1080@60", position: "0x0" }] }
+            },
+            {
+                // overrides.rs's own doc comment calls this file an ordered
+                // list where "first match wins", so touching the middle
+                // entry of three must not move it (or anything else) to a
+                // different position.
+                tag: "existing entries keep their order even when a middle one is touched",
+                existingRoot: { entries: [{ name: "DP-9", position: "0x0" }, { name: "DP-1", position: "100x0" }, { name: "DP-5", position: "200x0" }] },
+                items: [{ name: "DP-1", position: "999x0" }],
+                expected: { entries: [{ name: "DP-9", position: "0x0" }, { name: "DP-1", position: "999x0" }, { name: "DP-5", position: "200x0" }] }
+            },
+            {
+                // A regression guard for the specific hazard of using a
+                // plain object as an ordered map: JS iterates any key that
+                // looks like an array index (a bare non-negative integer,
+                // as a string) in ascending numeric order ahead of every
+                // other key, regardless of insertion order — so without
+                // order tracked explicitly, "2" and "10" here would jump
+                // ahead of "DP-1" and swap places with each other. Hyprland
+                // never actually names an output a bare digit, but nothing
+                // in this file enforces that.
+                tag: "numeric-looking monitor names do not get reordered ahead of string names",
+                existingRoot: { entries: [{ name: "10", position: "0x0" }, { name: "DP-1", position: "50x0" }, { name: "2", position: "100x0" }] },
+                items: [],
+                expected: { entries: [{ name: "10", position: "0x0" }, { name: "DP-1", position: "50x0" }, { name: "2", position: "100x0" }] }
+            },
+            {
+                // description is read-only in the form and never in
+                // SETTABLE_FIELDS, so an entry that already carries one
+                // must keep it across a save that changes other fields —
+                // the merge's copy of the existing entry is what carries
+                // it through, not anything item-specific.
+                tag: "an existing description survives a save that never touches it",
+                existingRoot: { entries: [{ name: "DP-1", description: "Dell U2720Q", resolution: "1920x1080@60" }] },
+                items: [{ name: "DP-1", position: "0x0", scale: 1.5 }],
+                expected: { entries: [{ name: "DP-1", description: "Dell U2720Q", resolution: "1920x1080@60", position: "0x0", scale: 1.5 }] }
             }
         ];
     }
@@ -182,6 +218,25 @@ TestCase {
         verify(entry.hasOwnProperty("transform"));
         compare(entry.transform, 0);
         compare(entry.scale, 1.5);
+    }
+
+    // overrides.rs types scale as f64 and transform as u8, not a string —
+    // a value that merely round-trips through JSON.stringify as the quoted
+    // string "1.5" would still satisfy a plain compare() against 1.5, so
+    // this checks typeof explicitly, through the same numberField/
+    // parseTransform calls Arrange.qml's confirm() actually makes rather
+    // than a literal number handed to mergedOverrides directly.
+    function test_mergedOverrides_scale_and_transform_stay_numbers_through_the_real_parsers() {
+        const merged = ArrangeLogic.mergedOverrides(null, [{
+            name: "DP-1",
+            position: "0x0",
+            scale: ArrangeLogic.numberField("1.5"),
+            transform: ArrangeLogic.parseTransform("3")
+        }]);
+        const entry = merged.entries[0];
+
+        compare(typeof entry.scale, "number");
+        compare(typeof entry.transform, "number");
     }
 
     function test_parseWorldPosition_data() {
