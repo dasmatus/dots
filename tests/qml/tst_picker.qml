@@ -345,6 +345,29 @@ TestCase {
     // fixed.
     function test_picker_flushes_on_both_loaded_and_loadFailed() {
         const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
-        verify(picker.indexOf("onLoadFailed") !== -1, "a missing outputs.json resolves through loadFailed, never loaded — the flush must be wired to both");
+        verify(picker.indexOf("onLoadFailed:") !== -1, "a missing outputs.json resolves through loadFailed, never loaded — the flush must be wired to both");
+    }
+
+    // Slices out flushPendingOutputRecords()'s own body, the same way
+    // recordOutputStateBody() does above.
+    function flushPendingOutputRecordsBody() {
+        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const start = picker.indexOf("function flushPendingOutputRecords(");
+        verify(start !== -1, "Picker.qml must define flushPendingOutputRecords()");
+        const end = picker.indexOf("\n    }", start);
+        verify(end !== -1, "flushPendingOutputRecords()'s closing brace must be found");
+        return picker.slice(start, end);
+    }
+
+    // drainPending() itself is tested above, but nothing pinned that its
+    // result actually gets written back here: deleting just this
+    // assignment leaves outputStateKnown set and the first write still
+    // happening, but pendingOutputRecords never actually empties, so the
+    // very next onLoaded/onLoadFailed (an external edit, or watchChanges
+    // catching this file's own write) finds the same records still
+    // queued and writes them a second time.
+    function test_flushPendingOutputRecords_writes_the_drained_queue_back() {
+        const body = flushPendingOutputRecordsBody();
+        verify(body.indexOf("root.pendingOutputRecords = decision.queue") !== -1, "flushPendingOutputRecords() must write drainPending()'s emptied queue back to pendingOutputRecords, or a queued record gets written a second time on the next reload");
     }
 }
