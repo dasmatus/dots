@@ -1,10 +1,17 @@
 // beamenu's status provider, restored — rust/beamenu/src/providers/status.rs
 // deleted with the crate. Fixtures below are real captured output from this
-// machine (`cat /proc/meminfo` and `df -B1 --output=used,size,pcent /home
-// /nix/store`), not invented text: df's column layout and meminfo's "kB"
-// suffix are exactly the details a guess gets wrong, and this machine's own
-// df header is German ("Benutzt 1B-Blöcke Verw%"), which is the localisation
-// status.js's own header says nothing here ever reads.
+// machine (`cat /proc/meminfo` and `df -B1 --output=used,size,avail,pcent
+// /home /nix/store`), not invented text: df's column layout and meminfo's
+// "kB" suffix are exactly the details a guess gets wrong, and this machine's
+// own df header is German ("Benutzt 1B-Blöcke Verf. Verw%"), which is the
+// localisation status.js's own header says nothing here ever reads.
+//
+// Two kinds of fixture below. The real capture proves the parsers survive
+// this machine's actual output; a second, synthetic fixture with clean round
+// byte counts (syntheticMeminfo/syntheticDf) proves the arithmetic itself —
+// formatBytes, percentOf, and every row's rendered subtitle/accessory/run —
+// against numbers a human can check by hand, which the real capture's
+// fractional GiB values cannot offer without redoing the division here too.
 import QtQuick
 import QtTest
 import "../../nix/home/quickshell/qml/launcher/status.js" as StatusMath
@@ -76,15 +83,35 @@ DirectMap1G:           0 kB
 `;
     }
 
-    // `df -B1 --output=used,size,pcent /home /nix/store`, captured on this
-    // machine — one header line, then one data row per path, in argument
-    // order. The header's own words ("Benutzt", "1B-Blöcke") are German,
-    // which is the whole reason parseDf drops the header by position rather
-    // than by matching English column names.
+    // `df -B1 --output=used,size,avail,pcent /home /nix/store`, captured on
+    // this machine — one header line, then one data row per path, in
+    // argument order. The header's own words ("Benutzt", "1B-Blöcke",
+    // "Verf.") are German, which is the whole reason parseDf drops the
+    // header by position rather than by matching English column names.
     function realDf() {
-        return `    Benutzt    1B-Blöcke Verw%
-70056599552 493837352960   15%
-70056599552 493837352960   15%
+        return `    Benutzt    1B-Blöcke        Verf. Verw%
+71118229504 493837352960 418855088128   15%
+71118229504 493837352960 418855088128   15%
+`;
+    }
+
+    // Round numbers chosen so every derived figure below can be checked by
+    // hand: 10 GiB total, 2 GiB available, exactly.
+    function syntheticMeminfo() {
+        return `MemTotal:       10485760 kB
+MemAvailable:    2097152 kB
+`;
+    }
+
+    // Same idea for df: used, total and avail are exact GiB multiples, and
+    // avail is deliberately NOT total - used (5 GiB avail against a 6 GiB
+    // total-used gap of 4+10-... i.e. used=4 GiB, total=10 GiB, avail=5 GiB,
+    // not the 6 GiB total-used would give) — the same shape a real
+    // filesystem's reserved blocks produce, and the detail that catches a
+    // regression back to computing free as total - used.
+    function syntheticDf() {
+        return `header
+4294967296 10737418240 5368709120 40%
 `;
     }
 
@@ -118,14 +145,34 @@ DirectMap1G:           0 kB
 
         compare(disks.length, 2);
         compare(disks[row.index].path, row.path);
-        compare(disks[row.index].used, 70056599552);
+        compare(disks[row.index].used, 71118229504);
         compare(disks[row.index].total, 493837352960);
+        compare(disks[row.index].avail, 418855088128);
     }
 
     function test_parseDf_drops_a_path_with_no_matching_row() {
         const disks = StatusMath.parseDf(realDf(), ["/home", "/nix/store", "/boot"]);
 
         compare(disks.length, 2);
+    }
+
+    // Direct coverage of the matcher itself, with a title/keyword pair that
+    // guarantees no accidental overlap — real row titles and keywords do
+    // share substrings ("home" is both a keyword and part of "Disk —
+    // /home"), which is exactly what let four of the five keyword tests
+    // below pass with their keyword arrays emptied. This cannot pass that
+    // way: "gadget" appears nowhere in "Widget".
+    function test_answersTo_data() {
+        return [
+            { tag: "empty query matches everything", query: "", title: "Widget", keywords: [], expected: true },
+            { tag: "matches via the title", query: "wid", title: "Widget", keywords: [], expected: true },
+            { tag: "matches via a keyword absent from the title", query: "gadget", title: "Widget", keywords: ["gadget", "gizmo"], expected: true },
+            { tag: "matches neither", query: "nope", title: "Widget", keywords: ["gadget"], expected: false }
+        ];
+    }
+
+    function test_answersTo(row) {
+        compare(StatusMath.answersTo(row.query, row.title, row.keywords), row.expected);
     }
 
     // The feature's whole point: typing "ram" has to find a row titled
@@ -139,6 +186,20 @@ DirectMap1G:           0 kB
         compare(rows[0].provider, "status");
     }
 
+    // "free" is a Memory keyword that is not a substring of "Memory" itself,
+    // so unlike "ram" this also exercises answersTo's keyword branch on the
+    // real row-building path, not only on the matcher in isolation.
+    function test_statusRows_typing_free_finds_the_memory_row_via_keyword() {
+        const rows = StatusMath.statusRows("free", realMeminfo(), [], () => {});
+
+        compare(rows.length, 1);
+        compare(rows[0].title, "Memory");
+    }
+
+    // "disk" is a substring of both row titles ("Disk — /home", "Disk —
+    // /nix/store"), so this alone would still pass with DISK_LABELS'
+    // keyword arrays emptied — it is kept because it is still real usage,
+    // but it is the title branch of answersTo, not the keyword one.
     function test_statusRows_typing_disk_finds_both_disk_rows() {
         const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
         const rows = StatusMath.statusRows("disk", realMeminfo(), snapshot, () => {});
@@ -148,6 +209,23 @@ DirectMap1G:           0 kB
         verify(rows.every(row => row.provider === "status"));
     }
 
+    // "storage" is a keyword on both disk rows and a substring of neither
+    // title, so this is the disk side's genuine keyword-array test — it
+    // fails if DISK_LABELS' keywords are emptied, which "disk" above does
+    // not catch.
+    function test_statusRows_typing_storage_finds_both_disk_rows_via_keyword() {
+        const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
+        const rows = StatusMath.statusRows("storage", realMeminfo(), snapshot, () => {});
+
+        compare(rows.length, 2);
+        compare(rows.map(row => row.title).sort(), ["Disk — /home", "Disk — /nix/store"]);
+    }
+
+    // "home" and "store" are themselves substrings of their own row's title
+    // ("Disk — /home" contains "home"; "Disk — /nix/store" contains
+    // "store"), so these two prove the title branch disambiguates between
+    // mounts, not that the keyword arrays are intact — DISK_LABELS names the
+    // mount in its title, so a keyword-only equivalent does not exist here.
     function test_statusRows_typing_home_finds_only_the_home_disk() {
         const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
         const rows = StatusMath.statusRows("home", realMeminfo(), snapshot, () => {});
@@ -178,15 +256,78 @@ DirectMap1G:           0 kB
         compare(rows.length, 0);
     }
 
+    // formatBytes on values a human can check: 1 GiB and 1.5 GiB exactly. A
+    // mutant dividing by MiB instead of GiB (still labelled "GiB") turns the
+    // first into "1024.0 GiB", which this catches immediately.
+    function test_formatBytes_data() {
+        return [
+            { tag: "one GiB", bytes: 1024 * 1024 * 1024, expected: "1.0 GiB" },
+            { tag: "one and a half GiB", bytes: 1610612736, expected: "1.5 GiB" },
+            { tag: "zero", bytes: 0, expected: "0.0 GiB" }
+        ];
+    }
+
+    function test_formatBytes(row) {
+        compare(StatusMath.formatBytes(row.bytes), row.expected);
+    }
+
+    function test_percentOf_data() {
+        return [
+            { tag: "quarter", used: 25, total: 100, expected: 25 },
+            { tag: "asymmetric, catches an inverted division", used: 50, total: 200, expected: 25 },
+            { tag: "zero total does not divide by zero", used: 5, total: 0, expected: 0 }
+        ];
+    }
+
+    function test_percentOf(row) {
+        compare(StatusMath.percentOf(row.used, row.total), row.expected);
+    }
+
+    // The Memory row's rendered numbers, pinned against syntheticMeminfo's
+    // round 10 GiB / 2 GiB reading: 8 GiB used, 80% — not just that a
+    // subtitle and an accessory exist, but that they say the right thing.
+    function test_memory_row_renders_the_exact_reading() {
+        const rows = StatusMath.statusRows("memory", syntheticMeminfo(), [], () => {});
+
+        compare(rows.length, 1);
+        compare(rows[0].subtitle, "8.0 GiB used of 10.0 GiB total");
+        compare(rows[0].accessory, "80%");
+    }
+
     // Enter's action on an informational row: beamenu's dashboard sidecar has
     // no port here, so the row copies its own reading instead.
     function test_statusRows_memory_row_run_copies_the_reading() {
         const copied = [];
-        const rows = StatusMath.statusRows("memory", realMeminfo(), [], text => copied.push(text));
+        const rows = StatusMath.statusRows("memory", syntheticMeminfo(), [], text => copied.push(text));
 
         rows[0].run();
 
         compare(copied.length, 1);
-        verify(copied[0].includes("%"));
+        compare(copied[0], "80% used (8.0 GiB / 10.0 GiB)");
+    }
+
+    // The Disk row's rendered numbers, pinned against syntheticDf's
+    // deliberately-not-total-minus-used avail: free must read 5.0 GiB (the
+    // avail column), never 6.0 GiB (total - used) and never 4.0 GiB (used
+    // reported as free).
+    function test_disk_row_renders_the_exact_reading() {
+        const snapshot = StatusMath.parseDf(syntheticDf(), ["/home"]);
+        const rows = StatusMath.statusRows("", "MemTotal: 1 kB\nMemAvailable: 1 kB\n", snapshot, () => {});
+
+        compare(rows.length, 2);
+        const disk = rows.find(row => row.title === "Disk — /home");
+        compare(disk.subtitle, "5.0 GiB free of 10.0 GiB total");
+        compare(disk.accessory, "40% used");
+    }
+
+    function test_disk_row_run_copies_the_exact_reading() {
+        const snapshot = StatusMath.parseDf(syntheticDf(), ["/home"]);
+        const copied = [];
+        const rows = StatusMath.statusRows("home", "MemTotal: 1 kB\nMemAvailable: 1 kB\n", snapshot, text => copied.push(text));
+
+        rows[0].run();
+
+        compare(copied.length, 1);
+        compare(copied[0], "5.0 GiB free of 10.0 GiB");
     }
 }

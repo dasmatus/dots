@@ -329,11 +329,20 @@ QtObject {
 
     // Live system readouts, restoring rust/beamenu/src/providers/status.rs's
     // Memory and Disk rows. The cost split that file's header insisted on is
-    // preserved here rather than in status.js: meminfoFile.text() below is a
-    // plain file read done fresh on every call, because /proc is microseconds;
-    // diskSnapshot is never read here, only handed over, because df costs a
-    // subprocess and is confined to diskTimer instead.
+    // preserved here rather than in status.js: meminfoFile is re-read fresh
+    // on every call, because /proc is microseconds; diskSnapshot is never
+    // read here, only handed over, because df costs a subprocess and is
+    // confined to diskTimer instead.
+    //
+    // reload() first, not just text(): blockAllReads makes a read
+    // synchronous, not repeated — text() alone returns whatever the last
+    // load or reload() cached, which for meminfoFile below would be its
+    // startup read, forever. reload() is the method that actually goes back
+    // to the file; blockAllReads is what makes that reload complete
+    // synchronously instead of leaving text() to return stale data for one
+    // more frame.
     function statusRows(text: string): var {
+        root.meminfoFile.reload();
         return StatusMath.statusRows(text, root.meminfoFile.text(), root.diskSnapshot, root.copy);
     }
 
@@ -382,14 +391,15 @@ QtObject {
     }
     // qmllint enable unresolved-type
 
-    // /proc/meminfo, read fresh on every statusRows() call rather than once.
-    // blockAllReads forces text() to hit the file every time it is called
-    // instead of caching the first read: meminfo's numbers change constantly
-    // and never fire an inotify event to say so, so a normal FileView would
-    // otherwise show the reading from the moment the launcher first opened
-    // for as long as it stayed open. It is still a plain read(), not a
-    // subprocess, which is the half of status.rs's cost split this can pay on
-    // every keystroke.
+    // /proc/meminfo. statusRows() calls reload() on this before every
+    // text(), because meminfo's numbers change constantly and never fire an
+    // inotify event to say so — without an explicit reload() this would
+    // show the reading from the moment the launcher first opened for as
+    // long as it stayed open. blockAllReads makes that reload() complete
+    // synchronously rather than leaving text() to return the old content
+    // for one more frame; it does not, by itself, repeat the read. It is
+    // still a plain read(), not a subprocess, which is the half of
+    // status.rs's cost split this can pay on every keystroke.
     property var meminfoFile: FileView {
         path: "/proc/meminfo"
         blockLoading: true
@@ -448,10 +458,12 @@ QtObject {
 
     property var diskSnapshot: []
 
-    // 15s: often enough that a df run finishing while the launcher is open
-    // still catches up, rarely enough that it stays a timer tick and not
-    // something felt as launcher latency — the distinction status.rs's
-    // header draws between "microseconds" and "tens of milliseconds apiece".
+    // 15s, the same number rust/beamenu-status/src/cache.rs used for
+    // STALE_AFTER_SECONDS — three times that daemon's 5s tick. Free space
+    // moves slowly enough that df alone does not need the 5s side of that
+    // precedent (the daemon's tick also covered volume, mic and network,
+    // which do change fast), but 15s as the tick itself keeps every reading
+    // within the same margin beamenu called fresh rather than stale.
     property var diskTimer: Timer {
         interval: 15000
         running: true
@@ -461,7 +473,7 @@ QtObject {
     }
 
     property var diskProbe: Process {
-        command: ["df", "-B1", "--output=used,size,pcent"].concat(root.diskPaths)
+        command: ["df", "-B1", "--output=used,size,avail,pcent"].concat(root.diskPaths)
 
         stdout: StdioCollector {
             onStreamFinished: root.diskSnapshot = StatusMath.parseDf(this.text, root.diskPaths)

@@ -41,10 +41,18 @@ TestCase {
         compare(Pills.filterByPill(rows, ""), rows);
     }
 
-    function test_filterByPill_a_provider_with_no_rows_is_empty() {
-        const rows = [row("apps")];
+    // rust/beamenu/tests/pills.rs named this
+    // an_engaged_provider_with_no_rows_reports_no_pill_rather_than_the_first:
+    // a selection pointing at a provider absent from the current rows must
+    // report nothing, never silently fall back to whichever provider
+    // happens to be first — that would show apps' rows while the pill bar
+    // still claimed "status" was engaged.
+    function test_filterByPill_a_provider_with_no_rows_is_empty_not_the_first_providers_rows() {
+        const rows = [row("apps"), row("apps")];
+        const filtered = Pills.filterByPill(rows, "status");
 
-        compare(Pills.filterByPill(rows, "status"), []);
+        compare(filtered, []);
+        verify(filtered !== rows);
     }
 
     function test_labelFor_known_providers_data() {

@@ -1,4 +1,7 @@
-// The bar's one visual primitive: a rounded capsule holding a row of content.
+// The shell's rounded-capsule primitive: a Rectangle holding a row of
+// content. Started as the bar's own — every module there is one of these —
+// and now the launcher's filter pill bar builds on it too, which is why it
+// lives in common/ rather than bar/.
 //
 // waybar drew these with `border-radius: 9999px` on every module, which is CSS
 // for "as round as it gets". A Rectangle radius is a real number of pixels, so

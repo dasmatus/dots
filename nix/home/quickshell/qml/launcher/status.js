@@ -51,10 +51,18 @@ function parseMeminfo(raw) {
     return { total: total, used: Math.max(0, total - available) };
 }
 
-// `df -B1 --output=used,size,pcent <path>...`, one data row per path in the
-// same order the paths were given. The header line is dropped unconditionally
-// rather than matched by name: it is localised — this machine prints
-// "Benutzt 1B-Blöcke Verw%" — so nothing here ever reads its text.
+// `df -B1 --output=used,size,avail,pcent <path>...`, one data row per path in
+// the same order the paths were given. The header line is dropped
+// unconditionally rather than matched by name: it is localised — this
+// machine prints "Benutzt 1B-Blöcke Verf. Verw%" — so nothing here ever
+// reads its text.
+//
+// `avail` is requested and kept because it is not `size - used`: a
+// filesystem reserves blocks (ext4's 5% root-only reserve, among others)
+// that `used` never counts against but that an ordinary read of "how much is
+// left" should not promise either. `pcent` is requested and still discarded;
+// see percentOf's own use in diskRows for why that stays computed rather
+// than read.
 function parseDf(raw, paths) {
     const lines = raw.split("\n").filter(line => line.trim() !== "");
     const rows = lines.slice(1);
@@ -68,10 +76,11 @@ function parseDf(raw, paths) {
         const fields = row.trim().split(/\s+/);
         const used = parseInt(fields[0], 10);
         const total = parseInt(fields[1], 10);
-        if (!Number.isFinite(used) || !Number.isFinite(total))
+        const avail = parseInt(fields[2], 10);
+        if (!Number.isFinite(used) || !Number.isFinite(total) || !Number.isFinite(avail))
             continue;
 
-        disks.push({ path: paths[index], used: used, total: total });
+        disks.push({ path: paths[index], used: used, total: total, avail: avail });
     }
 
     return disks;
@@ -156,7 +165,11 @@ function diskRows(snapshot, query, copy) {
         if (!answersTo(query, label.title, label.keywords))
             continue;
 
-        const free = Math.max(0, entry.total - entry.used);
+        // `avail`, not `total - used`: the latter overstates what is left by
+        // whatever blocks the filesystem holds back (this machine's /home
+        // is ext4 with the usual 5% root reserve), and would show a bigger
+        // number than `df -h` prints for the same mount.
+        const free = entry.avail;
         const percent = percentOf(entry.used, entry.total);
         rows.push({
             title: label.title,

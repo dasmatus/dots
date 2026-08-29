@@ -30,11 +30,12 @@ Scope {
     property string query: ""
     property int selected: 0
 
-    // The pill bar's own selection: "" is its All state. Sticky across a
-    // keystroke rather than reset by one, so clicking "Apps" and then typing
-    // narrows within Apps instead of the filter falling away the moment the
-    // query changes underneath it — the same way a browser's search-in-tab
-    // scope survives further typing.
+    // The pill bar's own selection: "" is its All state. Released by every
+    // query edit (see the TextInput's onTextChanged below) rather than kept
+    // across one — rust/beamenu/tests/pills.rs named this
+    // editing_the_query_releases_the_engaged_provider for a reason: a pill
+    // chosen while browsing must not silently keep hiding rows a fresh
+    // search matches in other providers.
     property string selectedPill: ""
 
     // A pill change swaps out the list wholesale, so whatever row index was
@@ -49,13 +50,16 @@ Scope {
 
     readonly property var focusedScreen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? null
 
-    // Rows are computed fresh per keystroke. The result sets here are small
-    // (a few hundred desktop entries at worst) and recomputing is simpler to
-    // reason about than invalidating a cache on every provider's own schedule.
-    // A prefixed query answers from one provider alone, which is beamenu's
-    // rule and the reason typing "w " does not also list every application
-    // whose name happens to contain a w.
-    readonly property var unfilteredResults: {
+    // Every provider's rows for the current query, concatenated in registry
+    // order and never reordered — a prefixed query is already exactly one
+    // provider's own list. This, not `unfilteredResults` below, is what the
+    // pill bar counts from: `unfilteredResults` sorts by prefix match and
+    // then title, which would otherwise make the bar itself reorder under
+    // the pointer as scores change between keystrokes. beamenu's own rule
+    // for this list was "nothing may carry an index across a change in the
+    // visible set" — a pill bar that visibly reshuffles is that rule broken
+    // in a way you can see rather than crash on.
+    readonly property var ambientRows: {
         const text = root.query;
 
         if (text.startsWith("="))
@@ -75,14 +79,32 @@ Scope {
 
         const needle = text.trim();
 
-        const rows = providers.applicationRows(needle).concat(providers.systemRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle)).concat(providers.fileRows(needle)).concat(providers.statusRows(needle));
+        return providers.applicationRows(needle).concat(providers.systemRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle)).concat(providers.fileRows(needle)).concat(providers.statusRows(needle));
+    }
+
+    // Rows are computed fresh per keystroke. The result sets here are small
+    // (a few hundred desktop entries at worst) and recomputing is simpler to
+    // reason about than invalidating a cache on every provider's own
+    // schedule. A prefixed query already answers from one provider alone
+    // (ambientRows above), so only the ambient case has anything left to
+    // sort: `.slice()` first because `.sort()` mutates in place and
+    // `ambientRows` is a shared reference `pills` also reads — sorting it
+    // without copying would reorder the pill bar's own input as a side
+    // effect of rendering the list.
+    readonly property var unfilteredResults: {
+        const text = root.query;
+
+        if (text.startsWith("=") || text.startsWith("?") || text.startsWith("w ") || text.startsWith("c ") || text.startsWith("e "))
+            return root.ambientRows;
+
+        const needle = text.trim().toLowerCase();
+        const rows = root.ambientRows.slice();
 
         // Prefix matches first: typing "fi" should reach Firefox before it
         // reaches anything merely containing "fi".
-        const lowered = needle.toLowerCase();
         rows.sort((a, b) => {
-            const aPrefix = a.title.toLowerCase().startsWith(lowered) ? 0 : 1;
-            const bPrefix = b.title.toLowerCase().startsWith(lowered) ? 0 : 1;
+            const aPrefix = a.title.toLowerCase().startsWith(needle) ? 0 : 1;
+            const bPrefix = b.title.toLowerCase().startsWith(needle) ? 0 : 1;
 
             if (aPrefix !== bPrefix)
                 return aPrefix - bPrefix;
@@ -93,13 +115,14 @@ Scope {
         return rows.slice(0, 50);
     }
 
-    // One pill per provider present in the unfiltered rows — item.rs's
-    // contract — computed from those rather than from `results` so a pill
-    // never disappears out from under its own filter.
-    readonly property var pills: Pills.pillsFor(root.unfilteredResults)
+    // One pill per provider present in the query's rows — item.rs's
+    // contract — computed from ambientRows (registry order) rather than from
+    // the sorted/sliced unfilteredResults, so the bar's own left-to-right
+    // order stays put across a keystroke instead of reshuffling with scores.
+    readonly property var pills: Pills.pillsFor(root.ambientRows)
 
     // What the list actually shows: the pill bar's filter applied on top of
-    // the query's own matches.
+    // the query's own matches and their display sort.
     readonly property var results: Pills.filterByPill(root.unfilteredResults, root.selectedPill)
 
     function calculatorRows(expression: string): var {
@@ -290,6 +313,16 @@ Scope {
                         onTextChanged: {
                             root.query = input.text;
                             root.selected = 0;
+
+                            // Editing the query releases whichever pill was
+                            // engaged while browsing — beamenu's own rule
+                            // (rust/beamenu/tests/pills.rs:
+                            // editing_the_query_releases_the_engaged_provider).
+                            // Without this, typing further after clicking a
+                            // pill keeps filtering to that one provider and
+                            // can quietly hide a row a fresh search matched
+                            // in another.
+                            root.selectedPill = "";
 
                             // File search is driven by assignment rather than from
                             // the results binding, because kicking off a process
