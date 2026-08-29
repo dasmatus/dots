@@ -12,6 +12,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Services.SystemTray
 import ".."
+import "../common"
 
 Pill {
     id: root

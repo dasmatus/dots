@@ -14,6 +14,7 @@ import QtQuick
 import Quickshell.Services.UPower
 import "battery.js" as BatteryMath
 import ".."
+import "../common"
 
 Pill {
     id: root

@@ -7,6 +7,7 @@
 import QtQuick
 import Quickshell
 import ".."
+import "../common"
 
 Pill {
     id: root
