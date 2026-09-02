@@ -101,14 +101,15 @@ let
   # When restoring it, take it from git history rather than rerunning
   # `bun2nix -l bun.lock -o nix/aipage-bun.nix`. A regeneration is exactly
   # what caused the second incident here: it silently dropped two of the
-  # ~700 entries down to `hash = ""`, a value `fetchurl` accepts and
+  # 554 entries down to `hash = ""`, a value `fetchurl` accepts and
   # normalises to the all-zero fixed-output hash. Nothing about that is
   # loud — eval passes, `nix build --dry-run` passes, even `.drvPath` on the
   # packages that pull those two deps in stays a well-formed string — the
   # failure only surfaces at realization time, after downloading the real
   # tarball, as a hash mismatch that names the single npm package and
   # nothing about this file. `aipage-bun-hashes-eval` in flake/checks.nix
-  # catches a blank hash at eval time so this can't recur silently.
+  # catches both that and a hash baked in as the literal all-zero value,
+  # at eval time, so this can't recur silently.
   bunDeps = pkgs.bun2nix.fetchBunDeps { bunNix = ./aipage-bun.nix; };
 
   # The target-shared dist: 3 wasm bundles (bindgen + wasm-opt) + CSS + static
