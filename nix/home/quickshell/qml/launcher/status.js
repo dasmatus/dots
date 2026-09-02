@@ -51,11 +51,12 @@ function parseMeminfo(raw) {
     return { total: total, used: Math.max(0, total - available) };
 }
 
-// `df -B1 --output=used,size,avail,pcent <path>...`, one data row per path in
-// the same order the paths were given. The header line is dropped
-// unconditionally rather than matched by name: it is localised — this
-// machine prints "Benutzt 1B-Blöcke Verf. Verw%" — so nothing here ever
-// reads its text.
+// `df -B1 --output=used,size,avail,pcent <path>...`, one data row per path
+// df could reach, in the same order the paths were given. The header line is
+// dropped unconditionally rather than matched by name: it is localised —
+// this machine prints "Benutzt 1B-Blöcke Verf. Verw%" — so nothing here ever
+// reads its text. Neither the column order nor the header handling changes
+// here; both are already correct.
 //
 // `avail` is requested and kept because it is not `size - used`: a
 // filesystem reserves blocks (ext4's 5% root-only reserve, among others)
@@ -63,12 +64,29 @@ function parseMeminfo(raw) {
 // left" should not promise either. `pcent` is requested and still discarded;
 // see percentOf's own use in diskRows for why that stays computed rather
 // than read.
-function parseDf(raw, paths) {
+//
+// A path df cannot reach — gone, permission denied, not yet mounted —
+// produces no stdout row at all, not a blank one, so matching rows to
+// `paths` by index alone silently mislabels every path after the failed
+// one: on a machine with no /home directory, the /nix/store row would be
+// the only one printed, land at index 0, and get stamped "/home" while the
+// real /nix/store reading is dropped. `stderrText` is what tells the two
+// apart — GNU df writes one line per failing argument with the literal path
+// embedded in it (this machine's German build reads "df: /nonexistent:
+// Datei oder Verzeichnis nicht gefunden"; the wording is localised, the
+// path substring is not), so a plain substring check needs no locale
+// handling of its own. `paths` here is a short, fixed, non-overlapping list
+// (see diskPaths in Providers.qml), so one path never being a substring of
+// another is a property of that list, not an assumption this function makes
+// silently.
+function parseDf(raw, stderrText, paths) {
     const lines = raw.split("\n").filter(line => line.trim() !== "");
     const rows = lines.slice(1);
 
+    const reached = paths.filter(path => !stderrText.includes(path));
+
     const disks = [];
-    for (let index = 0; index < paths.length; index++) {
+    for (let index = 0; index < reached.length; index++) {
         const row = rows[index];
         if (!row)
             continue;
@@ -80,7 +98,7 @@ function parseDf(raw, paths) {
         if (!Number.isFinite(used) || !Number.isFinite(total) || !Number.isFinite(avail))
             continue;
 
-        disks.push({ path: paths[index], used: used, total: total, avail: avail });
+        disks.push({ path: reached[index], used: used, total: total, avail: avail });
     }
 
     return disks;

@@ -95,6 +95,30 @@ DirectMap1G:           0 kB
 `;
     }
 
+    // `df -B1 --output=used,size,avail,pcent /home /nix/store` when /home
+    // cannot be reached: one data row, for /nix/store alone, in the same
+    // shape df actually prints — the header stays, but the row that would
+    // have been /home's is simply absent rather than blank.
+    function dfWithHomeMissing() {
+        return `    Benutzt    1B-Blöcke        Verf. Verw%
+71118229504 493837352960 418855088128   15%
+`;
+    }
+
+    // GNU df's own English wording for the same failure, captured for
+    // comparison against the German fixture below: differently worded, same
+    // literal path embedded in the line.
+    function dfMissingHomeStderrEnglish() {
+        return "df: cannot access '/home': No such file or directory\n";
+    }
+
+    // This machine's actual locale (see realDf's own header above) — proof
+    // that matching only needs the literal path substring, not any part of
+    // the surrounding, localised sentence.
+    function dfMissingHomeStderrGerman() {
+        return "df: /home: Datei oder Verzeichnis nicht gefunden\n";
+    }
+
     // Round numbers chosen so every derived figure below can be checked by
     // hand: 10 GiB total, 2 GiB available, exactly.
     function syntheticMeminfo() {
@@ -141,7 +165,7 @@ MemAvailable:    2097152 kB
     }
 
     function test_parseDf_reads_the_localised_header_by_position(row) {
-        const disks = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
+        const disks = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store"]);
 
         compare(disks.length, 2);
         compare(disks[row.index].path, row.path);
@@ -151,9 +175,45 @@ MemAvailable:    2097152 kB
     }
 
     function test_parseDf_drops_a_path_with_no_matching_row() {
-        const disks = StatusMath.parseDf(realDf(), ["/home", "/nix/store", "/boot"]);
+        const disks = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store", "/boot"]);
 
         compare(disks.length, 2);
+    }
+
+    // Motivating bug: matching rows to paths by index alone means a path df
+    // fails on early shifts every later path's row up by one. Here /home
+    // fails and only one row survives — the fix must attribute it to
+    // /nix/store (the path that actually produced it), not silently accept
+    // whatever index /nix/store happens to occupy in the paths array.
+    function test_parseDf_does_not_mislabel_the_path_after_an_earlier_failure() {
+        const disks = StatusMath.parseDf(dfWithHomeMissing(), dfMissingHomeStderrEnglish(), ["/home", "/nix/store"]);
+
+        compare(disks.length, 1);
+        compare(disks[0].path, "/nix/store");
+        compare(disks[0].used, 71118229504);
+    }
+
+    // Same failure, this machine's actual (German) df wording instead of the
+    // English one above — proof that association goes through the literal
+    // path substring embedded in stderr, not through parsing or recognising
+    // any particular error message.
+    function test_parseDf_failure_detection_is_locale_independent() {
+        const disks = StatusMath.parseDf(dfWithHomeMissing(), dfMissingHomeStderrGerman(), ["/home", "/nix/store"]);
+
+        compare(disks.length, 1);
+        compare(disks[0].path, "/nix/store");
+    }
+
+    // A path with nothing wrong with it — stderr silent, its row present —
+    // must not be affected by an unrelated path elsewhere in the list also
+    // being fine. Guards against a fix that only handles exactly one path
+    // failing rather than the general case.
+    function test_parseDf_unaffected_paths_keep_their_own_row() {
+        const disks = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store"]);
+
+        compare(disks.length, 2);
+        compare(disks[0].path, "/home");
+        compare(disks[1].path, "/nix/store");
     }
 
     // Direct coverage of the matcher itself, with a title/keyword pair that
@@ -201,7 +261,7 @@ MemAvailable:    2097152 kB
     // keyword arrays emptied — it is kept because it is still real usage,
     // but it is the title branch of answersTo, not the keyword one.
     function test_statusRows_typing_disk_finds_both_disk_rows() {
-        const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
+        const snapshot = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store"]);
         const rows = StatusMath.statusRows("disk", realMeminfo(), snapshot, () => {});
 
         compare(rows.length, 2);
@@ -214,7 +274,7 @@ MemAvailable:    2097152 kB
     // fails if DISK_LABELS' keywords are emptied, which "disk" above does
     // not catch.
     function test_statusRows_typing_storage_finds_both_disk_rows_via_keyword() {
-        const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
+        const snapshot = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store"]);
         const rows = StatusMath.statusRows("storage", realMeminfo(), snapshot, () => {});
 
         compare(rows.length, 2);
@@ -227,7 +287,7 @@ MemAvailable:    2097152 kB
     // mounts, not that the keyword arrays are intact — DISK_LABELS names the
     // mount in its title, so a keyword-only equivalent does not exist here.
     function test_statusRows_typing_home_finds_only_the_home_disk() {
-        const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
+        const snapshot = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store"]);
         const rows = StatusMath.statusRows("home", realMeminfo(), snapshot, () => {});
 
         compare(rows.length, 1);
@@ -235,7 +295,7 @@ MemAvailable:    2097152 kB
     }
 
     function test_statusRows_typing_store_finds_only_the_nix_disk() {
-        const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
+        const snapshot = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store"]);
         const rows = StatusMath.statusRows("store", realMeminfo(), snapshot, () => {});
 
         compare(rows.length, 1);
@@ -243,14 +303,14 @@ MemAvailable:    2097152 kB
     }
 
     function test_statusRows_empty_query_returns_every_row() {
-        const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
+        const snapshot = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store"]);
         const rows = StatusMath.statusRows("", realMeminfo(), snapshot, () => {});
 
         compare(rows.length, 3);
     }
 
     function test_statusRows_an_unrelated_query_finds_nothing() {
-        const snapshot = StatusMath.parseDf(realDf(), ["/home", "/nix/store"]);
+        const snapshot = StatusMath.parseDf(realDf(), "", ["/home", "/nix/store"]);
         const rows = StatusMath.statusRows("firefox", realMeminfo(), snapshot, () => {});
 
         compare(rows.length, 0);
@@ -311,7 +371,7 @@ MemAvailable:    2097152 kB
     // avail column), never 6.0 GiB (total - used) and never 4.0 GiB (used
     // reported as free).
     function test_disk_row_renders_the_exact_reading() {
-        const snapshot = StatusMath.parseDf(syntheticDf(), ["/home"]);
+        const snapshot = StatusMath.parseDf(syntheticDf(), "", ["/home"]);
         const rows = StatusMath.statusRows("", "MemTotal: 1 kB\nMemAvailable: 1 kB\n", snapshot, () => {});
 
         compare(rows.length, 2);
@@ -321,7 +381,7 @@ MemAvailable:    2097152 kB
     }
 
     function test_disk_row_run_copies_the_exact_reading() {
-        const snapshot = StatusMath.parseDf(syntheticDf(), ["/home"]);
+        const snapshot = StatusMath.parseDf(syntheticDf(), "", ["/home"]);
         const copied = [];
         const rows = StatusMath.statusRows("home", "MemTotal: 1 kB\nMemAvailable: 1 kB\n", snapshot, text => copied.push(text));
 

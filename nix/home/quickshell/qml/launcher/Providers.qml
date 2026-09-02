@@ -530,7 +530,19 @@ QtObject {
     // filter status.js already does for every provider.
     readonly property var diskPaths: ["/home", "/nix/store"]
 
-    property var diskSnapshot: []
+    // Raw stdout and stderr from the most recent df run. Two plain
+    // properties rather than reading either StdioCollector by id from the
+    // other's handler: diskSnapshot below is a binding over both, so
+    // whichever stream's onStreamFinished fires last is the one that
+    // recomputes it with both texts current.
+    property string diskStdoutText: ""
+    property string diskStderrText: ""
+
+    // parseDf needs stderr, not just stdout: a path df cannot reach — gone,
+    // permission denied, not yet mounted — produces no stdout row at all,
+    // and matching the rows that remain to `diskPaths` by position alone
+    // would mislabel every path after the failed one.
+    readonly property var diskSnapshot: StatusMath.parseDf(root.diskStdoutText, root.diskStderrText, root.diskPaths)
 
     // 15s, the same number rust/beamenu-status/src/cache.rs used for
     // STALE_AFTER_SECONDS — three times that daemon's 5s tick. Free space
@@ -550,7 +562,11 @@ QtObject {
         command: ["df", "-B1", "--output=used,size,avail,pcent"].concat(root.diskPaths)
 
         stdout: StdioCollector {
-            onStreamFinished: root.diskSnapshot = StatusMath.parseDf(this.text, root.diskPaths)
+            onStreamFinished: root.diskStdoutText = this.text
+        }
+
+        stderr: StdioCollector {
+            onStreamFinished: root.diskStderrText = this.text
         }
     }
 }
