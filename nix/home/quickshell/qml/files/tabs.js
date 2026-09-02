@@ -10,8 +10,10 @@
 // push() into the existing array updates nothing on screen.
 .pragma library
 
+.import "history.js" as History
+
 function newTab(path) {
-    return { path: path };
+    return { path: path, history: History.initial(path) };
 }
 
 function opened(tabs, path) {

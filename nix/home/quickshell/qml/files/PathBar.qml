@@ -20,8 +20,12 @@ Rectangle {
     id: root
 
     required property string path
+    required property bool canBack
+    required property bool canForward
 
     signal navigate(string path)
+    signal back()
+    signal forward()
 
     implicitHeight: Theme.filesRowHeight + Theme.filesPadding
     color: Theme.bgDark
@@ -39,6 +43,55 @@ Rectangle {
         anchors.rightMargin: Theme.filesPadding
 
         spacing: 8
+
+        // Back and Forward are dimmed rather than hidden at the ends of the
+        // history: an arrow that vanishes takes the other one's position
+        // with it, and the pair would shuffle sideways on every navigation.
+        Text {
+            text: "\u{F004D}"
+            color: {
+                if (!root.canBack)
+                    return Theme.dim;
+
+                return backArea.containsMouse ? Theme.accent : Theme.muted;
+            }
+            font.family: Theme.fontUi
+            font.pixelSize: Theme.filesIconSize
+
+            MouseArea {
+                id: backArea
+
+                anchors.fill: parent
+                anchors.margins: -6
+                enabled: root.canBack
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.back()
+            }
+        }
+
+        Text {
+            text: "\u{F0054}"
+            color: {
+                if (!root.canForward)
+                    return Theme.dim;
+
+                return forwardArea.containsMouse ? Theme.accent : Theme.muted;
+            }
+            font.family: Theme.fontUi
+            font.pixelSize: Theme.filesIconSize
+
+            MouseArea {
+                id: forwardArea
+
+                anchors.fill: parent
+                anchors.margins: -6
+                enabled: root.canForward
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.forward()
+            }
+        }
 
         Text {
             text: "\u{F005D}"

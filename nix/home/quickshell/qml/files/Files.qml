@@ -24,6 +24,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import "history.js" as HistoryMath
 import "operations.js" as Operations
 import "tabs.js" as TabsMath
 import "../services"
@@ -35,6 +36,11 @@ Scope {
     property var tabs: [TabsMath.newTab(Quickshell.env("HOME"))]
     property int activeTab: 0
     property string path: Quickshell.env("HOME")
+
+    // The active tab's own history. Each tab keeps its own, the way a
+    // browser tab does, so Back never walks out of the directory tree you
+    // were reading into one another tab happened to visit.
+    property var history: HistoryMath.initial(Quickshell.env("HOME"))
 
     // Dotfiles are hidden until asked for, the way every graphical file
     // manager defaults, rather than the `ls -A` the listing used to run.
@@ -50,7 +56,8 @@ Scope {
     // The strip draws from this, not from `tabs`: the active tab's path
     // only exists on `path` until something makes it switch away.
     readonly property var displayTabs: root.tabs.map((tab, index) => index === root.activeTab ? {
-                path: root.path
+                path: root.path,
+                history: root.history
             } : tab)
 
     property string promptMode: ""
@@ -80,20 +87,25 @@ Scope {
         window.visible = !window.visible;
     }
 
+    function loadTab(tab: var): void {
+        root.path = tab.path;
+        root.history = tab.history;
+    }
+
     function switchTab(index: int): void {
         if (index === root.activeTab)
             return;
 
         root.tabs = root.displayTabs;
         root.activeTab = TabsMath.clampIndex(index, root.tabs.length);
-        root.path = root.tabs[root.activeTab].path;
+        root.loadTab(root.tabs[root.activeTab]);
     }
 
     function addTab(): void {
         const opened = TabsMath.opened(root.displayTabs, root.path);
         root.tabs = opened;
         root.activeTab = opened.length - 1;
-        root.path = opened[root.activeTab].path;
+        root.loadTab(opened[root.activeTab]);
     }
 
     function closeTab(index: int): void {
@@ -106,7 +118,26 @@ Scope {
         const landing = TabsMath.indexAfterClose(snapshot, index, root.activeTab);
         root.tabs = next;
         root.activeTab = TabsMath.clampIndex(landing, next.length);
-        root.path = next[root.activeTab].path;
+        root.loadTab(next[root.activeTab]);
+    }
+
+    // Back and Forward move the cursor without pushing, which is what keeps
+    // Forward reachable after a Back. Every other navigation goes through
+    // setActivePath and pushes, discarding whatever was ahead.
+    function goBack(): void {
+        if (!HistoryMath.canBack(root.history))
+            return;
+
+        root.history = HistoryMath.back(root.history);
+        root.path = HistoryMath.currentOf(root.history);
+    }
+
+    function goForward(): void {
+        if (!HistoryMath.canForward(root.history))
+            return;
+
+        root.history = HistoryMath.forward(root.history);
+        root.path = HistoryMath.currentOf(root.history);
     }
 
     // Every in-tree caller already passes an absolute path — a mountpoint
@@ -126,6 +157,7 @@ Scope {
         if (!Operations.isAbsolutePath(newPath))
             return;
 
+        root.history = HistoryMath.pushed(root.history, newPath);
         root.path = newPath;
     }
 
@@ -389,7 +421,12 @@ Scope {
                     Layout.fillWidth: true
 
                     path: root.path
+                    canBack: HistoryMath.canBack(root.history)
+                    canForward: HistoryMath.canForward(root.history)
+
                     onNavigate: (path) => root.setActivePath(path)
+                    onBack: root.goBack()
+                    onForward: root.goForward()
                 }
 
                 RowLayout {
@@ -416,7 +453,7 @@ Scope {
                         active: true
                         showHidden: root.showHidden
 
-                        onNavigate: (path) => root.path = path
+                        onNavigate: (path) => root.setActivePath(path)
                         onContextRequested: (x, y) => menu.openAt(x, y)
                     }
                 }
