@@ -141,6 +141,11 @@ QtObject {
     //
     // `path` on the open row is what buys the mount root a free preview:
     // PreviewPane keys off it exactly the way fileRows already relies on.
+    // Activating that row hands the mount point to Devices.requestOpen
+    // rather than to xdg-open — the same thing fileRows does for a
+    // directory hit and files/Sidebar.qml does for this very mount point.
+    // The shell draws its own file manager now, and nothing installs an
+    // `inode/directory` handler for xdg-open to find.
     //
     // This is also the read that wakes Devices.qml. shell.qml instantiates
     // Launcher {} unconditionally, Launcher's `results` binding evaluates
@@ -170,7 +175,7 @@ QtObject {
                     accessory: "open",
                     provider: "devices",
                     path: device.mountPoint,
-                    run: () => Quickshell.execDetached(["xdg-open", device.mountPoint])
+                    run: () => Devices.requestOpen(device.mountPoint)
                 });
 
                 rows.push({
