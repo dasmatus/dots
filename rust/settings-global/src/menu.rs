@@ -6,7 +6,9 @@
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::settings::{validate_git_email, validate_git_name, validate_hostname, Settings};
+use crate::settings::{
+    validate_git_email, validate_git_name, validate_hostname, validate_proton_email, Settings,
+};
 
 /// What editing a row does.
 pub enum Action {
@@ -91,6 +93,14 @@ pub const ITEMS: &[Item] = &[
     Item {
         label: "AI: Codex",
         action: Action::Toggle { key: "aiCodex" },
+    },
+    Item {
+        label: "Proton email",
+        action: Action::EditStr {
+            key: "protonEmail",
+            prompt: "Proton email",
+            validate: validate_proton_email,
+        },
     },
 ];
 

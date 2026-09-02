@@ -6,7 +6,7 @@ use global_settings::menu::{apply_values, dump, form_fields, ITEMS};
 use global_settings::settings::Settings;
 use serde_json::json;
 
-const SRC: &str = "{\n  hostname = \"box\";\n  gitName = \"Matus\";\n  gitEmail = \"a@b.com\";\n  aiClaude = true;\n  aiCodex = false;\n  aiOllama = true;\n}\n";
+const SRC: &str = "{\n  hostname = \"box\";\n  gitName = \"Ada\";\n  gitEmail = \"a@b.com\";\n  aiClaude = true;\n  aiCodex = false;\n  aiOllama = true;\n}\n";
 
 #[test]
 fn dump_has_one_entry_per_item() {
@@ -61,7 +61,6 @@ fn dump_serializes_to_the_documented_shape() {
 #[test]
 fn no_exit_row_remains() {
     let s = Settings::parse(SRC).unwrap();
-    assert_eq!(ITEMS.len(), 6);
     assert!(!dump(&s).iter().any(|i| i.label == "Exit"));
 }
 
@@ -130,4 +129,30 @@ fn apply_values_stops_at_first_invalid_field_in_items_order() {
     assert!(err.contains('@') || err.contains("whitespace"), "{err}");
     assert_eq!(s.get_str("gitEmail").as_deref(), Some("a@b.com"));
     assert_eq!(s.get_str("hostname").as_deref(), Some("box"));
+}
+
+/// SRC deliberately omits protonEmail, the state every existing
+/// /var/lib/dots/settings.nix is in before this key existed. The row must
+/// still appear, typed as text and valued empty, because an empty address is
+/// what tells the settings panel's Proton page it is unconfigured.
+#[test]
+fn proton_email_row_defaults_to_empty_when_the_key_is_absent() {
+    let s = Settings::parse(SRC).unwrap();
+    let items = dump(&s);
+    let proton = items.iter().find(|i| i.key == "protonEmail").unwrap();
+    assert_eq!(proton.kind, "text");
+    assert_eq!(proton.value, json!(""));
+    assert_eq!(proton.prompt, Some("Proton email"));
+}
+
+#[test]
+fn proton_email_round_trips_through_apply_values() {
+    let mut s = Settings::parse(SRC).unwrap();
+    let values = serde_json::json!({ "protonEmail": "me@proton.me" });
+    assert!(apply_values(&mut s, values.as_object().unwrap()).unwrap());
+    assert_eq!(s.get_str("protonEmail").as_deref(), Some("me@proton.me"));
+
+    let bad = serde_json::json!({ "protonEmail": "nodomain" });
+    assert!(apply_values(&mut s, bad.as_object().unwrap()).is_err());
+    assert_eq!(s.get_str("protonEmail").as_deref(), Some("me@proton.me"));
 }
