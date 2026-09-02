@@ -136,9 +136,20 @@
     # theme (Icons.qml) and the bar's own accent (tint/current.json) so far.
     # GTK stays plain adw-gtk3-dark, not pointed at a file nothing writes
     # anymore, until a later plan ports the GTK/Kvantum/rofi tint writers too.
+    # Papirus-Dark is the variant whose icons are all light-toned, which is
+    # what suits adw-gtk3-dark above and the org/gnome/desktop/interface
+    # color-scheme = "prefer-dark" dconf key. This value is not what
+    # the desktop runs most of the time, though: the shell's wallpaper
+    # pipeline writes org/gnome/desktop/interface/icon-theme at runtime
+    # and points it at a generated Papirus-Tint. What this attribute really
+    # governs is the fallback after a `home-manager switch` rewrites that
+    # same dconf key, until the next wallpaper pick. It also puts the
+    # Papirus package in the profile, which is what makes Papirus-Tint's
+    # Inherits=Papirus-Dark,Papirus,hicolor resolvable at all — so it is
+    # a hard dependency of the tint theme, not a cosmetic default.
     iconTheme = {
-      name = "MoreWaita";
-      package = pkgs.morewaita-icon-theme;
+      name = "Papirus-Dark";
+      package = pkgs.papirus-icon-theme;
     };
   };
   programs.starship.enable = true;

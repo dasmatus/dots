@@ -80,10 +80,11 @@ Three things worth knowing:
 - **Wallpaper picker and rotation** (`nix/home/quickshell/qml/wallpaper/`). The
   shell itself: SUPER+W opens a thumbnail grid over `Wallpapers/`, and
   `Rotation.qml` picks a random file from the same tree on an hourly timer
-  (and once at shell startup, so a fresh login is never blank). Either path
-  runs `awww` directly, re-derives the accent from the applied image, and
-  retints the MoreWaita icon theme in place — no separate TUI or systemd
-  timer involved.
+  (and once at shell startup, so a fresh login is never blank). Either
+  path runs `awww` directly, re-derives the accent from the applied image,
+  and seeds a thin Papirus-Tint theme that re-points its folder icons at
+  the matching prebuilt colour variant by symlink — no separate TUI or
+  systemd timer involved.
 
 ## Testing
 
