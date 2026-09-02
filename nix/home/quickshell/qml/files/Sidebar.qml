@@ -13,53 +13,64 @@ import "../services"
 import "../services/devices.js" as DevicesMath
 import ".."
 
-ColumnLayout {
+// A Rectangle wrapping the layout rather than a bare ColumnLayout: a
+// positioner paints nothing and has no `color` at all, so this column had
+// no ground of its own and showed whatever sat behind the window. Both
+// Panes carry Theme.bg, so the sidebar takes the darker neutral to read as
+// a separate column rather than merging into them.
+Rectangle {
     id: root
 
-    spacing: 4
+    color: Theme.bgDarker
 
-    Text {
-        text: "Home"
-        color: Theme.fg
-        font.family: Theme.fontUi
+    ColumnLayout {
+        anchors.fill: parent
 
-        MouseArea {
-            anchors.fill: parent
-            onClicked: Devices.requestOpen(Quickshell.env("HOME"))
-        }
-    }
+        spacing: 4
 
-    Repeater {
-        model: Devices.devices
+        Text {
+            text: "Home"
+            color: Theme.fg
+            font.family: Theme.fontUi
 
-        delegate: RowLayout {
-            id: entry
-
-            required property var modelData
-
-            Layout.fillWidth: true
-
-            Text {
-                Layout.fillWidth: true
-                text: DevicesMath.displayLabel(entry.modelData)
-                color: Theme.fg
-                font.family: Theme.fontUi
-                elide: Text.ElideRight
-
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: Devices.requestOpen(entry.modelData.mountPoint)
-                }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: Devices.requestOpen(Quickshell.env("HOME"))
             }
+        }
 
-            Text {
-                text: "⏏"
-                color: Theme.muted
-                font.family: Theme.fontUi
+        Repeater {
+            model: Devices.devices
 
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: Devices.eject(entry.modelData.path, entry.modelData.diskPath)
+            delegate: RowLayout {
+                id: entry
+
+                required property var modelData
+
+                Layout.fillWidth: true
+
+                Text {
+                    Layout.fillWidth: true
+                    text: DevicesMath.displayLabel(entry.modelData)
+                    color: Theme.fg
+                    font.family: Theme.fontUi
+                    elide: Text.ElideRight
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: Devices.requestOpen(entry.modelData.mountPoint)
+                    }
+                }
+
+                Text {
+                    text: "⏏"
+                    color: Theme.muted
+                    font.family: Theme.fontUi
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: Devices.eject(entry.modelData.path, entry.modelData.diskPath)
+                    }
                 }
             }
         }

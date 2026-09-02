@@ -26,7 +26,12 @@ Rectangle {
     signal focusRequested()
 
     property var entries: []
-    property var selected: null
+    property int selectedIndex: -1
+    // model: is root.entries, a plain JS array, so QML hands each delegate
+    // a fresh wrapper object every time the list is rebuilt — a stored
+    // entry never === anything a delegate holds. Derive selected from the
+    // index instead of storing the object itself.
+    readonly property var selected: root.selectedIndex >= 0 && root.selectedIndex < root.entries.length ? root.entries[root.selectedIndex] : null
 
     color: Theme.bg
     border.width: root.active ? 2 : 0
@@ -39,7 +44,7 @@ Rectangle {
     // again regardless of why list() ran — including a post-operation
     // refresh that Files.qml triggers with no path change at all.
     onPathChanged: {
-        root.selected = null;
+        root.selectedIndex = -1;
         root.list();
     }
     Component.onCompleted: root.list()
@@ -75,7 +80,7 @@ Rectangle {
 
         stdout: StdioCollector {
             onStreamFinished: {
-                root.selected = null;
+                root.selectedIndex = -1;
                 root.entries = FilesMath.parseListing(this.text);
             }
         }
@@ -107,7 +112,7 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: root.path
-                color: Theme.muted
+                color: Theme.fgDark
                 font.family: Theme.fontMono
                 elide: Text.ElideMiddle
             }
@@ -124,10 +129,11 @@ Rectangle {
                 id: row
 
                 required property var modelData
+                required property int index
 
                 width: ListView.view.width
                 height: 28
-                color: root.selected === row.modelData ? Theme.bgDark : "transparent"
+                color: root.selectedIndex === row.index ? Theme.accent : "transparent"
 
                 Text {
                     anchors.left: parent.left
@@ -135,7 +141,7 @@ Rectangle {
                     anchors.leftMargin: 12
 
                     text: (row.modelData.isDir ? "▸ " : "") + row.modelData.name
-                    color: Theme.fg
+                    color: root.selectedIndex === row.index ? Theme.bg : Theme.fg
                     font.family: Theme.fontUi
                 }
 
@@ -144,7 +150,7 @@ Rectangle {
 
                     onClicked: {
                         root.focusRequested();
-                        root.selected = row.modelData;
+                        root.selectedIndex = row.index;
                     }
                     onDoubleClicked: root.activate(row.modelData)
                 }

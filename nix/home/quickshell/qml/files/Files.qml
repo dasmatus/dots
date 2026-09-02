@@ -218,6 +218,11 @@ Scope {
     FloatingWindow {
         id: window
 
+        // ProxyWindowBase's own clear colour defaults to Qt::white, so
+        // every child painted straight on the window (the toolbar row, the
+        // lastError row, the Sidebar) reads on white without this.
+        color: Theme.bg
+
         visible: false
         implicitWidth: 1200
         implicitHeight: 600
