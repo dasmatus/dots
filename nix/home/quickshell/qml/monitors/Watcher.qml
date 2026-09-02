@@ -22,7 +22,11 @@
 // in a plain .pragma library, separate from apply()'s hyprctl process, so
 // tests/qml/tst_watcher.qml can drive it with fixture JSON and assert on
 // the exact argv it would run, with no live compositor anywhere near the
-// test.
+// test. watch.js's attemptCommandsForState wraps that chain for exactly the
+// input a live `hyprctl monitors -j` can produce that no fixture-driven
+// commandsForState() call ever needs to: nothing, because the socket was not
+// up yet. See handleRead()/retryTimer below for what this file does with
+// that "nothing" instead of letting it propagate as an uncaught exception.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -121,7 +125,9 @@ Scope {
 
     // The daemon's own "apply once on startup, don't wait for an event"
     // behaviour (watch.rs), now standing in for hyprland.nix's deleted
-    // exec-once line.
+    // exec-once line. This is also the call most likely to race Hyprland's
+    // own IPC socket coming up — see retriesLeft/retryTimer below for what
+    // happens when it does.
     Component.onCompleted: root.apply()
 
     IpcHandler {
@@ -132,10 +138,49 @@ Scope {
         }
     }
 
+    // Every external trigger — startup, a FileView reload, a debounced
+    // Hyprland event, or this IPC handler — is "the world may have changed,
+    // read again", and gets its own fresh retry budget: a read that is
+    // still retrying from an earlier, unrelated trigger must not make a new,
+    // independent trigger give up early. Only retriesLeft's own retryTimer
+    // calls startRead() directly, skipping this reset, which is what keeps
+    // the budget bounded instead of being refilled by its own retries.
     function apply(): void {
+        root.retriesLeft = root.maxRetries;
+        root.startRead();
+    }
+
+    function startRead(): void {
         monitorsProc.running = false;
         monitorsProc.running = true;
     }
+
+    // Bounded retry for the startup race Component.onCompleted's apply() can
+    // lose against Hyprland: `hyprctl monitors -j` run before the IPC socket
+    // exists prints nothing and JSON.parse throws (the original bug — an
+    // uncaught SyntaxError inside onStreamFinished, silently dropping the
+    // apply with only a one-line WARN and no retry). Nothing else guarantees
+    // a later apply() ever comes: the two FileViews' onLoaded already won
+    // the race on the machine that surfaced this, and a laptop with no dock
+    // fires no monitoradded/monitorremoved/configreloaded event for the rest
+    // of the session either. 5 retries at 300ms apiece (the same interval
+    // `debounce` above uses) is a 1.5s budget — generous for a compositor
+    // socket to appear, but bounded, because a compositor that is genuinely
+    // absent must not spin this forever.
+    property int retriesLeft: 0
+    readonly property int maxRetries: 5
+    readonly property int retryIntervalMs: 300
+
+    // Best-effort diagnostic only, never a retry input: `hyprctl`'s own exit
+    // code is more truthful than guessing from stdout text alone (a
+    // nonzero-exit run and a zero-exit run can both produce empty stdout,
+    // but only one of them is hyprctl actually saying it failed), yet
+    // Quickshell's docs give no ordering guarantee between Process.exited
+    // and StdioCollector.streamFinished. Reading it only for the give-up log
+    // — after every retry, never inside the same tick as the read it
+    // describes — sidesteps that: hyprctl exits almost instantly, so by the
+    // time a later attempt's give-up fires, this has long since settled.
+    property int lastExitCode: 0
 
     // `hyprctl monitors -j`, the one live read this watcher does — never
     // Quickshell.Hyprland's own typed monitor list, which has no
@@ -146,9 +191,40 @@ Scope {
 
         command: ["hyprctl", "monitors", "-j"]
 
+        // qmllint disable signal-handler-parameters
+        onExited: (exitCode, exitStatus) => root.lastExitCode = exitCode
+        // qmllint enable signal-handler-parameters
+
         stdout: StdioCollector {
-            onStreamFinished: root.runCommands(Watch.commandsForState(this.text, root.rules, root.overrides))
+            onStreamFinished: root.handleRead(Watch.attemptCommandsForState(this.text, root.rules, root.overrides))
         }
+    }
+
+    // The result of one read: `ok` tells a read that produced nothing
+    // usable (watch.js's attemptCommandsForState — see its own header) apart
+    // from a read that legitimately matched no rules, which is not an error
+    // and must not retry. Only the former spends the retry budget.
+    function handleRead(result): void {
+        if (result.ok) {
+            root.retriesLeft = root.maxRetries;
+            root.runCommands(result.commands);
+            return;
+        }
+
+        if (root.retriesLeft <= 0) {
+            console.warn("monitors: giving up after " + root.maxRetries + " failed `hyprctl monitors -j` reads (last exit code " + root.lastExitCode + "); monitor layout was not applied this session until the next monitoradded/monitorremoved/configreloaded event or `qs ipc call monitors apply`");
+            return;
+        }
+
+        root.retriesLeft--;
+        retryTimer.restart();
+    }
+
+    Timer {
+        id: retryTimer
+
+        interval: root.retryIntervalMs
+        onTriggered: root.startRead()
     }
 
     function runCommands(commands) {
