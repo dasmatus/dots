@@ -192,9 +192,12 @@ let
     ${papirusColorEntries}
         });
 
-        // A generated index.theme for the runtime Papirus-Tint theme — see
-        // papirusTintIndexFile in this file's own let block for why it is
-        // deliberately thin.
+        // A generated index.theme for the runtime Papirus-Tint theme. THIN
+        // on purpose: it ships only the five <size>/places directories
+        // listed under its own Directories key, and Inherits resolves every
+        // other icon straight from the Papirus-Dark store theme, so nothing
+        // else needs copying or regenerating when the wallpaper accent
+        // changes.
         readonly property string papirusTintIndex: "${papirusTintIndexFile}";
 
         // Picker.qml mkdir -p's this before every write; exposed as its own
