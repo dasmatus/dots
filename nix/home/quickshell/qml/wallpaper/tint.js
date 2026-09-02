@@ -1,26 +1,30 @@
-// Per-target accent tint writers, ported from rust/wallpaper-tui/src/tint.rs.
+// Per-target accent tint writers, plus the Papirus nearest-colour lookup.
 // Pure (string/array in -> string/array out): nothing here touches the
 // filesystem, spawns a process or repaints the live desktop the way
 // tint.rs's tree tinters and apply_tint_ctx orchestrator do — those stay in
-// the crate, which still owns the wallpaper. Kept a second port rather than
-// shared code so this task can prove the maths without an FFI boundary to
-// the crate; the two are exercised against the same fixtures, not the same
-// source, the same way common/hls.js relates to accent.rs.
+// the crate, which still owns the wallpaper.
+//
+// rofiRasiText, gtkCss, hyprlandBorderCommands, recolorKvantumText and the
+// hex/HLS helpers under them are a second port of tint.rs's "pure writers",
+// kept separate from the crate rather than shared through an FFI boundary so
+// this task could prove the maths without one; the two are exercised
+// against the same fixtures, not the same source, the same way
+// common/hls.js relates to accent.rs.
+//
+// nearestPapirusColor, circularHueDistance and
+// ACHROMATIC_SATURATION_THRESHOLD have no tint.rs counterpart: Papirus's
+// symlink-per-colour scheme (see Icons.qml) is new to this branch, so there
+// is nothing in the crate to port them from or test them against.
 .pragma library
 .import "../common/hls.js" as Hls
-
-// Adwaita-blue family used by MoreWaita folder/place icons. Each is
-// recolored to the accent's hue/saturation while keeping its own lightness,
-// so the icon's gradient shading survives the tint.
-var ADWAITA_BLUE_HEXES = ["#1c71d8", "#438de6", "#3584e4", "#62a0ea", "#99c1f1", "#afd4ff"];
 
 // Catppuccin-Frappe-Blue accents used by the Kvantum base theme; replaced
 // verbatim (case-insensitive), 7-char body only, so a trailing alpha hex
 // (e.g. "#8caaee4D") survives untouched.
 var KVANTUM_ACCENT_HEXES = ["#8caaee", "#839edd", "#98b2ef"];
 
-// None of '#' or a hex digit is a regex metacharacter today, but the three
-// hex families above are data, not literal patterns chosen for this code —
+// None of '#' or a hex digit is a regex metacharacter today, but the hex
+// family above is data, not a literal pattern chosen for this code —
 // escaping keeps a future accent format change (e.g. an 8-char literal) from
 // silently turning into a broken RegExp instead of a loud one.
 function escapeRegExp(s) {
@@ -155,17 +159,79 @@ function recolorKvantumText(text, accent, accentDark, accentLight) {
     return out;
 }
 
-// Recolor the Adwaita-blue family to the accent's hue/saturation, keeping
-// each matched hex's own lightness — so a folder icon's gradient shading
-// (several Adwaita blues at different lightness) survives the tint instead
-// of collapsing onto one flat colour. Anything outside the family (a status
-// colour like ruby's black) never matches and is left alone.
-function recolorIconText(text, accent) {
-    const accentHls = hexToHls(accent);
-    const pattern = ADWAITA_BLUE_HEXES.map(escapeRegExp).join("|");
-    const re = new RegExp(pattern, "gi");
-    return text.replace(re, (match) => {
-        const matchedHls = hexToHls(match);
-        return hlsToHex(accentHls.h, matchedHls.l, accentHls.s);
-    });
+// Below this saturation a colour reads as black/grey/white rather than any
+// particular hue, so its hue is meaningless to compare against — hexToHls's
+// own achromatic branch always answers h=0 for such a colour (see hls.js),
+// which would otherwise make it look deceptively "hue-close" to red. Sits in
+// the gap papirus-colors.json actually has between its four fully-achromatic
+// entries (black/grey/white/yaru, s=0 exactly) and its next-lowest chromatic
+// one (bluegrey, s≈0.18), so anything in (0, 0.18) draws the same line; 0.1
+// leaves a wide margin on both sides.
+var ACHROMATIC_SATURATION_THRESHOLD = 0.1;
+
+// Hue wraps at 1.0, so h=0.02 and h=0.98 are 0.04 apart on the colour
+// wheel, not the 0.96 a plain subtraction would read — going the other way
+// around the circle is shorter whenever the direct gap exceeds half a turn.
+function circularHueDistance(a, b) {
+    const d = Math.abs(a - b);
+    return Math.min(d, 1.0 - d);
+}
+
+// Nearest Papirus folder-colour NAME for an arbitrary accent hex, so
+// Icons.qml can symlink to a prebuilt colour variant instead of rewriting
+// SVGs the way MoreWaita's retint() used to. `colors` is name -> hex
+// (papirus-colors.json, parsed by the caller) and stays a parameter rather
+// than a module-level table so this function stays pure and callers —
+// including tests — can supply their own fixture table without depending on
+// the live Papirus package.
+//
+// Candidates are first split by ACHROMATIC_SATURATION_THRESHOLD into an
+// achromatic bucket and a chromatic one, and only the bucket matching the
+// accent's own classification is searched — symmetrically, so a vivid
+// accent can never land on grey (hue would be a false match, per the
+// threshold's own comment) and a near-grey accent can never be dragged onto
+// a vivid hue by hue arithmetic that is meaningless for it. If a caller's
+// table has nothing in the matching bucket, the search falls back to the
+// full table rather than returning nothing.
+//
+// The chromatic and achromatic buckets are then scored on different single
+// axes — see the loop below for why.
+//
+// Ties (equal distance) resolve to whichever candidate's key comes first in
+// `colors`'s own iteration order, because the scan keeps the first minimum
+// it finds and only replaces it on a strictly smaller distance — so the
+// same table and input always return the same name.
+function nearestPapirusColor(accentHex, colors) {
+    const accentHls = hexToHls(accentHex);
+    const accentIsAchromatic = accentHls.s < ACHROMATIC_SATURATION_THRESHOLD;
+
+    const entries = Object.keys(colors).map((name) => ({ name: name, hls: hexToHls(colors[name]) }));
+    const sameBucket = entries.filter((entry) => (entry.hls.s < ACHROMATIC_SATURATION_THRESHOLD) === accentIsAchromatic);
+    const candidates = sameBucket.length > 0 ? sameBucket : entries;
+
+    let best = candidates[0];
+    let bestDistance = Infinity;
+    for (const entry of candidates) {
+        // accent.js's accentFrom pins EVERY accent it produces onto a fixed
+        // lightness and saturation (hlsToHex(hue, 0.62, 0.55), see
+        // accent.js) — only hue ever varies. So for the chromatic bucket, a
+        // distance built on dl/ds is not scoring the accent against a
+        // candidate; it is scoring each candidate against a constant that
+        // is the same for every call, which swamps the one term (hue) that
+        // actually carries information and made most of the table
+        // unreachable. Hue alone is what the plan specified and what
+        // matches reality here. The achromatic bucket has the opposite
+        // problem: hue is meaningless there (hexToHls's achromatic branch
+        // always answers h=0, so every achromatic candidate would tie on
+        // hue), so it is scored on lightness instead — the one axis that
+        // still tells black, grey and white apart.
+        const distance = accentIsAchromatic
+            ? Math.abs(accentHls.l - entry.hls.l)
+            : circularHueDistance(accentHls.h, entry.hls.h);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = entry;
+        }
+    }
+    return best.name;
 }
