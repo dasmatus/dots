@@ -92,8 +92,20 @@ function resolvePromptArgv(snapshot, promptText) {
     if (!snapshot)
         return null;
 
+    // snapshot.name is a rename's SOURCE half, an existing entry's name
+    // off a real ls listing exactly like trash-confirm's below — not
+    // promptText, the DESTINATION the user is typing and already checked
+    // by isValidEntryName. Round 4 closed this exact hole for
+    // trash-confirm and missed it here: beginPrompt("rename", dir,
+    // "../.ssh/id_ed25519") resolved renameArgv straight onto a path
+    // outside dir, with nothing anywhere checking snapshot.name. Same fix,
+    // same reason, so escapesDirectory rather than isValidEntryName: see
+    // escapesDirectory's own comment and trash-confirm's comment below for
+    // why a name off a listing gets the disk-fact check, not the
+    // create-time one — a file already named " " or holding a tab must
+    // stay renameable.
     if (snapshot.mode === "rename") {
-        if (!isValidEntryName(promptText))
+        if (escapesDirectory(snapshot.name) || !isValidEntryName(promptText))
             return null;
 
         return renameArgv(FilesMath.join(snapshot.dirPath, snapshot.name), FilesMath.join(snapshot.dirPath, promptText));

@@ -69,6 +69,40 @@ TestCase {
         compare(Operations.resolvePromptArgv(snapshot, "new.txt"), ["mv", "--", "/home/matus/old.txt", "/home/matus/new.txt"]);
     }
 
+    // The rename branch's identical hole to the one escapesDirectory
+    // closed for trash-confirm: snapshot.name is a rename's SOURCE half,
+    // an existing entry's name off a real ls listing, and nothing checked
+    // it. beginPrompt("rename", "/tmp/x", "../secret") used to resolve
+    // renameArgv straight onto a path outside "/tmp/x" — promptText's own
+    // isValidEntryName check has nothing to say about the source half.
+    function test_resolvepromptargv_rename_rejects_a_traversal_in_the_snapshot_name() {
+        const snapshot = Operations.beginPrompt("rename", "/tmp/x", "../secret");
+
+        compare(Operations.resolvePromptArgv(snapshot, "newname"), null);
+    }
+
+    function test_resolvepromptargv_rename_rejects_an_empty_or_dot_or_dotdot_snapshot_name() {
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("rename", "/tmp/x", ""), "newname"), null);
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("rename", "/tmp/x", "."), "newname"), null);
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("rename", "/tmp/x", ".."), "newname"), null);
+    }
+
+    function test_resolvepromptargv_rename_rejects_a_path_separator_in_the_middle_of_the_snapshot_name() {
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("rename", "/tmp/x", "sub/escaped"), "newname"), null);
+    }
+
+    // Same reasoning as trash-confirm's equivalent test below: a real
+    // file already named " " or carrying a tab predates this dialog and
+    // is renameable like any other file. escapesDirectory has no
+    // CREATE-time hygiene rule, so the fix for the traversal above must
+    // not repeat isValidEntryName's blank-name rejection against a name
+    // nobody typed — that would just relocate the bug round 4 fixed for
+    // trash onto rename instead of fixing rename's real hole.
+    function test_resolvepromptargv_rename_accepts_blank_and_tab_snapshot_names() {
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("rename", "/tmp/x", " "), "newname"), ["mv", "--", "/tmp/x/ ", "/tmp/x/newname"]);
+        compare(Operations.resolvePromptArgv(Operations.beginPrompt("rename", "/tmp/x", "\t"), "newname"), ["mv", "--", "/tmp/x/\t", "/tmp/x/newname"]);
+    }
+
     function test_resolvepromptargv_mkdir_joins_the_snapshot_dir_with_the_typed_text() {
         const snapshot = Operations.beginPrompt("mkdir", "/home/matus", null);
 
