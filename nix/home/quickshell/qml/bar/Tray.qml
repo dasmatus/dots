@@ -5,10 +5,16 @@
 // reason, and one demanding attention is the only thing in the tray that
 // should be able to interrupt you.
 //
+// Every icon also renders desaturated at rest and returns to full colour
+// while the pointer sits over it, so a row of unrelated vendor icons does
+// not compete with the rest of the bar; hovering makes the icon's identity
+// recoverable on demand.
+//
 // Left click activates, middle click is the item's secondary action, right
 // click opens its DBusMenu. display() wants the window to anchor the menu to,
 // which QsWindow.window supplies from anywhere inside the bar.
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Services.SystemTray
 import ".."
@@ -35,7 +41,10 @@ Pill {
             opacity: entry.modelData.status === Status.Passive ? 0.6 : 1
 
             Image {
+                id: icon
+
                 anchors.fill: parent
+                visible: false
 
                 source: entry.modelData.icon
 
@@ -43,8 +52,25 @@ Pill {
                 sourceSize.height: Theme.barIconSize
             }
 
-            // Tint only the attention state. Recolouring every tray icon would
-            // throw away the one thing an application icon is for.
+            // Grey every icon out at rest and let hovering restore it: the
+            // icon's identity stays recoverable on demand, so desaturating
+            // it loses nothing the way permanently recolouring it would.
+            // The attention overlay below is still the only thing in the
+            // tray allowed to interrupt you, which is why it alone stays
+            // tinted rather than merely desaturated.
+            MultiEffect {
+                anchors.fill: parent
+
+                source: icon
+                saturation: hoverArea.containsMouse ? 0 : -1
+
+                Behavior on saturation {
+                    NumberAnimation {
+                        duration: 120
+                    }
+                }
+            }
+
             Rectangle {
                 anchors.fill: parent
 
@@ -55,8 +81,11 @@ Pill {
             }
 
             MouseArea {
+                id: hoverArea
+
                 anchors.fill: parent
 
+                hoverEnabled: true
                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                 cursorShape: Qt.PointingHandCursor
 
