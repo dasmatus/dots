@@ -48,6 +48,28 @@ in
     pkgs.cryptsetup
     pkgs.tpm2-tools
     pkgs.gptfdisk
+    # disko's luks.nix (`_pkgs`, evaluated for every LUKS-typed device
+    # regardless of config) puts `pkgs.openssl` on the generated
+    # destroy/format/mount script's PATH unconditionally — nix/disko.nix
+    # never triggers the one line that actually calls it (`openssl rand
+    # -hex 32`, gated on `enrollFido2`, which we don't set; we pass our own
+    # passwordFile instead), but PATH membership is still a build input the
+    # script's derivation cannot be realised without, called or not. The
+    # PATH= line disko emits resolves this to openssl's "bin" output
+    # specifically (`lib.makeBinPath`-style selection, since only "bin"
+    # carries an actual bin/ dir) — a separate store path from the "out"
+    # output something else in this closure already happens to pull in, so
+    # having openssl elsewhere in the closure does not cover this. Without
+    # it, `disko --mode destroy,format,mount` (the exact command
+    # install.rs::plan() runs) has no way to realise that PATH entry on a
+    # `.#iso-full` install with no network: nothing here provides a C
+    # toolchain, so building openssl from source stalls on an
+    # unfetchable stdenv bootstrap chain — the same failure class as if
+    # this package were entirely absent. Verified against the real
+    # destroy-format-mount script's PATH= line and a `nix-store -q
+    # --requisites` of a built `.#iso`: this is the only PATH entry in that
+    # script missing from the ISO closure.
+    pkgs.openssl.bin
     # The installer runs this on the target to generate nix/facter.json for
     # the hardware detection in nix/hosts.nix.
     pkgs.nixos-facter
