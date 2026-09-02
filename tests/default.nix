@@ -57,6 +57,15 @@ let
   # substitutes this closure verbatim.
   testTokyonight = mkTokyonight testSettings;
   testToplevel = testTokyonight.config.system.build.toplevel;
+  # limine-install.nix's ensureOwnedHome fix exposes this standalone probe
+  # (nix/modules/limine-install.nix, "exposed only for tests/limine-home.nix")
+  # so its $HOME-recovery branch can be inspected without invoking the real
+  # upstream Limine installer. limineInstallBootTest below runs it right after
+  # nixos-install, through the same nixos-enter chroot nixos-install itself
+  # uses for the bootloader step, to record which branch fired on the real
+  # install path instead of only the synthetic conditions limineHomeTest sets
+  # up directly.
+  testHomeProbe = testTokyonight.config.system.build.limineEnsureOwnedHomeProbe;
   # Flake input source paths the installer VM needs to evaluate the staged
   # flake offline: `nixos-install --flake /tmp/dots-flake#tokyonight` evals the
   # flake, and every input's SOURCE must be in the store — not just the direct
@@ -236,14 +245,17 @@ let
               pkgs.nixos-facter
             ];
             # Everything nixos-install needs to evaluate + copy the closure
-            # offline: the test-settings toplevel and the flake input
-            # sources. Nothing is staged for disko any more —
-            # profiles/base.nix above gives this node its own, properly
-            # *built* (not merely staged) copy of every package disko's
-            # independently-evaluated script needs, so its `nix build`
-            # resolves locally without help.
+            # offline: the test-settings toplevel, the flake input sources,
+            # and the $HOME probe (system.build.limineEnsureOwnedHomeProbe)
+            # the testScript runs after nixos-install to observe hazard 1
+            # (nix/modules/limine-install.nix) on the real install path.
+            # Nothing is staged for disko any more — profiles/base.nix above
+            # gives this node its own, properly *built* (not merely staged)
+            # copy of every package disko's independently-evaluated script
+            # needs, so its `nix build` resolves locally without help.
             system.extraDependencies = [
               testToplevel
+              testHomeProbe
               aipageSrc
             ]
             ++ flakeInputPaths;
@@ -348,6 +360,25 @@ let
               "nixos-install --root /mnt --no-root-passwd"
               " --flake /tmp/dots-flake#tokyonight < /dev/null >&2"
           )
+
+      with subtest("Probe the $HOME limine-install.nix's bootloader step saw"):
+          # nixos-install's own bootloader step shells out to
+          # `nixos-enter --root "$mountPoint" -c '... switch-to-configuration
+          # boot'` (nixpkgs' nixos-install.sh) — a plain `chroot` with no HOME
+          # handling of its own, so whatever ensureOwnedHome
+          # (nix/modules/limine-install.nix) saw is whatever that same
+          # invocation shape inherits. Run the exposed probe (testHomeProbe =
+          # system.build.limineEnsureOwnedHomeProbe, "exposed only for
+          # tests/limine-home.nix") through an identical nixos-enter chroot,
+          # right after nixos-install returns, to observe the real install
+          # path's outcome without touching production code or the real
+          # nixos-install run above. Nothing between the two nixos-enter
+          # invocations touches /mnt/root, so its existence/ownership — the
+          # ensureOwnedHome condition — should match what the real run saw.
+          home_seen = installer.succeed(
+              "nixos-enter --root /mnt -c ${testHomeProbe} 2>&1"
+          ).strip()
+          print(f"limine-install.nix ensureOwnedHome saw HOME={home_seen!r}")
 
       with subtest("Enroll TPM2 token (no PCR policy) + LUKS recovery key"):
           # No --tpm2-pcrs: the token is PCR-unbound so it unseals on the
