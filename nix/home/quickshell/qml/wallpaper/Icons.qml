@@ -38,6 +38,20 @@
 // symlinks instead of failing; and `-o` skips writing papirus-folders' own
 // persistent config file, so nothing is left behind outside the theme
 // directory itself.
+//
+// The rebuild branch of the seed stages into a sibling `$dst.new` and only
+// `rm -rf`s the live `$dst` once that sibling is fully populated, right
+// before the one `mv` that swaps it in — it never rewrites `$dst` in
+// place. This is the one place in the pipeline that can destroy a
+// previously working tree (a version bump means the stamp mismatches, so
+// `$dst` gets rebuilt, not just created), so a `cp`/`mkdir` failure partway
+// through must not be allowed to leave `$dst` half-overwritten or missing
+// altogether; staging means the live tree is never in a worse state than
+// "unchanged" until the very last, all-but-guaranteed-to-succeed step.
+//
+// Every step downstream of a failure is skipped, and retinted() — which
+// Picker.qml treats as "the theme has been applied" — never fires past
+// one: see each Process's own onExited below for why.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -67,8 +81,31 @@ Item {
         // interpolated into the script text, so none of them can break the
         // quoting no matter what a future store path or XDG override
         // happens to contain — see this file's own header for why the
-        // guard and the copy are shaped the way they are.
-        ensureTree.command = ["sh", "-c", 'src=$1; dst=$2; idx=$3; if [ "$(cat "$dst/.dots-source" 2>/dev/null)" != "$src" ]; then rm -rf "$dst" && for s in 22x22 24x24 32x32 48x48 64x64; do mkdir -p "$dst/$s" && cp -aL "$src/$s/places" "$dst/$s/places" || exit 1; done && cp "$idx" "$dst/index.theme" && chmod -R u+w "$dst" && printf "%s" "$src" > "$dst/.dots-source"; fi', "_", Theme.papirusBase, root.dest, Theme.papirusTintIndex];
+        // guard, the copy and the staged rebuild are shaped the way they
+        // are. `set -e` plus the EXIT trap is what makes the staging
+        // actually safe: any failing step (a `mkdir`, a `cp`) aborts the
+        // script immediately, the trap removes the half-built `$dst.new`
+        // on the way out, and `$dst` itself is never touched until the
+        // `rm -rf "$dst" && mv "$tmp" "$dst"` pair right at the end — by
+        // which point everything that could fail already has not.
+        ensureTree.command = ["sh", "-c", `
+set -e
+src=$1; dst=$2; idx=$3
+if [ "$(cat "$dst/.dots-source" 2>/dev/null)" != "$src" ]; then
+  tmp="$dst.new"
+  trap 'rm -rf "$tmp"' EXIT
+  rm -rf "$tmp"
+  for s in 22x22 24x24 32x32 48x48 64x64; do
+    mkdir -p "$tmp/$s"
+    cp -aL "$src/$s/places" "$tmp/$s/places"
+  done
+  cp "$idx" "$tmp/index.theme"
+  chmod -R u+w "$tmp"
+  printf '%s' "$src" > "$tmp/.dots-source"
+  rm -rf "$dst"
+  mv "$tmp" "$dst"
+fi
+`, "_", Theme.papirusBase, root.dest, Theme.papirusTintIndex];
         // colorName is resolved once, up front, and baked into this
         // command now rather than threaded through onExited state: unlike
         // the old per-file SVG queue, nothing here needs data that only
@@ -82,6 +119,17 @@ Item {
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
+            // A failed seed (source unreadable, disk full mid-copy, ...)
+            // must not fall through to papirus-folders or dconf: the old
+            // MoreWaita pipeline's unconditional dconf write was
+            // defensible because its `test -d` guard meant the tree was
+            // seeded once and never destroyed, so "the seed step ran" was
+            // always true from the second retint() onward. This seed can
+            // rebuild — and, per the header above, stages that rebuild
+            // rather than doing it in place — but a caller still has no
+            // business being told the theme changed when it didn't.
+            if (exitCode !== 0)
+                return;
             recolor.running = true;
         }
         // qmllint enable signal-handler-parameters
@@ -96,6 +144,12 @@ Item {
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
+            // Same contract as ensureTree's own guard just above: a
+            // papirus-folders failure (an unrecognised colour name, an
+            // unwritable tree) means the folders were never actually
+            // repointed, so dconf must not be told otherwise.
+            if (exitCode !== 0)
+                return;
             applyTheme.running = true;
         }
         // qmllint enable signal-handler-parameters
@@ -104,10 +158,13 @@ Item {
     // Papirus-Tint follows the same on-disk icon-theme layout GNOME already
     // reads (index.theme and all); only the name and location differ from
     // the store's Papirus-Dark. So the switch is one write, no new theme
-    // spec needed. It stays a no-op if the directory named here is missing
-    // — GNOME falls back to visually rendering whatever it last found, the
-    // write itself never errors — so this runs unconditionally rather than
-    // guarding on retint() having run first.
+    // spec needed, and this Process itself never checks that the directory
+    // named here exists — GNOME falls back to visually rendering whatever
+    // it last found if it doesn't, the write itself never errors either
+    // way. It IS gated on the two Process steps above having both
+    // succeeded, though (see their onExited handlers and the header
+    // comment) — that guard is about not lying to the caller, not about
+    // dconf needing the directory to be there.
     //
     // dconf write, not gsettings set: this session has dconf on PATH (the
     // dconf.enable HM option, plus the NixOS module) but no gsettings
@@ -123,7 +180,12 @@ Item {
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
-            root.retinted();
+            // retinted() means "the theme has been applied" to
+            // Picker.qml, so — closing out the same contract the two
+            // Process handlers above start — it only fires once dconf has
+            // actually recorded the change, not merely been asked to.
+            if (exitCode === 0)
+                root.retinted();
         }
         // qmllint enable signal-handler-parameters
     }
