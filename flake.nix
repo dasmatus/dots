@@ -45,6 +45,27 @@
       url = "github:nix-community/bun2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Millennium (SteamClientHomebrew/Millennium) is a theme/plugin loader for
+    # the Steam desktop client. Only the `millennium` library package is
+    # consumed: nix/modules/steam.nix calls upstream's `packages/nix/steam.nix`
+    # against THIS repo's `pkgs.steam`, so the client and the whole FHS
+    # closure stay on this repo's nixpkgs, and upstream's `overlays.default` /
+    # `millennium-steam` package go unused. Same no-global-overlays reasoning
+    # as bun2nix above.
+    #
+    # Deliberately NO `inputs.nixpkgs.follows = "nixpkgs"` here: upstream pins
+    # nixpkgs to one commit because their Bun fixed-output-derivation hash is
+    # bun-version-sensitive, and following ours would swap Bun and invalidate
+    # that hash. Their own comment in packages/nix/flake.nix says: "Bun FOD is
+    # sensitive to version changes, so we use a specific commit instead of a
+    # channel."
+    #
+    # The cost: a second nixpkgs evaluation while Steam is on, and no binary
+    # cache for the millennium library, so it compiles locally whenever
+    # upstream cuts a release. The input tracks `main`; the nightly
+    # `nix flake update` in nix/modules/maintenance.nix picks the bump up, and
+    # `operation = "boot"` absorbs the compile before the next reboot.
+    millennium.url = "github:SteamClientHomebrew/Millennium?dir=packages/nix";
     # Hyprland is NOT a flake input: the system compositor comes from nixpkgs
     # (programs.hyprland in nix/modules/desktop.nix uses the module's default
     # `package = pkgs.hyprland`). nixpkgs' Hyprland is built by Hydra and lives
