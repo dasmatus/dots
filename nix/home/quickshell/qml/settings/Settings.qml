@@ -208,7 +208,7 @@ Scope {
             title: "Settings"
             hints: [
                 {
-                    key: "↑↓",
+                    key: "↑↓/jk",
                     label: "move"
                 },
                 {
@@ -224,12 +224,22 @@ Scope {
             Keys.onEscapePressed: window.visible = false
             Keys.onReturnPressed: root.save()
             Keys.onEnterPressed: root.save()
-
-            // Arrows only, unlike Arrange/Picker/Cheatsheet's j/k alias: this
-            // surface has real text fields, and a "j" typed into one while it
-            // has focus must land in the field, not get stolen as a move.
             Keys.onUpPressed: root.moveSelection(-1)
             Keys.onDownPressed: root.moveSelection(1)
+
+            // A focused text row consumes j/k as literal characters before
+            // this ever sees them (TextInput's own native handling), so the
+            // alias only fires when the panel itself holds focus — the same
+            // Vim-style aliasing Arrange's own grammar uses elsewhere.
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_J) {
+                    root.moveSelection(1);
+                    event.accepted = true;
+                } else if (event.key === Qt.Key_K) {
+                    root.moveSelection(-1);
+                    event.accepted = true;
+                }
+            }
 
             ColumnLayout {
                 id: form

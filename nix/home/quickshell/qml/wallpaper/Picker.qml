@@ -712,12 +712,12 @@ Scope {
 
             // No focused text field on this surface to steal j/k/h/l as
             // literal characters, so they alias the arrows Vim-style — the
-            // same reasoning Cheatsheet and Arrange apply, and Settings
-            // does not. m/o/c/r cycle the ported picker state through
-            // picker.js's own pure functions rather than reimplementing
-            // the cycling here. Escape is left out of this switch, the
-            // same way Arrange's own merged handler leaves it out, since
-            // the named handler above already covers it.
+            // same reasoning Cheatsheet, Arrange and Settings all apply.
+            // m/o/c/r cycle the ported picker state through picker.js's
+            // own pure functions rather than reimplementing the cycling
+            // here. Escape is left out of this switch, the same way
+            // Arrange's own merged handler leaves it out, since the named
+            // handler above already covers it.
             Keys.onPressed: event => {
                 switch (event.key) {
                 case Qt.Key_J:
