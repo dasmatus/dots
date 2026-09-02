@@ -249,14 +249,21 @@ let
             # and the $HOME probe (system.build.limineEnsureOwnedHomeProbe)
             # the testScript runs after nixos-install to observe hazard 1
             # (nix/modules/limine-install.nix) on the real install path.
-            # Nothing is staged for disko any more — profiles/base.nix above
-            # gives this node its own, properly *built* (not merely staged)
-            # copy of every package disko's independently-evaluated script
-            # needs, so its `nix build` resolves locally without help.
+            # profiles/base.nix above gives this node the same *runtime*
+            # PATH packages disko's script needs (parted, lvm2, …), but not
+            # the *build-time* tool disko's cryptsetup-wrapping step needs to
+            # realise that script in the first place: pkgs.makeBinaryWrapper
+            # (nix/iso.nix stages the same derivation, with the full
+            # reasoning — its own build environment is the ordinary
+            # cc-having stdenv, and nothing else here pulls it in, so its
+            # absence sends disko's in-VM `nix build` all the way through a
+            # from-source gcc/binutils bootstrap that has no network to
+            # fetch through).
             system.extraDependencies = [
               testToplevel
               testHomeProbe
               aipageSrc
+              pkgs.makeBinaryWrapper
             ]
             ++ flakeInputPaths;
           };
@@ -317,7 +324,11 @@ let
           # boot.supportedFilesystems + boot.swraid.enable — so the CLI's
           # `nix build` finds them already valid and never touches the
           # network, the same way the real ISO's own store already carries
-          # them.
+          # them. The one thing profiles/base.nix does not cover is
+          # pkgs.makeBinaryWrapper, a *build-time* tool disko's
+          # cryptsetup-wrapping step needs rather than a runtime PATH
+          # package — staged separately in this node's
+          # system.extraDependencies above (see that comment).
           installer.succeed(
               "disko --mode destroy,format,mount --yes-wipe-all-disks"
               " --arg disks '[ \"/dev/vda\" ]' --argstr swapSize 1G"
