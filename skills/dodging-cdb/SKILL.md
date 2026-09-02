@@ -33,11 +33,10 @@ trailer is the cheapest flag to act on.
 8. Keep the same rule out of the code: no
    "written by" comment, no tool name in a
    doc header.
-9. Run pstack:unslop over the commit message
-   before pushing.
-10. Run it over PR text, issue text, and any
-    README or doc prose the change touched.
-11. Write the message from the diff. A
+9. Run pstack:unslop over the commit message,
+   PR text, issue text and any README or doc
+   prose the change touched, before pushing.
+10. Write the message from the diff. A
     message narrating what a tool did is the
     advert this skill exists to stop.
 

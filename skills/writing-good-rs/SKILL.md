@@ -7,45 +7,44 @@ description: Use when writing, reviewing or editing Rust, including choosing an 
 
 ## Context
 
-LLMs write Rust that compiles and still
-reads like slop: no tests, `unwrap`
-everywhere, logging added last. This is the
-floor for anything under `rust/`.
+LLMs write Rust that compiles and still reads
+like slop: no tests, `unwrap` everywhere,
+logging added last. This is the floor for
+anything under `rust/`.
 
 ## Rules
 
 1. Follow the resources curated at
    https://bookshelf.rs.
-2. Tests go in the crate's own `tests/`,
-   e.g. `rust/<crate>/tests/`. Never an
-   inline `#[cfg(test)] mod tests`.
-3. Test real behaviour. A mock that only
-   proves the mock works is not a test.
-4. Prefer iterator chains to index loops.
-   They drop bounds-check noise that blocks
+2. Tests go in the crate's own `tests/`, e.g.
+   `rust/<crate>/tests/`. Never an inline
+   `#[cfg(test)] mod tests`.
+3. Test real behaviour. A mock that only proves
+   the mock works is not a test.
+4. Prefer iterator chains to index loops. They
+   drop bounds-check noise that blocks
    vectorization.
 5. Reach for `channel`, `spawn` and scoped
-   threads when they buy real parallelism,
-   not by default.
-6. Use `tracing` with `.without_time()`
-   instead of `println!` for anything past a
-   throwaway script.
-7. Use `miette` for diagnostics, not
-   `thiserror` or `anyhow`. When shelling
-   out, surface the child's exit status and
-   captured stderr through it, and parse
-   JSON with `serde`.
-8. Never `unwrap`, `expect` or `clone` your
-   way past the compiler outside tests.
-   Return a diagnostic, fix the lifetime.
+   threads when they buy real parallelism, not
+   by default.
+6. Use `tracing` with `.without_time()` instead
+   of `println!` for anything past a throwaway
+   script.
+7. Use `miette` for diagnostics, not `thiserror`
+   or `anyhow`. When shelling out, surface the
+   child's exit status and captured stderr
+   through it, and parse JSON with `serde`.
+8. Never `unwrap`, `expect` or `clone` your way
+   past the compiler outside tests. Return a
+   diagnostic, fix the lifetime.
 9. Unstable features are fine only when
    `rust-toolchain.toml` targets nightly.
 10. Benchmark before calling anything fast:
     `hyperfine` end to end for a binary,
     `criterion` or `divan` for a library.
-11. Run pstack:unslop over commit messages,
-    doc comments and README prose, never
-    over the Rust source.
+11. Run pstack:unslop over commit messages, doc
+    comments and README prose, never over the
+    Rust source.
 
 ## Rationalizations to reject
 
@@ -60,11 +59,10 @@ floor for anything under `rust/`.
 
 ## Target audience
 
-Tiers calibrate the app shell, never the
-rules above.
+Tiers calibrate the app shell, never the rules
+above.
 
-- **fucking don't care**: ships slop
-  dashboards.
+- **fucking don't care**: ships slop dashboards.
 - **don't care**: fine if it is at least an
   Electron or Tauri app.
 - **care**: prefers native apps.

@@ -34,9 +34,8 @@ guarantees the language could have given.
 6. Acquire a resource in the constructor,
    release it in the destructor.
 7. Prefer the rule of zero, composing from
-   members that are already RAII types. Rule
-   of five only when a class owns a raw
-   resource directly.
+   members already RAII types. Rule of five
+   only when a class owns a raw resource.
 8. Own through `std::unique_ptr`, or
    `std::shared_ptr` when ownership is
    genuinely shared. No bare `new`/`delete`

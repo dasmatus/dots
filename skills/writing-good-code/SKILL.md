@@ -7,42 +7,41 @@ description: Use when starting or reviewing any compiled or systems code task, b
 
 ## Context
 
-This is the entry point for compiled and
-systems work, and the per-language skills
-below carry the actual rules. Its own job is
-picking the language and routing.
+This is the entry point for compiled and systems
+work, and the per-language skills below carry the
+actual rules. Its own job is picking the language
+and routing.
 
 ## Rules
 
 1. New code is Rust. Full stop.
-2. Where Rust is not an option, the order is
-   C++, then C. Never reach past a rung.
-3. A patch to existing C follows
-   writing-good-cpp for the code and
-   c-compiler-preference for the build.
+2. Where Rust is not an option, the order is C++,
+   then C. Never reach past a rung.
+3. A patch to existing C follows writing-good-cpp
+   for the code and c-compiler-preference for the
+   build.
 4. Binding to a C library keeps the boundary
    thin. Bindings and logic live on the Rust
    side.
 5. Generate bindings with `bindgen`. Write
-   `extern "C"` by hand only where bindgen
-   cannot run, and pin the header version
-   when you do.
-6. Never add C glue a Rust wrapper could
-   absorb instead.
+   `extern "C"` by hand only where bindgen cannot
+   run, and pin the header version when you do.
+6. Never add C glue a Rust wrapper could absorb
+   instead.
 7. Give every unsafe FFI call a safe Rust
-   wrapper, and every `unsafe` block a
-   SAFETY comment.
-8. A C or C++ shim in a Rust binary shares
-   one link step, so LTO and CFI become a
-   whole-link call including `rustc`.
-9. When `rustc` cannot join that LTO link,
-   say so and still run the sanitizer build.
-   Dropping CFI quietly is not the fallback.
-10. A mixed task fires every skill below at
-    once, each governing its own side.
-11. Verify before claiming done: each side
-    runs its own skill's checks, plus the
-    repo's format and lint commands.
+   wrapper, and every `unsafe` block a SAFETY
+   comment.
+8. A C or C++ shim in a Rust binary shares one
+   link step, so LTO and CFI become a whole-link
+   call including `rustc`.
+9. When `rustc` cannot join that LTO link, say so
+   and still run the sanitizer build. Dropping
+   CFI quietly is not the fallback.
+10. A mixed task fires every skill below at once,
+    each governing its own side.
+11. Verify before claiming done: each side runs
+    its own skill's checks, plus the repo's
+    format and lint commands.
 
 ## Routing
 

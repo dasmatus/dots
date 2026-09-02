@@ -44,8 +44,7 @@ input throws that away for nothing.
     but stalls eval on a build and breaks
     `nix flake show`.
 11. `git add` a new file before evaluating
-    against it. Untracked is invisible to the
-    evaluator.
+    against it. Untracked is invisible.
 12. Read an unfamiliar flake with
     `nix flake show` before guessing a path.
 13. Enter with `nix develop -i -k TERM -k HOME`

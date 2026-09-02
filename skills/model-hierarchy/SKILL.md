@@ -18,34 +18,33 @@ than a verifier would have cost to run.
    delegated. Orchestration is the one role
    that never leaves this session.
 2. Assign the smallest tier capable of the
-   task type. Capability is not the
-   deciding factor, task type is.
-3. Mechanical work goes to the smallest
-   tier: lookups, boilerplate, formatting,
+   task type. Capability is not the deciding
+   factor, task type is.
+3. Mechanical work goes to the smallest tier:
+   lookups, boilerplate, formatting,
    straightforward diff scanning.
-4. Writing, documentation and web research
-   go to the mid tier.
-5. Code review, diff review and PR review
-   go to the large tier, never the mid one.
-6. Architecture and implementation planning
-   go to the top tier.
+4. Writing, documentation and web research go
+   to the mid tier.
+5. Code review, diff review and PR review go
+   to the large tier, never the mid one.
+6. Architecture and implementation planning go
+   to the top tier.
 7. CLAUDE.md names which model fills each
    tier. Read the mapping there rather than
    guessing, and follow it when it conflicts
    with anything here.
-8. Sub-delegation moves one rung down from
-   the assigned tier, never two.
-9. Every delegated task spawns a pair: a
-   doer and an independent verifier.
+8. Sub-delegation moves one rung down from the
+   assigned tier, never two.
+9. Every delegated task spawns a pair: a doer
+   and an independent verifier.
 10. Pair even when the task cannot be split.
-    Pairing is a floor, not a reward for
-    size.
+    Pairing is a floor, not a reward for size.
 11. Run the verifier at the doer's tier. One
     rung down only for a purely mechanical
     check.
-12. Fan-out is a separate decision stacked
-    on top of the pair, never a substitute
-    for it.
+12. Fan-out is a separate decision stacked on
+    top of the pair, never a substitute for
+    it.
 
 ## Rationalizations to reject
 
