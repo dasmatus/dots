@@ -7,6 +7,15 @@
 // hand-written fixtures; neither exercises the two chained together the way
 // tint.rs's apply_tint_ctx actually does — this is that join.
 //
+// Same Canvas caveat as tst_accent.qml (see its header for the full
+// explanation): `onPaint` also fires once implicitly, on creation, before
+// `loadImage`'s decode has finished, and that pre-decode `drawImage` reads
+// back as an all-transparent buffer, so accentFrom falls back to
+// DEFAULT_ACCENT — and under load that implicit paint can beat the real,
+// post-decode one, setting `ready` on the fallback value before
+// `tryCompare` below ever looked. Every `onPaint` below is guarded on
+// `isImageLoaded(url)` so only the real paint ever sets `ready`.
+//
 // Oracle capture: a temporary `--dump-tint-parity <path>` argument was added
 // to rust/wallpaper-tui's cli.rs (an `Option<String>`) and handled in
 // main.rs — prints `extract_accent(path, TintBackend::Internal)` and
@@ -49,6 +58,9 @@ TestCase {
         Component.onCompleted: loadImage(url)
         onImageLoaded: requestPaint()
         onPaint: {
+            // Skips Canvas's implicit pre-decode paint — see the file header.
+            if (!isImageLoaded(url))
+                return;
             const ctx = getContext("2d");
             ctx.drawImage(url, 0, 0, width, height);
             triple = Accent.accentFrom(ctx.getImageData(0, 0, width, height).data);
@@ -70,6 +82,9 @@ TestCase {
         Component.onCompleted: loadImage(url)
         onImageLoaded: requestPaint()
         onPaint: {
+            // Skips Canvas's implicit pre-decode paint — see the file header.
+            if (!isImageLoaded(url))
+                return;
             const ctx = getContext("2d");
             ctx.drawImage(url, 0, 0, width, height);
             triple = Accent.accentFrom(ctx.getImageData(0, 0, width, height).data);
@@ -91,6 +106,9 @@ TestCase {
         Component.onCompleted: loadImage(url)
         onImageLoaded: requestPaint()
         onPaint: {
+            // Skips Canvas's implicit pre-decode paint — see the file header.
+            if (!isImageLoaded(url))
+                return;
             const ctx = getContext("2d");
             ctx.drawImage(url, 0, 0, width, height);
             triple = Accent.accentFrom(ctx.getImageData(0, 0, width, height).data);
