@@ -98,6 +98,39 @@ TestCase {
         compare(Files.join("/home/matus", "Documents"), "/home/matus/Documents");
     }
 
+    // A crumb's path is the first N components joined. Off by one slash and
+    // a click lands somewhere the user did not point at, with nothing on
+    // screen to show it was wrong.
+    function test_crumbs_carry_the_path_that_reaching_them_would_open() {
+        const crumbs = Files.crumbsFor("/home/matus/Dokumente");
+
+        compare(crumbs.length, 4);
+        compare(crumbs[0].label, "/");
+        compare(crumbs[0].path, "/");
+        compare(crumbs[1].label, "home");
+        compare(crumbs[1].path, "/home");
+        compare(crumbs[2].path, "/home/matus");
+        compare(crumbs[3].path, "/home/matus/Dokumente");
+    }
+
+    function test_crumbs_of_root_are_root_alone() {
+        const crumbs = Files.crumbsFor("/");
+
+        compare(crumbs.length, 1);
+        compare(crumbs[0].path, "/");
+    }
+
+    function test_a_trailing_slash_adds_no_empty_crumb() {
+        compare(Files.crumbsFor("/home/matus/").length, 3);
+    }
+
+    function test_crumbs_keep_a_name_with_a_space_in_one_piece() {
+        const crumbs = Files.crumbsFor("/mnt/my usb/photos");
+
+        compare(crumbs[2].label, "my usb");
+        compare(crumbs[2].path, "/mnt/my usb");
+    }
+
     function test_parentof_stops_at_root() {
         compare(Files.parentOf("/"), "/");
         compare(Files.parentOf("/home"), "/");

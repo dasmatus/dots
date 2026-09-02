@@ -234,7 +234,7 @@ Scope {
         root.promptMode = "";
         root.promptSnapshot = null;
         cmdline.clear();
-        keys.forceActiveFocus();
+        catcher.forceActiveFocus();
     }
 
     // One dispatcher for both surfaces, so the `:` line and the right-click
@@ -344,10 +344,27 @@ Scope {
             // `:` opens the command line, the way it opens vim's. Every
             // other key falls through, so nothing here has to know about
             // the pane's own handling.
-            Keys.onPressed: (event) => {
-                if (root.promptMode === "" && event.text === ":") {
-                    root.openCmdline();
-                    event.accepted = true;
+            //
+            // This lives on its own item with `focus` BOUND to the closed
+            // state rather than on the FocusScope with an imperative
+            // forceActiveFocus() on close. A FocusScope routes key events
+            // to whichever child it last focused, and the command line's
+            // TextInput takes that focus imperatively when it opens; on
+            // close the TextInput goes invisible but stays the scope's
+            // focused child, so key events went to an item that could not
+            // receive them and a second `:` did nothing. A binding
+            // reclaims focus the moment promptMode goes back to "".
+            Item {
+                id: catcher
+
+                anchors.fill: parent
+                focus: root.promptMode === ""
+
+                Keys.onPressed: (event) => {
+                    if (event.text === ":") {
+                        root.openCmdline();
+                        event.accepted = true;
+                    }
                 }
             }
 
@@ -364,6 +381,15 @@ Scope {
                     onSelected: (index) => root.switchTab(index)
                     onClosed: (index) => root.closeTab(index)
                     onAdded: root.addTab()
+                }
+
+                // Spans the window rather than sitting inside the pane: it
+                // describes the tab, and the sidebar changes it too.
+                PathBar {
+                    Layout.fillWidth: true
+
+                    path: root.path
+                    onNavigate: (path) => root.setActivePath(path)
                 }
 
                 RowLayout {
@@ -466,7 +492,7 @@ Scope {
                 showHidden: root.showHidden
 
                 onActivated: (row) => root.runRow(row)
-                onDismissed: keys.forceActiveFocus()
+                onDismissed: catcher.forceActiveFocus()
             }
         }
     }

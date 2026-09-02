@@ -117,6 +117,33 @@ function join(dir, name) {
     return dir.replace(/\/$/, "") + "/" + name;
 }
 
+// The path split into the segments a breadcrumb bar clicks through, each
+// carrying the absolute path that reaching it would open. Root leads every
+// list and is the only crumb whose label is not a directory name.
+//
+// Built here rather than in the bar so a test can drive it: the arithmetic
+// that matters is that crumb N's path is the first N components joined,
+// which is easy to get wrong by one slash and invisible until a click
+// lands somewhere unexpected.
+function crumbsFor(path) {
+    const crumbs = [{ label: "/", path: "/" }];
+
+    if (path === "/")
+        return crumbs;
+
+    let walked = "";
+
+    for (const part of path.split("/")) {
+        if (part === "")
+            continue;
+
+        walked = `${walked}/${part}`;
+        crumbs.push({ label: part, path: walked });
+    }
+
+    return crumbs;
+}
+
 function parentOf(path) {
     if (path === "/")
         return "/";

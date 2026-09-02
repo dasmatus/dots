@@ -254,5 +254,11 @@ Rectangle {
         input.text = "";
         root.query = "";
         root.current = 0;
+
+        // Hand focus back explicitly. The TextInput took it imperatively
+        // when the line opened, and a hidden item that is still its
+        // FocusScope's focused child swallows every key the scope would
+        // otherwise route to the `:` catcher.
+        input.focus = false;
     }
 }

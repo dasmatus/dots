@@ -116,46 +116,6 @@ Rectangle {
         anchors.margins: Theme.filesPadding
         spacing: Theme.filesPadding
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            Text {
-                text: "\u{F005D}"
-                color: upArea.containsMouse ? Theme.accent : Theme.muted
-                font.family: Theme.fontUi
-                font.pixelSize: Theme.filesIconSize
-
-                MouseArea {
-                    id: upArea
-
-                    anchors.fill: parent
-                    anchors.margins: -6
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        root.focusRequested();
-                        root.navigate(FilesMath.parentOf(root.path));
-                    }
-                }
-            }
-
-            Text {
-                Layout.fillWidth: true
-                text: root.path
-                color: Theme.fgDark
-                font.family: Theme.fontMono
-                font.pixelSize: Theme.fontSize
-                elide: Text.ElideMiddle
-            }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: 1
-            color: Theme.border
-        }
-
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
