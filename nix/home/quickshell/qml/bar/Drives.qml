@@ -21,6 +21,7 @@
 // one it stays a plain arrow cursor and does nothing.
 import QtQuick
 import "../services"
+import "../common"
 import ".."
 
 Pill {
