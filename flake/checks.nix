@@ -152,6 +152,32 @@ in
     assert chMan.manifest_version == 2;
     assert ff.passthru.aipageVersion == ffMan.version;
     pkgs.writeText "aipage-eval-ok" ff.passthru.aipageVersion;
+  # nix/aipage-bun.nix carries one fetchurl per JS dependency, and a
+  # bun2nix regeneration once silently blanked two of them to `hash = ""`.
+  # `fetchurl` accepts that and normalises it to the all-zero fixed-output
+  # hash, which only fails at realization time, after a real network fetch,
+  # so neither eval nor a `.drvPath` force on aipage-firefox/aipage-chrome
+  # (still a well-formed, if wrong, FOD) ever sees it. Import the raw file
+  # with identity stand-ins for fetchurl/fetchgit/fetchFromGitHub/
+  # copyPathToStore so every entry evaluates to its own `{ url; hash; ... }`
+  # attrset instead of a real derivation, then scan those for a blank hash
+  # directly — no store interaction, no network, and it flags any blank
+  # entry in the file rather than only the ones the two aipage packages
+  # currently happen to reach.
+  aipage-bun-hashes-eval =
+    let
+      raw = import ../nix/aipage-bun.nix {
+        copyPathToStore = x: x;
+        fetchFromGitHub = args: args;
+        fetchgit = args: args;
+        fetchurl = args: args;
+      };
+      blank = builtins.filter (n: (raw.${n} ? hash) && raw.${n}.hash == "") (builtins.attrNames raw);
+    in
+    assert lib.assertMsg (blank == [ ]) (
+      "nix/aipage-bun.nix has blank hash = \"\" entries: " + builtins.concatStringsSep ", " blank
+    );
+    pkgs.writeText "aipage-bun-hashes-eval-ok" "no-blank-hashes";
   # Form-factor detection (nix/modules/form-factor.nix) — assert the
   # committed facter.json stub ({}) leaves the auto-detection on the
   # "desktop" fallback (no report → no virtualisation, no form_factor),
