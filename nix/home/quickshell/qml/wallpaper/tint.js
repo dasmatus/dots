@@ -1,11 +1,20 @@
-// Per-target accent tint writers, ported from rust/wallpaper-tui/src/tint.rs.
+// Per-target accent tint writers, plus the Papirus nearest-colour lookup.
 // Pure (string/array in -> string/array out): nothing here touches the
 // filesystem, spawns a process or repaints the live desktop the way
 // tint.rs's tree tinters and apply_tint_ctx orchestrator do — those stay in
-// the crate, which still owns the wallpaper. Kept a second port rather than
-// shared code so this task can prove the maths without an FFI boundary to
-// the crate; the two are exercised against the same fixtures, not the same
-// source, the same way common/hls.js relates to accent.rs.
+// the crate, which still owns the wallpaper.
+//
+// rofiRasiText, gtkCss, hyprlandBorderCommands, recolorKvantumText and the
+// hex/HLS helpers under them are a second port of tint.rs's "pure writers",
+// kept separate from the crate rather than shared through an FFI boundary so
+// this task could prove the maths without one; the two are exercised
+// against the same fixtures, not the same source, the same way
+// common/hls.js relates to accent.rs.
+//
+// nearestPapirusColor, circularHueDistance and
+// ACHROMATIC_SATURATION_THRESHOLD have no tint.rs counterpart: Papirus's
+// symlink-per-colour scheme (see Icons.qml) is new to this branch, so there
+// is nothing in the crate to port them from or test them against.
 .pragma library
 .import "../common/hls.js" as Hls
 
@@ -176,15 +185,17 @@ function circularHueDistance(a, b) {
 // including tests — can supply their own fixture table without depending on
 // the live Papirus package.
 //
-// Distance is squared-Euclidean over (circular hue, lightness, saturation)
-// in HLS space. Candidates are first split by ACHROMATIC_SATURATION_THRESHOLD
-// into an achromatic bucket and a chromatic one, and only the bucket
-// matching the accent's own classification is searched — symmetrically, so
-// a vivid accent can never land on grey (hue would be a false match, per
-// the threshold's own comment) and a near-grey accent can never be dragged
-// onto a vivid hue by hue arithmetic that is meaningless for it. If a
-// caller's table has nothing in the matching bucket, the search falls back
-// to the full table rather than returning nothing.
+// Candidates are first split by ACHROMATIC_SATURATION_THRESHOLD into an
+// achromatic bucket and a chromatic one, and only the bucket matching the
+// accent's own classification is searched — symmetrically, so a vivid
+// accent can never land on grey (hue would be a false match, per the
+// threshold's own comment) and a near-grey accent can never be dragged onto
+// a vivid hue by hue arithmetic that is meaningless for it. If a caller's
+// table has nothing in the matching bucket, the search falls back to the
+// full table rather than returning nothing.
+//
+// The chromatic and achromatic buckets are then scored on different single
+// axes — see the loop below for why.
 //
 // Ties (equal distance) resolve to whichever candidate's key comes first in
 // `colors`'s own iteration order, because the scan keeps the first minimum
@@ -201,10 +212,22 @@ function nearestPapirusColor(accentHex, colors) {
     let best = candidates[0];
     let bestDistance = Infinity;
     for (const entry of candidates) {
-        const dh = circularHueDistance(accentHls.h, entry.hls.h);
-        const dl = accentHls.l - entry.hls.l;
-        const ds = accentHls.s - entry.hls.s;
-        const distance = dh * dh + dl * dl + ds * ds;
+        // accent.js's accentFrom pins EVERY accent it produces onto a fixed
+        // lightness and saturation (hlsToHex(hue, 0.62, 0.55), see
+        // accent.js) — only hue ever varies. So for the chromatic bucket, a
+        // distance built on dl/ds is not scoring the accent against a
+        // candidate; it is scoring each candidate against a constant that
+        // is the same for every call, which swamps the one term (hue) that
+        // actually carries information and made most of the table
+        // unreachable. Hue alone is what the plan specified and what
+        // matches reality here. The achromatic bucket has the opposite
+        // problem: hue is meaningless there (hexToHls's achromatic branch
+        // always answers h=0, so every achromatic candidate would tie on
+        // hue), so it is scored on lightness instead — the one axis that
+        // still tells black, grey and white apart.
+        const distance = accentIsAchromatic
+            ? Math.abs(accentHls.l - entry.hls.l)
+            : circularHueDistance(accentHls.h, entry.hls.h);
         if (distance < bestDistance) {
             bestDistance = distance;
             best = entry;

@@ -10,10 +10,11 @@
 // that otherwise inherits everything else from the store's Papirus-Dark.
 //
 // Theme.papirusBase (a Papirus-Dark store path) is read-only, so this seeds
-// $XDG_DATA_HOME/icons/Papirus-Tint by copying out just the five
-// <size>/places directories — the ones Theme.papirusTintIndex's own
-// Directories key declares — rather than the whole theme; every other icon
-// resolves through that index's Inherits=Papirus-Dark,Papirus,hicolor.
+// $XDG_DATA_HOME/icons/Papirus-Tint by copying out just the
+// Theme.papirusTintSizes <size>/places directories — the same list
+// tree.nix generates Theme.papirusTintIndex's own Directories key from, so
+// the two cannot drift apart — rather than the whole theme; every other
+// icon resolves through that index's Inherits=Papirus-Dark,Papirus,hicolor.
 // `cp -aL`, not `cp -a`: Papirus-Dark/<size> is itself a symlink to
 // ../Papirus/<size> (shared with the light variant), so a link-preserving
 // copy would leave the seeded tree's places/ dangling the moment dst is
@@ -35,9 +36,14 @@
 // by the revert/-D path, never by -C; `-C <colour> -o` symlinks both the
 // `folder-<colour>` and `user-<colour>` prefixes across all five sizes in
 // one pass; re-running with a different colour repoints the existing
-// symlinks instead of failing; and `-o` skips writing papirus-folders' own
-// persistent config file, so nothing is left behind outside the theme
-// directory itself.
+// symlinks instead of failing. `-o` does not stop papirus-folders from
+// touching its own config file: `config --new` unconditionally `rm -f`s
+// `~/.config/papirus-folders/keep` before `-o`'s ONCE guard is even
+// reached; only the following `--set`, which would recreate that file with
+// `theme=... color=...`, is what `-o` actually skips (papirus-folders
+// 220-232). So every retint() call still removes a stray keep file rather
+// than leaving one behind — harmless, since nothing downstream of this
+// file ever reads that config back.
 //
 // The rebuild branch of the seed stages into a sibling `$dst.new` and only
 // `rm -rf`s the live `$dst` once that sibling is fully populated, right
@@ -77,12 +83,12 @@ Item {
     function retint(accent) {
         const colorName = Tint.nearestPapirusColor(accent, Theme.papirusColors);
 
-        // Every path travels in argv (positional $1/$2/$3), never
-        // interpolated into the script text, so none of them can break the
-        // quoting no matter what a future store path or XDG override
-        // happens to contain — see this file's own header for why the
-        // guard, the copy and the staged rebuild are shaped the way they
-        // are. `set -e` plus the EXIT trap is what makes the staging
+        // Every path (and the size list) travels in argv (positional
+        // $1/$2/$3/$4), never interpolated into the script text, so none of
+        // them can break the quoting no matter what a future store path or
+        // XDG override happens to contain — see this file's own header for
+        // why the guard, the copy and the staged rebuild are shaped the way
+        // they are. `set -e` plus the EXIT trap is what makes the staging
         // actually safe: any failing step (a `mkdir`, a `cp`) aborts the
         // script immediately, the trap removes the half-built `$dst.new`
         // on the way out, and `$dst` itself is never touched until the
@@ -90,12 +96,16 @@ Item {
         // which point everything that could fail already has not.
         ensureTree.command = ["sh", "-c", `
 set -e
-src=$1; dst=$2; idx=$3
+src=$1; dst=$2; idx=$3; sizes=$4
 if [ "$(cat "$dst/.dots-source" 2>/dev/null)" != "$src" ]; then
   tmp="$dst.new"
   trap 'rm -rf "$tmp"' EXIT
   rm -rf "$tmp"
-  for s in 22x22 24x24 32x32 48x48 64x64; do
+  # $sizes is deliberately unquoted: it is "22x22 24x24 ..." (see
+  # Theme.papirusTintSizes, tree.nix), and word-splitting on the shell's
+  # default IFS is what turns that one string back into the size list this
+  # loop iterates.
+  for s in $sizes; do
     mkdir -p "$tmp/$s"
     cp -aL "$src/$s/places" "$tmp/$s/places"
   done
@@ -105,7 +115,7 @@ if [ "$(cat "$dst/.dots-source" 2>/dev/null)" != "$src" ]; then
   rm -rf "$dst"
   mv "$tmp" "$dst"
 fi
-`, "_", Theme.papirusBase, root.dest, Theme.papirusTintIndex];
+`, "_", Theme.papirusBase, root.dest, Theme.papirusTintIndex, Theme.papirusTintSizes];
         // colorName is resolved once, up front, and baked into this
         // command now rather than threaded through onExited state: unlike
         // the old per-file SVG queue, nothing here needs data that only

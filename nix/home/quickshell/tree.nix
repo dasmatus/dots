@@ -71,9 +71,12 @@ let
   # this path; one binding keeps them from drifting apart.
   papirusIconThemeBase = "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark";
 
-  # The sizes Papirus-Tint actually ships. A list rather than five
-  # hand-written [NxN/places] blocks, so adding a size later is a one-line
-  # change instead of a copy-pasted block.
+  # The sizes Papirus-Tint actually ships — the one place this list is
+  # written down. Everything else that needs it (index.theme's Directories
+  # key below, and Icons.qml's retint() through the papirusTintSizes QML
+  # property) derives from this list rather than hardcoding its own copy, so
+  # adding a size later is a one-line change here instead of a copy-pasted
+  # block in two languages.
   papirusTintSizes = [
     22
     24
@@ -84,6 +87,14 @@ let
 
   papirusTintDirectories = lib.concatMapStringsSep "," (
     size: "${toString size}x${toString size}/places"
+  ) papirusTintSizes;
+
+  # The same sizes as space-separated "<n>x<n>" tokens, for Icons.qml's
+  # retint() to iterate over as argv rather than hardcoding a second literal
+  # size list in a second language — see the papirusTintSizes QML property
+  # below.
+  papirusTintSizeTokens = lib.concatMapStringsSep " " (
+    size: "${toString size}x${toString size}"
   ) papirusTintSizes;
 
   papirusTintSections = lib.concatMapStringsSep "\n\n" (
@@ -196,6 +207,15 @@ let
         // else needs copying or regenerating when the wallpaper accent
         // changes.
         readonly property string papirusTintIndex: "${papirusTintIndexFile}";
+
+        // The sizes above, as space-separated "<n>x<n>" tokens
+        // ("22x22 24x24 ..."), matching papirusTintIndex's own Directories
+        // key one-for-one because both are generated from the same
+        // papirusTintSizes list in this file. Icons.qml's retint() reads
+        // this rather than hardcoding the list a second time in shell, so
+        // adding a size is one edit here instead of two edits in two
+        // languages.
+        readonly property string papirusTintSizes: "${papirusTintSizeTokens}";
 
         // Picker.qml mkdir -p's this before every write; exposed as its own
         // property rather than derived by trimming tintStatePath in JS so
