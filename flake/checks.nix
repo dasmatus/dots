@@ -155,15 +155,20 @@ in
   # nix/aipage-bun.nix carries one fetchurl per JS dependency, and a
   # bun2nix regeneration once silently blanked two of them to `hash = ""`.
   # `fetchurl` accepts that and normalises it to the all-zero fixed-output
-  # hash, which only fails at realization time, after a real network fetch,
-  # so neither eval nor a `.drvPath` force on aipage-firefox/aipage-chrome
-  # (still a well-formed, if wrong, FOD) ever sees it. Import the raw file
-  # with identity stand-ins for fetchurl/fetchgit/fetchFromGitHub/
-  # copyPathToStore so every entry evaluates to its own `{ url; hash; ... }`
-  # attrset instead of a real derivation, then scan those for a blank hash
-  # directly — no store interaction, no network, and it flags any blank
-  # entry in the file rather than only the ones the two aipage packages
-  # currently happen to reach.
+  # hash (`sha256-AAAA...=`), which only fails at realization time, after a
+  # real network fetch, so neither eval nor a `.drvPath` force on
+  # aipage-firefox/aipage-chrome (still a well-formed, if wrong, FOD) ever
+  # sees it. Import the raw file with identity stand-ins for
+  # fetchurl/fetchgit/fetchFromGitHub/copyPathToStore so every entry
+  # evaluates to its own `{ url; hash; ... }` attrset instead of a real
+  # derivation, then scan those for a blank hash directly — no store
+  # interaction, no network, and it flags any blank entry in the file
+  # rather than only the ones the two aipage packages currently happen to
+  # reach. Also flag the literal all-zero hash string itself: it is what a
+  # blank one normalises to at realization, so a future regeneration that
+  # bakes that value in directly (rather than leaving it blank) would
+  # otherwise fail exactly as late and as confusingly, unchecked by a
+  # filter that only matches `hash == ""`.
   aipage-bun-hashes-eval =
     let
       raw = import ../nix/aipage-bun.nix {
@@ -172,10 +177,12 @@ in
         fetchgit = args: args;
         fetchurl = args: args;
       };
-      blank = builtins.filter (n: (raw.${n} ? hash) && raw.${n}.hash == "") (builtins.attrNames raw);
+      allZeroSha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      isBad = n: (raw.${n} ? hash) && (builtins.elem raw.${n}.hash [ "" allZeroSha256 ]);
+      bad = builtins.filter isBad (builtins.attrNames raw);
     in
-    assert lib.assertMsg (blank == [ ]) (
-      "nix/aipage-bun.nix has blank hash = \"\" entries: " + builtins.concatStringsSep ", " blank
+    assert lib.assertMsg (bad == [ ]) (
+      "nix/aipage-bun.nix has blank or all-zero hash entries: " + builtins.concatStringsSep ", " bad
     );
     pkgs.writeText "aipage-bun-hashes-eval-ok" "no-blank-hashes";
   # Form-factor detection (nix/modules/form-factor.nix) — assert the
