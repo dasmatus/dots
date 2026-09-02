@@ -206,6 +206,16 @@ Scope {
             focus: true
 
             title: "Settings"
+
+            // The arrows in this first hint hold unconditionally; the jk half
+            // holds only while the panel itself has focus. A click into a text
+            // row moves focus there, and a focused TextInput keeps j and k as
+            // typed characters (tests/qml/tst_focus_grammar.qml), while the
+            // arrows still bubble up to the handlers below. Nothing hands
+            // focus back afterwards — panel.forceActiveFocus() runs on
+            // onVisibleChanged and nowhere else — so from that point on the
+            // arrows are the only way to move until the window is reopened.
+            // Arrange's footer makes the same promise on the same terms.
             hints: [
                 {
                     key: "↑↓/jk",
@@ -228,9 +238,10 @@ Scope {
             Keys.onDownPressed: root.moveSelection(1)
 
             // A focused text row consumes j/k as literal characters before
-            // this ever sees them (TextInput's own native handling), so the
-            // alias only fires when the panel itself holds focus — the same
-            // Vim-style aliasing Arrange's own grammar uses elsewhere.
+            // this ever sees them — TextInput's own native handling, driven
+            // with real key events in tests/qml/tst_focus_grammar.qml — so
+            // the alias only fires when the panel itself holds focus, the
+            // same Vim-style aliasing Arrange's own grammar uses elsewhere.
             Keys.onPressed: event => {
                 if (event.key === Qt.Key_J) {
                     root.moveSelection(1);

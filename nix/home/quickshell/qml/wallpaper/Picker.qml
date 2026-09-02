@@ -710,9 +710,17 @@ Scope {
                 root.close();
             }
 
-            // No focused text field on this surface to steal j/k/h/l as
-            // literal characters, so they alias the arrows Vim-style — the
-            // same reasoning Cheatsheet, Arrange and Settings all apply.
+            // This surface has no text field at all, so nothing can be
+            // holding focus when j/k/h/l arrive and they alias the arrows
+            // Vim-style. Cheatsheet is in the same position. Arrange and
+            // Settings land on the same alias from the opposite premise:
+            // they DO have text fields, and it is safe there because a
+            // focused TextInput consumes a letter as a character before a
+            // parent's Keys.onPressed ever sees it, which
+            // tests/qml/tst_focus_grammar.qml executes rather than asserts.
+            // Worth keeping the two apart — collapsing them into one
+            // "reasoning" is how this comment last went wrong.
+            //
             // m/o/c/r cycle the ported picker state through picker.js's
             // own pure functions rather than reimplementing the cycling
             // here. Escape is left out of this switch, the same way
