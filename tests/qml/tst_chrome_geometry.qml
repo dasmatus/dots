@@ -15,6 +15,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtTest
 import "fixtures/theme-stub/common"
+import "sourcescan.js" as SourceScan
 
 TestCase {
     id: testCase
@@ -28,14 +29,12 @@ TestCase {
         return xhr.responseText;
     }
 
-    // Strips // and /* */ comments (while leaving string literals alone) so
-    // a source-text scan sees only real bindings, not prose that happens to
-    // mention the same identifier — a comment saying "panel.implicitHeight"
-    // must not be able to stand in for the binding actually using it.
-    function stripComments(src) {
-        return src.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (match) => {
-            return (match.startsWith("//") || match.startsWith("/*")) ? "" : match;
-        });
+    // Comment-stripped source, so a scan sees only real bindings and not
+    // prose that happens to mention the same identifier — a comment saying
+    // "panel.implicitHeight" must not stand in for the binding using it.
+    // sourcescan.js owns the strip; tst_source_scan.qml pins it.
+    function readCode(relPath) {
+        return SourceScan.stripComments(readSource(relPath));
     }
 
     Component {
@@ -158,19 +157,19 @@ TestCase {
     // class of bug, a caller silently going unwired while the callee's own
     // tests (above) stay green.
     function test_arrange_height_uses_implicitHeight_not_a_guessed_constant() {
-        const src = stripComments(readSource("../../nix/home/quickshell/qml/monitors/Arrange.qml"));
+        const src = readCode("../../nix/home/quickshell/qml/monitors/Arrange.qml");
         verify(src.indexOf("panel.implicitHeight") !== -1, "Arrange.qml's panel height must be derived from Chrome's implicitHeight");
         verify(src.indexOf("+ 96") === -1, "Arrange.qml must not reintroduce the old hardcoded heading/footer compensation constant");
     }
 
     function test_settings_height_uses_implicitHeight_not_a_guessed_constant() {
-        const src = stripComments(readSource("../../nix/home/quickshell/qml/settings/Settings.qml"));
+        const src = readCode("../../nix/home/quickshell/qml/settings/Settings.qml");
         verify(src.indexOf("panel.implicitHeight") !== -1, "Settings.qml's panel height must be derived from Chrome's implicitHeight");
         verify(src.indexOf("+ 96") === -1, "Settings.qml must not reintroduce the old hardcoded heading/footer compensation constant");
     }
 
     function test_cheatsheet_height_uses_implicitHeight_not_a_guessed_constant() {
-        const src = stripComments(readSource("../../nix/home/quickshell/qml/cheatsheet/Cheatsheet.qml"));
+        const src = readCode("../../nix/home/quickshell/qml/cheatsheet/Cheatsheet.qml");
         verify(src.indexOf("panel.implicitHeight") !== -1, "Cheatsheet.qml's panel height must be derived from Chrome's implicitHeight");
         verify(src.indexOf("+ 72") === -1, "Cheatsheet.qml must not reintroduce the old hardcoded heading/footer compensation constant");
     }
