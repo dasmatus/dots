@@ -23,6 +23,13 @@ let
   # `iso-boot`. See tests/session-units.nix for what it guards.
   sessionUnitsTest = import ./session-units.nix { inherit pkgs lib inputs; };
 
+  # limine-install-home — a lightweight runNixOSTest (no disko, no
+  # nixos-install, no facter.json wall) pinning nix/modules/limine-install.nix's
+  # hazard-1 HOME-provisioning fix under three HOME conditions. See
+  # tests/limine-home.nix for what it guards and why it needs a VM rather
+  # than an eval-only check.
+  limineHomeTest = import ./limine-home.nix { inherit pkgs lib; };
+
   # Precomputed `mkpasswd -m yescrypt --stdin` of the literal "test" — the same
   # path the installer's WriteSecrets step uses (rust/installer-tui/src/install.rs).
   # Hardcoded (not generated) so the test is pure and reproducible; a $y$ hash
@@ -621,6 +628,7 @@ in
   session-units = sessionUnitsTest;
   iso-boot = isoBootTest;
   userborn-reboot-login = userbornRebootLogin;
+  limine-install-home = limineHomeTest;
   limine-install-boot = limineInstallBootTest;
   agentmem-postgres = agentmemPostgresTest;
 }

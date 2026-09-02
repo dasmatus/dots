@@ -68,6 +68,51 @@ let
     };
   };
 
+  # Hazard 1 — home directory lookup. nix-env loads nix.conf via the $HOME
+  # XDG fallback (getHome() in Nix's libutil/unix/users.cc), and the upstream
+  # installer shells out to `nix-env --list-generations` unconditionally.
+  # During nixos-install the bootloader step can run with $HOME unset, and
+  # the running uid may have no entry in the target chroot's /etc/passwd:
+  # impermanence's createPersistentStorageDirs activation can fail to
+  # populate /etc before userborn creates users, so getpwuid_r(geteuid())
+  # returns nothing and Nix throws "cannot determine user's home directory"
+  # before ever touching the profile. getHome() accepts $HOME when the path
+  # does not exist OR is owned by the effective uid; mktemp -d is owned by
+  # us, so pointing nix there skips the passwd lookup entirely. Only
+  # override when the inherited $HOME is unusable (unset, or an existing
+  # dir not owned by us).
+  # `getExe'` rather than a bare `''${pkgs.mktemp}`: the package's store path
+  # is a directory, so interpolating the derivation itself produces
+  # `/nix/store/…-mktemp-1.7 -d`, which bash rejects with "Is a directory".
+  #
+  # And the result is assigned in two steps rather than the obvious
+  # `export HOME="$(mktemp -d)"`, because `export` is a builtin whose own exit
+  # status masks a failing command substitution: under `set -e` that one-liner
+  # runs on with HOME set to the empty string — precisely the unset-HOME
+  # hazard this block exists to prevent, and silently, so nothing in the
+  # install log says the mitigation misfired. A plain assignment propagates
+  # the failure and aborts, which is what the `set -e` at the top is for.
+  #
+  # Factored out of installBootLoader's text (rather than inlined there) so
+  # tests/limine-home.nix can run this exact bash under a real ownership
+  # mismatch instead of a hand-copied twin that could drift from what ships.
+  ensureOwnedHome = ''
+    if [ -z "''${HOME:-}" ] || { [ -e "''$HOME" ] && [ ! -O "''$HOME" ]; }; then
+      ownedHome="$(${lib.getExe' pkgs.mktemp "mktemp"} -d)"
+      export HOME="''$ownedHome"
+    fi
+  '';
+
+  # A standalone runner around ensureOwnedHome for tests/limine-home.nix:
+  # same set -euo pipefail guard installBootLoader runs under, then prints
+  # the resulting $HOME so the test can assert on stdout without pulling in
+  # hazard 2 or invoking the real upstream installer.
+  ensureOwnedHomeProbe = pkgs.writeShellScript "limine-ensure-owned-home-probe" ''
+    set -euo pipefail
+    ${ensureOwnedHome}
+    printf '%s\n' "''$HOME"
+  '';
+
   # The installBootLoader program switch-to-configuration invokes as
   #   $installBootLoader $toplevel
   installBootLoader = pkgs.writeScript "limine-install.sh" ''
@@ -78,34 +123,7 @@ let
     profilesDir=/nix/var/nix/profiles
     profile=$profilesDir/system
 
-    # Hazard 1 — home directory lookup. nix-env loads nix.conf via the $HOME
-    # XDG fallback (getHome() in Nix's libutil/unix/users.cc), and the upstream
-    # installer shells out to `nix-env --list-generations` unconditionally.
-    # During nixos-install the bootloader step can run with $HOME unset, and
-    # the running uid may have no entry in the target chroot's /etc/passwd:
-    # impermanence's createPersistentStorageDirs activation can fail to
-    # populate /etc before userborn creates users, so getpwuid_r(geteuid())
-    # returns nothing and Nix throws "cannot determine user's home directory"
-    # before ever touching the profile. getHome() accepts $HOME when the path
-    # does not exist OR is owned by the effective uid; mktemp -d is owned by
-    # us, so pointing nix there skips the passwd lookup entirely. Only
-    # override when the inherited $HOME is unusable (unset, or an existing
-    # dir not owned by us).
-    # `getExe'` rather than a bare `''${pkgs.mktemp}`: the package's store path
-    # is a directory, so interpolating the derivation itself produces
-    # `/nix/store/…-mktemp-1.7 -d`, which bash rejects with "Is a directory".
-    #
-    # And the result is assigned in two steps rather than the obvious
-    # `export HOME="$(mktemp -d)"`, because `export` is a builtin whose own exit
-    # status masks a failing command substitution: under `set -e` that one-liner
-    # runs on with HOME set to the empty string — precisely the unset-HOME
-    # hazard this block exists to prevent, and silently, so nothing in the
-    # install log says the mitigation misfired. A plain assignment propagates
-    # the failure and aborts, which is what the `set -e` at the top is for.
-    if [ -z "''${HOME:-}" ] || { [ -e "''$HOME" ] && [ ! -O "''$HOME" ]; }; then
-      ownedHome="$(${lib.getExe' pkgs.mktemp "mktemp"} -d)"
-      export HOME="''$ownedHome"
-    fi
+    ${ensureOwnedHome}
 
     # Hazard 2 — missing system profile. The upstream installer reads
     # `system-{N}-link/boot.json` and enumerates generations via
@@ -128,5 +146,7 @@ in
 {
   config = lib.mkIf cfg.enable {
     system.build.installBootLoader = lib.mkOverride 50 installBootLoader;
+    # See ensureOwnedHomeProbe above — exposed only for tests/limine-home.nix.
+    system.build.limineEnsureOwnedHomeProbe = ensureOwnedHomeProbe;
   };
 }
