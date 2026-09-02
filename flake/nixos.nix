@@ -27,6 +27,7 @@ let
         pgAgentmem = inputs.self.packages.x86_64-linux.pg-agentmem;
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
         claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;
+        betterbird = inputs.self.packages.x86_64-linux.betterbird;
       };
       modules = [
         inputs.disko.nixosModules.disko
