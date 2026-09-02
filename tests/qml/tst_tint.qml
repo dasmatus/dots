@@ -22,6 +22,41 @@ TestCase {
     readonly property string accentDark: "#330044"
     readonly property string accentLight: "#ffaadd"
 
+    // Six fully-saturated (s=1, l=0.5) primary/secondary hues plus Papirus's
+    // own three grey-family swatches (s=0 exactly), so hue-distance and
+    // achromatic-gating assertions below never have to fight a lightness or
+    // saturation difference sneaking in: every chromatic entry shares the
+    // same l/s as every other, and every achromatic one too.
+    readonly property var chromaticTable: ({
+        red: "#ff0000",
+        yellow: "#ffff00",
+        green: "#00ff00",
+        cyan: "#00ffff",
+        blue: "#0000ff",
+        magenta: "#ff00ff",
+        black: "#000000",
+        grey: "#808080",
+        white: "#ffffff"
+    })
+
+    // h≈0.98 and h=0.5 (s=1, l=0.5 both), so a wraparound-blind distance
+    // (plain |a-b|) would read nearWrapLow as far (0.96) and oppositeHue as
+    // near (0.48) — backwards from the true circular distances (0.04 and
+    // 0.48) a correct hexToHls-based compare must produce.
+    readonly property var wraparoundTable: ({
+        nearWrapLow: "#ff001f",
+        oppositeHue: "#00ffff"
+    })
+
+    // firstTwin and secondTwin carry the identical hex, so their distance to
+    // any accent is bit-for-bit equal — a genuine tie with no floating-point
+    // luck involved — while farAway never contends.
+    readonly property var tieTable: ({
+        firstTwin: "#80ff00",
+        secondTwin: "#80ff00",
+        farAway: "#0000ff"
+    })
+
     function test_rofi_rasi_text_data() {
         return [
             {
@@ -136,5 +171,55 @@ TestCase {
         }
         // a non-blue status color is left alone.
         verify(out.indexOf("#e78284") !== -1);
+    }
+
+    // The three accent hexes below are HLS points chosen for what they
+    // exercise, not memorable colours by eye — decoded once here rather
+    // than left opaque: "#3bf20d" is h≈0.30 l=0.5 s=0.9, between yellow
+    // (h≈0.17) and green (h≈0.33) but closer to green. "#ff1f00" is h≈0.02
+    // l=0.5 s=1.0, just past hue 0 going up. "#868179" is h≈0.10 l=0.5
+    // s≈0.05, below chromaticTable's achromatic threshold.
+    function test_nearest_papirus_color_data() {
+        return [
+            {
+                tag: "vivid_accent_picks_hue_nearest",
+                accentHex: "#3bf20d",
+                colors: chromaticTable,
+                expected: "green"
+            },
+            {
+                tag: "hue_wraps_past_zero",
+                accentHex: "#ff1f00",
+                colors: wraparoundTable,
+                expected: "nearWrapLow"
+            },
+            {
+                tag: "near_grey_accent_may_pick_achromatic",
+                accentHex: "#868179",
+                colors: chromaticTable,
+                expected: "grey"
+            }
+        ];
+    }
+
+    function test_nearest_papirus_color(row) {
+        compare(Tint.nearestPapirusColor(row.accentHex, row.colors), row.expected);
+    }
+
+    // A vivid accent's own hue is always meaningful, so the achromatic
+    // bucket (whose stored hue is always the achromatic branch's h=0, per
+    // hexToHls) must stay unreachable no matter how close that false hue
+    // match looks.
+    function test_nearest_papirus_color_vivid_never_picks_achromatic() {
+        const achromaticNames = ["black", "grey", "white"];
+        const name = Tint.nearestPapirusColor("#3bf20d", chromaticTable);
+        verify(achromaticNames.indexOf(name) === -1, name + " is achromatic but the accent (#3bf20d) is vivid");
+    }
+
+    function test_nearest_papirus_color_ties_break_deterministically() {
+        const first = Tint.nearestPapirusColor("#80ff00", tieTable);
+        const second = Tint.nearestPapirusColor("#80ff00", tieTable);
+        compare(first, "firstTwin");
+        compare(second, "firstTwin");
     }
 }

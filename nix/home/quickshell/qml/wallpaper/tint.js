@@ -169,3 +169,66 @@ function recolorIconText(text, accent) {
         return hlsToHex(accentHls.h, matchedHls.l, accentHls.s);
     });
 }
+
+// Below this saturation a colour reads as black/grey/white rather than any
+// particular hue, so its hue is meaningless to compare against — hexToHls's
+// own achromatic branch always answers h=0 for such a colour (see hls.js),
+// which would otherwise make it look deceptively "hue-close" to red. Sits in
+// the gap papirus-colors.json actually has between its four fully-achromatic
+// entries (black/grey/white/yaru, s=0 exactly) and its next-lowest chromatic
+// one (bluegrey, s≈0.18), so anything in (0, 0.18) draws the same line; 0.1
+// leaves a wide margin on both sides.
+var ACHROMATIC_SATURATION_THRESHOLD = 0.1;
+
+// Hue wraps at 1.0, so h=0.02 and h=0.98 are 0.04 apart on the colour
+// wheel, not the 0.96 a plain subtraction would read — going the other way
+// around the circle is shorter whenever the direct gap exceeds half a turn.
+function circularHueDistance(a, b) {
+    const d = Math.abs(a - b);
+    return Math.min(d, 1.0 - d);
+}
+
+// Nearest Papirus folder-colour NAME for an arbitrary accent hex, so a later
+// task can symlink to a prebuilt colour variant instead of rewriting SVGs
+// the way recolorIconText does for MoreWaita. `colors` is name -> hex
+// (papirus-colors.json, parsed by the caller) and stays a parameter rather
+// than a module-level table so this function stays pure and callers —
+// including tests — can supply their own fixture table without depending on
+// the live Papirus package.
+//
+// Distance is squared-Euclidean over (circular hue, lightness, saturation)
+// in HLS space. Candidates are first split by ACHROMATIC_SATURATION_THRESHOLD
+// into an achromatic bucket and a chromatic one, and only the bucket
+// matching the accent's own classification is searched — symmetrically, so
+// a vivid accent can never land on grey (hue would be a false match, per
+// the threshold's own comment) and a near-grey accent can never be dragged
+// onto a vivid hue by hue arithmetic that is meaningless for it. If a
+// caller's table has nothing in the matching bucket, the search falls back
+// to the full table rather than returning nothing.
+//
+// Ties (equal distance) resolve to whichever candidate's key comes first in
+// `colors`'s own iteration order, because the scan keeps the first minimum
+// it finds and only replaces it on a strictly smaller distance — so the
+// same table and input always return the same name.
+function nearestPapirusColor(accentHex, colors) {
+    const accentHls = hexToHls(accentHex);
+    const accentIsAchromatic = accentHls.s < ACHROMATIC_SATURATION_THRESHOLD;
+
+    const entries = Object.keys(colors).map((name) => ({ name: name, hls: hexToHls(colors[name]) }));
+    const sameBucket = entries.filter((entry) => (entry.hls.s < ACHROMATIC_SATURATION_THRESHOLD) === accentIsAchromatic);
+    const candidates = sameBucket.length > 0 ? sameBucket : entries;
+
+    let best = candidates[0];
+    let bestDistance = Infinity;
+    for (const entry of candidates) {
+        const dh = circularHueDistance(accentHls.h, entry.hls.h);
+        const dl = accentHls.l - entry.hls.l;
+        const ds = accentHls.s - entry.hls.s;
+        const distance = dh * dh + dl * dl + ds * ds;
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = entry;
+        }
+    }
+    return best.name;
+}
