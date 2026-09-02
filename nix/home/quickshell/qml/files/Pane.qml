@@ -1,6 +1,6 @@
-// One directory's listing. `ls -1Ap --group-directories-first` runs as
-// direct argv with no shell. Nothing on this path interpolates a path
-// into a command string, so there is nothing here for a shell to need.
+// One directory's listing. `find -maxdepth 1 -printf` runs as direct argv
+// with no shell. Nothing on this path interpolates a path into a command
+// string, so there is nothing here for a shell to need.
 //
 // `active` is owned by Files.qml, not by this file: only one side may be
 // active at a time, and a property this file set on itself could not
@@ -13,6 +13,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import "files.js" as FilesMath
+import "icons.js" as Icons
 import "operations.js" as Operations
 import ".."
 
@@ -21,11 +22,19 @@ Rectangle {
 
     required property string path
     required property bool active
+    required property bool showHidden
 
     signal navigate(string path)
     signal focusRequested()
+    // Window coordinates, because the menu is mounted on the window rather
+    // than inside this pane: a menu clipped to the pane it was opened in
+    // could not overhang the pane's own edge.
+    signal contextRequested(real x, real y)
 
-    property var entries: []
+    // What `find` returned, before the dotfile filter. `entries` is what
+    // the list actually shows, and every index on screen indexes into it.
+    property var allEntries: []
+    readonly property var entries: FilesMath.visibleEntries(root.allEntries, root.showHidden)
     property int selectedIndex: -1
     // model: is root.entries, a plain JS array, so QML hands each delegate
     // a fresh wrapper object every time the list is rebuilt — a stored
@@ -33,9 +42,19 @@ Rectangle {
     // index instead of storing the object itself.
     readonly property var selected: root.selectedIndex >= 0 && root.selectedIndex < root.entries.length ? root.entries[root.selectedIndex] : null
 
+    // Stamped when a listing lands rather than read live per row: every
+    // delegate would otherwise call Date.now() on every repaint, and all of
+    // them want the same "now" anyway — the one the listing was taken at.
+    property double listedAt: 0
+
     color: Theme.bg
-    border.width: root.active ? 2 : 0
-    border.color: Theme.accent
+    radius: Theme.filesRadius
+
+    // Constant width, colour-only change. A border that appears on focus
+    // steals its own width from the content and shifts every row sideways
+    // as the active side moves, which is what this file used to do.
+    border.width: 1
+    border.color: root.active ? Theme.accent : Theme.border
 
     // A stale `selected` pointing at an entry the list no longer shows is
     // how a write operation can land on something the UI never highlighted:
@@ -47,10 +66,15 @@ Rectangle {
         root.selectedIndex = -1;
         root.list();
     }
+
+    // Same hazard, different trigger: revealing or hiding dotfiles renumbers
+    // every row, so an index kept across the toggle would point at a
+    // different file than the one that was highlighted.
+    onShowHiddenChanged: root.selectedIndex = -1
     Component.onCompleted: root.list()
 
     function list(): void {
-        lsProc.command = ["ls", "-1Ap", "--group-directories-first", "--", root.path];
+        lsProc.command = FilesMath.listingArgv(root.path);
         lsProc.running = true;
     }
 
@@ -81,27 +105,34 @@ Rectangle {
         stdout: StdioCollector {
             onStreamFinished: {
                 root.selectedIndex = -1;
-                root.entries = FilesMath.parseListing(this.text);
+                root.listedAt = Date.now();
+                root.allEntries = FilesMath.parseListing(this.text);
             }
         }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: root.active ? 2 : 0
-        spacing: 0
+        anchors.margins: Theme.filesPadding
+        spacing: Theme.filesPadding
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: 8
+            spacing: 8
 
             Text {
-                text: "↑"
-                color: Theme.fg
+                text: "\u{F005D}"
+                color: upArea.containsMouse ? Theme.accent : Theme.muted
                 font.family: Theme.fontUi
+                font.pixelSize: Theme.filesIconSize
 
                 MouseArea {
+                    id: upArea
+
                     anchors.fill: parent
+                    anchors.margins: -6
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         root.focusRequested();
                         root.navigate(FilesMath.parentOf(root.path));
@@ -114,8 +145,15 @@ Rectangle {
                 text: root.path
                 color: Theme.fgDark
                 font.family: Theme.fontMono
+                font.pixelSize: Theme.fontSize
                 elide: Text.ElideMiddle
             }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 1
+            color: Theme.border
         }
 
         ListView {
@@ -131,30 +169,103 @@ Rectangle {
                 required property var modelData
                 required property int index
 
+                readonly property bool current: root.selectedIndex === row.index
+
                 width: ListView.view.width
-                height: 28
-                color: root.selectedIndex === row.index ? Theme.accent : "transparent"
+                height: Theme.filesRowHeight
+                radius: Theme.filesRadius / 2
+                color: row.current ? Theme.accent : (rowArea.containsMouse ? Theme.bgDark : "transparent")
 
-                Text {
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: 12
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    spacing: 0
 
-                    text: (row.modelData.isDir ? "▸ " : "") + row.modelData.name
-                    color: root.selectedIndex === row.index ? Theme.bg : Theme.fg
-                    font.family: Theme.fontUi
+                    Text {
+                        Layout.preferredWidth: Theme.filesIconColumn
+
+                        text: Icons.glyphFor(row.modelData)
+                        // icons.js hands back a Theme property name, so the
+                        // lookup is a property access rather than a switch
+                        // repeated in every consumer of the module.
+                        color: row.current ? Theme.bg : (Theme[Icons.colourFor(row.modelData)] ?? Theme.fg)
+                        font.family: Theme.fontUi
+                        font.pixelSize: Theme.filesIconSize
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+
+                        text: row.modelData.name
+                        color: row.current ? Theme.bg : Theme.fg
+                        font.family: Theme.fontUi
+                        font.pixelSize: Theme.fontSize
+                        elide: Text.ElideMiddle
+                    }
+
+                    Text {
+                        Layout.preferredWidth: Theme.filesSizeColumn
+
+                        text: FilesMath.formatSize(row.modelData)
+                        color: row.current ? Theme.bg : Theme.muted
+                        font.family: Theme.fontMono
+                        font.pixelSize: Theme.fontSize
+                        horizontalAlignment: Text.AlignRight
+                    }
+
+                    Text {
+                        Layout.preferredWidth: Theme.filesTimeColumn
+
+                        text: FilesMath.formatTime(row.modelData, root.listedAt)
+                        color: row.current ? Theme.bg : Theme.muted
+                        font.family: Theme.fontMono
+                        font.pixelSize: Theme.fontSize
+                        horizontalAlignment: Text.AlignRight
+                    }
                 }
 
                 MouseArea {
-                    anchors.fill: parent
+                    id: rowArea
 
-                    onClicked: {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+                    // Right-click selects before it opens the menu, so the
+                    // menu's actions name the row under the cursor rather
+                    // than whatever was selected beforehand.
+                    onClicked: (mouse) => {
                         root.focusRequested();
                         root.selectedIndex = row.index;
+
+                        if (mouse.button === Qt.RightButton) {
+                            const at = row.mapToItem(null, mouse.x, mouse.y);
+                            root.contextRequested(at.x, at.y);
+                        }
                     }
                     onDoubleClicked: root.activate(row.modelData)
                 }
             }
+        }
+    }
+
+    // Right-click on bare pane background, below every row. `z: -1` puts it
+    // under the ColumnLayout so a row still wins the clicks that land on
+    // one; this only ever sees the empty space beneath the last entry.
+    // Clearing the selection first is what makes the menu collapse to the
+    // actions that need no selection.
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.RightButton
+
+        onClicked: (mouse) => {
+            root.focusRequested();
+            root.selectedIndex = -1;
+
+            const at = root.mapToItem(null, mouse.x, mouse.y);
+            root.contextRequested(at.x, at.y);
         }
     }
 }

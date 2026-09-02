@@ -1,8 +1,23 @@
-// The file manager's outer shell, now two Panes: leftPath/rightPath persist
-// independently, and activeSide says which one write operations (added
-// later in this plan) act on. Devices.requestOpen and openPath both target
-// whichever side is active, through setActivePath, the same single
-// entrypoint Plan 1 established, extended rather than replaced.
+// The file manager's outer shell: a tab strip, a places sidebar, one pane,
+// and a `:` command line along the bottom.
+//
+// One pane, not two. The two-pane Norton Commander layout is what made
+// Copy and Move mean "to the other side"; with a single pane they became a
+// clipboard instead — yank or cut, change directory, paste. That is also
+// the shape the command line already implies: a command, a navigation, a
+// second command.
+//
+// A tab is one directory, and switching tabs swaps the pane's path.
+// nixvim.nix runs bufferline in `mode = "tabs"`, so the strip is modelled
+// on tabs rather than buffers. The live path stays on this object rather
+// than inside the tabs array, because the Pane binds to it directly and a
+// binding into `tabs[activeTab].path` would not re-evaluate when only the
+// array element changed; `displayTabs` folds the live path back in for the
+// strip to draw.
+//
+// The toolbar this file used to carry is gone. Its actions live in the
+// command line and in the right-click menu, both built from commands.js,
+// so the two surfaces cannot drift apart.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -10,31 +25,46 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import "operations.js" as Operations
+import "tabs.js" as TabsMath
 import "../services"
 import ".."
 
 Scope {
     id: root
 
-    property string leftPath: Quickshell.env("HOME")
-    property string rightPath: Quickshell.env("HOME")
-    property string activeSide: "left"
+    property var tabs: [TabsMath.newTab(Quickshell.env("HOME"))]
+    property int activeTab: 0
+    property string path: Quickshell.env("HOME")
 
-    readonly property var activePane: root.activeSide === "left" ? leftPane : rightPane
-    readonly property var otherPane: root.activeSide === "left" ? rightPane : leftPane
+    // Dotfiles are hidden until asked for, the way every graphical file
+    // manager defaults, rather than the `ls -A` the listing used to run.
+    property bool showHidden: false
+
+    // What Copy or Cut picked up: the directory it came from, the name
+    // inside it, and which builder Paste should use. Holding the directory
+    // and name separately rather than a joined path is what lets Paste go
+    // back through Operations.resolveSelectionArgv, which is the function
+    // that rejects a name trying to escape its directory.
+    property var clipboard: null
+
+    // The strip draws from this, not from `tabs`: the active tab's path
+    // only exists on `path` until something makes it switch away.
+    readonly property var displayTabs: root.tabs.map((tab, index) => index === root.activeTab ? {
+                path: root.path
+            } : tab)
 
     property string promptMode: ""
     property string promptText: ""
     // Captured by Operations.beginPrompt() when a rename/mkdir/trash-confirm
     // prompt opens, and the only thing confirmPrompt() resolves an argv
-    // from — never the live activePane/selected, which can point somewhere
-    // else entirely by the time the user presses Enter. See beginPrompt's
-    // own comment in operations.js for why.
+    // from — never the live selection, which can point somewhere else
+    // entirely by the time the user presses Enter. See beginPrompt's own
+    // comment in operations.js for why.
     property var promptSnapshot: null
 
     // Set by opRunner's onExited below when a write operation's exit code
     // is non-zero, so a refused gio trash or an mv/mkdir failure has
-    // somewhere to surface instead of the panes just quietly re-listing as
+    // somewhere to surface instead of the pane just quietly re-listing as
     // if nothing happened. Cleared at the start of the next operation.
     property string lastError: ""
 
@@ -50,84 +80,114 @@ Scope {
         window.visible = !window.visible;
     }
 
+    function switchTab(index: int): void {
+        if (index === root.activeTab)
+            return;
+
+        root.tabs = root.displayTabs;
+        root.activeTab = TabsMath.clampIndex(index, root.tabs.length);
+        root.path = root.tabs[root.activeTab].path;
+    }
+
+    function addTab(): void {
+        const opened = TabsMath.opened(root.displayTabs, root.path);
+        root.tabs = opened;
+        root.activeTab = opened.length - 1;
+        root.path = opened[root.activeTab].path;
+    }
+
+    function closeTab(index: int): void {
+        const snapshot = root.displayTabs;
+        const next = TabsMath.closed(snapshot, index);
+
+        if (next.length === snapshot.length)
+            return;
+
+        const landing = TabsMath.indexAfterClose(snapshot, index, root.activeTab);
+        root.tabs = next;
+        root.activeTab = TabsMath.clampIndex(landing, next.length);
+        root.path = next[root.activeTab].path;
+    }
+
     // Every in-tree caller already passes an absolute path — a mountpoint
-    // from Devices, or a child built through FilesMath.join from an
-    // already-absolute pane path — except `qs ipc call files openPath`,
-    // which hands over an arbitrary string with no shape guarantee at
-    // all. leftPath/rightPath end up unescaped in every Pane's `ls` argv
-    // and, for a non-directory hit, in `xdg-open`'s — `ls` tolerates a
-    // leading "-" via its own "--", but `xdg-open` does not accept "--"
-    // at all (confirmed against the binary this service resolves from
-    // PATH), so a relative-looking path handed to it would be read as an
-    // option, not a path. Rejecting outright rather than coercing (e.g.
-    // prefixing "./"): a malformed IPC call should do nothing, not land
+    // from Devices, an XDG directory from places.js, or a child built
+    // through FilesMath.join from an already-absolute pane path — except
+    // `qs ipc call files openPath`, which hands over an arbitrary string
+    // with no shape guarantee at all. `path` ends up unescaped in the
+    // Pane's listing argv and, for a non-directory hit, in `xdg-open`'s,
+    // which does not accept "--" at all (confirmed against the binary this
+    // service resolves from PATH), so a relative-looking path handed to it
+    // would be read as an option, not a path. Rejecting outright rather
+    // than coercing: a malformed IPC call should do nothing, not land
     // somewhere the caller did not ask for. Operations.isAbsolutePath is
     // pure, so this specific guard is unit-tested with no live Files.qml
     // anywhere near the test.
-    function setActivePath(path: string): void {
-        if (!Operations.isAbsolutePath(path))
+    function setActivePath(newPath: string): void {
+        if (!Operations.isAbsolutePath(newPath))
             return;
 
-        if (root.activeSide === "left")
-            root.leftPath = path;
-        else
-            root.rightPath = path;
-    }
-
-    // pane.selected.name comes off the same parseListing() provenance
-    // resolvePromptArgv's rename/trash-confirm branches read theirs from
-    // (see escapesDirectory's own comment in operations.js), so it gets
-    // the same check through resolveSelectionArgv rather than going
-    // straight into Operations.copyArgv the way it used to. Copy has no
-    // prompt to route a rejection through the way rename/trash-confirm
-    // do, so a rejection sets root.lastError directly, the same surface
-    // opRunner already uses for a failed mv/cp/mkdir/gio exit code.
-    function copySelected(): void {
-        const pane = root.activePane;
-        if (!pane.selected)
-            return;
-
-        const argv = Operations.resolveSelectionArgv("copy", pane.path, pane.selected.name, root.otherPane.path);
-        if (argv)
-            root.runOperation(argv);
-        else
-            root.lastError = Operations.escapesDirectoryMessage();
-    }
-
-    // Same reasoning as copySelected() above, for move.
-    function moveSelected(): void {
-        const pane = root.activePane;
-        if (!pane.selected)
-            return;
-
-        const argv = Operations.resolveSelectionArgv("move", pane.path, pane.selected.name, root.otherPane.path);
-        if (argv)
-            root.runOperation(argv);
-        else
-            root.lastError = Operations.escapesDirectoryMessage();
+        root.path = newPath;
     }
 
     function runOperation(argv: var): void {
         root.lastError = "";
-        const runner = opRunner.createObject(root, { command: argv });
+        const runner = opRunner.createObject(root, {
+            command: argv
+        });
         runner.running = true;
     }
 
-    function beginRename(): void {
-        if (!root.activePane.selected)
+    // Copy and Cut only remember. Nothing runs until Paste, which is what
+    // makes the pair usable in one pane: the directory you are standing in
+    // when you pick is not the one you are standing in when you drop.
+    function yank(mode: string): void {
+        if (!pane.selected)
             return;
 
-        root.promptSnapshot = Operations.beginPrompt("rename", root.activePane.path, root.activePane.selected.name);
+        root.clipboard = {
+            dir: root.path,
+            name: pane.selected.name,
+            mode: mode
+        };
+    }
+
+    // Goes back through resolveSelectionArgv rather than joining a path
+    // here, so a clipboard entry whose name would escape its directory is
+    // refused by the same check Copy and Move always used.
+    function paste(): void {
+        if (!root.clipboard)
+            return;
+
+        const argv = Operations.resolveSelectionArgv(root.clipboard.mode, root.clipboard.dir, root.clipboard.name, root.path);
+
+        if (!argv) {
+            root.lastError = Operations.escapesDirectoryMessage();
+            return;
+        }
+
+        root.runOperation(argv);
+
+        // A cut is spent once it lands; a copy stays, so the same file can
+        // be dropped into several directories without picking it up again.
+        if (root.clipboard.mode === "move")
+            root.clipboard = null;
+    }
+
+    function beginRename(): void {
+        if (!pane.selected)
+            return;
+
+        root.promptSnapshot = Operations.beginPrompt("rename", root.path, pane.selected.name);
         root.promptMode = "rename";
-        root.promptText = root.activePane.selected.name;
+        root.promptText = pane.selected.name;
+        cmdline.beginPrompt(root.promptText);
     }
 
     // Resolves strictly from promptSnapshot (captured when the prompt
-    // opened) plus the live promptText, never from activePane/selected —
+    // opened) plus the live promptText, never from the live selection —
     // see promptSnapshot's own comment above for why. On rejection,
     // Operations.promptErrorMessage picks a naming-specific message for a
-    // mode that actually validates a name (rename/mkdir's typed text,
-    // trash-confirm's own snapshot.name) and a generic one for a falsy
+    // mode that actually validates a name and a generic one for a falsy
     // snapshot or an unrecognised mode, neither of which has a name to
     // blame — that choice is pure and lives in operations.js, testable
     // with no live prompt, rather than duplicated as QML here. Either way
@@ -139,35 +199,84 @@ Scope {
         else
             root.lastError = Operations.promptErrorMessage(root.promptSnapshot);
 
-        root.promptMode = "";
-        root.promptSnapshot = null;
-    }
-
-    function cancelPrompt(): void {
-        root.promptMode = "";
-        root.promptSnapshot = null;
+        root.closeCmdline();
     }
 
     function beginMkdir(): void {
-        root.promptSnapshot = Operations.beginPrompt("mkdir", root.activePane.path, null);
+        root.promptSnapshot = Operations.beginPrompt("mkdir", root.path, null);
         root.promptMode = "mkdir";
         root.promptText = "";
+        cmdline.beginPrompt("");
     }
 
     // Trash is the one operation here that destroys data by itself, rather
-    // than merely relocating it within reach of the two panes, so it is the
-    // one operation gated on a confirmation rather than firing straight off
-    // the toolbar click. Reuses promptMode's state machine rather than a
-    // second one: promptText carries the selected entry's name for the
-    // confirm label below, never as editable input — the rename/mkdir
-    // TextInput stays hidden for this mode, a separate Text shows instead.
+    // than merely relocating it, so it is the one gated on a confirmation.
+    // Reuses promptMode's state machine rather than a second one:
+    // promptText carries the selected entry's name for the confirm label,
+    // never as editable input.
     function trashSelected(): void {
-        if (!root.activePane.selected)
+        if (!pane.selected)
             return;
 
-        root.promptSnapshot = Operations.beginPrompt("trash-confirm", root.activePane.path, root.activePane.selected.name);
+        root.promptSnapshot = Operations.beginPrompt("trash-confirm", root.path, pane.selected.name);
         root.promptMode = "trash-confirm";
-        root.promptText = root.activePane.selected.name;
+        root.promptText = pane.selected.name;
+        cmdline.query = root.promptText;
+    }
+
+    function openCmdline(): void {
+        root.promptSnapshot = null;
+        root.promptMode = "command";
+        cmdline.clear();
+    }
+
+    function closeCmdline(): void {
+        root.promptMode = "";
+        root.promptSnapshot = null;
+        cmdline.clear();
+        keys.forceActiveFocus();
+    }
+
+    // One dispatcher for both surfaces, so the `:` line and the right-click
+    // menu cannot grow different ideas of what "Trash" does.
+    function runRow(row: var): void {
+        if (row.kind === "entry") {
+            const entry = pane.entries[row.index];
+            root.closeCmdline();
+
+            if (entry)
+                pane.activate(entry);
+
+            return;
+        }
+
+        switch (row.id) {
+        case "copy":
+            root.closeCmdline();
+            root.yank("copy");
+            break;
+        case "cut":
+            root.closeCmdline();
+            root.yank("move");
+            break;
+        case "paste":
+            root.closeCmdline();
+            root.paste();
+            break;
+        case "rename":
+            root.beginRename();
+            break;
+        case "mkdir":
+            root.beginMkdir();
+            break;
+        case "trash":
+            root.trashSelected();
+            break;
+        case "hidden":
+            root.closeCmdline();
+            root.showHidden = !root.showHidden;
+            break;
+        }
     }
 
     Component {
@@ -177,8 +286,7 @@ Scope {
             // qmllint disable signal-handler-parameters
             onExited: (exitCode, exitStatus) => {
                 root.lastError = exitCode === 0 ? "" : ("\"" + this.command.join(" ") + "\" failed (exit " + exitCode + ")");
-                leftPane.list();
-                rightPane.list();
+                pane.list();
                 destroy();
             }
             // qmllint enable signal-handler-parameters
@@ -219,162 +327,146 @@ Scope {
         id: window
 
         // ProxyWindowBase's own clear colour defaults to Qt::white, so
-        // every child painted straight on the window (the toolbar row, the
-        // lastError row, the Sidebar) reads on white without this.
+        // every child painted straight on the window reads on white
+        // without this.
         color: Theme.bg
 
         visible: false
-        implicitWidth: 1200
-        implicitHeight: 600
+        implicitWidth: 1100
+        implicitHeight: 700
 
-        ColumnLayout {
+        FocusScope {
+            id: keys
+
             anchors.fill: parent
-            spacing: 0
+            focus: true
 
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: 4
-                spacing: 12
-
-                Text {
-                    text: "Copy →"
-                    color: Theme.fg
-                    font.family: Theme.fontUi
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: root.copySelected()
-                    }
-                }
-
-                Text {
-                    text: "Move →"
-                    color: Theme.fg
-                    font.family: Theme.fontUi
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: root.moveSelected()
-                    }
-                }
-
-                Text {
-                    text: "Rename"
-                    color: Theme.fg
-                    font.family: Theme.fontUi
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: root.beginRename()
-                    }
-                }
-
-                Text {
-                    text: "New Folder"
-                    color: Theme.fg
-                    font.family: Theme.fontUi
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: root.beginMkdir()
-                    }
-                }
-
-                Text {
-                    text: "Trash"
-                    color: Theme.red
-                    font.family: Theme.fontUi
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: root.trashSelected()
-                    }
-                }
-
-                TextInput {
-                    Layout.preferredWidth: 200
-                    visible: root.promptMode === "rename" || root.promptMode === "mkdir"
-                    text: root.promptText
-                    color: Theme.fg
-                    font.family: Theme.fontUi
-
-                    onTextChanged: root.promptText = text
-                    onVisibleChanged: if (visible) forceActiveFocus()
-
-                    Keys.onReturnPressed: root.confirmPrompt()
-                    Keys.onEscapePressed: root.cancelPrompt()
-                }
-
-                // Trash needs no free-text entry, only a yes/no, so it gets
-                // its own label rather than sharing the TextInput above —
-                // that field's own text is bound to promptText and would let
-                // the confirm turn into an accidental rename.
-                Text {
-                    visible: root.promptMode === "trash-confirm"
-                    text: "Trash \"" + root.promptText + "\"? Enter / Esc"
-                    color: Theme.red
-                    font.family: Theme.fontUi
-
-                    onVisibleChanged: if (visible) forceActiveFocus()
-
-                    Keys.onReturnPressed: root.confirmPrompt()
-                    Keys.onEscapePressed: root.cancelPrompt()
+            // `:` opens the command line, the way it opens vim's. Every
+            // other key falls through, so nothing here has to know about
+            // the pane's own handling.
+            Keys.onPressed: (event) => {
+                if (root.promptMode === "" && event.text === ":") {
+                    root.openCmdline();
+                    event.accepted = true;
                 }
             }
 
-            // A failed mv/cp/mkdir/gio only shows up here: the panes below
-            // re-list unconditionally on every operation exit, success or
-            // not, since a partial failure still needs whatever DID change
-            // reflected. Without this a refused gio trash (e.g. across a
-            // filesystem boundary it won't cross) looked identical to a
-            // trash that actually happened.
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: 4
-                visible: root.lastError !== ""
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.lastError
-                    color: Theme.red
-                    font.family: Theme.fontUi
-                    elide: Text.ElideRight
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+            ColumnLayout {
+                anchors.fill: parent
                 spacing: 0
 
-                Sidebar {
-                    Layout.fillHeight: true
-                    Layout.preferredWidth: 200
+                Tabs {
+                    Layout.fillWidth: true
+
+                    tabs: root.displayTabs
+                    activeIndex: root.activeTab
+
+                    onSelected: (index) => root.switchTab(index)
+                    onClosed: (index) => root.closeTab(index)
+                    onAdded: root.addTab()
                 }
 
-                Pane {
-                    id: leftPane
-
+                RowLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    Layout.margins: Theme.filesPadding
 
-                    path: root.leftPath
-                    active: root.activeSide === "left"
-                    onNavigate: (path) => root.leftPath = path
-                    onFocusRequested: root.activeSide = "left"
+                    spacing: Theme.filesGutter
+
+                    Sidebar {
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: Theme.filesSidebarWidth
+
+                        onRequested: (path) => root.setActivePath(path)
+                    }
+
+                    Pane {
+                        id: pane
+
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        path: root.path
+                        active: true
+                        showHidden: root.showHidden
+
+                        onNavigate: (path) => root.path = path
+                        onContextRequested: (x, y) => menu.openAt(x, y)
+                    }
                 }
 
-                Pane {
-                    id: rightPane
+                // A failed mv/cp/mkdir/gio only shows up here: the pane
+                // re-lists unconditionally on every operation exit, success
+                // or not, since a partial failure still needs whatever DID
+                // change reflected. Without this a refused gio trash (e.g.
+                // across a filesystem boundary it won't cross) looked
+                // identical to a trash that actually happened.
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.filesPadding
+                    Layout.rightMargin: Theme.filesPadding
+                    Layout.bottomMargin: Theme.filesPadding
+
+                    implicitHeight: Theme.filesRowHeight
+                    radius: Theme.filesRadius / 2
+                    color: Theme.bgDark
+                    visible: root.lastError !== ""
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        spacing: 8
+
+                        Text {
+                            text: "\u{F0026}"
+                            color: Theme.red
+                            font.family: Theme.fontUi
+                            font.pixelSize: Theme.filesIconSize
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.lastError
+                            color: Theme.red
+                            font.family: Theme.fontMono
+                            font.pixelSize: Theme.fontSize
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                CommandLine {
+                    id: cmdline
 
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
 
-                    path: root.rightPath
-                    active: root.activeSide === "right"
-                    onNavigate: (path) => root.rightPath = path
-                    onFocusRequested: root.activeSide = "right"
+                    mode: root.promptMode
+                    entries: pane.entries
+                    selection: pane.selected
+                    clipboard: root.clipboard
+                    showHidden: root.showHidden
+
+                    onActivated: (row) => root.runRow(row)
+                    onSubmitted: (text) => {
+                        root.promptText = text;
+                        root.confirmPrompt();
+                    }
+                    onCancelled: root.closeCmdline()
                 }
+            }
+
+            // Mounted on the window rather than inside the pane, so a menu
+            // opened near an edge can overhang the pane it came from.
+            Menu {
+                id: menu
+
+                selection: pane.selected
+                clipboard: root.clipboard
+                showHidden: root.showHidden
+
+                onActivated: (row) => root.runRow(row)
+                onDismissed: keys.forceActiveFocus()
             }
         }
     }

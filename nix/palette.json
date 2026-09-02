@@ -24,5 +24,11 @@
     "lines": 9, "widthFactor": 0.5, "iconSize": 24,
     "lineHeight": 52, "searchHeight": 56, "radius": 16,
     "previewWidth": 360
+  },
+  "files": {
+    "tabHeight": 34, "tabPadding": 14, "tabIndicator": 2,
+    "rowHeight": 30, "iconSize": 16, "iconColumn": 26,
+    "sidebarWidth": 200, "gutter": 8, "padding": 10, "radius": 10,
+    "sizeColumn": 84, "timeColumn": 124, "commandHeight": 40
   }
 }
