@@ -85,6 +85,23 @@ in
     pkgs.mesa
   ];
 
+  # disko's cryptsetup-wrapping step (luks.nix, `runCommand … { nativeBuildInputs
+  # = [ pkgs.makeWrapper ]; }`) needs pkgs.makeBinaryWrapper's setup-hook
+  # derivation at BUILD time to realise disko-destroy-format-mount at all — a
+  # separate requirement from the openssl.bin PATH entry above, and one no
+  # existing package pulls in as a side effect. makeBinaryWrapper's own build
+  # environment is the ordinary (cc-having) stdenv, not stdenvNoCC (which
+  # installation-cd-minimal.nix's installation-device.nix already stages here
+  # "for runCommand"), so without its output already valid, disko's in-VM
+  # `nix build` falls back to compiling gcc/binutils from source through the
+  # full stdenv bootstrap chain — offline-unfetchable, same failure class as
+  # the openssl gap. Confirmed absent from a built `.#iso`'s closure (no
+  # gcc-wrapper, no make-binary-wrapper-hook, no bash-static anywhere in it)
+  # and confirmed as the fix: staging just this one derivation is what took a
+  # decoupled reproduction of this exact disko invocation past every build
+  # error, down to disko's own partitioning logic.
+  system.extraDependencies = [ pkgs.makeBinaryWrapper ];
+
   nix.settings.experimental-features = [
     "nix-command"
     "flakes"
