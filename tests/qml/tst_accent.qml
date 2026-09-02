@@ -7,10 +7,20 @@
 //
 // Canvas is the only way to get decoded pixels into JS under qmltestrunner,
 // and its readback needs `renderTarget: Canvas.Image` plus `loadImage` in
-// `Component.onCompleted` — `onPaint` fires once loading completes and does
-// the actual `drawImage`/`getImageData`. `drawImage` takes the SAME url
-// string handed to `loadImage`, not an `Image` item (which draws transparent
-// black with no error) and not some resolved variant of the string.
+// `Component.onCompleted`. `onPaint` does NOT fire only once loading
+// completes: Canvas also paints once implicitly, on creation, before
+// `loadImage`'s decode has had a chance to finish. `drawImage(url)` against
+// a still-loading image draws nothing, so that implicit paint reads back as
+// an all-transparent buffer and accentFrom falls back to DEFAULT_ACCENT —
+// and under load that implicit paint reliably beat the real, post-decode
+// one, flipping `ready` true on the fallback value before `tryCompare`
+// below ever looked (confirmed by tagging every paint with
+// `isImageLoaded(url)` and forcing it under CPU contention: the wrong
+// paint landed first in the large majority of runs). Every `onPaint` below
+// is guarded on `isImageLoaded(url)` so only the real paint ever sets
+// `ready`. `drawImage` takes the SAME url string handed to `loadImage`, not
+// an `Image` item (which draws transparent black with no error) and not
+// some resolved variant of the string.
 //
 // `red.png`/`green.png`/`blue.png` are 64x64 solid-colour LOSSLESS PNGs: at
 // 64x64 accent.rs's `thumbnail(64, 64)` is a documented no-op and Canvas
@@ -72,6 +82,9 @@ TestCase {
         Component.onCompleted: loadImage(url)
         onImageLoaded: requestPaint()
         onPaint: {
+            // Skips Canvas's implicit pre-decode paint — see the file header.
+            if (!isImageLoaded(url))
+                return;
             const ctx = getContext("2d");
             ctx.drawImage(url, 0, 0, width, height);
             const result = Accent.accentFrom(ctx.getImageData(0, 0, width, height).data);
@@ -104,6 +117,9 @@ TestCase {
         Component.onCompleted: loadImage(url)
         onImageLoaded: requestPaint()
         onPaint: {
+            // Skips Canvas's implicit pre-decode paint — see the file header.
+            if (!isImageLoaded(url))
+                return;
             const ctx = getContext("2d");
             ctx.drawImage(url, 0, 0, width, height);
             const result = Accent.accentFrom(ctx.getImageData(0, 0, width, height).data);
@@ -133,6 +149,9 @@ TestCase {
         Component.onCompleted: loadImage(url)
         onImageLoaded: requestPaint()
         onPaint: {
+            // Skips Canvas's implicit pre-decode paint — see the file header.
+            if (!isImageLoaded(url))
+                return;
             const ctx = getContext("2d");
             ctx.drawImage(url, 0, 0, width, height);
             const result = Accent.accentFrom(ctx.getImageData(0, 0, width, height).data);
@@ -157,6 +176,9 @@ TestCase {
         Component.onCompleted: loadImage(url)
         onImageLoaded: requestPaint()
         onPaint: {
+            // Skips Canvas's implicit pre-decode paint — see the file header.
+            if (!isImageLoaded(url))
+                return;
             const ctx = getContext("2d");
             ctx.drawImage(url, 0, 0, width, height);
             const result = Accent.accentFrom(ctx.getImageData(0, 0, width, height).data);
@@ -181,6 +203,9 @@ TestCase {
         Component.onCompleted: loadImage(url)
         onImageLoaded: requestPaint()
         onPaint: {
+            // Skips Canvas's implicit pre-decode paint — see the file header.
+            if (!isImageLoaded(url))
+                return;
             const ctx = getContext("2d");
             ctx.drawImage(url, 0, 0, width, height);
             const result = Accent.accentFrom(ctx.getImageData(0, 0, width, height).data);
