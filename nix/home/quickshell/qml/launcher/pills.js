@@ -14,6 +14,7 @@ const LABELS = {
     quicklinks: "Quicklinks",
     snippets: "Snippets",
     files: "Files",
+    devices: "Devices",
     status: "Status",
     windows: "Windows",
     clipboard: "Clipboard",
@@ -22,11 +23,25 @@ const LABELS = {
     calc: "Calc"
 };
 
-function labelFor(id) {
-    if (id in LABELS)
-        return LABELS[id];
+// Every row pillsFor sees is supposed to carry a `provider` string — every
+// provider function in Providers.qml sets one — but that is a convention,
+// not something the type system enforces, and one row built without it must
+// not be able to throw pillsFor's caller into `undefined`. Rows failing that
+// convention are grouped under this id instead of by whatever they are
+// missing, so the anomaly surfaces as one visible "Other" pill rather than
+// vanishing into "All" unremarked or taking the whole bar down with it.
+const FALLBACK_PROVIDER = "other";
+LABELS[FALLBACK_PROVIDER] = "Other";
 
-    return id.length === 0 ? id : id[0].toUpperCase() + id.slice(1);
+function providerOf(row) {
+    return typeof row.provider === "string" && row.provider.length > 0 ? row.provider : FALLBACK_PROVIDER;
+}
+
+function labelFor(id) {
+    if (typeof id !== "string" || id.length === 0)
+        return LABELS[FALLBACK_PROVIDER];
+
+    return id in LABELS ? LABELS[id] : id[0].toUpperCase() + id.slice(1);
 }
 
 // One pill per provider that produced at least one row in `rows`, ordered by
@@ -39,7 +54,7 @@ function pillsFor(rows) {
     const counts = {};
 
     for (const row of rows) {
-        const id = row.provider;
+        const id = providerOf(row);
         if (!(id in counts)) {
             order.push(id);
             counts[id] = 0;

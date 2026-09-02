@@ -168,6 +168,7 @@ QtObject {
                     subtitle: subtitle,
                     icon: "",
                     accessory: "open",
+                    provider: "devices",
                     path: device.mountPoint,
                     run: () => Quickshell.execDetached(["xdg-open", device.mountPoint])
                 });
@@ -177,6 +178,7 @@ QtObject {
                     subtitle: subtitle,
                     icon: "",
                     accessory: "eject",
+                    provider: "devices",
                     run: () => Devices.eject(device.path, device.diskPath)
                 });
             } else {
@@ -185,6 +187,7 @@ QtObject {
                     subtitle: subtitle,
                     icon: "",
                     accessory: "mount",
+                    provider: "devices",
                     run: () => Devices.mount(device.path)
                 });
             }

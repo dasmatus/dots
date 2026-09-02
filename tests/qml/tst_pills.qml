@@ -72,4 +72,35 @@ TestCase {
     function test_labelFor_falls_back_to_a_capitalised_id() {
         compare(Pills.labelFor("mystery"), "Mystery");
     }
+
+    // Motivating bug: deviceRows() built rows with no `provider` field at
+    // all, so labelFor(undefined) fell through to `id.length` and threw —
+    // and a QML binding that throws evaluates to undefined, which took down
+    // the whole pill bar rather than just the one malformed row. labelFor
+    // must return a label for anything it is handed, never throw.
+    function test_labelFor_is_total_data() {
+        return [
+            { tag: "undefined", id: undefined },
+            { tag: "null", id: null },
+            { tag: "number", id: 42 },
+            { tag: "empty string", id: "" }
+        ];
+    }
+
+    function test_labelFor_is_total(row) {
+        compare(Pills.labelFor(row.id), "Other");
+    }
+
+    // A row missing `provider` — deviceRows()'s exact shape of bug before it
+    // was fixed to set one — must not throw pillsFor's caller into
+    // `undefined`. It groups under one visible "Other" pill instead of
+    // silently vanishing or crashing the bar.
+    function test_pillsFor_groups_providerless_rows_under_other() {
+        const rows = [row("apps"), { title: "mystery row" }, { title: "second mystery row" }];
+        const pills = Pills.pillsFor(rows);
+
+        compare(pills.length, 2);
+        compare(pills[0], { id: "apps", label: "Apps", count: 1 });
+        compare(pills[1], { id: "other", label: "Other", count: 2 });
+    }
 }
