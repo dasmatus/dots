@@ -297,6 +297,28 @@ TestCase {
         verify(body.indexOf("retryTimer.restart()") !== -1, "a retry must actually schedule another read, not just remember that one failed");
     }
 
+    // The branch that does the work every retry above exists to reach, and
+    // the one the checks above cannot see: they look for substrings anywhere
+    // in handleRead's body, so gutting the successful-read branch (parse the
+    // monitors, then apply nothing) and inverting its condition (apply on the
+    // read that failed, retry the one that worked) both leave every one of
+    // those substrings exactly where it was. Both mutations reproduce the
+    // silent no-op this whole file exists to remove, and both were confirmed
+    // to do so against a live quickshell driving the real Watcher.qml with a
+    // stubbed hyprctl on PATH: reads succeeded and zero `hyprctl eval` calls
+    // were issued, with the suite still fully green.
+    function test_watcher_applies_the_layout_on_a_successful_read() {
+        const watcher = readCode("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const body = SourceScan.blockAfter(watcher, "function handleRead(result): void {");
+        verify(body !== "", "handleRead must exist and be brace-matched");
+
+        const start = body.indexOf("if (result.ok) {");
+        verify(start !== -1, "handleRead must branch on result.ok directly — inverted, it retries every read that worked and applies every one that did not");
+
+        const success = blockFrom(body, start);
+        verify(success.indexOf("root.runCommands(result.commands)") !== -1, "the successful-read branch must apply the commands it just parsed — without it the read and the retry both run to completion and change nothing");
+    }
+
     // The read the retry schedules has to happen: pinned separately from the
     // budget-accounting checks above because a handleRead that decremented
     // the counter and logged correctly but forgot to restart the timer, or a
