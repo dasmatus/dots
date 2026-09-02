@@ -83,9 +83,16 @@ function pillsFor(order, counted) {
 // `pillId === ""` is the pill bar's own "All" state, not a provider nothing
 // ever produces — so a caller with no selection does not need a sentinel row
 // object to mean "everything".
+//
+// Compares against `providerOf(row)`, not `row.provider` directly, so this
+// agrees with the grouping `pillsFor` used to build the "Other" pill in the
+// first place. A providerless row normalises to `FALLBACK_PROVIDER` there;
+// comparing the raw (`undefined`) field here would make "Other" a pill that
+// advertises a count and delivers zero rows for it — a promise `pillsFor`'s
+// own contract exists to rule out.
 function filterByPill(rows, pillId) {
     if (pillId === "")
         return rows;
 
-    return rows.filter(row => row.provider === pillId);
+    return rows.filter(row => providerOf(row) === pillId);
 }

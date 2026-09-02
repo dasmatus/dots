@@ -147,7 +147,12 @@ TestCase {
     // A row missing `provider` — deviceRows()'s exact shape of bug before it
     // was fixed to set one — must not throw pillsFor's caller into
     // `undefined`. It groups under one visible "Other" pill instead of
-    // silently vanishing or crashing the bar.
+    // silently vanishing or crashing the bar. And that pill must not be a
+    // dead end: clicking it (filterByPill with its id) has to hand back
+    // exactly the rows pillsFor counted, the same count-equals-contents
+    // invariant test_pillsFor_count_matches_what_filterByPill_actually_returns
+    // checks for well-formed rows, asserted here for the providerless case
+    // that motivated FALLBACK_PROVIDER in the first place.
     function test_pillsFor_groups_providerless_rows_under_other() {
         const rows = [row("apps"), { title: "mystery row" }, { title: "second mystery row" }];
         const pills = Pills.pillsFor(rows, rows);
@@ -155,5 +160,8 @@ TestCase {
         compare(pills.length, 2);
         compare(pills[0], { id: "apps", label: "Apps", count: 1 });
         compare(pills[1], { id: "other", label: "Other", count: 2 });
+
+        for (const pill of pills)
+            compare(Pills.filterByPill(rows, pill.id).length, pill.count, `pill ${pill.id}'s count must match what clicking it returns`);
     }
 }
