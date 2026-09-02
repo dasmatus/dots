@@ -42,6 +42,8 @@
     ./git.nix
     ./bitwarden.nix
     ./proton.nix
+    ./proton-drive.nix
+    ./proton-calendar.nix
     ./pkgs.nix
     ./zed.nix
   ];
