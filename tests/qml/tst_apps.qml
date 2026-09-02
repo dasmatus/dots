@@ -24,6 +24,20 @@ TestCase {
             { tag: "plain brave, no PWA flag at all", exec: "brave", expected: false },
             { tag: "plain librewolf", exec: "librewolf %u", expected: false },
             { tag: "a lookalike flag: --app-idx= is not --app-id=", exec: "brave --app-idx=hjdjgimfpmodogjniomhemdbojjoecoa", expected: false },
+            // --app-id= present, but glued onto the end of another token
+            // with no word boundary before it — the case the (^|\s) anchor
+            // exists to reject. Without the anchor, a bare
+            // /--app-id=/.test() would find this substring and this row
+            // would wrongly pass as a PWA.
+            { tag: "--app-id= with no word boundary before it", exec: "foo--app-id=bar", expected: false },
+            // The anchor's other branch: --app-id= as the very first thing
+            // in the string, matched via "^" rather than "\s". Not a shape
+            // a real .desktop Exec= line takes (Exec always starts with the
+            // binary), but the regex has two alternatives and this is the
+            // only row that can tell them apart from each other — dropping
+            // "^|" and keeping only "\s" would fail this row while leaving
+            // every other row unchanged.
+            { tag: "--app-id= as the very first token, the anchor's ^ branch", exec: "--app-id=hjdjgimfpmodogjniomhemdbojjoecoa", expected: true },
             { tag: "undefined Exec=, a malformed entry", exec: undefined, expected: false },
             { tag: "empty Exec=", exec: "", expected: false }
         ];
