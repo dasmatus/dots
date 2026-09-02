@@ -14,7 +14,6 @@ rust/beamenu/target/
 rust/beamenu-canvas/target/
 result
 result-*
-nix/aipage-bun.nix
 # Secure Boot signing keys (scripts/sign-iso.sh). The private key must never
 # be committed; the public MOK.cer may be force-added if wanted. The glob
 # (not a bare `secrets/` dir ignore) is what lets the negations below
