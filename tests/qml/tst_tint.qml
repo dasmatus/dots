@@ -2,11 +2,14 @@
 //
 // Fixtures below are taken from rust/wallpaper-tui/tests/tint.rs's "pure
 // writers" section (rofi_rasi_*, gtk_css_*, hyprland_borders_*,
-// recolor_kvantum_*, recolor_icon_*) — the subset of that file's 20 tests
-// that exercise the five functions this task ports. The other eleven
-// (tint_kvantum_tree_*, tint_icon_tree_*, apply_tint_*,
-// run_border_commands_*) drive filesystem trees and spawned processes that
-// stay in the crate; there is nothing here to port them against yet.
+// recolor_kvantum_*) — the subset of that file's 20 tests that exercise the
+// four functions this task ports. recolor_icon_* is gone from this list:
+// its QML port (recolorIconText) recolored MoreWaita SVGs and was removed
+// once Papirus's own symlink-per-colour scheme replaced that mechanism —
+// see Icons.qml. The other eleven (tint_kvantum_tree_*, tint_icon_tree_*,
+// apply_tint_*, run_border_commands_*) drive filesystem trees and spawned
+// processes that stay in the crate; there is nothing here to port them
+// against yet.
 //
 // ACCENT/ACCENT_DARK/ACCENT_LIGHT match tint.rs's test constants exactly, so
 // a fixture's expected substrings can be copied verbatim from the Rust
@@ -157,20 +160,6 @@ TestCase {
 
     function test_recolor_kvantum_preserves_alpha_suffix(row) {
         compare(Tint.recolorKvantumText(row.input, accent, accentDark, accentLight), row.expected);
-    }
-
-    function test_recolor_icon_shifts_hue_keeps_lightness() {
-        const sample = "a:#1c71d8 b:#438de6 c:#62a0ea d:#99c1f1 e:#afd4ff keep:#e78284";
-        const out = Tint.recolorIconText(sample, accent);
-        const accentHls = Tint.hexToHls(accent);
-        const originals = ["#1c71d8", "#438de6", "#62a0ea", "#99c1f1", "#afd4ff"];
-        for (const orig of originals) {
-            const origHls = Tint.hexToHls(orig);
-            const expected = Tint.hlsToHex(accentHls.h, origHls.l, accentHls.s);
-            verify(out.indexOf(expected) !== -1, orig + " -> " + expected + " (preserved lightness) missing");
-        }
-        // a non-blue status color is left alone.
-        verify(out.indexOf("#e78284") !== -1);
     }
 
     // The three accent hexes below are HLS points chosen for what they

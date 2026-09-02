@@ -160,14 +160,11 @@ let
 
         readonly property color accentFallback: "${palette.accentFallback}";
 
-        // The Nix-store MoreWaita tree Icons.qml's retint() copies from. It
-        // ships read-only, hence the chmod that file's own header explains.
-        readonly property string moreWaitaBase: "${pkgs.morewaita-icon-theme}/share/icons/MoreWaita";
-
         // The Nix-store Kvantum theme Kvantum.qml's retint() copies from —
         // the same store path the deleted wallpaper-tui.nix wrapper passed
         // in as WALLPAPER_TUI_KVANTUM_BASE. Read-only for the same reason
-        // moreWaitaBase is.
+        // every store path here is: it ships as part of the Nix store,
+        // which is immutable by design.
         readonly property string kvantumBase: "${pkgs.catppuccin-kvantum}/share/Kvantum/catppuccin-frappe-blue";
 
         // The Nix-store Papirus-Dark tree Icons.qml's retint() copies from.

@@ -1,18 +1,43 @@
-// Recolors the MoreWaita icon theme to the current wallpaper accent.
+// Recolors the Papirus-Dark icon theme's folder icons to the current
+// wallpaper accent.
 //
-// tint.rs walked the Nix-store MoreWaita tree in place. That tree
-// (Theme.moreWaitaBase, baked in by tree.nix) is read-only, so this instead
-// `cp -r`s it once into $XDG_DATA_HOME/icons/MoreWaita-Tint, then
-// `chmod -R u+w` — the same step tree.nix's own runCommand needs and for the
-// same reason: a copy out of the store inherits the store's unwritable mode
-// bits verbatim, so a plain `cp -r` here would hand back a tree this file
-// can't then write into.
+// Papirus does not encode folder colour as a hex to find-and-replace the
+// way MoreWaita's Adwaita-blue family used to (see git history — that SVG
+// rewrite is gone): it ships one prebuilt SVG per named folder colour and
+// points the plain icon name at one of them by symlink. So retint() no
+// longer reads or rewrites any SVG bytes — it resolves the nearest colour
+// NAME (Tint.nearestPapirusColor) and re-points symlinks in a thin theme
+// that otherwise inherits everything else from the store's Papirus-Dark.
 //
-// Every retint() re-reads the 240 blue-bearing SVGs from that pristine base
-// rather than from whatever the last retint left in the destination:
-// recolorIconText's regex only matches the six original Adwaita blues, so
-// recoloring an already-recolored file would match nothing and the icon
-// theme would freeze on the first accent it was ever given.
+// Theme.papirusBase (a Papirus-Dark store path) is read-only, so this seeds
+// $XDG_DATA_HOME/icons/Papirus-Tint by copying out just the five
+// <size>/places directories — the ones Theme.papirusTintIndex's own
+// Directories key declares — rather than the whole theme; every other icon
+// resolves through that index's Inherits=Papirus-Dark,Papirus,hicolor.
+// `cp -aL`, not `cp -a`: Papirus-Dark/<size> is itself a symlink to
+// ../Papirus/<size> (shared with the light variant), so a link-preserving
+// copy would leave the seeded tree's places/ dangling the moment dst is
+// treated as free-standing, and papirus-folders (below) explicitly skips
+// symlinks when it scans for folder-<colour>-*.svg to retarget.
+//
+// The seed is guarded on a stamp file holding the source store path, not on
+// `test -d`: a `test -d` guard is why the old MoreWaita-Tint tree was
+// seeded exactly once and never re-checked afterwards — a Papirus version
+// bump has to re-seed, and only comparing against the path actually seeded
+// from (not just "does dst already exist") catches that.
+//
+// Recolouring goes through upstream's own papirus-folders rather than an
+// open-coded symlink loop. Verified against a scratch copy under /tmp (not
+// the live ~/.local/share/icons) before committing to it: `--theme <path>`
+// accepts a bare directory — Papirus-Tint's name is inferred from the
+// path's own basename, so papirus-folders' DEFAULT_COLORS map, which is
+// keyed by theme name, never comes into play, because it is only consulted
+// by the revert/-D path, never by -C; `-C <colour> -o` symlinks both the
+// `folder-<colour>` and `user-<colour>` prefixes across all five sizes in
+// one pass; re-running with a different colour repoints the existing
+// symlinks instead of failing; and `-o` skips writing papirus-folders' own
+// persistent config file, so nothing is left behind outside the theme
+// directory itself.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -28,23 +53,27 @@ Item {
     // practice, but a bare XDG-compliant session may not export it, so the
     // spec's own default is the fallback rather than an empty path.
     readonly property string dataHome: Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")
-    readonly property string dest: root.dataHome + "/icons/MoreWaita-Tint"
+    readonly property string dest: root.dataHome + "/icons/Papirus-Tint"
 
-    property string pendingAccent: ""
-    property var pendingFiles: []
-    property string pendingSrc: ""
-
-    // Fires once gsettings has been told about the theme, so a caller (the
-    // picker) can chain the next step without guessing how long a 240-file
-    // rewrite takes.
+    // Fires once dconf has been told about the theme, so a caller (the
+    // picker) can chain the next step without guessing how long a seed
+    // plus symlink pass takes.
     signal retinted()
 
     function retint(accent) {
-        root.pendingAccent = accent;
-        // Both paths travel in argv (positional $1/$2), not interpolated into
-        // the script text, so neither can break the quoting no matter what a
-        // future store path or XDG override happens to contain.
-        ensureTree.command = ["sh", "-c", 'test -d "$2" || { cp -r "$1" "$2" && chmod -R u+w "$2"; }', "_", Theme.moreWaitaBase, root.dest];
+        const colorName = Tint.nearestPapirusColor(accent, Theme.papirusColors);
+
+        // Every path travels in argv (positional $1/$2/$3), never
+        // interpolated into the script text, so none of them can break the
+        // quoting no matter what a future store path or XDG override
+        // happens to contain — see this file's own header for why the
+        // guard and the copy are shaped the way they are.
+        ensureTree.command = ["sh", "-c", 'src=$1; dst=$2; idx=$3; if [ "$(cat "$dst/.dots-source" 2>/dev/null)" != "$src" ]; then rm -rf "$dst" && for s in 22x22 24x24 32x32 48x48 64x64; do mkdir -p "$dst/$s" && cp -aL "$src/$s/places" "$dst/$s/places" || exit 1; done && cp "$idx" "$dst/index.theme" && chmod -R u+w "$dst" && printf "%s" "$src" > "$dst/.dots-source"; fi', "_", Theme.papirusBase, root.dest, Theme.papirusTintIndex];
+        // colorName is resolved once, up front, and baked into this
+        // command now rather than threaded through onExited state: unlike
+        // the old per-file SVG queue, nothing here needs data that only
+        // exists after ensureTree has run.
+        recolor.command = [Theme.papirusFolders, "--theme", root.dest, "-C", colorName, "-o"];
         ensureTree.running = true;
     }
 
@@ -53,74 +82,32 @@ Item {
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
-            listBlues.running = true;
+            recolor.running = true;
         }
         // qmllint enable signal-handler-parameters
     }
 
-    // -Z null-terminates the match list: SVG filenames never contain a
-    // newline in practice, but nothing here needs to assume that. -i matches
-    // the plan's own workload check (`grep -rlic`), which is
-    // case-insensitive; tint.rs's SVGs are all lowercase hex, but a future
-    // upstream release is not this file's business to assume about.
+    // The upstream tool that points a folder's plain icon name at its
+    // colour-suffixed variant by symlink, e.g. folder.svg -> folder-<name>.svg
+    // (and the same for user-<name>). See this file's header for why this is
+    // upstream's own tool rather than an open-coded loop.
     Process {
-        id: listBlues
-
-        command: ["grep", "-rliZ", "-E", Tint.ADWAITA_BLUE_HEXES.join("|"), Theme.moreWaitaBase]
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                root.pendingFiles = this.text.length === 0 ? [] : this.text.split("\0").filter(p => p.length > 0);
-                root.rewriteNext();
-            }
-        }
-    }
-
-    // One file at a time rather than 240 processes in flight: a wallpaper
-    // pick is not a hot path, and a queue drained by chained onExited
-    // handlers needs no dynamic object creation to stay correct.
-    function rewriteNext() {
-        if (root.pendingFiles.length === 0) {
-            applyTheme.running = true;
-            return;
-        }
-
-        root.pendingSrc = root.pendingFiles[0];
-        root.pendingFiles = root.pendingFiles.slice(1);
-        readSvg.command = ["cat", root.pendingSrc];
-        readSvg.running = true;
-    }
-
-    Process {
-        id: readSvg
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const recolored = Tint.recolorIconText(this.text, root.pendingAccent);
-                const rel = root.pendingSrc.slice(Theme.moreWaitaBase.length);
-                writeSvg.command = ["sh", "-c", "printf '%s' \"$1\" > \"$2\"", "_", recolored, root.dest + rel];
-                writeSvg.running = true;
-            }
-        }
-    }
-
-    Process {
-        id: writeSvg
+        id: recolor
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
-            root.rewriteNext();
+            applyTheme.running = true;
         }
         // qmllint enable signal-handler-parameters
     }
 
-    // MoreWaita-Tint follows the same on-disk icon-theme layout GNOME
-    // already reads (index.theme and all); only the name and location
-    // differ from the store's MoreWaita. So the switch is one write, no new
-    // theme spec needed. It stays a no-op if the directory named here is
-    // missing — GNOME falls back to visually rendering whatever it last
-    // found, the write itself never errors — so this runs unconditionally
-    // rather than guarding on retint() having run first.
+    // Papirus-Tint follows the same on-disk icon-theme layout GNOME already
+    // reads (index.theme and all); only the name and location differ from
+    // the store's Papirus-Dark. So the switch is one write, no new theme
+    // spec needed. It stays a no-op if the directory named here is missing
+    // — GNOME falls back to visually rendering whatever it last found, the
+    // write itself never errors — so this runs unconditionally rather than
+    // guarding on retint() having run first.
     //
     // dconf write, not gsettings set: this session has dconf on PATH (the
     // dconf.enable HM option, plus the NixOS module) but no gsettings
@@ -132,7 +119,7 @@ Item {
     Process {
         id: applyTheme
 
-        command: ["dconf", "write", "/org/gnome/desktop/interface/icon-theme", "'MoreWaita-Tint'"]
+        command: ["dconf", "write", "/org/gnome/desktop/interface/icon-theme", "'Papirus-Tint'"]
 
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {

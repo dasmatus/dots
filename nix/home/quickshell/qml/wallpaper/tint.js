@@ -9,18 +9,13 @@
 .pragma library
 .import "../common/hls.js" as Hls
 
-// Adwaita-blue family used by MoreWaita folder/place icons. Each is
-// recolored to the accent's hue/saturation while keeping its own lightness,
-// so the icon's gradient shading survives the tint.
-var ADWAITA_BLUE_HEXES = ["#1c71d8", "#438de6", "#3584e4", "#62a0ea", "#99c1f1", "#afd4ff"];
-
 // Catppuccin-Frappe-Blue accents used by the Kvantum base theme; replaced
 // verbatim (case-insensitive), 7-char body only, so a trailing alpha hex
 // (e.g. "#8caaee4D") survives untouched.
 var KVANTUM_ACCENT_HEXES = ["#8caaee", "#839edd", "#98b2ef"];
 
-// None of '#' or a hex digit is a regex metacharacter today, but the three
-// hex families above are data, not literal patterns chosen for this code —
+// None of '#' or a hex digit is a regex metacharacter today, but the hex
+// family above is data, not a literal pattern chosen for this code —
 // escaping keeps a future accent format change (e.g. an 8-char literal) from
 // silently turning into a broken RegExp instead of a loud one.
 function escapeRegExp(s) {
@@ -155,21 +150,6 @@ function recolorKvantumText(text, accent, accentDark, accentLight) {
     return out;
 }
 
-// Recolor the Adwaita-blue family to the accent's hue/saturation, keeping
-// each matched hex's own lightness — so a folder icon's gradient shading
-// (several Adwaita blues at different lightness) survives the tint instead
-// of collapsing onto one flat colour. Anything outside the family (a status
-// colour like ruby's black) never matches and is left alone.
-function recolorIconText(text, accent) {
-    const accentHls = hexToHls(accent);
-    const pattern = ADWAITA_BLUE_HEXES.map(escapeRegExp).join("|");
-    const re = new RegExp(pattern, "gi");
-    return text.replace(re, (match) => {
-        const matchedHls = hexToHls(match);
-        return hlsToHex(accentHls.h, matchedHls.l, accentHls.s);
-    });
-}
-
 // Below this saturation a colour reads as black/grey/white rather than any
 // particular hue, so its hue is meaningless to compare against — hexToHls's
 // own achromatic branch always answers h=0 for such a colour (see hls.js),
@@ -188,9 +168,9 @@ function circularHueDistance(a, b) {
     return Math.min(d, 1.0 - d);
 }
 
-// Nearest Papirus folder-colour NAME for an arbitrary accent hex, so a later
-// task can symlink to a prebuilt colour variant instead of rewriting SVGs
-// the way recolorIconText does for MoreWaita. `colors` is name -> hex
+// Nearest Papirus folder-colour NAME for an arbitrary accent hex, so
+// Icons.qml can symlink to a prebuilt colour variant instead of rewriting
+// SVGs the way MoreWaita's retint() used to. `colors` is name -> hex
 // (papirus-colors.json, parsed by the caller) and stays a parameter rather
 // than a module-level table so this function stays pure and callers —
 // including tests — can supply their own fixture table without depending on
