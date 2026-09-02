@@ -58,12 +58,13 @@ Scope {
     // Every provider's rows for the current query, concatenated in registry
     // order and never reordered — a prefixed query is already exactly one
     // provider's own list. This, not `unfilteredResults` below, is what the
-    // pill bar counts from: `unfilteredResults` sorts by prefix match and
-    // then title, which would otherwise make the bar itself reorder under
-    // the pointer as scores change between keystrokes. beamenu's own rule
-    // for this list was "nothing may carry an index across a change in the
-    // visible set" — a pill bar that visibly reshuffles is that rule broken
-    // in a way you can see rather than crash on.
+    // pill bar's left-to-right order comes from: `unfilteredResults` sorts by
+    // prefix match and then title, which would otherwise make the bar itself
+    // reorder under the pointer as scores change between keystrokes. beamenu's
+    // own rule for this list was "nothing may carry an index across a change
+    // in the visible set" — a pill bar that visibly reshuffles is that rule
+    // broken in a way you can see rather than crash on. Pill *counts* are a
+    // separate question, answered where `pills` is computed below.
     readonly property var ambientRows: {
         const text = root.query;
 
@@ -121,10 +122,14 @@ Scope {
     }
 
     // One pill per provider present in the query's rows — item.rs's
-    // contract — computed from ambientRows (registry order) rather than from
-    // the sorted/sliced unfilteredResults, so the bar's own left-to-right
-    // order stays put across a keystroke instead of reshuffling with scores.
-    readonly property var pills: Pills.pillsFor(root.ambientRows)
+    // contract. Order comes from ambientRows (registry order) so the bar's
+    // left-to-right order stays put across a keystroke instead of reshuffling
+    // with scores; counts come from unfilteredResults, the exact list
+    // `results` below filters, so a pill's own number always matches what
+    // clicking it shows. Sourcing both from ambientRows once let a provider
+    // pushed past unfilteredResults' 50-row cap keep a nonzero pill that
+    // delivered fewer rows than promised, or none at all.
+    readonly property var pills: Pills.pillsFor(root.ambientRows, root.unfilteredResults)
 
     // What the list actually shows: the pill bar's filter applied on top of
     // the query's own matches and their display sort.

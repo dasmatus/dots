@@ -41,8 +41,15 @@ TestCase {
     // computing from registry order prevents. Pinning the property's exact
     // source, not just that pillsFor is called somewhere, is what stops a
     // future edit from quietly pointing it at the wrong list again.
-    function test_pills_read_the_pre_sort_list_not_the_display_list() {
-        verify(launcherSource().indexOf("Pills.pillsFor(root.ambientRows)") !== -1, "pills must be computed from ambientRows (registry order), not unfilteredResults (sorted for display)");
+    //
+    // Round 2's bug: pointing pillsFor at ambientRows alone fixed the order
+    // but broke agreement — ambientRows is untruncated, so a provider pushed
+    // past unfilteredResults' 50-row cap could keep a nonzero pill for rows
+    // clicking it would never show. pillsFor now takes ambientRows for order
+    // and unfilteredResults for counts; pinning both arguments, not just the
+    // first, is what stops a future edit from quietly dropping the second.
+    function test_pills_read_order_from_ambient_and_counts_from_unfiltered() {
+        verify(launcherSource().indexOf("Pills.pillsFor(root.ambientRows, root.unfilteredResults)") !== -1, "pills must take order from ambientRows (registry order) and counts from unfilteredResults (the list `results` actually filters)");
     }
 
     function test_results_are_filtered_through_the_pure_function() {

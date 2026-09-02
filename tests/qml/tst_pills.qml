@@ -15,7 +15,7 @@ TestCase {
 
     function test_pillsFor_counts_one_pill_per_provider_in_first_seen_order() {
         const rows = [row("apps"), row("apps"), row("status"), row("files")];
-        const pills = Pills.pillsFor(rows);
+        const pills = Pills.pillsFor(rows, rows);
 
         compare(pills.length, 3);
         compare(pills[0], { id: "apps", label: "Apps", count: 2 });
@@ -24,7 +24,60 @@ TestCase {
     }
 
     function test_pillsFor_is_empty_for_no_rows() {
-        compare(Pills.pillsFor([]), []);
+        compare(Pills.pillsFor([], []), []);
+    }
+
+    // Major 3: order and counts are read from two different lists on
+    // purpose — order from the registry-ordered list a caller never sorts
+    // or truncates, counts from whatever list its own filter actually runs
+    // against. A provider present in `order` but absent from `counted`
+    // (status here, sorted or truncated out of the display list before
+    // pillsFor ever sees it) must not appear at all: a pill promising rows
+    // it cannot deliver is worse than no pill.
+    function test_pillsFor_order_comes_from_first_arg_counts_from_second() {
+        const order = [row("apps"), row("status"), row("files")];
+        const counted = [row("apps"), row("apps"), row("files")];
+        const pills = Pills.pillsFor(order, counted);
+
+        compare(pills.length, 2);
+        compare(pills[0], { id: "apps", label: "Apps", count: 2 });
+        compare(pills[1], { id: "files", label: "Files", count: 1 });
+    }
+
+    // Left-to-right order must survive even when `counted` is sorted into a
+    // completely different arrangement — pinning that a caller cannot
+    // accidentally restore the pre-fix reordering bug by passing a sorted
+    // list as the order source instead of the count source.
+    function test_pillsFor_order_is_unaffected_by_counted_arrangement() {
+        const order = [row("apps"), row("status"), row("files")];
+        const counted = [row("files"), row("status"), row("apps")];
+        const pills = Pills.pillsFor(order, counted);
+
+        compare(pills.map(pill => pill.id), ["apps", "status", "files"]);
+    }
+
+    // The behaviour the whole split exists for: whatever pillsFor prints as
+    // a pill's count, filtering `counted` by that pill's id must yield
+    // exactly that many rows — the same list, so clicking a pill can never
+    // show a different number than the one printed on it. Modelled on the
+    // real bug: `order` is the untruncated registry-order list, `counted`
+    // is a display list a 50-row cap already shrank, and one provider
+    // (status) did not survive the cut at all.
+    function test_pillsFor_count_matches_what_filterByPill_actually_returns() {
+        const order = [].concat(
+            Array(30).fill(0).map(() => row("apps")),
+            Array(20).fill(0).map(() => row("system")),
+            Array(5).fill(0).map(() => row("status"))
+        );
+        // The display list's own 50-row cap: every "apps" row survives, only
+        // some of "system" does, and "status" is pushed out entirely.
+        const counted = order.slice(0, 45).filter(entry => entry.provider !== "status");
+        const pills = Pills.pillsFor(order, counted);
+
+        verify(pills.every(pill => pill.id !== "status"), "a provider with zero surviving rows must not get a pill");
+
+        for (const pill of pills)
+            compare(Pills.filterByPill(counted, pill.id).length, pill.count, `pill ${pill.id}'s count must match what clicking it returns`);
     }
 
     function test_filterByPill_keeps_only_the_selected_providers_rows() {
@@ -97,7 +150,7 @@ TestCase {
     // silently vanishing or crashing the bar.
     function test_pillsFor_groups_providerless_rows_under_other() {
         const rows = [row("apps"), { title: "mystery row" }, { title: "second mystery row" }];
-        const pills = Pills.pillsFor(rows);
+        const pills = Pills.pillsFor(rows, rows);
 
         compare(pills.length, 2);
         compare(pills[0], { id: "apps", label: "Apps", count: 1 });

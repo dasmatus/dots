@@ -44,25 +44,40 @@ function labelFor(id) {
     return id in LABELS ? LABELS[id] : id[0].toUpperCase() + id.slice(1);
 }
 
-// One pill per provider that produced at least one row in `rows`, ordered by
-// each provider's first appearance. That is the order the ambient query
-// already concatenates providers in (Launcher.qml's own `results`), so the
-// pill bar reads left-to-right the same way every time instead of reordering
-// itself as scores change between keystrokes.
-function pillsFor(rows) {
-    const order = [];
+// One pill per provider, ordered by first appearance in `order` — the
+// ambient query's own registry-order concatenation (Launcher.qml's
+// `ambientRows`) — so the bar's left-to-right order stays put across a
+// keystroke instead of reordering as match scores change.
+//
+// Counts, deliberately, come from `counted` instead: whatever list the
+// caller's own filter actually runs against (Launcher.qml's
+// `unfilteredResults`, the sorted-and-capped display list). `order` is
+// untruncated and unsorted, so counting from it would print a number a
+// click could not back up — the exact bug this replaced, where a provider
+// pushed past the display cap still advertised its full row count while
+// filtering into it returned fewer rows, or none. A provider absent from
+// `counted` entirely is dropped rather than shown at a count of zero: a
+// pill that cannot deliver a single row is not a filter, it is a dead end
+// with a number on it.
+function pillsFor(order, counted) {
+    const sequence = [];
     const counts = {};
 
-    for (const row of rows) {
+    for (const row of order) {
         const id = providerOf(row);
         if (!(id in counts)) {
-            order.push(id);
+            sequence.push(id);
             counts[id] = 0;
         }
-        counts[id] += 1;
     }
 
-    return order.map(id => ({ id: id, label: labelFor(id), count: counts[id] }));
+    for (const row of counted) {
+        const id = providerOf(row);
+        if (id in counts)
+            counts[id] += 1;
+    }
+
+    return sequence.filter(id => counts[id] > 0).map(id => ({ id: id, label: labelFor(id), count: counts[id] }));
 }
 
 // `pillId === ""` is the pill bar's own "All" state, not a provider nothing
