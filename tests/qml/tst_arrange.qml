@@ -499,4 +499,45 @@ TestCase {
         const source = readArrangeSource();
         verify(source.indexOf(".adapter.root") === -1, "Arrange.qml must never read .adapter.root — JsonAdapter has no such property in this Quickshell version, so every such read is silently undefined");
     }
+
+    // Scoped to overridesRoot's own block via the same brace-counting idiom
+    // as jsonAdapterBlock() above, rather than a bare indexOf over the whole
+    // file: the property's own explanatory comment names both `instanceof
+    // Array` and `Array.isArray`, so an unscoped scan of either identifier
+    // would be satisfied (or defeated) by prose rather than the binding.
+    function overridesRootBlock() {
+        const source = readArrangeSource();
+        const marker = "readonly property var overridesRoot: {";
+        const start = source.indexOf(marker);
+        verify(start !== -1, "Arrange.qml must declare overridesRoot");
+        let depth = 0;
+        let i = start + marker.length - 1;
+        for (; i < source.length; i++) {
+            if (source[i] === "{")
+                depth++;
+            else if (source[i] === "}") {
+                depth--;
+                if (depth === 0)
+                    break;
+            }
+        }
+        verify(depth === 0, "overridesRoot's closing brace must be found");
+        return source.slice(start, i + 1);
+    }
+
+    // Quickshell wraps a JsonAdapter's loaded QVariantList as a V4Sequence,
+    // not a genuine JS Array exotic object: Array.isArray returns false for
+    // it while `instanceof Array` returns true, confirmed live against the
+    // real quickshell binary (see overridesRoot's own comment). A
+    // regression back to Array.isArray would silently discard every
+    // successfully loaded overrides.json and keep the empty default.
+    // qmltestrunner cannot load Quickshell.Io to instantiate a real
+    // JsonAdapter and exercise that distinction directly (tests/README.md),
+    // so this pins the source text instead, the same idiom
+    // tst_tint_wiring.qml uses for a caller qmltestrunner cannot construct.
+    function test_overridesRoot_guards_with_instanceof_array_not_isArray() {
+        const block = overridesRootBlock();
+        verify(block.indexOf("instanceof Array") !== -1, "overridesRoot must guard the adapter's entries with `instanceof Array`");
+        verify(block.indexOf("Array.isArray") === -1, "overridesRoot must not regress to Array.isArray, which returns false for Quickshell's V4Sequence and would discard every loaded override");
+    }
 }
