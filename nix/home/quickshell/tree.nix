@@ -44,6 +44,71 @@ let
     ) palette.colors
   );
 
+  # Papirus's folder-colour name -> hex map. nearestPapirusColor (tint.js)
+  # takes this table as a parameter rather than reading the file itself: a
+  # `.pragma library` script cannot read a file or a singleton on its own,
+  # so the table has to reach it through the papirusColors property below.
+  # The runCommand assertion further down reads this same parsed value
+  # rather than re-deriving the name list by scraping.
+  papirusColors = builtins.fromJSON (
+    builtins.readFile ./qml/wallpaper/papirus-colors.json
+  );
+
+  # Same reasoning as colorProperties above, with the indent hardcoded one
+  # level deeper: these entries sit inside the object literal the
+  # papirusColors property wraps, not directly inside Singleton { }. The
+  # interpolation site below carries no static indent of its own precisely
+  # so this hardcoded prefix is the only one applied — a nonzero static
+  # prefix there would land on this string's first line only, since a '' ''
+  # literal dedents its own source lines before substituting, not after.
+  papirusColorEntries = lib.concatStringsSep ",\n" (
+    lib.mapAttrsToList (
+      name: value: "        \"${name}\": \"${value}\""
+    ) papirusColors
+  );
+
+  # Both the papirusBase property and the runCommand assertion below need
+  # this path; one binding keeps them from drifting apart.
+  papirusIconThemeBase = "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark";
+
+  # The sizes Papirus-Tint actually ships. A list rather than five
+  # hand-written [NxN/places] blocks, so adding a size later is a one-line
+  # change instead of a copy-pasted block.
+  papirusTintSizes = [
+    22
+    24
+    32
+    48
+    64
+  ];
+
+  papirusTintDirectories = lib.concatMapStringsSep "," (
+    size: "${toString size}x${toString size}/places"
+  ) papirusTintSizes;
+
+  papirusTintSections = lib.concatMapStringsSep "\n\n" (
+    size: ''
+      [${toString size}x${toString size}/places]
+      Size=${toString size}
+      Context=Places
+      Type=Fixed''
+  ) papirusTintSizes;
+
+  # The runtime tint theme Icons.qml assembles into: Papirus-Dark with its
+  # folder icons re-symlinked to the wallpaper accent. THIN on purpose — it
+  # ships only the five `places` directories below, and Inherits resolves
+  # every other icon straight from papirusIconThemeBase, so nothing else
+  # needs copying or regenerating when the accent changes.
+  papirusTintIndexFile = pkgs.writeText "index.theme" ''
+    [Icon Theme]
+    Name=Papirus-Tint
+    Comment=Papirus-Dark with folder icons recoloured to the wallpaper accent
+    Inherits=Papirus-Dark,Papirus,hicolor
+    Directories=${papirusTintDirectories}
+
+    ${papirusTintSections}
+  '';
+
   # Named Theme, not Palette: QtQuick already exports a Palette type, and a
   # singleton of that name resolves to QQuickPalette instead of this one, so
   # every Theme.bg would silently read a property that does not exist.
@@ -104,6 +169,33 @@ let
         // in as WALLPAPER_TUI_KVANTUM_BASE. Read-only for the same reason
         // moreWaitaBase is.
         readonly property string kvantumBase: "${pkgs.catppuccin-kvantum}/share/Kvantum/catppuccin-frappe-blue";
+
+        // The Nix-store Papirus-Dark tree Icons.qml's retint() copies from.
+        // Papirus-Dark/<size> are symlinks to ../Papirus/<size>, so whole
+        // size directories are shared with the light variant — a copy out
+        // of this path has to dereference the symlinks rather than copy
+        // them as-is.
+        readonly property string papirusBase: "${papirusIconThemeBase}";
+
+        // The upstream script that points a folder's plain icon name at its
+        // colour-suffixed variant by symlink, e.g. folder.svg ->
+        // folder-red.svg. Icons.qml's retint() drives it with the accent
+        // nearestPapirusColor (tint.js) resolves.
+        readonly property string papirusFolders: "${pkgs.papirus-folders}/bin/papirus-folders";
+
+        // Papirus's folder-colour name -> hex map, parsed from
+        // qml/wallpaper/papirus-colors.json so nearestPapirusColor (tint.js)
+        // reads the same table this file's own build-time assertion checks.
+        // Wrapped in parens: a bare `{` in a QML binding opens a code block,
+        // not an object literal.
+        readonly property var papirusColors: ({
+    ${papirusColorEntries}
+        });
+
+        // A generated index.theme for the runtime Papirus-Tint theme — see
+        // papirusTintIndexFile in this file's own let block for why it is
+        // deliberately thin.
+        readonly property string papirusTintIndex: "${papirusTintIndexFile}";
 
         // Picker.qml mkdir -p's this before every write; exposed as its own
         // property rather than derived by trimming tintStatePath in JS so
@@ -168,4 +260,15 @@ pkgs.runCommand "dots-quickshell-config" { } ''
   cp ${quicklinksFile} "$out/launcher/quicklinks.json"
   cp ${snippetsFile} "$out/launcher/snippets.json"
   cp ${keybindsFile} "$out/cheatsheet/keybinds.json"
+
+  # A Papirus release that renames or drops a folder colour would otherwise
+  # leave nearestPapirusColor (tint.js) picking a name that resolves to
+  # nothing at runtime. Fail the build loudly instead, checking every name
+  # papirusColors above was parsed from against the store theme it names.
+  for name in ${lib.concatStringsSep " " (builtins.attrNames papirusColors)}; do
+    if [ ! -e "${papirusIconThemeBase}/24x24/places/folder-$name.svg" ]; then
+      echo "papirus-colors.json has '$name' but Papirus ships no folder-$name.svg" >&2
+      exit 1
+    fi
+  done
 ''
