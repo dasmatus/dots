@@ -152,16 +152,25 @@ function isKnownPromptMode(mode) {
 // it is testable without a live prompt: a generic message for a falsy
 // snapshot or an unrecognised mode, neither of which has a name to blame,
 // and otherwise a naming-specific message scoped to what that mode can
-// actually reject — trash-confirm only ever fails escapesDirectory (a
-// "/", an empty name, or "." or ".." exactly), never isValidEntryName's
-// extra CREATE-time rules, so its message must not claim a blank or
-// newline name would be refused when trash-confirm accepts both.
+// actually reject — trash-confirm, and now rename's source half, only
+// ever fail escapesDirectory (a non-string, the empty string, "." or
+// ".." exactly, or a name containing "/"), never isValidEntryName's extra
+// CREATE-time rules, so this message must not claim a blank or newline
+// name would be refused when trash-confirm accepts both. It does have to
+// name the empty string, though: escapesDirectory("") is true, and an
+// earlier wording here named only "/", ".." and "." and dropped the
+// empty-string rejection along with the two hygiene rules that
+// legitimately don't apply, leaving a user who typed nothing looking at
+// a reason that was not the reason. Non-string stays unnamed regardless
+// — nothing typed into the prompt field or picked off a real listing is
+// ever anything but a string, so only a future caller's bug reaches it,
+// not a person this message is written for.
 function promptErrorMessage(snapshot) {
     if (!snapshot || !isKnownPromptMode(snapshot.mode))
         return "Nothing to confirm";
 
     if (snapshot.mode === "trash-confirm")
-        return "Invalid name: cannot contain \"/\", or be \"..\" or \".\"";
+        return "Invalid name: cannot be empty, contain \"/\", or be \"..\" or \".\"";
 
     return "Invalid name: cannot be empty or whitespace-only, contain \"/\" or a newline, or be \"..\" or \".\"";
 }

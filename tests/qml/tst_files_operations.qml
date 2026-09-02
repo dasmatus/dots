@@ -319,20 +319,38 @@ TestCase {
     }
 
     // Mutant M29: the wording was not pinned by any assertion, only
-    // `.includes("Invalid name")`. trash-confirm's only reachable
-    // rejections are "/", "." and ".." (escapesDirectory) plus a
-    // non-string — it never runs isValidEntryName's extra CREATE-time
-    // rules, so its message must not claim empty/whitespace/newline would
-    // be refused, unlike rename/mkdir's.
+    // `.includes("Invalid name")`. trash-confirm's reachable rejections
+    // are escapesDirectory's — "/", ".", ".." and the empty string, plus
+    // a non-string — never isValidEntryName's extra CREATE-time rules, so
+    // its message must not claim whitespace-only or a newline would be
+    // refused, unlike rename/mkdir's. It DOES have to claim empty: an
+    // earlier wording here dropped that case by mistake (see
+    // promptErrorMessage's comment) and this once asserted the absence
+    // that mistake produced instead of catching it.
     function test_promptErrorMessage_trash_confirm_message_is_narrower_than_rename_mkdirs() {
         const trashMessage = Operations.promptErrorMessage(Operations.beginPrompt("trash-confirm", "/home/matus", "x"));
         const renameMessage = Operations.promptErrorMessage(Operations.beginPrompt("rename", "/home/matus", "old.txt"));
 
         verify(trashMessage.includes("Invalid name"));
-        verify(!trashMessage.includes("empty"));
+        verify(trashMessage.includes("empty"));
         verify(!trashMessage.includes("whitespace"));
         verify(!trashMessage.includes("newline"));
         verify(trashMessage !== renameMessage);
+    }
+
+    // escapesDirectory rejects five things: a non-string, the empty
+    // string, ".", "..", and any name containing "/". The trash-confirm
+    // message must stay true for the four a person can actually produce
+    // by leaving a rename/trash target's name blank or picking one apart
+    // — round 4's wording named "/", ".." and "." and silently dropped
+    // the empty-string case, the exact one an empty snapshot.name hits.
+    function test_promptErrorMessage_trash_confirm_names_every_case_escapesdirectory_rejects() {
+        const trashMessage = Operations.promptErrorMessage(Operations.beginPrompt("trash-confirm", "/home/matus", "x"));
+
+        verify(trashMessage.includes("empty"));
+        verify(trashMessage.includes("\"/\""));
+        verify(trashMessage.includes("\"..\""));
+        verify(trashMessage.includes("\".\""));
     }
 
     function test_promptErrorMessage_is_generic_for_a_falsy_or_unrecognised_snapshot() {
