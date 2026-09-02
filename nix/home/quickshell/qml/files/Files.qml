@@ -24,6 +24,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import "files.js" as FilesMath
 import "history.js" as HistoryMath
 import "operations.js" as Operations
 import "tabs.js" as TabsMath
@@ -256,9 +257,12 @@ Scope {
         cmdline.query = root.promptText;
     }
 
-    function openCmdline(): void {
+    // "command" for `:` and "search" for `/`. Two lines rather than one
+    // list holding both kinds, the way vim splits them: the keystroke has
+    // already said whether you are naming a command or naming a file.
+    function openCmdline(mode: string): void {
         root.promptSnapshot = null;
-        root.promptMode = "command";
+        root.promptMode = mode;
         cmdline.clear();
     }
 
@@ -392,11 +396,62 @@ Scope {
                 anchors.fill: parent
                 focus: root.promptMode === ""
 
+                // `gg` is the one two-key sequence here, so it gets one
+                // flag rather than a general pending-count machine. Any
+                // other key clears it, which is what stops `g` then `j`
+                // from jumping to the top a keystroke later.
+                property bool pendingG: false
+
                 Keys.onPressed: (event) => {
+                    const wasPendingG = catcher.pendingG;
+                    catcher.pendingG = false;
+                    event.accepted = true;
+
                     if (event.text === ":") {
-                        root.openCmdline();
-                        event.accepted = true;
+                        root.openCmdline("command");
+                        return;
                     }
+
+                    if (event.text === "/") {
+                        root.openCmdline("search");
+                        return;
+                    }
+
+                    switch (event.key) {
+                    case Qt.Key_J:
+                    case Qt.Key_Down:
+                        pane.moveSelection(1);
+                        return;
+                    case Qt.Key_K:
+                    case Qt.Key_Up:
+                        pane.moveSelection(-1);
+                        return;
+                    // h leaves the directory and l enters the selection,
+                    // which is the same left-is-out, right-is-in the
+                    // arrows have.
+                    case Qt.Key_H:
+                    case Qt.Key_Left:
+                        root.setActivePath(FilesMath.parentOf(root.path));
+                        return;
+                    case Qt.Key_L:
+                    case Qt.Key_Right:
+                    case Qt.Key_Return:
+                    case Qt.Key_Enter:
+                        pane.activateSelected();
+                        return;
+                    case Qt.Key_G:
+                        // Shift+G is the bottom; a bare g arms the pair.
+                        if (event.modifiers & Qt.ShiftModifier)
+                            pane.selectIndex(pane.entries.length - 1);
+                        else if (wasPendingG)
+                            pane.selectIndex(0);
+                        else
+                            catcher.pendingG = true;
+
+                        return;
+                    }
+
+                    event.accepted = false;
                 }
             }
 

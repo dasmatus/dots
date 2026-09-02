@@ -78,6 +78,33 @@ Rectangle {
         lsProc.running = true;
     }
 
+    // Keyboard selection. Each of these also drags the view along, because
+    // a selection that has scrolled out of sight is the same as no
+    // selection at all — the next j moves something the user cannot see.
+    function selectIndex(index: int): void {
+        if (root.entries.length === 0)
+            return;
+
+        root.selectedIndex = Math.max(0, Math.min(index, root.entries.length - 1));
+        list.positionViewAtIndex(root.selectedIndex, ListView.Contain);
+    }
+
+    // Starting from -1 means the first j selects the first row rather than
+    // the second, and the first k selects the last.
+    function moveSelection(delta: int): void {
+        if (root.selectedIndex < 0) {
+            root.selectIndex(delta > 0 ? 0 : root.entries.length - 1);
+            return;
+        }
+
+        root.selectIndex(root.selectedIndex + delta);
+    }
+
+    function activateSelected(): void {
+        if (root.selected)
+            root.activate(root.selected);
+    }
+
     function activate(entry: var): void {
         const child = FilesMath.join(root.path, entry.name);
 
@@ -117,6 +144,8 @@ Rectangle {
         spacing: Theme.filesPadding
 
         ListView {
+            id: list
+
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true

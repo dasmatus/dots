@@ -78,30 +78,31 @@ function matches(haystack, needle) {
 
 // Prefix matches first, exactly as Launcher.qml sorts its own results, so
 // typing "re" reaches Rename before anything merely containing "re".
-// Actions hold their order against an equal-ranked entry: the commands are
-// the reason the line exists, and burying them under a directory that
-// happens to sort earlier makes it useless.
-function rowsFor(query, entries, selection, clipboard, showHidden) {
-    const all = actionRows(selection, clipboard, showHidden).concat(entryRows(entries));
+function filtered(rows, query) {
     const needle = query.trim().toLowerCase();
 
     if (needle === "")
-        return all;
+        return rows;
 
-    const hits = all.filter(row => matches(row.title, needle));
-
-    return hits.sort((a, b) => {
+    return rows.filter(row => matches(row.title, needle)).sort((a, b) => {
         const aPrefix = a.title.toLowerCase().startsWith(needle) ? 0 : 1;
         const bPrefix = b.title.toLowerCase().startsWith(needle) ? 0 : 1;
 
-        if (aPrefix !== bPrefix)
-            return aPrefix - bPrefix;
-
-        if (a.kind !== b.kind)
-            return a.kind === "action" ? -1 : 1;
-
-        return 0;
+        return aPrefix - bPrefix;
     });
+}
+
+// `:` and `/` are two lines, not one list with two kinds in it. vim splits
+// them the same way and for the same reason: you already know whether you
+// are naming a command or naming a file, so making the line ask you to
+// disambiguate by typing is work the keystroke already did. It also stops
+// a directory called "Copy" from outranking the Copy command.
+function actionsFor(query, selection, clipboard, showHidden) {
+    return filtered(actionRows(selection, clipboard, showHidden), query);
+}
+
+function entriesFor(query, entries) {
+    return filtered(entryRows(entries), query);
 }
 
 // The right-click menu is the same action list with no filter and no

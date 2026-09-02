@@ -30,7 +30,17 @@ Rectangle {
 
     readonly property bool prompting: root.mode === "rename" || root.mode === "mkdir"
     readonly property bool confirming: root.mode === "trash-confirm"
-    readonly property var rows: root.mode === "command" ? Commands.rowsFor(root.query, root.entries, root.selection, root.clipboard, root.showHidden) : []
+    readonly property bool listing: root.mode === "command" || root.mode === "search"
+
+    readonly property var rows: {
+        if (root.mode === "command")
+            return Commands.actionsFor(root.query, root.selection, root.clipboard, root.showHidden);
+
+        if (root.mode === "search")
+            return Commands.entriesFor(root.query, root.entries);
+
+        return [];
+    }
 
     signal activated(var row)
     signal submitted(string text)
@@ -47,7 +57,7 @@ Rectangle {
     topRightRadius: Theme.filesRadius
 
     onModeChanged: {
-        if (root.mode === "command") {
+        if (root.listing) {
             root.query = "";
             root.current = 0;
         }
@@ -64,7 +74,7 @@ Rectangle {
     }
 
     function accept(): void {
-        if (root.mode === "command") {
+        if (root.listing) {
             if (root.rows.length > 0)
                 root.activated(root.rows[root.current]);
 
@@ -94,7 +104,7 @@ Rectangle {
             // Caps how tall the line can grow. A match list that fills the
             // window hides the directory you are choosing from.
             implicitHeight: Math.min(root.rows.length, 8) * Theme.filesRowHeight
-            visible: root.mode === "command"
+            visible: root.listing
             clip: true
             currentIndex: root.current
 
@@ -170,8 +180,16 @@ Rectangle {
 
             spacing: 8
 
+            // The prefix says which line this is, exactly as vim's does:
+            // `/` searches the directory, `:` runs a command, and a prompt
+            // shows what it is about to do instead.
             Text {
-                text: root.confirming ? "\u{F0A79}" : ":"
+                text: {
+                    if (root.confirming)
+                        return "\u{F0A79}";
+
+                    return root.mode === "search" ? "/" : ":";
+                }
                 color: root.confirming ? Theme.red : Theme.accent
                 font.family: Theme.fontMono
                 font.pixelSize: Theme.fontSize
@@ -215,7 +233,7 @@ Rectangle {
                 visible: !root.confirming
 
                 onTextChanged: {
-                    if (root.mode === "command") {
+                    if (root.listing) {
                         root.query = text;
                         root.current = 0;
                     }

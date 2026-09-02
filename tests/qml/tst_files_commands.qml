@@ -81,37 +81,45 @@ TestCase {
         compare(listing[rows[2].index].name, "readme.md");
     }
 
-    function test_a_query_filters_across_both_kinds_at_once() {
-        const found = titles(Commands.rowsFor("do", listing, selection, null, false));
+    // `/` and `:` are separate lines. Each sees only its own kind, which is
+    // what stops a directory called "Copy" from outranking the Copy command
+    // and vice versa.
+    function test_the_search_line_sees_entries_and_no_actions() {
+        const found = titles(Commands.entriesFor("do", listing));
 
         verify(found.indexOf("Dokumente") >= 0);
         verify(found.indexOf("Downloads") >= 0);
         verify(found.indexOf("Copy") < 0);
     }
 
+    function test_the_command_line_sees_actions_and_no_entries() {
+        const found = titles(Commands.actionsFor("do", selection, null, false));
+
+        verify(found.indexOf("Dokumente") < 0);
+        verify(found.indexOf("Downloads") < 0);
+    }
+
     // Prefix before substring, the same order Launcher.qml sorts its own
     // results in, so typing the start of a name reaches it first.
     function test_a_prefix_match_outranks_a_substring_match() {
-        const rows = Commands.rowsFor("re", listing, selection, null, false);
+        const rows = Commands.entriesFor("re", [{ name: "libreoffice", isDir: true }, { name: "readme.md", isDir: false }]);
 
-        compare(rows[0].title, "Rename");
-        verify(titles(rows).indexOf("readme.md") > 0);
-    }
-
-    // The commands are why the line exists; a directory that happens to sort
-    // earlier must not bury them.
-    function test_an_action_outranks_an_equally_ranked_entry() {
-        const found = titles(Commands.rowsFor("o", listing, selection, null, false));
-
-        verify(found.indexOf("Copy") < found.indexOf("Dokumente"));
+        compare(rows[0].title, "readme.md");
+        verify(titles(rows).indexOf("libreoffice") > 0);
     }
 
     function test_the_filter_ignores_case() {
-        compare(titles(Commands.rowsFor("RENAME", listing, selection, null, false)), ["Rename"]);
+        compare(titles(Commands.actionsFor("RENAME", selection, null, false)), ["Rename"]);
     }
 
     function test_a_query_matching_nothing_returns_nothing() {
-        compare(Commands.rowsFor("zzzz", listing, selection, null, false).length, 0);
+        compare(Commands.actionsFor("zzzz", selection, null, false).length, 0);
+        compare(Commands.entriesFor("zzzz", listing).length, 0);
+    }
+
+    function test_an_empty_query_offers_the_whole_side() {
+        compare(Commands.entriesFor("", listing).length, listing.length);
+        compare(Commands.actionsFor("", selection, clipboard, false).length, 7);
     }
 
     // The menu is already pointing at something, so it carries the actions
@@ -129,7 +137,9 @@ TestCase {
     function test_every_row_names_a_real_palette_token() {
         const known = ["accent", "fg", "blue", "cyan", "green", "magenta", "red", "yellow", "orange", "dim"];
 
-        for (const row of Commands.rowsFor("", listing, selection, clipboard, false))
+        const all = Commands.actionsFor("", selection, clipboard, false).concat(Commands.entriesFor("", listing));
+
+        for (const row of all)
             verify(known.indexOf(row.colour) >= 0, `${row.title} uses an unknown token`);
     }
 }
