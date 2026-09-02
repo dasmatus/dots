@@ -18,7 +18,7 @@ let
 
   tree = import ./tree.nix {
     inherit pkgs;
-    inherit (cfg) quicklinks snippets;
+    inherit (cfg) quicklinks snippets launcherSeed;
     keybinds = import ../keybinds.nix;
     stateHome = config.xdg.stateHome;
   };
@@ -122,7 +122,6 @@ in
       description = "Monitor layout rules, read by the shell's hotplug watcher.";
     };
 
-
     quicklinks = lib.mkOption {
       type = lib.types.listOf (
         lib.types.submodule {
@@ -164,6 +163,15 @@ in
       );
       default = [ ];
       description = "Launcher text snippets.";
+    };
+
+    launcherSeed = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        "librewolf"
+        "brave-browser"
+      ];
+      description = "Desktop-entry ids seeding launcher frecency on first run; earlier ranks higher. Ignored once frecency.json exists.";
     };
 
   };

@@ -23,6 +23,11 @@
   quicklinks ? [ ],
   snippets ? [ ],
   keybinds ? [ ],
+  # Defaulted because flake/packages.nix's qmllint build (see its own
+  # comment) calls this function with only pkgs/stateHome/keybinds — an
+  # unmet required argument there would break that build, not just launcher
+  # seeding.
+  launcherSeed ? [ ],
 }:
 let
   inherit (pkgs) lib;
@@ -35,6 +40,11 @@ let
   # what keeps the two from disagreeing about where it lives — see this
   # module's own header for what happens when they do.
   tintStateDir = "${stateHome}/dots-shell/tint";
+
+  # Same one-binding-feeds-both-sides reasoning as tintStateDir above: the
+  # writer that records frecency and any future watcher that reloads it must
+  # not be able to disagree about where frecency.json lives.
+  launcherStateDir = "${stateHome}/dots-shell/launcher";
 
   # Double-quoted, not an indented string: Nix strips the common indentation
   # off a '' '' literal, which would flatten every one of these to column 0.
@@ -50,9 +60,7 @@ let
   # so the table has to reach it through the papirusColors property below.
   # The runCommand assertion further down reads this same parsed value
   # rather than re-deriving the name list by scraping.
-  papirusColors = builtins.fromJSON (
-    builtins.readFile ./qml/wallpaper/papirus-colors.json
-  );
+  papirusColors = builtins.fromJSON (builtins.readFile ./qml/wallpaper/papirus-colors.json);
 
   # Same reasoning as colorProperties above, with the indent hardcoded one
   # level deeper: these entries sit inside the object literal the
@@ -62,9 +70,7 @@ let
   # prefix there would land on this string's first line only, since a '' ''
   # literal dedents its own source lines before substituting, not after.
   papirusColorEntries = lib.concatStringsSep ",\n" (
-    lib.mapAttrsToList (
-      name: value: "        \"${name}\": \"${value}\""
-    ) papirusColors
+    lib.mapAttrsToList (name: value: "        \"${name}\": \"${value}\"") papirusColors
   );
 
   # Both the papirusBase property and the runCommand assertion below need
@@ -97,13 +103,11 @@ let
     size: "${toString size}x${toString size}"
   ) papirusTintSizes;
 
-  papirusTintSections = lib.concatMapStringsSep "\n\n" (
-    size: ''
-      [${toString size}x${toString size}/places]
-      Size=${toString size}
-      Context=Places
-      Type=Fixed''
-  ) papirusTintSizes;
+  papirusTintSections = lib.concatMapStringsSep "\n\n" (size: ''
+    [${toString size}x${toString size}/places]
+    Size=${toString size}
+    Context=Places
+    Type=Fixed'') papirusTintSizes;
 
   # The runtime tint theme Icons.qml assembles into: Papirus-Dark with its
   # folder icons re-symlinked to the wallpaper accent. THIN on purpose — it
@@ -224,6 +228,13 @@ let
         readonly property string tintStateDir: "${tintStateDir}";
         readonly property string tintStatePath: "${tintStateDir}/current.json";
 
+        // Mirrors tintStateDir/tintStatePath above: the launcher's frecency
+        // writer mkdir -p's launcherStateDir before writing
+        // launcherStatePath, so the two can never disagree about where
+        // frecency.json lives.
+        readonly property string launcherStateDir: "${launcherStateDir}";
+        readonly property string launcherStatePath: "${launcherStateDir}/frecency.json";
+
         // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
         // without exporting it, so qmllint cannot resolve anything reached
         // through it — that is why the category is suppressed here. Separately,
@@ -275,6 +286,9 @@ let
   quicklinksFile = pkgs.writeText "quicklinks.json" (builtins.toJSON { items = quicklinks; });
   snippetsFile = pkgs.writeText "snippets.json" (builtins.toJSON { items = snippets; });
   keybindsFile = pkgs.writeText "keybinds.json" (builtins.toJSON { groups = keybinds; });
+  # Object root for the same JsonAdapter reason as quicklinksFile/snippetsFile
+  # above: a bare array root fails to deserialize.
+  seedFile = pkgs.writeText "seed.json" (builtins.toJSON { ids = launcherSeed; });
 in
 pkgs.runCommand "dots-quickshell-config" { } ''
   mkdir -p "$out"
@@ -285,6 +299,7 @@ pkgs.runCommand "dots-quickshell-config" { } ''
   cp ${quicklinksFile} "$out/launcher/quicklinks.json"
   cp ${snippetsFile} "$out/launcher/snippets.json"
   cp ${keybindsFile} "$out/cheatsheet/keybinds.json"
+  cp ${seedFile} "$out/launcher/seed.json"
 
   # A Papirus release that renames or drops a folder colour would otherwise
   # leave nearestPapirusColor (tint.js) picking a name that resolves to
