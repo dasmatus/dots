@@ -163,6 +163,15 @@ let
           if [ ! -t 0 ]; then
             IFS= read -r -d "" payload || true
           fi
+          # Claude Code re-runs Stop after its own nudge lands, and a session
+          # with nothing worth recording answers it the same way every time,
+          # so the nudge repeats until the block cap stops it. The binary
+          # asks a Stop hook to succeed quietly while this flag is set, which
+          # spends the nudge once per chain instead of once per turn.
+          active_re='"stop_hook_active"[[:space:]]*:[[:space:]]*true'
+          if [[ $payload =~ $active_re ]]; then
+            exit 0
+          fi
           session=""
           session_re='"session_id"[[:space:]]*:[[:space:]]*"([0-9a-fA-F-]{36})"'
           if [[ $payload =~ $session_re ]]; then
