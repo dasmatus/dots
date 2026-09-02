@@ -9,7 +9,6 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
-import "files.js" as FilesMath
 import "operations.js" as Operations
 import "../services"
 import ".."
@@ -75,20 +74,37 @@ Scope {
             root.rightPath = path;
     }
 
+    // pane.selected.name comes off the same parseListing() provenance
+    // resolvePromptArgv's rename/trash-confirm branches read theirs from
+    // (see escapesDirectory's own comment in operations.js), so it gets
+    // the same check through resolveSelectionArgv rather than going
+    // straight into Operations.copyArgv the way it used to. Copy has no
+    // prompt to route a rejection through the way rename/trash-confirm
+    // do, so a rejection sets root.lastError directly, the same surface
+    // opRunner already uses for a failed mv/cp/mkdir/gio exit code.
     function copySelected(): void {
         const pane = root.activePane;
         if (!pane.selected)
             return;
 
-        root.runOperation(Operations.copyArgv(FilesMath.join(pane.path, pane.selected.name), root.otherPane.path));
+        const argv = Operations.resolveSelectionArgv("copy", pane.path, pane.selected.name, root.otherPane.path);
+        if (argv)
+            root.runOperation(argv);
+        else
+            root.lastError = Operations.escapesDirectoryMessage();
     }
 
+    // Same reasoning as copySelected() above, for move.
     function moveSelected(): void {
         const pane = root.activePane;
         if (!pane.selected)
             return;
 
-        root.runOperation(Operations.moveArgv(FilesMath.join(pane.path, pane.selected.name), root.otherPane.path));
+        const argv = Operations.resolveSelectionArgv("move", pane.path, pane.selected.name, root.otherPane.path);
+        if (argv)
+            root.runOperation(argv);
+        else
+            root.lastError = Operations.escapesDirectoryMessage();
     }
 
     function runOperation(argv: var): void {

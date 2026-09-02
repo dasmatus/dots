@@ -140,11 +140,57 @@ function resolvePromptArgv(snapshot, promptText) {
     return null;
 }
 
+// copySelected()/moveSelected() build their source the same way
+// resolvePromptArgv builds rename's and trash-confirm's: FilesMath.join()
+// against pane.selected.name, an existing entry's name off the same
+// parseListing() ls -1Ap output those two read theirs from. Neither call
+// site validated it at all until now — not escapesDirectory, not
+// isValidEntryName — so a selected entry named "..", or one join() would
+// resolve outside pane.path some other way, went straight into copyArgv/
+// moveArgv with nothing in between. Pulled out of Files.qml into a pure
+// function for the same reason resolvePromptArgv is one: Files.qml
+// instantiates Quickshell.Io, which qmltestrunner cannot load here, so any
+// check written inline there is a check no test in this suite can reach.
+// mode picks the builder; escapesDirectory rejection returns null the same
+// way an unrecognised resolvePromptArgv mode does, leaving the decision of
+// what to show the user to the caller.
+function resolveSelectionArgv(mode, srcDirPath, name, dstDirPath) {
+    if (escapesDirectory(name))
+        return null;
+
+    const src = FilesMath.join(srcDirPath, name);
+
+    if (mode === "copy")
+        return copyArgv(src, dstDirPath);
+
+    if (mode === "move")
+        return moveArgv(src, dstDirPath);
+
+    return null;
+}
+
 // The three modes this file ever puts into a beginPrompt() snapshot.
 const PROMPT_MODES = ["rename", "mkdir", "trash-confirm"];
 
 function isKnownPromptMode(mode) {
     return PROMPT_MODES.includes(mode);
+}
+
+// The message for a name that only ever fails escapesDirectory's four
+// checks (a non-string, the empty string, "." or ".." exactly, or a name
+// containing "/"), never isValidEntryName's extra CREATE-time rules —
+// shared by promptErrorMessage's trash-confirm branch below and
+// copySelected()/moveSelected() in Files.qml, the three places a name off
+// a real listing can get rejected. It does have to name the empty string:
+// escapesDirectory("") is true, and an earlier wording here named only
+// "/", ".." and "." and dropped the empty-string rejection along with the
+// two hygiene rules that legitimately don't apply, leaving a user who
+// typed nothing looking at a reason that was not the reason. Non-string
+// stays unnamed regardless — nothing off a real listing is ever anything
+// but a string, so only a future caller's bug reaches it, not a person
+// this message is written for.
+function escapesDirectoryMessage() {
+    return "Invalid name: cannot be empty, contain \"/\", or be \"..\" or \".\"";
 }
 
 // Which lastError text a failed confirmPrompt() should show, given the
@@ -153,24 +199,15 @@ function isKnownPromptMode(mode) {
 // snapshot or an unrecognised mode, neither of which has a name to blame,
 // and otherwise a naming-specific message scoped to what that mode can
 // actually reject — trash-confirm, and now rename's source half, only
-// ever fail escapesDirectory (a non-string, the empty string, "." or
-// ".." exactly, or a name containing "/"), never isValidEntryName's extra
-// CREATE-time rules, so this message must not claim a blank or newline
-// name would be refused when trash-confirm accepts both. It does have to
-// name the empty string, though: escapesDirectory("") is true, and an
-// earlier wording here named only "/", ".." and "." and dropped the
-// empty-string rejection along with the two hygiene rules that
-// legitimately don't apply, leaving a user who typed nothing looking at
-// a reason that was not the reason. Non-string stays unnamed regardless
-// — nothing typed into the prompt field or picked off a real listing is
-// ever anything but a string, so only a future caller's bug reaches it,
-// not a person this message is written for.
+// ever fail escapesDirectory, never isValidEntryName's extra CREATE-time
+// rules, so this message must not claim a blank or newline name would be
+// refused when trash-confirm accepts both.
 function promptErrorMessage(snapshot) {
     if (!snapshot || !isKnownPromptMode(snapshot.mode))
         return "Nothing to confirm";
 
     if (snapshot.mode === "trash-confirm")
-        return "Invalid name: cannot be empty, contain \"/\", or be \"..\" or \".\"";
+        return escapesDirectoryMessage();
 
     return "Invalid name: cannot be empty or whitespace-only, contain \"/\" or a newline, or be \"..\" or \".\"";
 }

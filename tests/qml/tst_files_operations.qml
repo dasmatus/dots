@@ -359,4 +359,114 @@ TestCase {
         verify(!genericMessage.includes("Invalid name"));
         compare(Operations.promptErrorMessage({ mode: "no-such-mode", dirPath: "/home/matus", name: "x" }), genericMessage);
     }
+
+    // copySelected()/moveSelected() had no check at all until this round:
+    // pane.selected.name went straight into FilesMath.join and then
+    // copyArgv/moveArgv, the same unguarded shape rename's source half had
+    // before escapesDirectory closed it there. resolveSelectionArgv is the
+    // pure function Files.qml now routes both through — Files.qml itself
+    // instantiates Quickshell.Io, which qmltestrunner cannot load, so this
+    // is the only seam these five rejections are reachable from at all.
+
+    function test_resolveselectionargv_copy_joins_the_source_dir_with_the_name() {
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", "photo.png", "/home/matus/dst"), ["cp", "-r", "--", "/home/matus/src/photo.png", "/home/matus/dst"]);
+    }
+
+    function test_resolveselectionargv_move_joins_the_source_dir_with_the_name() {
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", "photo.png", "/home/matus/dst"), ["mv", "--", "/home/matus/src/photo.png", "/home/matus/dst"]);
+    }
+
+    function test_resolveselectionargv_copy_rejects_a_non_string_name() {
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", null, "/home/matus/dst"), null);
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", undefined, "/home/matus/dst"), null);
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", 42, "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_move_rejects_a_non_string_name() {
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", null, "/home/matus/dst"), null);
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", undefined, "/home/matus/dst"), null);
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", 42, "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_copy_rejects_an_empty_name() {
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", "", "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_move_rejects_an_empty_name() {
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", "", "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_copy_rejects_a_single_dot_name() {
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", ".", "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_move_rejects_a_single_dot_name() {
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", ".", "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_copy_rejects_a_bare_dotdot_name() {
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", "..", "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_move_rejects_a_bare_dotdot_name() {
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", "..", "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_copy_rejects_a_path_separator_anywhere_in_the_name() {
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", "sub/escaped", "/home/matus/dst"), null);
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", "../../etc/passwd", "/home/matus/dst"), null);
+    }
+
+    function test_resolveselectionargv_move_rejects_a_path_separator_anywhere_in_the_name() {
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", "sub/escaped", "/home/matus/dst"), null);
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", "../../etc/passwd", "/home/matus/dst"), null);
+    }
+
+    // The over-strict check an earlier round had to REMOVE from the trash
+    // path for exactly this reason: a real file already named " " or
+    // holding a tab predates this dialog and lists, renames and trashes
+    // fine already. escapesDirectory has no CREATE-time hygiene rule, so
+    // copy/move must not grow one either — both still resolve normally.
+    function test_resolveselectionargv_copy_accepts_blank_and_tab_names() {
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", " ", "/home/matus/dst"), ["cp", "-r", "--", "/home/matus/src/ ", "/home/matus/dst"]);
+        compare(Operations.resolveSelectionArgv("copy", "/home/matus/src", "\t", "/home/matus/dst"), ["cp", "-r", "--", "/home/matus/src/\t", "/home/matus/dst"]);
+    }
+
+    function test_resolveselectionargv_move_accepts_blank_and_tab_names() {
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", " ", "/home/matus/dst"), ["mv", "--", "/home/matus/src/ ", "/home/matus/dst"]);
+        compare(Operations.resolveSelectionArgv("move", "/home/matus/src", "\t", "/home/matus/dst"), ["mv", "--", "/home/matus/src/\t", "/home/matus/dst"]);
+    }
+
+    function test_resolveselectionargv_returns_null_for_an_unrecognised_mode() {
+        compare(Operations.resolveSelectionArgv("no-such-mode", "/home/matus/src", "photo.png", "/home/matus/dst"), null);
+    }
+
+    // The text Files.qml sets root.lastError to when resolveSelectionArgv
+    // rejects a copy/move — copy and move have no prompt to route a
+    // rejection through the way rename/trash-confirm do, so this is a
+    // second caller for the same message promptErrorMessage's
+    // trash-confirm branch already returns, not a new one written for
+    // this case. Must not claim whitespace-only or a newline would be
+    // refused: those are isValidEntryName's CREATE-time rules, and a name
+    // off a real listing can only ever fail escapesDirectory's four.
+    function test_escapesdirectorymessage_names_every_case_escapesdirectory_rejects() {
+        const message = Operations.escapesDirectoryMessage();
+
+        verify(message.includes("Invalid name"));
+        verify(message.includes("empty"));
+        verify(message.includes("\"/\""));
+        verify(message.includes("\"..\""));
+        verify(message.includes("\".\""));
+        verify(!message.includes("whitespace"));
+        verify(!message.includes("newline"));
+    }
+
+    // promptErrorMessage's trash-confirm branch and escapesDirectoryMessage
+    // must stay the same text — they are the same rejection reason
+    // reported through two different callers (a prompt vs. copy/move's
+    // immediate action), not two independently-maintained strings that
+    // could quietly drift apart.
+    function test_escapesdirectorymessage_matches_promptErrorMessages_trash_confirm_branch() {
+        compare(Operations.escapesDirectoryMessage(), Operations.promptErrorMessage(Operations.beginPrompt("trash-confirm", "/home/matus", "x")));
+    }
 }
