@@ -54,6 +54,12 @@ let
   # what makes pressing Enter through a prompt mean "not this one" rather than
   # "yes, with nothing". The value still reaches secret-tool over a pipe, so it
   # never lands in argv, in a file or in shell history.
+  #
+  # The cost of that choice is that this helper can only set an item, never
+  # clear one, because the gesture that would mean "clear" is the same one
+  # that means "leave it alone". `secret-tool clear` is the way to remove one,
+  # and the helper prints that command rather than leaving a person to guess
+  # why re-running it cannot undo a key they no longer want.
   ask-keyring = pkgs.writeShellApplication {
     name = "ask-keyring";
     runtimeInputs = [ pkgs.libsecret ];
@@ -66,6 +72,7 @@ let
         echo
         if [ -z "$value" ]; then
           echo "  skipped, leaving any existing item alone."
+          echo "  (to remove it: secret-tool clear service dots-ask attribute $attribute)"
           return 0
         fi
         printf '%s' "$value" \
@@ -76,6 +83,9 @@ let
       echo "dots-ask provider credentials -> login keyring. Input is not echoed."
       echo "Leave a prompt empty to skip it. Claude Code, Codex and Ollama need"
       echo "nothing here: the harnesses carry their own auth and Ollama is local."
+      echo "Skipping keeps whatever is already stored. To REMOVE an item, run:"
+      echo "  secret-tool clear service dots-ask attribute <name>"
+      echo "where <name> is anthropic-key, openai-key or openai-base-url."
       echo
 
       echo "1/3  Anthropic API key (for the raw provider backend, not for Claude Code):"

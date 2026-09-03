@@ -607,8 +607,10 @@ in
     assert !(offHm.systemd.user.services ? dots-ask-index);
     assert !(offHm.systemd.user.timers ? dots-ask-index);
     assert !(offHm.xdg.configFile ? "systemd/user/timers.target.wants/dots-ask-index.timer");
-    assert !(builtins.any (p: lib.hasInfix "dots-ask" "${p}") offHm.home.packages);
+    assert !(hasPackage offHm.home.packages "dots-ask");
     assert !(hasPackage offHm.home.packages "ask-keyring");
+    assert !(hasPackage offHm.home.packages "dots-ask-index");
+    assert !(hasPackage offHm.home.packages "dots-ask-offline");
     # The bind survives the gate, because it is the pane that degrades and not
     # the keymap. Asserting it here rather than trusting the comment in
     # actions.nix: a future attempt to make the entry conditional would break
