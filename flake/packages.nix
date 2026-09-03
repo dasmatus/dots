@@ -31,6 +31,18 @@ self: {
     # binary spelled out.
     meta.mainProgram = "global-settings";
   };
+  # dots-ask — the AI side pane daemon behind the Quickshell ask pane. It
+  # cannot live inside Quickshell: nix/home/quickshell/default.nix puts the
+  # QML tree on X-Restart-Triggers, so every rebuild restarts the shell and
+  # would kill an in-flight turn. The crate is named ask-daemon and ships the
+  # binary dots-ask, so mainProgram has to be spelled out.
+  dots-ask = pkgs.rustPlatform.buildRustPackage {
+    pname = "dots-ask";
+    version = "0.1.0";
+    src = ../rust/ask-daemon;
+    cargoLock.lockFile = ../rust/ask-daemon/Cargo.lock;
+    meta.mainProgram = "dots-ask";
+  };
   # dots-memory-mcp — the stateless stdio MCP server over the agentmem
   # Postgres schema (plans 0-2). Built at the flake level for the same
   # reasons as the other crates here — a shared cache key and a working
