@@ -223,26 +223,42 @@ pub fn validate_git_name(s: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Address shape shared by every e-mail field. `label` opens each message, so
+/// the callers below blame the field the user was actually editing while the
+/// rules stay in one place.
+fn validate_email(label: &str, s: &str) -> Result<(), String> {
+    if s.is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+    if s.chars().any(char::is_whitespace) {
+        return Err(format!("{label} must not contain whitespace"));
+    }
+    if s.matches('@').count() != 1 {
+        return Err(format!("{label} must contain exactly one '@'"));
+    }
+    let (local, domain) = s.split_once('@').unwrap_or(("", ""));
+    if local.is_empty() {
+        return Err(format!("{label} local part must not be empty"));
+    }
+    if domain.is_empty() || !domain.contains('.') {
+        return Err(format!("{label} domain must contain a '.'"));
+    }
+    Ok(())
+}
+
 /// Git user.email sanity check — mirrors rust/installer-tui/src/config.rs.
 ///
 /// # Errors
 /// Returns the reason the email is invalid.
 pub fn validate_git_email(s: &str) -> Result<(), String> {
-    if s.is_empty() {
-        return Err("git email must not be empty".into());
-    }
-    if s.chars().any(char::is_whitespace) {
-        return Err("git email must not contain whitespace".into());
-    }
-    if s.matches('@').count() != 1 {
-        return Err("git email must contain exactly one '@'".into());
-    }
-    let (local, domain) = s.split_once('@').unwrap_or(("", ""));
-    if local.is_empty() {
-        return Err("git email local part must not be empty".into());
-    }
-    if domain.is_empty() || !domain.contains('.') {
-        return Err("git email domain must contain a '.'".into());
-    }
-    Ok(())
+    validate_email("git email", s)
+}
+
+/// Proton account address, the login the settings panel's Proton page reuses
+/// for both the rclone remote and the proton-cli session.
+///
+/// # Errors
+/// Returns the reason the email is invalid.
+pub fn validate_proton_email(s: &str) -> Result<(), String> {
+    validate_email("proton email", s)
 }

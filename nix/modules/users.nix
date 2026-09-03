@@ -12,6 +12,7 @@
   aipageChrome,
   settingsMenu,
   claudeDesktop,
+  betterbird,
   ...
 }:
 let
@@ -116,6 +117,7 @@ in
         aipageChrome
         settingsMenu
         claudeDesktop
+        betterbird
         ;
       dots = config.dots;
     };

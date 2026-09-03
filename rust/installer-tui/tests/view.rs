@@ -238,12 +238,12 @@ fn username_screen_renders_prompt_and_hint() {
 fn git_name_screen_renders_prompt_and_hint() {
     let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
     app.screen = Screen::GitName;
-    app.input = "Matus".into();
+    app.input = "Ada".into();
     assert_renders(
         &app,
         &[
             "Git user.name (commits will be signed with this):",
-            "Matus",
+            "Ada",
             "Esc back",
         ],
     );

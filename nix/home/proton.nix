@@ -24,7 +24,13 @@
 #     exception for both the IMAP and SMTP ports, confirmed separately on
 #     first use of each.
 #   - Proton VPN GUI needs its own interactive login on first launch.
-{ pkgs, lib, ... }:
+{
+  pkgs,
+  lib,
+  dots,
+  betterbird,
+  ...
+}:
 {
   services.protonmail-bridge.enable = true;
 
@@ -71,14 +77,28 @@
 
   programs.thunderbird = {
     enable = true;
+    # Betterbird over Thunderbird for the StatusNotifierItem tray icon, which
+    # is what keeps mail arriving with no window open. Same profile format
+    # and same ~/.thunderbird path, so nothing downstream moves.
+    package = betterbird;
     profiles.default.isDefault = true;
   };
 
+  # Identity comes from the installer answers, never a literal. This repo is
+  # public, and an address written here is an address in the clone history for
+  # good. dots.gitEmail/dots.gitName are bridged from
+  # /var/lib/dots/settings.nix by nix/modules/dots.nix, and nix/settings.nix is
+  # a tracked SYMLINK to that file, so git stores the link and not the contents.
+  # nix/home/git.nix reads the same two values, which is what keeps the mail
+  # account and the commit identity from drifting.
+  #
+  # This assumes the Proton address IS the git address, which holds here. Split
+  # them by pointing this at the protonEmail key (nix/defaults.nix) instead.
   accounts.email.accounts.proton = {
     primary = true;
-    address = "Shadiness9530@proton.me";
-    userName = "Shadiness9530@proton.me";
-    realName = "Matus Mastena";
+    address = dots.gitEmail;
+    userName = dots.gitEmail;
+    realName = dots.gitName;
 
     # Bridge's own default ports/mode: STARTTLS on 1143 (IMAP) / 1025
     # (SMTP), not its alternate implicit-TLS 993/465 pairing.

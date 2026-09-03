@@ -10,6 +10,12 @@ self: {
   # Claude Desktop for Linux (beta) — repackaged from Anthropic's .deb, which
   # is the only distribution channel upstream offers. See nix/claude-desktop.nix.
   claude-desktop = pkgsClaude.callPackage ../nix/claude-desktop.nix { };
+  # Betterbird, a Thunderbird fork, for its StatusNotifierItem tray icon.
+  # nixpkgs dropped its own betterbird for want of a maintainer, but upstream
+  # still ships a linux-x86_64 release tarball every ESR cycle, so this
+  # repackages that the way nixpkgs' own thunderbird-bin repackages Mozilla's.
+  # See nix/betterbird.nix.
+  betterbird = pkgs.callPackage ../nix/betterbird.nix { };
   dots-installer = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-installer";
     version = "0.1.0";

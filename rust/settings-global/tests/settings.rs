@@ -3,19 +3,19 @@
 //! must survive), typed get/set, atomic save, and the field validators.
 
 use global_settings::settings::{
-    validate_git_email, validate_git_name, validate_hostname, Settings,
+    validate_git_email, validate_git_name, validate_hostname, validate_proton_email, Settings,
 };
 
 /// Verbatim shape of what rust/installer-tui/src/config.rs::settings_nix
 /// writes on the target — the canonical on-disk format.
-const INSTALLER_WRITTEN: &str = "{\n  username = \"matus\";\n  hostname = \"matthiasbuch\";\n  disks = [ \"/dev/nvme0n1\" ];\n  swapSize = \"15G\";\n  gitName = \"Matus Mastena\";\n  gitEmail = \"Shadiness9530@proton.me\";\n  aiClaude = true;\n  aiCodex = false;\n  aiOllama = true;\n}\n";
+const INSTALLER_WRITTEN: &str = "{\n  username = \"matus\";\n  hostname = \"matthiasbuch\";\n  disks = [ \"/dev/nvme0n1\" ];\n  swapSize = \"15G\";\n  gitName = \"Ada Lovelace\";\n  gitEmail = \"ada@example.com\";\n  aiClaude = true;\n  aiCodex = false;\n  aiOllama = true;\n}\n";
 
 #[test]
 fn parses_installer_written_settings() {
     let s = Settings::parse(INSTALLER_WRITTEN).expect("canonical file must parse");
     assert_eq!(s.get_str("username").as_deref(), Some("matus"));
     assert_eq!(s.get_str("hostname").as_deref(), Some("matthiasbuch"));
-    assert_eq!(s.get_str("gitName").as_deref(), Some("Matus Mastena"));
+    assert_eq!(s.get_str("gitName").as_deref(), Some("Ada Lovelace"));
     assert_eq!(s.get_bool("aiClaude"), Some(true));
     assert_eq!(s.get_bool("aiCodex"), Some(false));
     assert_eq!(s.get_bool("aiOllama"), Some(true));
@@ -185,7 +185,7 @@ fn hostname_validator_mirrors_installer_rules() {
 
 #[test]
 fn git_name_validator_rejects_empty_and_newlines() {
-    assert!(validate_git_name("Matus Mastena").is_ok());
+    assert!(validate_git_name("Ada Lovelace").is_ok());
     assert!(validate_git_name("").is_err());
     assert!(validate_git_name("  ").is_err());
     assert!(validate_git_name("a\nb").is_err());
@@ -199,4 +199,27 @@ fn git_email_validator_mirrors_installer_rules() {
     assert!(validate_git_email("a@b").is_err());
     assert!(validate_git_email("a@@b.com").is_err());
     assert!(validate_git_email("a b@c.com").is_err());
+}
+
+#[test]
+fn proton_email_validator_applies_the_same_rules() {
+    assert!(validate_proton_email("a@b.com").is_ok());
+    assert!(validate_proton_email("").is_err());
+    assert!(validate_proton_email("nodomain").is_err());
+    assert!(validate_proton_email("a@b").is_err());
+    assert!(validate_proton_email("a@@b.com").is_err());
+    assert!(validate_proton_email("a b@c.com").is_err());
+}
+
+/// The two callers share one checker, so the only thing separating their
+/// messages is the label. Pinning both sides stops a future refactor from
+/// quietly reporting "git email" on the Proton row.
+#[test]
+fn email_validators_name_the_field_they_rejected() {
+    assert!(validate_git_email("nodomain")
+        .unwrap_err()
+        .contains("git email"));
+    assert!(validate_proton_email("nodomain")
+        .unwrap_err()
+        .contains("proton email"));
 }
