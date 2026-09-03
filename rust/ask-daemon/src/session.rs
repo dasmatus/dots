@@ -305,6 +305,21 @@ impl Session {
                 source,
                 html,
             },
+            EventBody::Artifact {
+                artifact,
+                title,
+                path,
+                revision,
+                bytes,
+                ..
+            } => EventBody::Artifact {
+                turn,
+                artifact,
+                title,
+                path,
+                revision,
+                bytes,
+            },
             EventBody::ToolCall {
                 call,
                 name,

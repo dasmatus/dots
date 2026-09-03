@@ -65,7 +65,7 @@ fn the_argv_carries_the_flag_that_is_not_in_help() {
     // does not appear in `claude --help`, which is exactly why it is easy to
     // drop as unrecognised and why this is a test.
     let session = Uuid::new_v4();
-    let args = argv(session, Some("opus"));
+    let args = argv(session, Some("opus"), None);
     let pairs: Vec<(&String, &String)> = args.iter().zip(args.iter().skip(1)).collect();
     assert!(
         pairs.contains(&(&"--permission-prompt-tool".to_owned(), &"stdio".to_owned())),
@@ -95,8 +95,8 @@ fn the_daemon_never_asks_the_cli_to_skip_permissions() {
     // Section 5 forbids both by name. A build that acquired either would be
     // a build with no approval gate at all.
     for args in [
-        argv(Uuid::new_v4(), None),
-        resume_argv(Uuid::new_v4(), None),
+        argv(Uuid::new_v4(), None, None),
+        resume_argv(Uuid::new_v4(), None, None),
     ] {
         assert!(
             !args
@@ -113,7 +113,7 @@ fn the_daemon_never_asks_the_cli_to_skip_permissions() {
 
 #[test]
 fn a_thread_with_no_model_passes_no_model_flag() {
-    let args = argv(Uuid::new_v4(), None);
+    let args = argv(Uuid::new_v4(), None, None);
     assert!(
         !args.iter().any(|arg| arg == "--model"),
         "null means the backend's own default: {args:?}"
@@ -123,7 +123,7 @@ fn a_thread_with_no_model_passes_no_model_flag() {
 #[test]
 fn resuming_names_the_session_it_resumes() {
     let session = Uuid::new_v4();
-    let args = resume_argv(session, Some("sonnet"));
+    let args = resume_argv(session, Some("sonnet"), None);
     let pairs: Vec<(&String, &String)> = args.iter().zip(args.iter().skip(1)).collect();
     assert!(pairs.contains(&(&"--resume".to_owned(), &session.to_string())));
 }

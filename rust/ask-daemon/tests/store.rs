@@ -282,6 +282,7 @@ fn an_ephemeral_body_never_reaches_disk() {
             id,
             EventBody::Ready {
                 protocol: 1,
+                artifact_base: None,
                 seq_head: 0,
             },
             1_000,

@@ -47,7 +47,7 @@
 //! `kind: "protocol"` so the pane shows that something went unhandled.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use serde_json::{json, Value};
@@ -56,6 +56,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::attach;
 use crate::backend::{
     on_path, unavailable, Backend, BackendCommand, BackendContext, BackendHandle, EventSink,
     CLAUDE_CODE,
@@ -157,7 +158,7 @@ impl Backend for ClaudeCodeBackend {
         let session = Uuid::new_v4();
         let mut command = Command::new(&program);
         command
-            .args(argv(session, ctx.model.as_deref()))
+            .args(argv(session, ctx.model.as_deref(), Some(&ctx.attachments)))
             .current_dir(&ctx.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -185,11 +186,22 @@ impl Backend for ClaudeCodeBackend {
 
 /// The argv the spec's section 1 recorded, minus the fixture-only flags.
 ///
-/// `--verbose` and `--add-dir` were the driver's, not the daemon's: the
-/// working directory is set on the child rather than passed as a flag, and
-/// the daemon has no use for the extra logging.
+/// `--verbose` was the driver's, not the daemon's: the extra logging buys
+/// nothing here.
+///
+/// `--add-dir` is back, and for one narrow reason. Attachments travel as
+/// paths on this protocol and the CLI reads them itself, but the child's
+/// working directory is the thread's `cwd` and an attachment lives under
+/// `$XDG_DATA_HOME/dots-ask/attachments/<conversation>/`. Without this flag
+/// the CLI cannot read a file the user just attached, and the attachment
+/// silently does nothing.
+///
+/// It is one directory, holding only what a person attached to this one
+/// thread, which is why the daemon copies attachments in rather than adding
+/// whatever directory they were dragged from. `None` means no attachment
+/// directory, which is what a test that only cares about the flags passes.
 #[must_use]
-pub fn argv(session: Uuid, model: Option<&str>) -> Vec<String> {
+pub fn argv(session: Uuid, model: Option<&str>, attachments: Option<&Path>) -> Vec<String> {
     let mut args = vec![
         "-p".to_owned(),
         "--input-format".to_owned(),
@@ -210,6 +222,10 @@ pub fn argv(session: Uuid, model: Option<&str>) -> Vec<String> {
         args.push("--model".to_owned());
         args.push(model.to_owned());
     }
+    if let Some(attachments) = attachments {
+        args.push("--add-dir".to_owned());
+        args.push(attachments.display().to_string());
+    }
     args
 }
 
@@ -220,8 +236,8 @@ pub fn argv(session: Uuid, model: Option<&str>) -> Vec<String> {
 /// bundle's `set_model` control subtype was never exercised and stays
 /// unverified.
 #[must_use]
-pub fn resume_argv(session: Uuid, model: Option<&str>) -> Vec<String> {
-    let mut args = argv(session, model);
+pub fn resume_argv(session: Uuid, model: Option<&str>, attachments: Option<&Path>) -> Vec<String> {
+    let mut args = argv(session, model, attachments);
     args.push("--resume".to_owned());
     args.push(session.to_string());
     args
@@ -424,10 +440,13 @@ async fn drain_stderr(stderr: tokio::process::ChildStderr, conversation: Uuid) {
 
 /// One user message, in the shape the CLI's stdin takes.
 ///
-/// Attachments travel as paths in this protocol and the CLI has no block
-/// type for a path, so a file block becomes a line of text naming it. That
-/// is honest: the model can then `Read` the file itself, gated by the same
-/// permission prompt every other read gets.
+/// **Attachments go to this backend as paths, not as bytes.** The CLI reads
+/// files itself, through a `Read` the same permission prompt gates as every
+/// other one, and the path is under the `--add-dir` the spawn passed. Base64
+/// in a stream-json frame would send the same bytes twice, once over a pipe
+/// and once over the CLI's own connection, for a file the CLI can already
+/// open. The three provider backends do inline, because they have no other
+/// way to see a file at all.
 #[must_use]
 pub fn user_message(blocks: &[SendBlock]) -> Value {
     let content: Vec<Value> = blocks
@@ -439,11 +458,7 @@ pub fn user_message(blocks: &[SendBlock]) -> Value {
             }),
             BlockKind::Image | BlockKind::File => json!({
                 "type": "text",
-                "text": format!(
-                    "[attached {}: {}]",
-                    block.kind,
-                    block.path.as_ref().map_or_else(String::new, |path| path.display().to_string()),
-                ),
+                "text": attach::mention(block),
             }),
         })
         .collect();

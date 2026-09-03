@@ -153,6 +153,7 @@ fn every_event_body() -> Vec<EventBody> {
         EventBody::Ready {
             protocol: PROTOCOL_VERSION,
             seq_head: 4211,
+            artifact_base: Some("http://127.0.0.1:41234".to_owned()),
         },
         EventBody::UserMessage {
             blocks: vec![SendBlock {
@@ -186,6 +187,14 @@ fn every_event_body() -> Vec<EventBody> {
             language: Some("rust".to_owned()),
             source: "fn main() {}\n".to_owned(),
             html: None,
+        },
+        EventBody::Artifact {
+            turn: Some(turn()),
+            artifact: "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e".to_owned(),
+            title: Some("Sales dashboard".to_owned()),
+            path: PathBuf::from("/home/matus/.local/share/dots-ask/artifacts/6f1a/9c2b.html"),
+            revision: 2,
+            bytes: 4821,
         },
         EventBody::ToolCall {
             turn: Some(turn()),
@@ -369,6 +378,7 @@ fn every_daemon_event_name_appears() {
         "text_delta",
         "thinking_delta",
         "code_block",
+        "artifact",
         "tool_call",
         "tool_result",
         "permission_request",
@@ -537,9 +547,11 @@ fn the_spec_event_examples_match_the_wire() {
             EventBody::Ready {
                 protocol: 1,
                 seq_head: 4211,
+                artifact_base: Some("http://127.0.0.1:41234".to_owned()),
             },
             json!({"seq": null, "conversation": null, "event": "ready",
-                   "protocol": 1, "seq_head": 4211}),
+                   "protocol": 1, "seq_head": 4211,
+                   "artifact_base": "http://127.0.0.1:41234"}),
         ),
         (
             EventBody::UserMessage {
@@ -629,6 +641,21 @@ fn the_spec_event_examples_match_the_wire() {
             json!({"seq": 4212, "conversation": conversation(), "event": "code_block",
                    "turn": turn(), "block": 1, "language": "rust",
                    "source": "fn main() {}\n", "html": "<pre class=\"code\">...</pre>"}),
+        ),
+        (
+            EventBody::Artifact {
+                turn: Some(turn()),
+                artifact: "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e".to_owned(),
+                title: Some("Sales dashboard".to_owned()),
+                path: PathBuf::from("/home/matus/.local/share/dots-ask/artifacts/6f1a/9c2b.html"),
+                revision: 2,
+                bytes: 4821,
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "artifact",
+                   "turn": turn(), "artifact": "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e",
+                   "title": "Sales dashboard",
+                   "path": "/home/matus/.local/share/dots-ask/artifacts/6f1a/9c2b.html",
+                   "revision": 2, "bytes": 4821}),
         ),
         (
             EventBody::ToolCall {
@@ -790,6 +817,7 @@ fn the_spec_event_examples_match_the_wire() {
         "text_delta",
         "thinking_delta",
         "code_block",
+        "artifact",
         "tool_call",
         "tool_result",
         "permission_request",

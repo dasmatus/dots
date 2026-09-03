@@ -41,6 +41,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::attach;
 use crate::backend::{BackendCommand, BackendContext, EventSink};
 use crate::mcp::McpPool;
 use crate::policy::{Policy, PolicyKey, Verdict};
@@ -149,6 +150,8 @@ pub struct ProviderSession {
     pub cwd: PathBuf,
     /// The backend id, which is the other part.
     pub backend: &'static str,
+    /// How this provider takes a user message and its attachments.
+    shape: UserShape,
     /// The conversation history, in the provider's own message shape.
     messages: Vec<Value>,
     /// Decisions that have arrived and are waiting to be matched to the
@@ -167,16 +170,35 @@ struct Answer {
     message: Option<String>,
 }
 
+/// How one provider takes a user message that carries attachments.
+///
+/// Three shapes because three providers, and none of them is a superset of
+/// another. Section 3 of the spec carries the same table in prose; this is
+/// the enum that makes a backend pick exactly one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserShape {
+    /// `content` is an array of blocks, an image being
+    /// `{"type":"image","source":{"type":"base64",…}}`.
+    AnthropicBlocks,
+    /// `content` is an array of parts, an image being
+    /// `{"type":"image_url","image_url":{"url":"data:…"}}`.
+    OpenAiParts,
+    /// `content` is a plain string and images ride a sibling `images` array
+    /// of bare base64, with no media type and no data URL.
+    OllamaImages,
+}
+
 impl ProviderSession {
     /// A session for one thread.
     #[must_use]
-    pub fn new(ctx: &BackendContext, backend: &'static str) -> Self {
+    pub fn new(ctx: &BackendContext, backend: &'static str, shape: UserShape) -> Self {
         Self {
             sink: ctx.sink.clone(),
             mcp: Arc::clone(&ctx.mcp),
             policy: Arc::clone(&ctx.policy),
             cwd: ctx.cwd.clone(),
             backend,
+            shape,
             messages: Vec::new(),
             decisions: BTreeMap::new(),
             interrupted: false,
@@ -194,29 +216,27 @@ impl ProviderSession {
         self.messages.push(message);
     }
 
-    /// Append the user's message.
+    /// Append the user's message, in this provider's own attachment shape.
     ///
-    /// Attachments travel as paths in this protocol. A provider has no block
-    /// type for a path and this daemon does not read arbitrary files on a
-    /// model's behalf, so the path becomes a line of text naming it. An MCP
-    /// server a person configured can read it; nothing here will.
+    /// The three providers disagree about how an image reaches them and
+    /// agree about nothing else, so the shape is a field rather than a
+    /// branch on `self.backend`: a stringly-typed match here would be the
+    /// one place a new provider could silently take the wrong encoding.
+    ///
+    /// An attachment that is not an inlinable image is still named as a path
+    /// rather than read. This daemon does not read arbitrary files on a
+    /// model's behalf; an MCP server a person configured can.
     pub fn push_user(&mut self, blocks: &[SendBlock]) {
-        let text = blocks
-            .iter()
-            .map(|block| match block.kind {
-                crate::proto::BlockKind::Text => block.text.clone().unwrap_or_default(),
-                _ => format!(
-                    "[attached {}: {}]",
-                    block.kind,
-                    block
-                        .path
-                        .as_ref()
-                        .map_or_else(String::new, |path| path.display().to_string())
-                ),
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        self.messages.push(json!({"role": "user", "content": text}));
+        let message = match self.shape {
+            UserShape::AnthropicBlocks => {
+                json!({"role": "user", "content": attach::anthropic_content(blocks)})
+            }
+            UserShape::OpenAiParts => {
+                json!({"role": "user", "content": attach::openai_content(blocks)})
+            }
+            UserShape::OllamaImages => attach::ollama_message(blocks),
+        };
+        self.messages.push(message);
     }
 
     /// Note that the client asked for the turn to stop.

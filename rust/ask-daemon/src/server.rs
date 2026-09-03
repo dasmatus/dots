@@ -38,6 +38,8 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::artifact::{is_artifact_language, ArtifactStore};
+use crate::attach;
 use crate::backend::{BackendCommand, BackendHandle, BackendMessage, Registry};
 use crate::proto::{
     decode_client_line, encode_server_line, ClientFrame, ConversationMeta, ErrorKind, EventBody,
@@ -209,6 +211,38 @@ impl Outbox {
     }
 }
 
+/// The artifact half of the daemon, as the hub needs it.
+///
+/// Two things travel together because they are two halves of one fact: the
+/// store is where a page is written and the base is where the same page is
+/// read. `base` is `None` when the loopback listener did not bind, which is
+/// not fatal: pages are still written and still in the transcript, and the
+/// pane simply has nothing to open them with.
+pub struct Artifacts {
+    /// Where pages are written and what the loopback server resolves against.
+    pub store: Arc<ArtifactStore>,
+    /// The loopback base URL for this run, or `None` when there is no server.
+    pub base: Option<String>,
+}
+
+impl Artifacts {
+    /// An artifact store with no server behind it.
+    ///
+    /// What a test wants, and what a daemon whose loopback bind failed falls
+    /// back to. Pages are still written and still recorded; nothing can open
+    /// one.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`ArtifactStore::open`] returns.
+    pub fn unserved(state_root: &Path) -> Result<Self, AskError> {
+        Ok(Self {
+            store: Arc::new(ArtifactStore::open(state_root)?),
+            base: None,
+        })
+    }
+}
+
 /// The shared state every connection works against.
 pub struct Hub {
     inner: Mutex<HubInner>,
@@ -218,6 +252,11 @@ pub struct Hub {
     /// Cloned into each backend at start. The receiving half is taken once,
     /// by [`Daemon::serve`], and driven by [`pump`].
     events: mpsc::UnboundedSender<BackendMessage>,
+    /// Where model-written HTML goes, and where it is read back from.
+    artifacts: Artifacts,
+    /// The state root, which is also the root the attachment and artifact
+    /// directories hang off.
+    state_root: PathBuf,
 }
 
 /// Everything the lock covers.
@@ -246,8 +285,9 @@ impl Hub {
     pub fn open(
         state_root: PathBuf,
         registry: Arc<Registry>,
+        artifacts: Artifacts,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<BackendMessage>), AskError> {
-        let loaded = Store::open(state_root, now_ms())?;
+        let loaded = Store::open(state_root.clone(), now_ms())?;
         if !loaded.recovered.is_empty() {
             tracing::info!(
                 turns = loaded.recovered.len(),
@@ -264,6 +304,8 @@ impl Hub {
             }),
             registry,
             events,
+            artifacts,
+            state_root,
         });
         Ok((hub, produced))
     }
@@ -293,11 +335,68 @@ impl Hub {
         let Some(body) = session.adopt(message.body, now) else {
             return;
         };
+        // An HTML fence produces a second event, and the page it names has to
+        // be on disk before either goes out. Both are built and written here,
+        // inside the same lock hold, so they take adjacent seqs and a replay
+        // brings back the code block and its artifact in the order they
+        // happened. The file write is synchronous, capped by
+        // `artifact::MAX_ARTIFACT_BYTES`, and awaits nothing, which is what
+        // the whole module rests on.
+        let artifact = self.artifact_for(&body, message.conversation);
+        let artifact = artifact.and_then(|body| {
+            inner
+                .sessions
+                .get(&message.conversation)
+                .and_then(|session| session.adopt(body, now))
+        });
         if let Err(err) = Self::emit(&mut inner, message.conversation, body, now) {
             // Nothing to answer to: the event came from a backend, not from
             // a client, so there is no connection whose `store` error this
             // would be. The journal is the only place it can go.
             tracing::error!(error = %chain(&err), "cannot record a backend event");
+            return;
+        }
+        if let Some(body) = artifact {
+            if let Err(err) = Self::emit(&mut inner, message.conversation, body, now) {
+                tracing::error!(error = %chain(&err), "cannot record an artifact event");
+            }
+        }
+    }
+
+    /// Turn an HTML code block into a written page and the event announcing
+    /// it, or `None` for every other event.
+    ///
+    /// The `code_block` is not replaced. It is the record of what the model
+    /// wrote, and a person should be able to read a page's source in the
+    /// thread without opening the page.
+    ///
+    /// A page that will not write is logged and dropped rather than raised as
+    /// a conversation `error`: the source is already in the transcript, so
+    /// nothing was lost, and an error event here would report a failure the
+    /// user did not cause and cannot act on.
+    fn artifact_for(&self, body: &EventBody, conversation: Uuid) -> Option<EventBody> {
+        let EventBody::CodeBlock {
+            language, source, ..
+        } = body
+        else {
+            return None;
+        };
+        if !is_artifact_language(language.as_deref()) {
+            return None;
+        }
+        match self.artifacts.store.write(conversation, source) {
+            Ok(written) => Some(EventBody::Artifact {
+                turn: None,
+                artifact: written.artifact,
+                title: written.title,
+                path: written.path,
+                revision: written.revision,
+                bytes: written.bytes,
+            }),
+            Err(err) => {
+                tracing::warn!(error = %chain(&err), "cannot write an artifact");
+                None
+            }
         }
     }
 
@@ -459,6 +558,16 @@ impl Hub {
                 if let Err(err) = inner.store.delete(conversation) {
                     return outbox.store_failure(&err);
                 }
+                // The transcript refers to attachments and to pages, so they
+                // go with it. Logged rather than refused: the thread is
+                // already gone from the index and a half-done delete that
+                // reports failure would leave a person no way to finish it.
+                if let Err(err) = attach::forget(&self.state_root, conversation) {
+                    tracing::warn!(error = %chain(&err), "cannot remove a thread's attachments");
+                }
+                if let Err(err) = self.artifacts.store.forget(conversation) {
+                    tracing::warn!(error = %chain(&err), "cannot remove a thread's artifacts");
+                }
                 inner.sessions.remove(&conversation);
                 // Dropping the handle would close the channel on its own.
                 // Asking first gives the backend the chance to shut its child
@@ -501,6 +610,10 @@ impl Hub {
             && outbox.reply(EventBody::Ready {
                 protocol: PROTOCOL_VERSION,
                 seq_head: inner.store.seq_head(),
+                // Sent here rather than written into the persisted `artifact`
+                // event, because the port is picked fresh on every start and
+                // a URL in a transcript would be a dead link tomorrow.
+                artifact_base: self.artifacts.base.clone(),
             })
             && outbox.reply(EventBody::Backends {
                 // Built per handshake rather than cached, so a provider that
@@ -580,6 +693,16 @@ impl Hub {
         blocks: Vec<SendBlock>,
         now: u64,
     ) -> bool {
+        // Copied in before anything is recorded, so the path the transcript
+        // keeps is one that outlives the pane's scratch directory and one the
+        // harness is actually allowed to read. A file that will not copy is
+        // the client naming something it cannot back up, which the scope
+        // table calls `bad_request`: no turn has started and nothing is worth
+        // persisting.
+        let blocks = match attach::ingest(&self.state_root, conversation, blocks) {
+            Ok(blocks) => blocks,
+            Err(err) => return outbox.bad_request(chain(&err)),
+        };
         let body = EventBody::UserMessage {
             blocks: blocks.clone(),
             sent_ms: now,
@@ -642,6 +765,7 @@ impl Hub {
             conversation,
             meta.model.clone(),
             &meta.cwd,
+            attach::conversation_dir(&self.state_root, conversation),
             self.events.clone(),
         ) {
             Ok(handle) => {
@@ -751,8 +875,9 @@ impl Daemon {
         socket: PathBuf,
         state_root: PathBuf,
         registry: Arc<Registry>,
+        artifacts: Artifacts,
     ) -> Result<Self, AskError> {
-        let (hub, produced) = Hub::open(state_root, registry)?;
+        let (hub, produced) = Hub::open(state_root, registry, artifacts)?;
         clear_socket_path(&socket)?;
         let listener = UnixListener::bind(&socket).map_err(|source| AskError::Bind {
             path: socket.clone(),

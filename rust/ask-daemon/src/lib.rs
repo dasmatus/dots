@@ -21,6 +21,8 @@ use uuid::Uuid;
 
 use miette::Diagnostic;
 
+pub mod artifact;
+pub mod attach;
 pub mod backend;
 pub mod mcp;
 pub mod policy;
@@ -185,6 +187,49 @@ pub enum AskError {
         /// What was wrong with it.
         detail: String,
     },
+
+    /// The loopback artifact port could not be taken.
+    ///
+    /// Not fatal to the daemon. The pane still runs every backend; it just
+    /// has no `artifact_base` to open a page with, and says so.
+    #[diagnostic(
+        code(dots_ask::artifact_bind),
+        help("something is wrong with the loopback interface; conversations still work without artifacts")
+    )]
+    ArtifactBind {
+        /// The address that was asked for.
+        addr: std::net::SocketAddr,
+        /// What the kernel said.
+        source: io::Error,
+    },
+
+    /// A model wrote a page too large to keep.
+    ///
+    /// The cap exists because the write happens inside the hub's critical
+    /// section, so an unbounded one would hold every other conversation.
+    #[diagnostic(
+        code(dots_ask::artifact_too_large),
+        help("the page is kept in the transcript's code block either way")
+    )]
+    ArtifactTooLarge {
+        /// How big the page was.
+        bytes: usize,
+        /// The largest one this daemon serves.
+        cap: usize,
+    },
+
+    /// An attachment could not be taken into the conversation's own
+    /// directory.
+    #[diagnostic(
+        code(dots_ask::attachment),
+        help("check that the file exists and is readable")
+    )]
+    Attachment {
+        /// The file the client named.
+        path: PathBuf,
+        /// What went wrong with it.
+        detail: String,
+    },
 }
 
 impl fmt::Display for AskError {
@@ -215,6 +260,15 @@ impl fmt::Display for AskError {
             }
             Self::Encode { .. } => f.write_str("cannot encode an event as a wire line"),
             Self::Usage { detail } => write!(f, "{detail}"),
+            Self::ArtifactBind { addr, .. } => {
+                write!(f, "cannot bind the artifact server on {addr}")
+            }
+            Self::ArtifactTooLarge { bytes, cap } => {
+                write!(f, "the page is {bytes} bytes, over the {cap} byte cap")
+            }
+            Self::Attachment { path, detail } => {
+                write!(f, "cannot attach {}: {detail}", path.display())
+            }
         }
     }
 }
@@ -226,11 +280,14 @@ impl Error for AskError {
             | Self::NoDataHome
             | Self::AlreadyRunning { .. }
             | Self::UnknownConversation { .. }
+            | Self::ArtifactTooLarge { .. }
+            | Self::Attachment { .. }
             | Self::Usage { .. } => None,
             Self::CreateDir { source, .. }
             | Self::RemoveStaleSocket { source, .. }
             | Self::Bind { source, .. }
             | Self::SocketMode { source, .. }
+            | Self::ArtifactBind { source, .. }
             | Self::StoreRead { source, .. }
             | Self::StoreWrite { source, .. } => Some(source),
             Self::StoreDecode { source, .. } | Self::Encode { source } => Some(source),

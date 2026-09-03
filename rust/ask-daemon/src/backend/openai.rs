@@ -30,7 +30,9 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::backend::provider::{self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest};
+use crate::backend::provider::{
+    self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest, UserShape,
+};
 use crate::backend::{
     unavailable, Backend, BackendCommand, BackendContext, BackendHandle, LineBuffer, SseDecoder,
     OPENAI,
@@ -133,7 +135,7 @@ impl Backend for OpenAiBackend {
             })?;
         let (commands, inbox) = mpsc::unbounded_channel();
         let secrets = Arc::clone(&ctx.secrets);
-        let session = ProviderSession::new(&ctx, OPENAI);
+        let session = ProviderSession::new(&ctx, OPENAI, UserShape::OpenAiParts);
         let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         tokio::spawn(run(session, url, model, secrets, inbox));
         Ok(BackendHandle::new(commands))

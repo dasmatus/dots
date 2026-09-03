@@ -15,11 +15,14 @@ use std::sync::{Arc, Mutex};
 
 use tracing_subscriber::EnvFilter;
 
+use ask_daemon::artifact::{self, ArtifactStore};
 use ask_daemon::backend::Registry;
 use ask_daemon::mcp::McpPool;
 use ask_daemon::policy::Policy;
 use ask_daemon::secrets::SecretStore;
-use ask_daemon::server::{default_policy_path, default_socket_path, default_state_root, Daemon};
+use ask_daemon::server::{
+    default_policy_path, default_socket_path, default_state_root, Artifacts, Daemon,
+};
 use ask_daemon::AskError;
 
 /// What the command line asked for.
@@ -98,8 +101,31 @@ async fn main() -> miette::Result<()> {
         Registry::discover(Arc::new(SecretStore::default()), mcp, Arc::clone(&policy)).await,
     );
 
+    // Bound before the unix socket exists, so the very first `ready` can
+    // carry a real `artifact_base`. A loopback port that will not bind is not
+    // a reason to refuse to run: every backend still works, pages are still
+    // written and recorded, and the pane learns it has nothing to open them
+    // with from an `artifact_base` of null rather than from a dead link.
+    let store = Arc::new(ArtifactStore::open(&state_root)?);
+    let (artifacts, server) = match artifact::serve::bind(Arc::clone(&store)) {
+        Ok(bound) => (
+            Artifacts {
+                store,
+                base: Some(bound.base().to_owned()),
+            },
+            Some(bound),
+        ),
+        Err(err) => {
+            tracing::warn!(error = %err, "no artifact server; pages will be written but not openable");
+            (Artifacts { store, base: None }, None)
+        }
+    };
+    if let Some(bound) = server {
+        tokio::spawn(bound.serve());
+    }
+
     tracing::info!(state = %state_root.display(), "opening the conversation store");
-    let daemon = Daemon::bind(socket, state_root, registry)?;
+    let daemon = Daemon::bind(socket, state_root, registry, artifacts)?;
     daemon.serve().await;
     Ok(())
 }

@@ -28,7 +28,9 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::backend::provider::{self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest};
+use crate::backend::provider::{
+    self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest, UserShape,
+};
 use crate::backend::{
     unavailable, Backend, BackendCommand, BackendContext, BackendHandle, LineBuffer, SseDecoder,
     ANTHROPIC,
@@ -132,7 +134,7 @@ impl Backend for AnthropicBackend {
             .clone()
             .unwrap_or_else(|| DEFAULT_MODEL.to_owned());
         let secrets = Arc::clone(&ctx.secrets);
-        let session = ProviderSession::new(&ctx, ANTHROPIC);
+        let session = ProviderSession::new(&ctx, ANTHROPIC, UserShape::AnthropicBlocks);
         let url = format!("{}/v1/messages", self.base_url);
         tokio::spawn(run(session, url, model, secrets, inbox));
         Ok(BackendHandle::new(commands))

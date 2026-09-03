@@ -25,7 +25,7 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use ask_daemon::backend::unconfigured_registry;
-use ask_daemon::server::Daemon;
+use ask_daemon::server::{Artifacts, Daemon};
 
 /// How long any single read may take before the test gives up.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -43,8 +43,13 @@ impl Harness {
         let root = std::env::temp_dir().join(format!("dots-ask-srv-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp root is creatable");
         let socket = root.join("dots-ask.sock");
-        let daemon = Daemon::bind(socket.clone(), root.join("state"), unconfigured_registry())
-            .expect("the daemon binds");
+        let daemon = Daemon::bind(
+            socket.clone(),
+            root.join("state"),
+            unconfigured_registry(),
+            Artifacts::unserved(&root.join("state")).expect("the artifact root opens"),
+        )
+        .expect("the daemon binds");
         assert_eq!(daemon.socket(), socket.as_path());
         Self {
             root,
@@ -779,6 +784,7 @@ async fn a_second_daemon_refuses_the_live_socket() {
         harness.socket.clone(),
         harness.root.join("state"),
         unconfigured_registry(),
+        Artifacts::unserved(&harness.root.join("state")).expect("the artifact root opens"),
     );
     match second {
         Ok(_) => panic!("a live socket must not be stolen from the daemon serving it"),
@@ -799,8 +805,13 @@ async fn a_socket_left_by_a_dead_run_is_replaced() {
     drop(std::os::unix::net::UnixListener::bind(&socket).expect("the placeholder socket binds"));
     assert!(socket.exists(), "the stale file is there");
 
-    let daemon = Daemon::bind(socket.clone(), root.join("state"), unconfigured_registry())
-        .expect("a stale socket is removed rather than fatal");
+    let daemon = Daemon::bind(
+        socket.clone(),
+        root.join("state"),
+        unconfigured_registry(),
+        Artifacts::unserved(&root.join("state")).expect("the artifact root opens"),
+    )
+    .expect("a stale socket is removed rather than fatal");
     let serving = tokio::spawn(daemon.serve());
     let mut client = Client::connect(&socket).await;
     client.hello(None).await;

@@ -179,6 +179,12 @@ pub struct BackendContext {
     pub model: Option<String>,
     /// The working directory the thread is scoped to.
     pub cwd: PathBuf,
+    /// The thread's own attachment directory.
+    ///
+    /// Every attachment is copied here before a `send` is recorded, so this
+    /// is the one directory outside `cwd` the harness is given read access
+    /// to, and it holds exactly what a person attached to this thread.
+    pub attachments: PathBuf,
     /// Where to send normalized events.
     pub sink: EventSink,
     /// The lazy keyring reader. Nothing here touches it until a turn needs a
@@ -356,6 +362,7 @@ impl Registry {
         conversation: Uuid,
         model: Option<String>,
         cwd: &Path,
+        attachments: PathBuf,
         events: mpsc::UnboundedSender<BackendMessage>,
     ) -> Result<BackendHandle, String> {
         let backend = self
@@ -367,6 +374,7 @@ impl Registry {
             conversation,
             model,
             cwd: cwd.to_path_buf(),
+            attachments,
             sink: EventSink::new(conversation, events),
             secrets: Arc::clone(&self.secrets),
             mcp: Arc::clone(&self.mcp),

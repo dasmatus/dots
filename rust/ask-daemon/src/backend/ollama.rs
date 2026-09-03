@@ -20,7 +20,9 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::backend::provider::{self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest};
+use crate::backend::provider::{
+    self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest, UserShape,
+};
 use crate::backend::{Backend, BackendCommand, BackendContext, BackendHandle, LineBuffer, OLLAMA};
 use crate::proto::{BackendInfo, BackendState, EventBody, StopReason};
 use crate::secrets::SecretStore;
@@ -158,7 +160,7 @@ impl Backend for OllamaBackend {
                 .to_owned(),
         };
         let (commands, inbox) = mpsc::unbounded_channel();
-        let session = ProviderSession::new(&ctx, OLLAMA);
+        let session = ProviderSession::new(&ctx, OLLAMA, UserShape::OllamaImages);
         let url = format!("{}/api/chat", self.base_url);
         tokio::spawn(run(session, url, model, inbox));
         Ok(BackendHandle::new(commands))

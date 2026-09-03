@@ -318,6 +318,16 @@ pub enum EventBody {
         protocol: u32,
         /// The highest persisted `seq` at connect time.
         seq_head: u64,
+        /// Where the artifact server answers this run, for example
+        /// `http://127.0.0.1:41234`, or `None` when it did not bind.
+        ///
+        /// It rides an ephemeral reply rather than the persisted `artifact`
+        /// event on purpose. The port is picked fresh on every daemon start,
+        /// so a URL written into a transcript is a dead link the day the
+        /// daemon restarts. The client joins this base to
+        /// `/<conversation>/<artifact>` instead, and a replayed `artifact`
+        /// event stays openable for as long as the file does.
+        artifact_base: Option<String>,
     },
     /// The user's own message, persisted so a replay brings back the
     /// question as well as the answer.
@@ -385,6 +395,36 @@ pub enum EventBody {
         source: String,
         /// The rich-text subset a QML `Text` draws, `None` until phase 3.
         html: Option<String>,
+    },
+    /// A model-written HTML page the daemon put on disk and can serve.
+    ///
+    /// Quickshell cannot host QtWebEngine, so HTML never renders in the pane.
+    /// It goes to a separate pinned browser window instead, and this event is
+    /// what tells the pane one exists. Markdown, code, SVG and images still
+    /// render in the pane through `code_block`; only HTML leaves it.
+    ///
+    /// It accompanies the `code_block` that produced it rather than replacing
+    /// it. The code block is the record of what the model actually wrote, and
+    /// a person should be able to read the page's source without opening the
+    /// page.
+    ///
+    /// There is no `url` here, deliberately. See [`EventBody::Ready`]'s
+    /// `artifact_base`.
+    Artifact {
+        /// The turn this event belongs to.
+        turn: Option<Uuid>,
+        /// The unguessable id this artifact is served under, 32 hex
+        /// characters. The URL is `<artifact_base>/<conversation>/<artifact>`.
+        artifact: String,
+        /// The page's own `<title>`, when it has one.
+        title: Option<String>,
+        /// Where the file is, so a person can find it without the browser.
+        path: PathBuf,
+        /// 1 the first time, incremented every time the model rewrote it. A
+        /// rise is what makes an already-open window reload.
+        revision: u32,
+        /// The file's size, so the pane can say so without reading it.
+        bytes: u64,
     },
     /// The model asked to run a tool.
     ToolCall {
@@ -541,6 +581,7 @@ impl EventBody {
             | Self::TextDelta { .. }
             | Self::ThinkingDelta { .. }
             | Self::CodeBlock { .. }
+            | Self::Artifact { .. }
             | Self::ToolCall { .. }
             | Self::ToolResult { .. }
             | Self::PermissionRequest { .. }

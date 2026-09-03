@@ -81,6 +81,7 @@ fn starting_a_backend_that_is_not_configured_fails_rather_than_panicking() {
             Uuid::new_v4(),
             None,
             std::path::Path::new("/tmp"),
+            std::path::PathBuf::from("/tmp"),
             events,
         )
         .expect_err("an unconfigured backend cannot start");
@@ -97,6 +98,7 @@ fn starting_a_backend_that_does_not_exist_names_the_id() {
             Uuid::new_v4(),
             None,
             std::path::Path::new("/tmp"),
+            std::path::PathBuf::from("/tmp"),
             events,
         )
         .expect_err("an unknown id cannot start");

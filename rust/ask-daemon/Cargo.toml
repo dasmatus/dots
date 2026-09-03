@@ -76,6 +76,27 @@ pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5", default-features = false, features = [
   "default-fancy",
 ] }
+# The artifact server, and no web framework behind it. hyper, hyper-util,
+# http-body-util and bytes are already in this crate's graph under reqwest,
+# which is a hyper client; turning on the "server" and "http1" features costs
+# no new crate and no new build. axum or warp would each add a tower stack and
+# a dozen crates to route two paths that both answer from a map, and neither
+# would take the place of the guards in src/artifact/serve.rs, which are what
+# this actually needs to get right.
+hyper = { version = "1", default-features = false, features = [
+  "server",
+  "http1",
+] }
+# TokioIo, which is the only thing hyper needs to speak over a tokio socket.
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+# Full<Bytes>, the whole-in-memory body. Every response here is a capped file
+# or a number, so nothing streams.
+http-body-util = "0.1"
+bytes = "1"
+# base64 for the image blocks the Anthropic and OpenAI shapes carry inline.
+# Already in the graph under reqwest; naming it makes the dependency honest
+# rather than borrowed.
+base64 = "0.22"
 # similar for the line diff behind `diff.html` and the added/removed counts.
 # Pure Rust, no build script, and the alternative is hand-rolling an LCS that
 # would need its own tests to earn the same trust.
