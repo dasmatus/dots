@@ -280,3 +280,236 @@ fn closing_a_turn_drops_every_open_request() {
         "nothing can answer a request whose turn is over"
     );
 }
+
+// -- adopting what a backend produced --------------------------------------
+//
+// A backend emits bodies with `turn: None`, because the turn id is minted
+// here and never leaves the daemon. `adopt` fills it in, and it is the one
+// place that decides whether an event belongs to a turn at all.
+
+/// A `text_delta` the way an adapter emits it, with no turn on it.
+fn unstamped_delta() -> EventBody {
+    EventBody::TextDelta {
+        turn: None,
+        block: 0,
+        text: "The".to_owned(),
+    }
+}
+
+/// A `turn_start` the way an adapter emits it.
+fn unstamped_turn_start() -> EventBody {
+    EventBody::TurnStart {
+        turn: None,
+        backend: "ollama".to_owned(),
+        model: Some("ornith:9b".to_owned()),
+        started_ms: 1_000,
+    }
+}
+
+#[test]
+fn adopting_a_turn_start_mints_the_turn_id() {
+    let session = Session::new(Uuid::new_v4());
+    let EventBody::TurnStart { turn, backend, .. } = session
+        .adopt(unstamped_turn_start(), 1_000)
+        .expect("an idle session opens a turn")
+    else {
+        panic!("adopt changed the event type");
+    };
+    assert!(turn.is_some(), "the daemon mints the id, not the adapter");
+    assert_eq!(backend, "ollama", "and carries the rest through");
+}
+
+#[test]
+fn adopting_does_not_move_the_session_on() {
+    // The store is written first and the session folded only once the store
+    // has taken the event, so `adopt` has to be free of side effects or a
+    // store failure would leave the session ahead of the transcript.
+    let session = Session::new(Uuid::new_v4());
+    session
+        .adopt(unstamped_turn_start(), 1_000)
+        .expect("the turn opens");
+    assert_eq!(
+        session.turn_state(),
+        &TurnState::Idle,
+        "adopt must not advance the session by itself"
+    );
+}
+
+#[test]
+fn a_second_turn_start_over_a_running_turn_is_dropped() {
+    // A backend speaks one turn at a time, and a second turn_start would
+    // leave the first with no turn_end, which is the exact shape restart
+    // recovery has to repair.
+    let mut session = Session::new(Uuid::new_v4());
+    session
+        .begin_turn("ollama".to_owned(), None, 1_000)
+        .expect("the turn opens");
+    assert!(
+        session.adopt(unstamped_turn_start(), 2_000).is_none(),
+        "the second turn_start has nowhere to go"
+    );
+}
+
+#[test]
+fn a_delta_takes_the_running_turn_id() {
+    let mut session = Session::new(Uuid::new_v4());
+    let opened = session
+        .begin_turn("ollama".to_owned(), None, 1_000)
+        .expect("the turn opens");
+    let EventBody::TurnStart { turn: opened, .. } = opened else {
+        panic!("begin_turn returned the wrong body");
+    };
+
+    let EventBody::TextDelta { turn, text, .. } = session
+        .adopt(unstamped_delta(), 1_500)
+        .expect("a delta inside a turn is adopted")
+    else {
+        panic!("adopt changed the event type");
+    };
+    assert_eq!(turn, opened, "the delta joins the turn that is running");
+    assert_eq!(text, "The");
+}
+
+#[test]
+fn a_delta_with_no_turn_running_is_dropped() {
+    // A decoder bug rather than something to persist. Recording it would put
+    // an event in the transcript that belongs to no turn, and the pane has
+    // nowhere to draw it.
+    let session = Session::new(Uuid::new_v4());
+    assert!(session.adopt(unstamped_delta(), 1_000).is_none());
+}
+
+#[test]
+fn the_events_that_correlate_by_call_are_adopted_between_turns() {
+    // tool_result, permission_request and diff carry no turn at all and can
+    // legitimately arrive with none running, so they must not be dropped by
+    // the same rule that drops a stray delta.
+    let session = Session::new(Uuid::new_v4());
+    assert!(
+        session.adopt(tool_result("toolu_a"), 1_000).is_some(),
+        "a tool result correlates through call, not through turn"
+    );
+    assert!(
+        session
+            .adopt(permission("req-1", "toolu_a", false), 1_000)
+            .is_some(),
+        "so does a permission request"
+    );
+}
+
+#[test]
+fn an_error_is_adopted_with_no_turn_running() {
+    // error can arrive before a turn ever opens, which is what a spawn
+    // failure is.
+    let session = Session::new(Uuid::new_v4());
+    assert!(session
+        .adopt(
+            EventBody::Error {
+                kind: ask_daemon::proto::ErrorKind::BackendSpawn,
+                message: "did not start".to_owned(),
+                fatal: true,
+            },
+            1_000
+        )
+        .is_some());
+}
+
+#[test]
+fn a_user_message_is_adopted_before_any_turn_exists() {
+    // It is emitted when a send is accepted, which is before the turn_start
+    // it causes, so the no-turn-running rule must not eat it.
+    let session = Session::new(Uuid::new_v4());
+    assert!(session
+        .adopt(
+            EventBody::UserMessage {
+                blocks: Vec::new(),
+                sent_ms: 1_000,
+            },
+            1_000
+        )
+        .is_some());
+}
+
+#[test]
+fn adopting_a_turn_end_measures_the_turn_it_closes() {
+    let mut session = Session::new(Uuid::new_v4());
+    session
+        .begin_turn("ollama".to_owned(), None, 1_000)
+        .expect("the turn opens");
+    let EventBody::TurnEnd {
+        duration_ms, stop, ..
+    } = session
+        .adopt(
+            EventBody::TurnEnd {
+                turn: None,
+                stop: StopReason::EndTurn,
+                text: Some("done".to_owned()),
+                duration_ms: 0,
+            },
+            4_500,
+        )
+        .expect("the running turn closes")
+    else {
+        panic!("adopt changed the event type");
+    };
+    assert_eq!(
+        duration_ms, 3_500,
+        "the duration is measured here, not by the adapter"
+    );
+    assert_eq!(stop, StopReason::EndTurn);
+}
+
+#[test]
+fn a_turn_end_with_nothing_running_is_dropped() {
+    // A stray result from a backend cannot close a turn the pane never saw
+    // open, and cannot close one twice.
+    let session = Session::new(Uuid::new_v4());
+    assert!(session
+        .adopt(
+            EventBody::TurnEnd {
+                turn: None,
+                stop: StopReason::EndTurn,
+                text: None,
+                duration_ms: 0,
+            },
+            1_000
+        )
+        .is_none());
+}
+
+#[test]
+fn a_tool_call_keeps_every_field_the_adapter_set() {
+    let mut session = Session::new(Uuid::new_v4());
+    session
+        .begin_turn("ollama".to_owned(), None, 1_000)
+        .expect("the turn opens");
+    let EventBody::ToolCall {
+        turn,
+        call,
+        name,
+        input,
+        origin,
+        ..
+    } = session
+        .adopt(
+            EventBody::ToolCall {
+                turn: None,
+                call: "toolu_a".to_owned(),
+                name: "Write".to_owned(),
+                display_name: None,
+                summary: None,
+                input: json!({"file_path": "/tmp/a.txt"}),
+                origin: ToolOrigin::Mcp,
+            },
+            1_100,
+        )
+        .expect("a tool call inside a turn is adopted")
+    else {
+        panic!("adopt changed the event type");
+    };
+    assert!(turn.is_some(), "only the turn is filled in");
+    assert_eq!(call, "toolu_a");
+    assert_eq!(name, "Write");
+    assert_eq!(input, json!({"file_path": "/tmp/a.txt"}));
+    assert_eq!(origin, ToolOrigin::Mcp);
+}

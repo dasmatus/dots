@@ -200,6 +200,7 @@ pub struct BackendContext {
 ///
 /// Dropping the handle closes the command channel, which every adapter reads
 /// as a shutdown, so a thread that goes away takes its backend with it.
+#[derive(Debug)]
 pub struct BackendHandle {
     commands: mpsc::UnboundedSender<BackendCommand>,
 }
