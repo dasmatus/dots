@@ -898,9 +898,12 @@ rather than a state nobody has tested.
 `rust/ask-daemon/tests/proto.rs` is what keeps it that way. It round-trips
 every frame in both directions, and separately compares the serialized JSON
 against this document's own examples for all eight client ops and all
-fifteen daemon event types. Both halves assert their own coverage, so a
-type added without an example behind it fails rather than passing
-unnoticed.
+fifteen daemon event types. Both coverage lists are hand-written string
+arrays copied out of this document, so they pin the types the schema has
+today: dropping an example fails the suite. They do not derive themselves
+from the Rust enums, so adding a sixteenth event type passes until somebody
+adds its literal to the list by hand. A phase that adds a type adds its
+literal in the same commit.
 
 One thing that test also pins is not in the table. The rows type `decision`,
 `scope`, `stop`, `kind`, `origin`, `state` and a send block's `kind` as
