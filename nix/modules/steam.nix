@@ -117,9 +117,10 @@ in
       # `.override (prev: …)` on whatever package this returns, to splice in
       # the graphics-driver libs (extraEnv/extraLibraries/extraPkgs). Because
       # callPackage wraps its result in `makeOverridable`, that `.override`
-      # overrides *this call's arguments* — steam.nix, openssl,
-      # pkgsi686Linux, millennium, extraPkgs, extraLibraries, extraEnv — not
-      # steam's own package attrs. So the module's `.override` re-invokes
+      # overrides *this call's arguments* — steam, openssl,
+      # pkgsi686Linux, lib, millennium, extraPkgs, extraLibraries, extraEnv,
+      # extraProfile — not steam's own package attrs. So the module's
+      # `.override` re-invokes
       # upstream's steam.nix with its extraEnv/extraLibraries/extraPkgs
       # threaded through, and steam.nix re-merges Millennium's libraries, env
       # and profile script around them. Neither side's additions are
