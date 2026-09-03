@@ -20,6 +20,7 @@ import Quickshell.Wayland
 import ".."
 import "../common"
 import "pills.js" as Pills
+import "rank.js" as Rank
 
 Scope {
     id: root
@@ -29,6 +30,17 @@ Scope {
 
     property string query: ""
     property int selected: 0
+
+    // The timestamp every frecency score in this launcher session decays
+    // against, refreshed in show(). Not Date.now() read from inside the sort:
+    // a QML binding does not re-evaluate because time passed, so a comparator
+    // calling Date.now() would get a different answer on each keystroke that
+    // happened to re-run it and a different one again on the keystroke that
+    // did not — two rows a few hours apart could swap places mid-typing for no
+    // reason the typist did anything to cause. One stamp per open is stable
+    // for as long as the window is up, which is the only interval that has to
+    // be self-consistent.
+    property real rankNow: Date.now()
 
     // The pill bar's own selection: "" is its All state. Released by every
     // query edit (see the TextInput's onTextChanged below) rather than kept
@@ -92,11 +104,20 @@ Scope {
     // (a few hundred desktop entries at worst) and recomputing is simpler to
     // reason about than invalidating a cache on every provider's own
     // schedule. A prefixed query already answers from one provider alone
-    // (ambientRows above), so only the ambient case has anything left to
-    // sort: `.slice()` first because `.sort()` mutates in place and
-    // `ambientRows` is a shared reference `pills` also reads — sorting it
-    // without copying would reorder the pill bar's own input as a side
-    // effect of rendering the list.
+    // (ambientRows above), so only the ambient case has anything left to sort.
+    //
+    // Rank.order does the sorting and returns a new array, which is what keeps
+    // `ambientRows` — a shared reference `pills` also reads — from being
+    // reordered as a side effect of rendering the list.
+    //
+    // Prefix matches still come first, so typing "bra" reaches Brave before
+    // anything merely containing "bra" however little Brave gets used. What
+    // changed is the tiebreak underneath: this used to fall to
+    // localeCompare, which is why an unused browser starting with B sat above
+    // a daily driver starting with L. Now it falls to decayed usage, then to
+    // most-recently-used, then to the order the providers emitted rows in.
+    // The needle is lowercased and trimmed HERE rather than inside rank.js,
+    // which takes it already normalised.
     readonly property var unfilteredResults: {
         const text = root.query;
 
@@ -104,21 +125,8 @@ Scope {
             return root.ambientRows;
 
         const needle = text.trim().toLowerCase();
-        const rows = root.ambientRows.slice();
 
-        // Prefix matches first: typing "fi" should reach Firefox before it
-        // reaches anything merely containing "fi".
-        rows.sort((a, b) => {
-            const aPrefix = a.title.toLowerCase().startsWith(needle) ? 0 : 1;
-            const bPrefix = b.title.toLowerCase().startsWith(needle) ? 0 : 1;
-
-            if (aPrefix !== bPrefix)
-                return aPrefix - bPrefix;
-
-            return a.title.localeCompare(b.title);
-        });
-
-        return rows.slice(0, 50);
+        return Rank.order(root.ambientRows, providers.frecencyRecords, needle, root.rankNow).slice(0, 50);
     }
 
     // One pill per provider present in the query's rows — item.rs's
@@ -176,6 +184,7 @@ Scope {
         root.query = "";
         root.selected = 0;
         root.selectedPill = "";
+        root.rankNow = Date.now();
         window.visible = true;
     }
 
@@ -187,6 +196,16 @@ Scope {
         const row = root.results[root.selected];
         if (!row)
             return;
+
+        // Recorded before run(), not after: run() hands off to execDetached or
+        // a singleton and this function does not get to see whether that
+        // worked. "The user chose this row" is the fact worth ranking on
+        // anyway — a launch that fails is still a launch that was wanted.
+        //
+        // Rows from providers that opted out of ranking carry no key and are
+        // skipped, so this stays a no-op for files, clipboard and the rest.
+        if (row.key)
+            providers.recordUse(row.key, row.parentKey ?? "");
 
         root.hide();
         row.run();
