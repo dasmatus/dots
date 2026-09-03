@@ -29,6 +29,12 @@ Rectangle {
     property string query: ""
     property int current: 0
 
+    // Exposed the way common/Field.qml exposes its own, so
+    // tst_files_cmdline_focus.qml can read the field's focus and text
+    // without a findChild by objectName. `query` only tracks the filtering
+    // modes; a rename or mkdir prompt lives in the field's text alone.
+    readonly property alias input: input
+
     readonly property bool prompting: root.mode === "rename" || root.mode === "mkdir"
     readonly property bool confirming: root.mode === "trash-confirm"
     readonly property bool listing: root.mode === "command" || root.mode === "search"
@@ -62,9 +68,6 @@ Rectangle {
             root.query = "";
             root.current = 0;
         }
-
-        if (root.mode !== "")
-            input.forceActiveFocus();
     }
 
     function move(delta: int): void {
@@ -233,6 +236,20 @@ Rectangle {
                 // cursor blinking at nothing to type.
                 visible: !root.confirming
 
+                // Bound, not taken with forceActiveFocus() when the mode
+                // changes. The imperative version was correct in itself and
+                // still lost every `:` and `/`: Files.qml's openCmdline sets
+                // promptMode and then calls clear(), and clear() ended by
+                // dropping focus again, so the line came up with nothing in
+                // the window focused at all and swallowed everything typed
+                // into it. A binding cannot be undone by the statement after
+                // the one that armed it. It is also the same shape the
+                // `catcher` item in Files.qml already uses for the opposite
+                // half of this handover, and the three bindings — catcher's
+                // closed state, this one, and the confirm item's below —
+                // are mutually exclusive, so exactly one holds focus.
+                focus: root.mode !== "" && !root.confirming
+
                 onTextChanged: {
                     if (root.listing) {
                         root.query = text;
@@ -262,22 +279,18 @@ Rectangle {
     }
 
     // Seeds the field when a prompt takes over the line, and clears it
-    // again on the way back to filtering.
+    // again on the way back to filtering. Neither one touches focus: the
+    // TextInput's `focus` binding above already follows the mode, and both
+    // of these are called right after a mode change by callers that would
+    // otherwise be undoing it.
     function beginPrompt(seed: string): void {
         input.text = seed;
         input.selectAll();
-        input.forceActiveFocus();
     }
 
     function clear(): void {
         input.text = "";
         root.query = "";
         root.current = 0;
-
-        // Hand focus back explicitly. The TextInput took it imperatively
-        // when the line opened, and a hidden item that is still its
-        // FocusScope's focused child swallows every key the scope would
-        // otherwise route to the `:` catcher.
-        input.focus = false;
     }
 }

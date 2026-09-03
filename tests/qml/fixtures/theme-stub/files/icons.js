@@ -1,0 +1,1 @@
+../../../../../nix/home/quickshell/qml/files/icons.js

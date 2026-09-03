@@ -2,8 +2,9 @@
 // Quickshell Singleton pulling in the native plugin, which qmltestrunner
 // cannot load — see tests/README.md) so tests can instantiate the real,
 // unmodified common/ components directly: Chrome.qml and Panel.qml for
-// tst_chrome_geometry.qml, Field.qml for tst_focus_grammar.qml. All three
-// only ever reach QtQuick, QtQuick.Layouts and Theme, nothing
+// tst_chrome_geometry.qml, Field.qml for tst_focus_grammar.qml, and the
+// file manager's CommandLine.qml for tst_files_cmdline_focus.qml. All of
+// them only ever reach QtQuick, QtQuick.Layouts and Theme, nothing
 // Quickshell-specific. The sibling qmldir declares this as a singleton up
 // front — without it the engine still resolves `pragma Singleton` on its
 // own, but only after a first pass where every Theme.* reference reads
@@ -26,4 +27,19 @@ QtObject {
     readonly property int fontSize: 12
     readonly property string alphaPanel: "e6"
     readonly property int launcherRadius: 10
+
+    // The file manager's own palette and metrics, for CommandLine.qml. The
+    // ints carry the generated file's real values rather than arbitrary
+    // ones: the command line's implicitHeight is built out of
+    // filesRowHeight and filesCommandHeight, and a test that clicks a row
+    // wants the geometry the shipped surface has.
+    readonly property color bgDarker: "#15161e"
+    readonly property color muted: "#737aa2"
+    readonly property color red: "#f7768e"
+    readonly property int filesRowHeight: 30
+    readonly property int filesIconSize: 16
+    readonly property int filesIconColumn: 26
+    readonly property int filesPadding: 10
+    readonly property int filesRadius: 10
+    readonly property int filesCommandHeight: 40
 }

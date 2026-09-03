@@ -1,0 +1,12 @@
+# Every component here must be listed, not only the singleton — the same
+# rule the shipped nix/home/quickshell/qml/common/qmldir records having been
+# bitten by. Without the file the engine resolves `pragma Singleton` on
+# Tokens only after a first pass where every Tokens reference reads
+# undefined, which is noisy rather than wrong.
+#
+# Pill.qml is absent because no test drives it yet; a fixture exports what
+# it has symlinked, not what the shipped directory holds.
+singleton Tokens 1.0 Tokens.qml
+Chrome 1.0 Chrome.qml
+Field 1.0 Field.qml
+Panel 1.0 Panel.qml

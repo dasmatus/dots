@@ -434,6 +434,22 @@ Scope {
         implicitWidth: 1100
         implicitHeight: 700
 
+        // Closing this window from the compositor — SUPER+Q, the bind every
+        // other window on the desktop answers to — otherwise leaves it
+        // unable to open ever again, and silently. Both readings agree the
+        // window is gone the moment the toplevel dies: `visible` and
+        // `backingWindowVisible` each go false. But the setter compares
+        // against a third, desired-state flag that a compositor-initiated
+        // close never cleared, so the next `visible = true` matches it,
+        // early-returns, and drops the write with nothing in the log to say
+        // so. Assigning false is what re-arms it.
+        //
+        // Here rather than defensively inside open(), because the desync has
+        // one source and four callers — open(), toggle(), openPath() and
+        // Devices' requestOpen — and this is the only one that knows the
+        // close happened.
+        onClosed: window.visible = false
+
         FocusScope {
             id: keys
 
