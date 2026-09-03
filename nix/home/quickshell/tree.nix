@@ -20,6 +20,7 @@
 {
   pkgs,
   stateHome,
+  cacheHome,
   quicklinks ? [ ],
   snippets ? [ ],
   keybinds ? [ ],
@@ -40,6 +41,18 @@ let
   # writer that records frecency and any future watcher that reloads it must
   # not be able to disagree about where frecency.json lives.
   launcherStateDir = "${stateHome}/dots-shell/launcher";
+
+  # The file manager's prebuilt search index, written by the
+  # dots-files-index unit (files-index.nix) and read by files/Files.qml.
+  # Same one-binding-feeds-both-sides rule as the two above, and it matters
+  # more here than for either: the writer is a systemd unit in a different
+  # file, so a disagreement about the path would not fail to build, it
+  # would just make `/` quietly fall back to walking the tree forever.
+  #
+  # Cache rather than state: the whole file is derived from the filesystem
+  # and is rebuilt from scratch every ten minutes, so losing it costs one
+  # walk and nothing else.
+  filesIndexDir = "${cacheHome}/dots-shell/files";
 
   # Double-quoted, not an indented string: Nix strips the common indentation
   # off a '' '' literal, which would flatten every one of these to column 0.
@@ -247,6 +260,13 @@ let
         // frecency.json lives.
         readonly property string launcherStateDir: "${launcherStateDir}";
         readonly property string launcherStatePath: "${launcherStateDir}/frecency.json";
+
+        // Two files from one walk, not one filtered at query time. Pruning
+        // dotfiles is the difference between a 0.24s and a 0.89s walk, so
+        // files-index.nix does it once when it builds and files/index.js
+        // picks a file rather than paying for a filter on every keystroke.
+        readonly property string filesIndexAll: "${filesIndexDir}/all.tsv";
+        readonly property string filesIndexVisible: "${filesIndexDir}/visible.tsv";
 
         // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
         // without exporting it, so qmllint cannot resolve anything reached

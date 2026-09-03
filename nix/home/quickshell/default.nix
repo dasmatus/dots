@@ -21,9 +21,16 @@ let
     inherit (cfg) quicklinks snippets;
     keybinds = import ../keybinds.nix;
     stateHome = config.xdg.stateHome;
+    cacheHome = config.xdg.cacheHome;
   };
 in
 {
+  # The unit that prebuilds files/Files.qml's search index. Its own file
+  # because it is a service and a timer with nothing else to say, and
+  # because the path it writes has to agree with the one tree.nix bakes
+  # into Theme.qml — both derive it from config.xdg.cacheHome.
+  imports = [ ./files-index.nix ];
+
   options.programs.dots-shell = {
     # qml/monitors/Watcher.qml's ruleset, replacing nix/home/hyprmon.nix's
     # xdg.configFile."hyprmon/rules.json" (deleted alongside the crate — see

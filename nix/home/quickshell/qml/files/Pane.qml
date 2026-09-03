@@ -107,7 +107,19 @@ Rectangle {
     }
 
     function activate(entry: var): void {
-        const child = FilesMath.join(root.path, entry.name);
+        root.activateAt(root.path, entry);
+    }
+
+    // Opening an entry that lives somewhere other than this pane. `/`
+    // answers from all of $HOME now, so a hit carries the directory it was
+    // found in and this pane's own path is no longer the answer for every
+    // row it is asked to open.
+    //
+    // `dir` is absolute on both paths that reach here: Files.qml's
+    // setActivePath refuses a non-absolute root.path, and a search hit's
+    // directory is built from Quickshell.env("HOME") by index.js's locate.
+    function activateAt(dir: string, entry: var): void {
+        const child = FilesMath.join(dir, entry.name);
 
         if (entry.isDir) {
             root.navigate(child);

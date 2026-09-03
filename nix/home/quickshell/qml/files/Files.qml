@@ -26,6 +26,7 @@ import Quickshell
 import Quickshell.Io
 import "files.js" as FilesMath
 import "history.js" as HistoryMath
+import "index.js" as Index
 import "operations.js" as Operations
 import "tabs.js" as TabsMath
 import "../services"
@@ -70,18 +71,40 @@ Scope {
     // comment in operations.js for why.
     property var promptSnapshot: null
 
-    // `/` searches the whole tree below the current directory, not just the
-    // listing on screen. The walk runs in `find` and lands here; until it
-    // does, and whenever the query is empty, the line falls back to the
-    // directory already in memory so it is never blank while typing.
+    // `/` searches all of $HOME, wherever the pane happens to be pointing.
+    // It reads the index the dots-files-index unit built rather than
+    // walking the tree per keystroke: measured over this home directory's
+    // 299569 entries, the walk cost 0.24s a query with dotfiles pruned and
+    // 0.89s with them shown, against 0.00-0.11s for the index.
+    //
+    // Outside $HOME there is no index, so the old live walk stays, scoped
+    // to the current directory the way the whole search used to be. See
+    // runSearch below.
     property var searchResults: []
     readonly property string searchQuery: root.promptMode === "search" ? cmdline.query.trim() : ""
-    readonly property var searchEntries: root.searchQuery === "" ? pane.entries : root.searchResults
+    readonly property string home: Quickshell.env("HOME")
+
+    // The index is up to ten minutes old, so on its own it cannot find a
+    // file saved a moment ago. The pane's listing is live and covers the
+    // one directory most likely to hold it, and merge prefers that copy
+    // where both sides have the same path.
+    readonly property var searchLive: root.searchQuery === "" ? [] : Index.locateAt(pane.entries.filter(entry => Index.globMatches(entry.name, root.searchQuery)), root.path, root.home)
+    readonly property var searchEntries: root.searchQuery === "" ? pane.entries : Index.merge(root.searchResults, root.searchLive, root.path, root.searchQuery, root.searchCap)
 
     // A cap, not a page: a search for "e" under a home directory matches
     // tens of thousands of paths, and no one scrolls past the first screen
-    // of a fuzzy search. The count of what was dropped is worth showing.
+    // of a fuzzy search.
     readonly property int searchCap: 200
+
+    // How many lines grep may match before it gives up, which is a bound
+    // on work rather than on display. It is larger than searchCap because
+    // ranking happens after the match: cutting at 200 would rank the first
+    // 200 lines of the index instead of the best 200 of what matched.
+    readonly property int searchScan: 2000
+
+    // What the last search returned, before the display cap. Capped by
+    // searchScan in turn, so on a one-character query it reports the scan
+    // limit rather than the true total. Nothing draws it yet.
     property int searchFound: 0
 
     // Set by opRunner's onExited below when a write operation's exit code
@@ -292,15 +315,19 @@ Scope {
     function runRow(row: var): void {
         if (row.kind === "entry") {
             // searchEntries, not pane.entries: in search mode the rows come
-            // from the recursive walk, and their names are paths relative to
-            // the current directory. pane.activate joins against that same
-            // directory, so a hit three levels down opens correctly without
-            // a second join here.
+            // from the index, which answers from anywhere under $HOME, and
+            // index.js has already split each hit into a basename and the
+            // absolute directory holding it. Opening through that directory
+            // rather than the pane's is the whole difference between a
+            // global search that works and one that opens the wrong file.
+            //
+            // With no query the rows are the pane's own listing, which
+            // carries no directory of its own because it is all one.
             const entry = root.searchEntries[row.index];
             root.closeCmdline();
 
             if (entry)
-                pane.activate(entry);
+                pane.activateAt(entry.dir !== undefined ? entry.dir : root.path, entry);
 
             return;
         }
@@ -358,10 +385,27 @@ Scope {
     }
 
     function runSearch(): void {
-        // Killing the previous walk before starting the next is what stops
-        // a slow search for "r" from delivering its results on top of a
-        // finished search for "report".
+        // Killing the previous search before starting the next is what
+        // stops a slow search for "r" from delivering its results on top
+        // of a finished search for "report".
         searchProc.running = false;
+
+        if (!Index.withinHome(root.path, root.home)) {
+            root.runLiveSearch();
+            return;
+        }
+
+        searchProc.indexed = true;
+        searchProc.command = Index.indexArgv(Index.indexFor(root.showHidden, Theme.filesIndexAll, Theme.filesIndexVisible), root.searchQuery, root.searchScan);
+        searchProc.running = true;
+    }
+
+    // The walk this whole change exists to avoid, kept for the two cases
+    // that still need it: a directory outside $HOME, which the index does
+    // not cover, and a first boot before dots-files-index has ever run.
+    function runLiveSearch(): void {
+        searchProc.running = false;
+        searchProc.indexed = false;
         searchProc.command = FilesMath.searchArgv(root.path, root.searchQuery, root.showHidden);
         searchProc.running = true;
     }
@@ -369,13 +413,31 @@ Scope {
     Process {
         id: searchProc
 
+        // Whether the command now running is the index grep. onExited
+        // needs it to tell a missing index from a search that simply
+        // matched nothing, and the collector needs it to know what the
+        // paths it is reading are relative to.
+        property bool indexed: false
+
         stdout: StdioCollector {
             onStreamFinished: {
                 const hits = FilesMath.parseListing(this.text);
                 root.searchFound = hits.length;
-                root.searchResults = hits.slice(0, root.searchCap);
+                root.searchResults = Index.locate(hits, searchProc.indexed ? root.home : root.path, root.home);
             }
         }
+
+        // qmllint disable signal-handler-parameters
+        onExited: (exitCode, exitStatus) => {
+            // grep answers 0 for a match, 1 for none and 2 when it could
+            // not read the file at all. Only the third means there is no
+            // index, which is every search taken between login and the
+            // unit finishing its first walk. Falling back keeps `/`
+            // working then instead of quietly finding nothing.
+            if (searchProc.indexed && Index.indexUnavailable(exitCode))
+                root.runLiveSearch();
+        }
+        // qmllint enable signal-handler-parameters
     }
 
     Component {

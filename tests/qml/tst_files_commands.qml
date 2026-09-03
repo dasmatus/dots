@@ -101,11 +101,33 @@ TestCase {
 
     // Prefix before substring, the same order Launcher.qml sorts its own
     // results in, so typing the start of a name reaches it first.
+    // The `:` line still ranks a prefix ahead of a mere substring, the way
+    // the launcher does. It builds its own list and never goes near the
+    // index, so this is the surface `filtered`'s sort still serves.
     function test_a_prefix_match_outranks_a_substring_match() {
+        compare(titles(Commands.actionsFor("n", selection, null, false)), ["New Folder", "Rename"]);
+    }
+
+    // The `/` line does not sort. Its rows arrive already ranked by
+    // index.js, which puts an exact name first and then the directory you
+    // are standing in, and sorting again on the title alone here would
+    // undo exactly that — which is the only thing making a search across
+    // all of $HOME usable from inside a project.
+    // tst_files_index.qml pins the ordering itself.
+    function test_the_search_line_keeps_the_order_it_was_handed() {
         const rows = Commands.entriesFor("re", [{ name: "libreoffice", isDir: true }, { name: "readme.md", isDir: false }]);
 
-        compare(rows[0].title, "readme.md");
-        verify(titles(rows).indexOf("libreoffice") > 0);
+        compare(titles(rows), ["libreoffice", "readme.md"]);
+    }
+
+    // The wildcards files.js documents as deliberate never used to reach a
+    // row: `find` returned readme.md for `*.md`, and then this line's
+    // substring test asked whether "readme.md" contains "*.md" and threw
+    // it away again.
+    function test_the_search_line_keeps_a_wildcard_result() {
+        const rows = Commands.entriesFor("*.md", [{ name: "readme.md", isDir: false }, { name: "notes.txt", isDir: false }]);
+
+        compare(titles(rows), ["readme.md"]);
     }
 
     function test_the_filter_ignores_case() {

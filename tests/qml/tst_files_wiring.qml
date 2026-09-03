@@ -108,4 +108,36 @@ TestCase {
         verify(src.indexOf("forceActiveFocus") === -1, "taking focus imperatively is what clear() used to undo one statement later — the `:` and `/` lines came up focusing nothing at all");
         verify(src.indexOf("input.focus = false") === -1, "and releasing it imperatively is the other half of that pair");
     }
+
+    // The index only covers $HOME, and the fallback is what a first boot
+    // searches through: dots-files-index has not run yet, grep cannot read
+    // the file, and without this `/` would report that the machine contains
+    // nothing. It is also the path that outlives the index entirely, in
+    // /etc or on a mounted stick, so it is the one most likely to rot
+    // unnoticed — nothing about a working index would ever exercise it.
+    function test_a_search_falls_back_to_the_live_walk_without_an_index() {
+        const src = filesSource();
+
+        const chooser = Scan.blockAfter(src, "function runSearch(): void {");
+        verify(chooser.indexOf("Index.withinHome") !== -1, "runSearch must ask whether the current directory is one the index covers");
+        verify(chooser.indexOf("runLiveSearch") !== -1, "and walk live when it is not");
+
+        const fallback = Scan.blockAfter(src, "function runLiveSearch(): void {");
+        verify(fallback.indexOf("FilesMath.searchArgv") !== -1, "the fallback must still build the find argv files.js already tests");
+
+        // grep's exit 2 is the only signal that the file is missing at all.
+        // Reading it off `indexed` matters as much: a live walk that found
+        // nothing must not be mistaken for a missing index and retried
+        // forever.
+        const exited = Scan.blockAfter(src, "onExited: (exitCode, exitStatus) => {");
+        verify(exited.indexOf("Index.indexUnavailable") !== -1, "a missing index must be told apart from a search that matched nothing");
+        verify(exited.indexOf("searchProc.indexed") !== -1, "and only an indexed run may fall back, or the fallback retries itself");
+    }
+
+    // A global search returns hits from directories the pane is not in, so
+    // opening one through the pane's own path would open a file of the same
+    // name in the wrong place, or nothing at all.
+    function test_a_search_hit_opens_through_its_own_directory() {
+        verify(Scan.blockAfter(filesSource(), "if (row.kind === \"entry\") {").indexOf("pane.activateAt(") !== -1, "an activated search row must open against the directory index.js attached to it");
+    }
 }

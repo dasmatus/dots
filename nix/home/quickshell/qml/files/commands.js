@@ -14,6 +14,7 @@
 .pragma library
 
 .import "icons.js" as Icons
+.import "index.js" as Index
 
 var COPY = "\u{F018F}";
 var CUT = "\u{F0190}";
@@ -57,13 +58,18 @@ function actionRows(selection, clipboard, showHidden) {
     return rows;
 }
 
+// `where` is the directory index.js attached to a located hit. Without it
+// a search that answers from all of $HOME shows five rows called main.rs
+// and no way to tell them apart. The pane's own listing has no `where` —
+// every row of it is in the directory already on screen — and there the
+// kind of thing it is remains the only useful thing left to say.
 function entryRows(entries) {
     return entries.map((entry, index) => ({
         kind: "entry",
         id: String(index),
         index: index,
         title: entry.name,
-        subtitle: entry.isDir ? "folder" : "file",
+        subtitle: entry.where !== undefined ? entry.where : (entry.isDir ? "folder" : "file"),
         glyph: Icons.glyphFor(entry),
         colour: Icons.colourFor(entry)
     }));
@@ -101,8 +107,23 @@ function actionsFor(query, selection, clipboard, showHidden) {
     return filtered(actionRows(selection, clipboard, showHidden), query);
 }
 
+// Not `filtered`, for two separate reasons.
+//
+// It sorted, and these rows arrive already ranked by index.js — exact name
+// first, then the current directory, then a prefix. Re-sorting on the
+// title alone would undo the current-directory tier, which is the only
+// thing that makes a search across all of $HOME usable from inside a
+// project.
+//
+// And it matched by plain substring, which silently threw away every
+// wildcard result. `find` did return readme.md for `*.md`, and then
+// "readme.md".includes("*.md") was false and dropped it, so the wildcards
+// files.js documents as deliberate have never actually reached a row.
+// Matching through the same glob the search itself used is what fixes it.
 function entriesFor(query, entries) {
-    return filtered(entryRows(entries), query);
+    const needle = query.trim();
+
+    return entryRows(entries).filter(row => Index.globMatches(row.title, needle));
 }
 
 // The right-click menu is the same action list with no filter and no
