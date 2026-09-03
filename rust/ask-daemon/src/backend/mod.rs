@@ -293,6 +293,17 @@ impl Registry {
         Arc::clone(&self.policy)
     }
 
+    /// Drop the `session` approvals a deleted thread carried.
+    ///
+    /// `forever` rules stay: a person who removed a conversation removed a
+    /// transcript, not a decision they made about which tools may run.
+    pub fn forget_session(&self, conversation: Uuid) {
+        match self.policy.lock() {
+            Ok(mut policy) => policy.forget_session(conversation),
+            Err(poisoned) => poisoned.into_inner().forget_session(conversation),
+        }
+    }
+
     /// Every backend the spec names, probed as far as probing is free.
     ///
     /// Free means no keyring. `claude-code` is decided by whether `claude`
@@ -360,6 +371,65 @@ impl Registry {
             mcp: Arc::clone(&self.mcp),
             policy: Arc::clone(&self.policy),
         })
+    }
+}
+
+/// A registry that lists every backend the spec names and starts none of
+/// them.
+///
+/// This is what a build with nothing configured looks like, and it is what
+/// `tests/server.rs` drives the socket against: the ids are real, so
+/// `op:"new"` still validates against them, and every `send` raises a
+/// conversation-scoped `backend_spawn`. Using it in a test also means the
+/// suite can never reach out to a real `claude` on `PATH` or a real ollama
+/// on 11434.
+#[must_use]
+pub fn unconfigured_registry() -> Arc<Registry> {
+    let detail = "no backend is configured in this build";
+    let backends: Vec<Arc<dyn Backend>> = [
+        (CLAUDE_CODE, "Claude Code"),
+        (ANTHROPIC, "Anthropic API"),
+        (OPENAI, "OpenAI-compatible"),
+        (OLLAMA, "Ollama"),
+        (CODEX, "Codex"),
+    ]
+    .into_iter()
+    .map(|(id, label)| -> Arc<dyn Backend> {
+        Arc::new(Unconfigured {
+            id,
+            label,
+            detail: detail.to_owned(),
+        })
+    })
+    .collect();
+    let policy = Policy::open(PathBuf::from("/nonexistent/dots-ask/policy.json"))
+        .unwrap_or_else(|_| unreachable!("a policy file that is not there loads as empty"));
+    Arc::new(Registry::new(
+        backends,
+        Arc::new(SecretStore::default()),
+        Arc::new(McpPool::empty()),
+        Arc::new(Mutex::new(policy)),
+    ))
+}
+
+/// A backend that exists in the list and does nothing else.
+struct Unconfigured {
+    id: &'static str,
+    label: &'static str,
+    detail: String,
+}
+
+impl Backend for Unconfigured {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn info(&self, _secrets: &SecretStore) -> BackendInfo {
+        unavailable(self.id, self.label, self.detail.clone())
+    }
+
+    fn start(&self, _ctx: BackendContext) -> Result<BackendHandle, String> {
+        Err(format!("backend {:?} is not configured", self.id))
     }
 }
 

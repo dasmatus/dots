@@ -282,7 +282,10 @@ impl Session {
         Some(match body {
             EventBody::TextDelta { block, text, .. } => EventBody::TextDelta { turn, block, text },
             EventBody::ThinkingDelta {
-                block, text, tokens, ..
+                block,
+                text,
+                tokens,
+                ..
             } => EventBody::ThinkingDelta {
                 turn,
                 block,

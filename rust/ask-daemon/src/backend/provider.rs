@@ -341,8 +341,11 @@ impl ProviderSession {
         let status = response.status();
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
-            self.sink
-                .fail(http_error_kind(status), http_error_message(status, &text), false);
+            self.sink.fail(
+                http_error_kind(status),
+                http_error_message(status, &text),
+                false,
+            );
             return Some(TurnOutcome::failed());
         }
 
@@ -757,7 +760,10 @@ pub fn code_block_events(text: &str, block: u32) -> Vec<EventBody> {
         .map(|code| EventBody::CodeBlock {
             turn: None,
             block,
-            html: Some(render::code_block_html(&code.source, code.language.as_deref())),
+            html: Some(render::code_block_html(
+                &code.source,
+                code.language.as_deref(),
+            )),
             language: code.language,
             source: code.source,
         })

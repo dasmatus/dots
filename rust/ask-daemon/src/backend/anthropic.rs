@@ -28,9 +28,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::backend::provider::{
-    self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest,
-};
+use crate::backend::provider::{self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest};
 use crate::backend::{
     unavailable, Backend, BackendCommand, BackendContext, BackendHandle, LineBuffer, SseDecoder,
     ANTHROPIC,
@@ -51,11 +49,7 @@ pub const KEY_ATTRIBUTE: &str = "anthropic-api-key";
 const API_VERSION: &str = "2023-06-01";
 
 /// The models the pane offers.
-const MODELS: [&str; 3] = [
-    "claude-opus-4-1",
-    "claude-sonnet-4-5",
-    "claude-haiku-4-5",
-];
+const MODELS: [&str; 3] = ["claude-opus-4-1", "claude-sonnet-4-5", "claude-haiku-4-5"];
 
 /// The default when a thread names no model.
 const DEFAULT_MODEL: &str = "claude-sonnet-4-5";
@@ -381,7 +375,11 @@ impl AnthropicDecoder {
     fn block_start(&mut self, value: &Value) {
         let index = index_of(value);
         let block = value.get("content_block");
-        if block.and_then(|block| block.get("type")).and_then(Value::as_str) != Some("tool_use") {
+        if block
+            .and_then(|block| block.get("type"))
+            .and_then(Value::as_str)
+            != Some("tool_use")
+        {
             return;
         }
         self.tools.insert(
@@ -436,8 +434,12 @@ impl AnthropicDecoder {
             }],
             Some("input_json_delta") => {
                 if let Some(call) = self.tools.get_mut(&index) {
-                    call.arguments
-                        .push_str(delta.get("partial_json").and_then(Value::as_str).unwrap_or(""));
+                    call.arguments.push_str(
+                        delta
+                            .get("partial_json")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                    );
                 }
                 Vec::new()
             }
@@ -456,10 +458,7 @@ impl AnthropicDecoder {
     /// The message's own delta, which carries the stop reason and the output
     /// counts.
     fn message_delta(&mut self, value: &Value) -> Vec<EventBody> {
-        self.stop = match value
-            .pointer("/delta/stop_reason")
-            .and_then(Value::as_str)
-        {
+        self.stop = match value.pointer("/delta/stop_reason").and_then(Value::as_str) {
             Some("tool_use") => StopReason::ToolUse,
             Some("max_tokens") => StopReason::MaxTokens,
             _ => StopReason::EndTurn,

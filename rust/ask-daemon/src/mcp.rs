@@ -345,12 +345,14 @@ fn read_config(path: &Path) -> ConfigFile {
 #[must_use]
 pub fn servers_from_value(raw: &BTreeMap<String, Value>) -> BTreeMap<String, ServerConfig> {
     raw.iter()
-        .filter_map(|(name, value)| match serde_json::from_value(value.clone()) {
-            Ok(config) => Some((name.clone(), config)),
-            Err(err) => {
-                tracing::debug!(server = name, error = %err, "skipping a non-stdio MCP server");
-                None
-            }
-        })
+        .filter_map(
+            |(name, value)| match serde_json::from_value(value.clone()) {
+                Ok(config) => Some((name.clone(), config)),
+                Err(err) => {
+                    tracing::debug!(server = name, error = %err, "skipping a non-stdio MCP server");
+                    None
+                }
+            },
+        )
         .collect()
 }

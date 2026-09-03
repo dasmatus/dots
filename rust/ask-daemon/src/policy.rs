@@ -297,8 +297,8 @@ impl Policy {
                 })
                 .collect(),
         };
-        let text = serde_json::to_string_pretty(&file)
-            .map_err(|source| AskError::Encode { source })?;
+        let text =
+            serde_json::to_string_pretty(&file).map_err(|source| AskError::Encode { source })?;
 
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).map_err(|source| AskError::CreateDir {

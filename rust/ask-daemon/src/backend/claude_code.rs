@@ -757,7 +757,10 @@ impl StreamDecoder {
             .map(|code| EventBody::CodeBlock {
                 turn: None,
                 block: index,
-                html: Some(render::code_block_html(&code.source, code.language.as_deref())),
+                html: Some(render::code_block_html(
+                    &code.source,
+                    code.language.as_deref(),
+                )),
                 language: code.language,
                 source: code.source,
             })
@@ -950,7 +953,8 @@ impl StreamDecoder {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned();
-        self.open_requests.insert(request_id.to_owned(), call.clone());
+        self.open_requests
+            .insert(request_id.to_owned(), call.clone());
         Decoded {
             events: vec![EventBody::PermissionRequest {
                 request: request_id.to_owned(),
@@ -1121,7 +1125,10 @@ fn usage_event(
 fn rate_limit(value: &Value) -> Option<crate::proto::RateLimit> {
     let info = value.get("rate_limit_info")?;
     Some(crate::proto::RateLimit {
-        kind: info.get("rateLimitType").and_then(Value::as_str)?.to_owned(),
+        kind: info
+            .get("rateLimitType")
+            .and_then(Value::as_str)?
+            .to_owned(),
         status: info
             .get("status")
             .and_then(Value::as_str)

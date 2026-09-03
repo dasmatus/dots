@@ -24,7 +24,8 @@ use tokio::net::UnixStream;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use ask_daemon::server::{placeholder_backends, Daemon};
+use ask_daemon::backend::unconfigured_registry;
+use ask_daemon::server::Daemon;
 
 /// How long any single read may take before the test gives up.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -42,7 +43,7 @@ impl Harness {
         let root = std::env::temp_dir().join(format!("dots-ask-srv-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp root is creatable");
         let socket = root.join("dots-ask.sock");
-        let daemon = Daemon::bind(socket.clone(), root.join("state"), placeholder_backends())
+        let daemon = Daemon::bind(socket.clone(), root.join("state"), unconfigured_registry())
             .expect("the daemon binds");
         assert_eq!(daemon.socket(), socket.as_path());
         Self {
@@ -156,13 +157,26 @@ impl Client {
         self.writer.shutdown().await.expect("the write half closes");
     }
 
-    /// Send a message, which in this phase always fails to spawn a backend.
+    /// Send a message, which against this registry always fails to spawn a
+    /// backend.
     async fn send_text(&mut self, id: Uuid, text: &str) {
         self.send(&json!({
             "op": "send", "conversation": id,
             "blocks": [{"kind": "text", "text": text}]
         }))
         .await;
+    }
+
+    /// Read the pair of persisted events one `send` produces.
+    ///
+    /// A send always records the user's own message first, whether or not
+    /// anything answers it, and then, against this registry, the
+    /// `backend_spawn` failure. Two events per send, always in that order.
+    /// The `error` comes back, because that is the one the ordering tests
+    /// were written against.
+    async fn expect_send(&mut self) -> Value {
+        self.expect_event("user_message").await;
+        self.expect_event("error").await
     }
 }
 
@@ -239,15 +253,15 @@ async fn two_clients_see_the_same_events() {
     let mut from_alice = Vec::new();
     let mut from_bob = Vec::new();
     for _ in 0..3 {
-        from_alice.push(alice.expect_event("error").await);
-        from_bob.push(bob.expect_event("error").await);
+        from_alice.push(alice.expect_send().await);
+        from_bob.push(bob.expect_send().await);
     }
 
     assert_eq!(
         from_alice, from_bob,
         "both clients must see one event stream"
     );
-    assert_eq!(seqs(&from_alice), vec![1, 2, 3], "and see it in order");
+    assert_eq!(seqs(&from_alice), vec![2, 4, 6], "and see it in order");
     for event in &from_alice {
         assert_eq!(
             event["kind"],
@@ -278,9 +292,9 @@ async fn a_reconnect_receives_exactly_the_events_it_missed() {
     }
     let mut seen = Vec::new();
     for _ in 0..3 {
-        seen.push(alice.expect_event("error").await);
+        seen.push(alice.expect_send().await);
     }
-    assert_eq!(seqs(&seen), vec![1, 2, 3]);
+    assert_eq!(seqs(&seen), vec![2, 4, 6]);
 
     // Alice goes away, and the world moves on without her.
     drop(alice);
@@ -288,33 +302,33 @@ async fn a_reconnect_receives_exactly_the_events_it_missed() {
     let (bob_replay, bob_head) = bob.hello(None).await;
     assert_eq!(
         seqs(&bob_replay),
-        vec![1, 2, 3],
+        vec![1, 2, 3, 4, 5, 6],
         "a cold start replays the whole store"
     );
-    assert_eq!(bob_head, 3);
+    assert_eq!(bob_head, 6);
     for text in ["four", "five"] {
         bob.send_text(thread, text).await;
     }
     for _ in 0..2 {
-        bob.expect_event("error").await;
+        bob.expect_send().await;
     }
 
-    // Alice comes back holding seq 3.
+    // Alice comes back holding seq 6.
     let mut alice = harness.client().await;
-    let (missed, head) = alice.hello(Some(3)).await;
+    let (missed, head) = alice.hello(Some(6)).await;
     assert_eq!(
         seqs(&missed),
-        vec![4, 5],
+        vec![7, 8, 9, 10],
         "a resume must deliver every missed event and nothing else"
     );
-    assert_eq!(head, 5, "ready reports the head at connect time");
+    assert_eq!(head, 10, "ready reports the head at connect time");
 
     // And the live stream picks up from there with no repeat.
     bob.send_text(thread, "six").await;
-    let live = alice.expect_event("error").await;
+    let live = alice.expect_send().await;
     assert_eq!(
         live["seq"],
-        json!(6),
+        json!(12),
         "the pump must not resend the replay it already flushed"
     );
 }
@@ -334,24 +348,26 @@ async fn a_replay_that_spans_two_threads_stays_in_seq_order() {
         alice.send_text(right, &format!("right {round}")).await;
     }
     for _ in 0..6 {
-        alice.expect_event("error").await;
+        alice.expect_send().await;
     }
 
     let mut bob = harness.client().await;
     let (replay, head) = bob.hello(None).await;
-    assert_eq!(seqs(&replay), vec![1, 2, 3, 4, 5, 6]);
-    assert_eq!(head, 6);
-    let threads: Vec<&Value> = replay.iter().map(|event| &event["conversation"]).collect();
+    assert_eq!(seqs(&replay), (1..=12).collect::<Vec<u64>>());
+    assert_eq!(head, 12);
+    // Two events per send, so each thread appears in pairs, and the pairs
+    // alternate. A merge that grouped by file would put all six left events
+    // first.
+    let threads: Vec<Value> = replay
+        .iter()
+        .map(|event| event["conversation"].clone())
+        .collect();
+    let expected: Vec<Value> = std::iter::repeat_n([json!(left), json!(right)], 3)
+        .flatten()
+        .flat_map(|thread| [thread.clone(), thread])
+        .collect();
     assert_eq!(
-        threads,
-        vec![
-            &json!(left),
-            &json!(right),
-            &json!(left),
-            &json!(right),
-            &json!(left),
-            &json!(right)
-        ],
+        threads, expected,
         "the merge must interleave by seq, not group by file"
     );
 }
@@ -367,19 +383,19 @@ async fn open_sends_only_what_the_client_does_not_hold() {
         alice.send_text(thread, text).await;
     }
     for _ in 0..3 {
-        alice.expect_event("error").await;
+        alice.expect_send().await;
     }
 
     let mut bob = harness.client().await;
-    bob.send(&json!({"op": "open", "conversation": thread, "from_seq": 1}))
+    bob.send(&json!({"op": "open", "conversation": thread, "from_seq": 2}))
         .await;
     let mut got = Vec::new();
-    for _ in 0..2 {
-        got.push(bob.expect_event("error").await);
+    for _ in 0..4 {
+        got.push(bob.next_event().await);
     }
     assert_eq!(
         seqs(&got),
-        vec![2, 3],
+        vec![3, 4, 5, 6],
         "open sends strictly greater than from_seq"
     );
 }
@@ -392,16 +408,21 @@ async fn open_with_a_null_cursor_sends_the_whole_thread() {
     alice.hello(None).await;
     alice.new_thread(thread).await;
     alice.send_text(thread, "one").await;
-    alice.expect_event("error").await;
+    alice.expect_send().await;
 
     let mut bob = harness.client().await;
     bob.send(&json!({"op": "open", "conversation": thread, "from_seq": null}))
         .await;
-    let event = bob.expect_event("error").await;
+    let event = bob.expect_event("user_message").await;
     assert_eq!(
         event["seq"],
         json!(1),
         "null means the client holds nothing"
+    );
+    assert_eq!(
+        bob.expect_event("error").await["seq"],
+        json!(2),
+        "and the rest of the thread follows it"
     );
 }
 
@@ -647,10 +668,15 @@ async fn a_client_that_stops_sending_still_receives_what_it_asked_for() {
     client.send_text(thread, "the last thing i will say").await;
     client.half_close().await;
 
+    assert_eq!(
+        client.expect_event("user_message").await["seq"],
+        json!(1),
+        "a half-closed client must still get what its last frame recorded"
+    );
     let event = client.expect_event("error").await;
     assert_eq!(
         event["seq"],
-        json!(1),
+        json!(2),
         "a half-closed client must still get the event its last frame raised"
     );
     assert_eq!(event["kind"], json!("backend_spawn"));
@@ -674,10 +700,14 @@ async fn a_client_that_leaves_does_not_stop_the_others() {
         alice.send_text(thread, text).await;
     }
     let mut seen = Vec::new();
-    for _ in 0..2 {
-        seen.push(alice.expect_event("error").await);
+    for _ in 0..4 {
+        seen.push(alice.next_event().await);
     }
-    assert_eq!(seqs(&seen), vec![1, 2], "the survivor keeps its stream");
+    assert_eq!(
+        seqs(&seen),
+        vec![1, 2, 3, 4],
+        "the survivor keeps its stream"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -688,22 +718,22 @@ async fn open_leaves_the_live_subscription_alone() {
     alice.hello(None).await;
     alice.new_thread(thread).await;
     alice.send_text(thread, "one").await;
-    assert_eq!(alice.expect_event("error").await["seq"], json!(1));
+    assert_eq!(alice.expect_send().await["seq"], json!(2));
 
     // Re-read the thread from the start, then keep going live.
     alice
         .send(&json!({"op": "open", "conversation": thread, "from_seq": null}))
         .await;
     assert_eq!(
-        alice.expect_event("error").await["seq"],
-        json!(1),
+        alice.expect_send().await["seq"],
+        json!(2),
         "open re-sends what the client asked for"
     );
 
     alice.send_text(thread, "two").await;
     assert_eq!(
-        alice.expect_event("error").await["seq"],
-        json!(2),
+        alice.expect_send().await["seq"],
+        json!(4),
         "and the subscription carries on afterwards"
     );
 }
@@ -716,15 +746,15 @@ async fn a_second_hello_re_attaches_without_doubling_the_stream() {
     alice.hello(None).await;
     alice.new_thread(thread).await;
     alice.send_text(thread, "one").await;
-    assert_eq!(alice.expect_event("error").await["seq"], json!(1));
+    assert_eq!(alice.expect_send().await["seq"], json!(2));
 
-    let (replay, head) = alice.hello(Some(1)).await;
-    assert!(replay.is_empty(), "the client already holds seq 1");
-    assert_eq!(head, 1);
+    let (replay, head) = alice.hello(Some(2)).await;
+    assert!(replay.is_empty(), "the client already holds seq 2");
+    assert_eq!(head, 2);
 
     alice.send_text(thread, "two").await;
-    let event = alice.expect_event("error").await;
-    assert_eq!(event["seq"], json!(2));
+    let event = alice.expect_send().await;
+    assert_eq!(event["seq"], json!(4));
 
     // A doubled registration would deliver seq 2 twice, so the next thing
     // the client sees must be the answer to the frame after it.
@@ -748,7 +778,7 @@ async fn a_second_daemon_refuses_the_live_socket() {
     let second = Daemon::bind(
         harness.socket.clone(),
         harness.root.join("state"),
-        placeholder_backends(),
+        unconfigured_registry(),
     );
     match second {
         Ok(_) => panic!("a live socket must not be stolen from the daemon serving it"),
@@ -769,7 +799,7 @@ async fn a_socket_left_by_a_dead_run_is_replaced() {
     drop(std::os::unix::net::UnixListener::bind(&socket).expect("the placeholder socket binds"));
     assert!(socket.exists(), "the stale file is there");
 
-    let daemon = Daemon::bind(socket.clone(), root.join("state"), placeholder_backends())
+    let daemon = Daemon::bind(socket.clone(), root.join("state"), unconfigured_registry())
         .expect("a stale socket is removed rather than fatal");
     let serving = tokio::spawn(daemon.serve());
     let mut client = Client::connect(&socket).await;

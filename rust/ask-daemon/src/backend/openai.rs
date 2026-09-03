@@ -30,9 +30,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::backend::provider::{
-    self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest,
-};
+use crate::backend::provider::{self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest};
 use crate::backend::{
     unavailable, Backend, BackendCommand, BackendContext, BackendHandle, LineBuffer, SseDecoder,
     OPENAI,

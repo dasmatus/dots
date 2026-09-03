@@ -20,9 +20,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::backend::provider::{
-    self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest,
-};
+use crate::backend::provider::{self, ChunkDecoder, PendingToolCall, ProviderSession, TurnRequest};
 use crate::backend::{Backend, BackendCommand, BackendContext, BackendHandle, LineBuffer, OLLAMA};
 use crate::proto::{BackendInfo, BackendState, EventBody, StopReason};
 use crate::secrets::SecretStore;
@@ -303,7 +301,10 @@ impl OllamaDecoder {
                 });
             }
         }
-        if let Some(calls) = value.pointer("/message/tool_calls").and_then(Value::as_array) {
+        if let Some(calls) = value
+            .pointer("/message/tool_calls")
+            .and_then(Value::as_array)
+        {
             self.collect_tool_calls(calls);
         }
         if value.get("done").and_then(Value::as_bool) == Some(true) {
