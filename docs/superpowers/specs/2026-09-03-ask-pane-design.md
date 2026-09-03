@@ -65,9 +65,9 @@ rather than merely agreeing with it: all three `system/init` lines report
 and `Write` was gated rather than pre-approved.
 
 The recorded session runs three user turns against a scratch directory: the
-first `Write` is denied, the second is allowed, the third is cancelled by an
-`interrupt` while its permission request is still open. That covers all
-three outcomes the pane has to handle in one file.
+first `Write` is denied, the second is allowed, and the third is interrupted
+while its permission request is still open. That covers all three outcomes
+the pane has to handle in one file.
 
 One limit of the fixture is worth stating up front, because it changes how
 much weight the next sections carry. The driver recorded the CLI's stdout
@@ -187,13 +187,13 @@ the `message` verbatim, and tags it (fixture line 38):
 
 Three of the fixture's four `user` lines carry a `tool_result`, one per
 outcome, and the shapes do not sort the way the outcomes do. Lines 38 and
-129, the denied and the cancelled writes, have identical key sets and differ
+129, the denied and the interrupted writes, have identical key sets and differ
 only in values, `permission-rule` against `user-rejected`. Line 81, the
 allowed write, is the one genuinely different shape: it omits `is_error` and
 `tool_result_meta` entirely and puts an object in `tool_use_result`. So a
 decoder that keys off `is_error` alone gets line 81 wrong, and one that
 keys off the key set alone cannot tell 38 from 129. The fourth `user` line,
-130, is not a tool result at all; it appears in the cancellation section
+130, is not a tool result at all; it appears in the interruption section
 below.
 
 Allowed, fixture line 81. There is **no `is_error` key at all**, and
@@ -212,7 +212,7 @@ Denied, fixture line 38. `is_error` is `true`, `tool_use_result` is a
 string, and `tool_result_meta[0].non_execution_kind` reads
 `"permission-rule"`.
 
-Cancelled, fixture line 129. `is_error` is `true`, `tool_use_result` is the
+Interrupted, fixture line 129. `is_error` is `true`, `tool_use_result` is the
 string `"User rejected tool use"`, the `content` is the CLI's own canned
 rejection text rather than anything the client wrote, and
 `non_execution_kind` reads `"user-rejected"`.
@@ -241,7 +241,7 @@ never observed, this spec nowhere defines the shape of one of its elements,
 and phase 3 has to record a real edit before it can code the first branch.
 Until then it stays unverified, the same way `set_model` in section 3 does.
 
-### Cancelling an open permission request
+### Interrupting an open permission request
 
 Sending `{"subtype":"interrupt"}` while a `can_use_tool` is unanswered makes
 the CLI withdraw it:
@@ -264,8 +264,13 @@ rejection `tool_result`. Line 130 is a plain text notice with no
  "uuid":"fc3e5951-...","timestamp":"2026-09-03T05:17:59.462Z"}
 ```
 
-The turn then ends with `subtype: "error_during_execution"` and
-`terminal_reason: "aborted_tools"`.
+The turn then ends with `subtype: "error_during_execution"`,
+`terminal_reason: "aborted_tools"`, `is_error: true` and a populated
+`errors`. The CLI marks a client interrupt as a failure. The daemon does
+not, and `terminal_reason` is the field that separates the two: section 2
+gives this case `stop: "interrupted"` and raises no `error` event for it. A
+decoder that reads `result.is_error` without checking `terminal_reason`
+reports the fixture's own third turn as a failure.
 
 ### Every type in the fixture
 
@@ -480,7 +485,7 @@ kind has exactly one scope, so a decoder never has to guess.
 | `protocol` | conversation | the backend sent something the decoder could not use |
 | `auth` | conversation | the provider refused the credential |
 | `rate_limit` | conversation | the provider or the plan refused the request |
-| `cancelled` | conversation | the backend abandoned a turn on its own, with no `op:"interrupt"` behind it |
+| `cancelled` | conversation | the backend abandoned a turn on its own, with no `op:"interrupt"` behind it; unverified, the spike never saw one, and the variant is reserved on reasoning rather than observation |
 | `bad_request` | connection | the client sent an unparseable line, an `op` the daemon does not have, or an argument it cannot resolve, such as a `new` naming an unknown `backend` id |
 | `store` | connection | the daemon could not read or write the conversation store |
 
@@ -569,9 +574,10 @@ Field notes.
 including the `aborted_tools` case above, and it arrives alone: a
 client-driven interrupt never also raises an `error`. The `cancelled` error
 kind covers the opposite case, a turn the backend abandoned without being
-asked. One cause, one event. The two never both fire for a single turn, so
-a client can treat `stop: "interrupted"` as "I did this" and `cancelled` as
-"something else did".
+asked, which the spike never saw and which stays unverified. One cause, one
+event. The two never both fire for a single turn, so a client can treat
+`stop: "interrupted"` as "I did this" and `cancelled` as "something else
+did".
 
 `kind` on `error` takes the seven values in the scope table above, and the
 kind alone tells the client whether the event is persisted. `fatal` true
@@ -613,8 +619,9 @@ carries them through untyped rather than modelling them.
 These rows assert nullability for roughly ninety fields against code nobody
 has compiled yet, so they need an amendment rule. Phase 1 may loosen a field
 to `Option` when the compiler or the fixture shows it must be, and records
-that it did. Tightening an `Option` back to required is a break, because
-phases 2 to 5 code against the published table, and it needs the controller.
+the change under section 6 below. Tightening an `Option` back to required is
+a break, because phases 2 to 5 code against the published table, and it
+needs the controller.
 
 | Frame and field | Type |
 |---|---|
@@ -728,7 +735,7 @@ The event set is split across three tables so the cells stay readable.
 
 | Backend | `turn_start` | `text_delta` | `thinking_delta` | `code_block` | `turn_end` |
 |---|---|---|---|---|---|
-| claude-code | `system/init` for the turn | `content_block_delta`/`text_delta` | `thinking_delta`, text always empty, `estimated_tokens` only | `render.rs` over the settled text at `content_block_stop` | `result`, mapped from `subtype` and `stop_reason` |
+| claude-code | `system/init` for the turn | `content_block_delta`/`text_delta` | `thinking_delta`, text always empty, `estimated_tokens` only | `render.rs` over the settled text at `content_block_stop` | `result`, mapped from `terminal_reason` first and from `subtype` and `stop_reason` only when `terminal_reason` does not decide it; `aborted_tools` is `stop: "interrupted"` |
 | anthropic | synthesized when the daemon posts `/v1/messages` | SSE `content_block_delta`/`text_delta`, same shape | SSE `thinking_delta` with real text, only when the request enables extended thinking | same render path | `message_delta.stop_reason` plus `message_stop` |
 | openai-compatible | synthesized at `POST /v1/chat/completions` | `choices[0].delta.content` | `choices[0].delta.reasoning_content`, only on servers that send it | same render path | `choices[0].finish_reason` |
 | ollama | synthesized at `POST /api/chat` | `message.content` per chunk | `message.thinking`, only on models that emit it | same render path | `done:true` plus `done_reason` |
@@ -746,7 +753,7 @@ The event set is split across three tables so the cells stay readable.
 
 | Backend | `usage` | `error` | `conversations` | `backends` | `ready` |
 |---|---|---|---|---|---|
-| claude-code | `message_delta.usage` live, `result.usage` and `total_cost_usd` final, `rate_limit_event` folded in | `result.is_error` with `errors[]`, plus child stderr and non-zero exit | from `store.rs`, backend-independent | listed when `dots.ai.claude` is on and `claude` resolves on PATH | daemon-wide, once per client connection |
+| claude-code | `message_delta.usage` live, `result.usage` and `total_cost_usd` final, `rate_limit_event` folded in | `result.is_error` with `errors[]`, plus child stderr and non-zero exit, except when `terminal_reason` is `aborted_tools`: that is a client interrupt, and it raises `turn_end` with `stop: "interrupted"` and no `error` at all | from `store.rs`, backend-independent | listed when `dots.ai.claude` is on and `claude` resolves on PATH | daemon-wide, once per client connection |
 | anthropic | `message_delta.usage`; `cost_usd` computed by the daemon from a static price table, `null` when the model is unknown | HTTP status plus `error.type` from the body | same | listed when `dots.ai.claude` is on and a key is in the keyring | same |
 | openai-compatible | `usage` on the final chunk, only when the request sets `stream_options.include_usage`; `cost_usd` always `null` | HTTP status plus `error.message` | same | listed when a base URL and key are configured | same |
 | ollama | `prompt_eval_count` and `eval_count` from the final chunk; no cache split, `cost_usd` always `null` | `{"error":"..."}` body, or a refused connection on 11434 | same | listed when `dots.ai.ollama` is on and 11434 answers | same |
@@ -874,3 +881,17 @@ would trust: `render.rs` produces the small rich-text subset a QML `Text`
 element draws, and Quickshell cannot host QtWebEngine anyway. Phase 5 adds
 artifacts, and it inherits the whole question of where untrusted markup gets
 rendered along with them.
+
+## 6. Amendments
+
+Every loosening the field table in section 2 permits gets a row here, added
+by the phase that made it. The table is empty until a phase needs it, which
+is the honest state: nothing has compiled against the schema yet.
+
+A row records what changed and what forced it, so a later reader can tell a
+correction from a preference. Tightening a field back is not an amendment.
+It is a break, it does not go in this table, and it needs the controller.
+
+| Field | Change | Why |
+|---|---|---|
+| | | |
