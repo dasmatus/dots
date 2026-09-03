@@ -193,6 +193,15 @@ let
         readonly property int filesSizeColumn: ${toString palette.files.sizeColumn};
         readonly property int filesTimeColumn: ${toString palette.files.timeColumn};
         readonly property int filesCommandHeight: ${toString palette.files.commandHeight};
+        readonly property int filesRowInset: ${toString palette.files.rowInset};
+        readonly property int filesHoverPad: ${toString palette.files.hoverPad};
+        readonly property int filesHoverPadWide: ${toString palette.files.hoverPadWide};
+        readonly property int filesMenuWidth: ${toString palette.files.menuWidth};
+
+        // Accent edge-strip geometry, its own top-level palette block since
+        // it belongs to no single component the way the file manager's
+        // metrics do.
+        readonly property int chromeStripWidth: ${toString palette.chrome.stripWidth};
 
         // Alpha suffixes are applied at the seam by each consumer, so they stay
         // strings here rather than being folded into the colours above.

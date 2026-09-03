@@ -42,4 +42,10 @@ QtObject {
     readonly property int filesPadding: 10
     readonly property int filesRadius: 10
     readonly property int filesCommandHeight: 40
+    readonly property int filesGutter: 8
+    readonly property int filesRowInset: 8
+    readonly property int filesHoverPad: 4
+    readonly property int filesHoverPadWide: 6
+    readonly property int filesMenuWidth: 220
+    readonly property int chromeStripWidth: 3
 }
