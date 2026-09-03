@@ -209,6 +209,41 @@ pub fn request(url: &str, key: &str, model: &str, tools: Vec<Value>) -> TurnRequ
             }
             body
         }),
+        // The arguments go back as the JSON text the server streamed, not as
+        // a parsed object, because that is what this family's own responses
+        // carry and a re-serialization would not match byte for byte.
+        // `content` is null rather than empty on a tool-only turn, which is
+        // the shape the API documents.
+        record_assistant: Box::new(|text, calls| {
+            if text.is_empty() && calls.is_empty() {
+                return None;
+            }
+            let mut message = json!({
+                "role": "assistant",
+                "content": (!text.is_empty()).then(|| text.to_owned()),
+            });
+            if !calls.is_empty() {
+                if let Some(object) = message.as_object_mut() {
+                    object.insert(
+                        "tool_calls".to_owned(),
+                        calls
+                            .iter()
+                            .map(|call| {
+                                json!({
+                                    "id": call.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": call.name,
+                                        "arguments": call.arguments,
+                                    },
+                                })
+                            })
+                            .collect(),
+                    );
+                }
+            }
+            Some(message)
+        }),
         record_result: Box::new(|call, _ok, content| {
             json!({
                 "role": "tool",

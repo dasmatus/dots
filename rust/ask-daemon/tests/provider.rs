@@ -38,7 +38,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use ask_daemon::backend::ollama::OllamaDecoder;
-use ask_daemon::backend::provider::{ProviderSession, TurnRequest};
+use ask_daemon::backend::provider::{PendingToolCall, ProviderSession, TurnRequest};
 use ask_daemon::backend::{BackendCommand, BackendContext, BackendMessage, EventSink};
 use ask_daemon::mcp::McpPool;
 use ask_daemon::policy::Policy;
@@ -696,6 +696,116 @@ fn the_anthropic_request_carries_the_credential_and_the_api_version() {
     assert!(
         request.body(&[]).get("max_tokens").is_some(),
         "and refuses one without max_tokens"
+    );
+}
+
+/// One tool call the way a decoder hands it over.
+fn pending_call() -> PendingToolCall {
+    PendingToolCall {
+        id: "toolu_01Xyz".to_owned(),
+        name: "searxng__web_search".to_owned(),
+        arguments: "{\"query\":\"unix socket\"}".to_owned(),
+    }
+}
+
+#[test]
+fn the_anthropic_assistant_message_carries_the_id_its_tool_result_will_name() {
+    // The Messages API matches a tool_result to its tool_use by id, and
+    // answers 400 when it cannot. This is the pairing, in one assertion.
+    let request =
+        ask_daemon::backend::anthropic::request("http://127.0.0.1:1/x", "k", "m", Vec::new());
+    let call = pending_call();
+    let assistant = (request.record_assistant)("on it", std::slice::from_ref(&call))
+        .expect("a turn with text and a call records a message");
+    assert_eq!(assistant["role"], "assistant");
+
+    let content = assistant["content"]
+        .as_array()
+        .expect("the Messages API takes a block list");
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[0]["text"], "on it");
+    assert_eq!(content[1]["type"], "tool_use");
+    assert_eq!(content[1]["id"], "toolu_01Xyz");
+    assert_eq!(content[1]["name"], "searxng__web_search");
+    assert_eq!(content[1]["input"], json!({"query": "unix socket"}));
+
+    let result = (request.record_result)(&call, true, "found it");
+    assert_eq!(
+        result["content"][0]["tool_use_id"], content[1]["id"],
+        "the result names the call the assistant message announced"
+    );
+}
+
+#[test]
+fn a_tool_only_anthropic_turn_records_no_empty_text_block() {
+    // An empty text block is itself a 400.
+    let request =
+        ask_daemon::backend::anthropic::request("http://127.0.0.1:1/x", "k", "m", Vec::new());
+    let assistant = (request.record_assistant)("", &[pending_call()])
+        .expect("a call with no prose still records");
+    let content = assistant["content"].as_array().expect("a block list");
+    assert_eq!(content.len(), 1, "only the call: {content:#?}");
+    assert_eq!(content[0]["type"], "tool_use");
+}
+
+#[test]
+fn a_round_that_produced_nothing_records_nothing() {
+    // The failed-request case. An assistant message with neither text nor a
+    // call is rejected by every provider here, so none is written.
+    for request in [
+        ask_daemon::backend::anthropic::request("http://127.0.0.1:1/x", "k", "m", Vec::new()),
+        ask_daemon::backend::openai::request("http://127.0.0.1:1/x", "k", "m", Vec::new()),
+        ask_daemon::backend::ollama::request("http://127.0.0.1:1/x", "m", Vec::new()),
+    ] {
+        assert!(
+            (request.record_assistant)("", &[]).is_none(),
+            "an empty turn must not append an empty message"
+        );
+    }
+}
+
+#[test]
+fn the_openai_assistant_message_carries_the_id_its_tool_message_will_name() {
+    let request =
+        ask_daemon::backend::openai::request("http://127.0.0.1:1/x", "k", "m", Vec::new());
+    let call = pending_call();
+    let assistant = (request.record_assistant)("", std::slice::from_ref(&call))
+        .expect("a call records a message");
+    assert_eq!(assistant["role"], "assistant");
+    assert_eq!(
+        assistant["content"],
+        Value::Null,
+        "content is null on a tool-only turn, which is the documented shape"
+    );
+
+    let calls = assistant["tool_calls"].as_array().expect("a call list");
+    assert_eq!(calls[0]["id"], "toolu_01Xyz");
+    assert_eq!(calls[0]["type"], "function");
+    assert_eq!(calls[0]["function"]["name"], "searxng__web_search");
+    assert_eq!(
+        calls[0]["function"]["arguments"], "{\"query\":\"unix socket\"}",
+        "the arguments go back as the text the server streamed, not re-serialized"
+    );
+
+    let result = (request.record_result)(&call, true, "found it");
+    assert_eq!(result["role"], "tool");
+    assert_eq!(
+        result["tool_call_id"], calls[0]["id"],
+        "an orphan role:\"tool\" is a 400, so the ids have to match"
+    );
+}
+
+#[test]
+fn the_ollama_assistant_message_sends_arguments_back_as_an_object() {
+    // ollama streams the arguments as an object and takes them back the same
+    // way, unlike the two OpenAI-shaped families.
+    let request = ask_daemon::backend::ollama::request("http://127.0.0.1:1/x", "m", Vec::new());
+    let assistant =
+        (request.record_assistant)("sure", &[pending_call()]).expect("a call records a message");
+    assert_eq!(assistant["content"], "sure");
+    assert_eq!(
+        assistant["tool_calls"][0]["function"]["arguments"],
+        json!({"query": "unix socket"})
     );
 }
 

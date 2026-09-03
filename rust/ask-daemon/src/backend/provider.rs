@@ -279,8 +279,23 @@ impl ProviderSession {
             };
             stop = outcome.stop;
             if !outcome.text.is_empty() {
-                summary = outcome.text;
+                summary.clone_from(&outcome.text);
             }
+
+            // The assistant's own turn joins the history before anything
+            // else does, and before any early exit below. A provider is
+            // stateless: everything the model knows about this conversation
+            // is the array the next round posts, so leaving its reply out
+            // makes every follow-up a fresh conversation. Leaving out the
+            // block that carried a tool call is worse, because the
+            // `tool_result` appended just below would then follow nothing,
+            // and both keyed providers answer an orphan result with a 400.
+            //
+            // A round that produced neither text nor a call records nothing,
+            // which is the failed-request case: an empty assistant message is
+            // itself a 400.
+            request.push_assistant(self, &outcome.text, &outcome.tool_calls);
+
             if self.interrupted {
                 stop = StopReason::Interrupted;
                 break;
@@ -629,10 +644,14 @@ pub type BuildBody = Box<dyn Fn(&[Value]) -> Value + Send + Sync>;
 /// Turns one tool result into the history entry its provider expects.
 pub type RecordResult = Box<dyn Fn(&PendingToolCall, bool, &str) -> Value + Send + Sync>;
 
+/// Turns what the model just produced into the assistant message its provider
+/// expects, or `None` when it produced nothing worth recording.
+pub type RecordAssistant = Box<dyn Fn(&str, &[PendingToolCall]) -> Option<Value> + Send + Sync>;
+
 /// Everything one provider needs to build and address a request.
 ///
 /// The body is built per round, because each round appends the previous
-/// round's tool results to the history.
+/// round's assistant message and tool results to the history.
 pub struct TurnRequest {
     /// Where to post.
     pub url: String,
@@ -640,6 +659,9 @@ pub struct TurnRequest {
     pub headers: Vec<(String, String)>,
     /// Builds the request body from the history.
     pub build: BuildBody,
+    /// Appends the assistant's own turn to the history, text and tool calls
+    /// together, in the provider's own shape.
+    pub record_assistant: RecordAssistant,
     /// Appends one tool result to the history in the provider's own shape,
     /// which is the one place the three genuinely differ.
     pub record_result: RecordResult,
@@ -650,6 +672,17 @@ impl TurnRequest {
     #[must_use]
     pub fn body(&self, messages: &[Value]) -> Value {
         (self.build)(messages)
+    }
+
+    /// Append what the model just said to the session history.
+    ///
+    /// This is the message without which a provider has no memory of its own
+    /// replies, and without which a `tool_result` is an orphan the Messages
+    /// API answers with a 400.
+    fn push_assistant(&self, session: &mut ProviderSession, text: &str, calls: &[PendingToolCall]) {
+        if let Some(message) = (self.record_assistant)(text, calls) {
+            session.push_message(message);
+        }
     }
 
     /// Append one tool result to the session history.

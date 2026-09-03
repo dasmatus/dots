@@ -216,6 +216,25 @@ pub fn request(url: &str, key: &str, model: &str, tools: Vec<Value>) -> TurnRequ
             }
             body
         }),
+        // The Messages API takes the assistant turn back as the same block
+        // list it streamed: a text block, then one tool_use block per call,
+        // each carrying the id the tool_result will name. Without this the
+        // tool_result below is an orphan and the API answers 400.
+        record_assistant: Box::new(|text, calls| {
+            let mut content = Vec::new();
+            if !text.is_empty() {
+                content.push(json!({"type": "text", "text": text}));
+            }
+            for call in calls {
+                content.push(json!({
+                    "type": "tool_use",
+                    "id": call.id,
+                    "name": call.name,
+                    "input": call.input(),
+                }));
+            }
+            (!content.is_empty()).then(|| json!({"role": "assistant", "content": content}))
+        }),
         record_result: Box::new(|call, ok, content| {
             json!({
                 "role": "user",
