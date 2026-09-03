@@ -1,0 +1,8 @@
+# Same rule as the sibling common/qmldir: every component here must be
+# listed, or `import "fixtures/theme-stub/ask"` resolves nothing.
+#
+# DiffView is the only ask component this fixture can serve. It imports
+# QtQuick, QtQuick.Layouts and Theme, nothing else. CodeBlock imports
+# Quickshell for the clipboard, and Thread's delegate is Message, which
+# reaches the AskBus singleton and its Socket, so neither can load here.
+DiffView 1.0 DiffView.qml

@@ -1,13 +1,21 @@
 // The two layout rules the ask pane's cards and its thread depend on, pinned
-// against real QtQuick rather than against a comment.
+// against real QtQuick rather than against a comment. Both exist because a
+// defect got through 780 passing tests.
 //
-// Both exist because a defect got through 780 passing tests. Nothing in this
-// suite can instantiate DiffView or Thread themselves: both reach `Theme`,
-// which is a Quickshell singleton, and Thread's delegate reaches AskBus, which
-// owns a Socket. tests/README.md rules all of that out. So each rule is proved
-// here on a plain QtQuick replica of the shape, and the shipped file is pinned
-// to that shape by a source scan in tst_ask_wiring.qml. The replica proves the
-// rule is real; the scan proves the file still follows it.
+// The DIFF CARD is tested on the shipped file itself. DiffView.qml imports
+// QtQuick, QtQuick.Layouts and Theme and nothing else, which is exactly the
+// profile fixtures/theme-stub/ serves, so it loads here through a symlink the
+// same way Chrome.qml and Field.qml already do. An earlier version of this
+// header claimed it could not load. That was wrong, and it cost the component
+// a real render test it could have had from the start.
+//
+// The THREAD is not, and here the limit is real: its delegate is Message,
+// which reaches the AskBus singleton and its Socket. CodeBlock is out for the
+// same kind of reason, importing Quickshell for the clipboard. So the model
+// rules below are proved on a plain QtQuick replica, and tst_ask_wiring.qml
+// pins Thread.qml to the shape the replica proves. The replica shows the rule
+// is real; the scan shows the file still follows it. Neither half is worth
+// much alone, which is the honest description of that coverage.
 //
 // A rendering test, so `when: windowShown` and the items go through
 // createTemporaryObject. Offscreen QPA still lays out and still reports real
@@ -15,6 +23,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtTest
+import "fixtures/theme-stub/ask"
 
 TestCase {
     name: "AskLayout"
@@ -112,6 +121,52 @@ TestCase {
         compare(Math.min(header.implicitHeight + tall.implicitHeight + card.spacing + gutter * 2, cap), cap, "a long diff still has to stop at the cap rather than growing without bound");
     }
 
+    // THE REAL DiffView, not a replica.
+    //
+    // It imports QtQuick, QtQuick.Layouts and Theme and nothing else, which is
+    // exactly the profile fixtures/theme-stub serves, so it loads here through
+    // a symlink to the shipped file the same way Chrome and Field already do.
+    // The replicas above prove the QtQuick rule in the abstract; these two
+    // prove the shipped component obeys it.
+    Component {
+        id: realDiff
+
+        DiffView {
+            width: 400
+
+            path: "/home/matus/src/parser.rs"
+            newText: "fn main() {}\nlet x = 1;\nlet y = 2;\nlet z = 3;\nreturn x + y + z;"
+            added: 4
+            removed: 1
+        }
+    }
+
+    function test_the_real_diff_card_gives_its_body_real_height() {
+        const diff = createTemporaryObject(realDiff, this);
+        waitForRendering(diff);
+
+        const column = diff.children[0];
+        const header = column.children[0];
+        const flick = column.children[1];
+
+        verify(diff.implicitHeight > 0, "the card has to have a height at all");
+
+        // The defect this pins: the card measured its header alone and the
+        // Flickable holding the diff got zero, so the body was clipped away
+        // while the path and the counts still drew.
+        verify(flick.contentHeight > 0, "the diff body has to want real height for this test to mean anything");
+        verify(flick.height >= flick.contentHeight, `the diff body must not be clipped: Flickable height ${flick.height} against contentHeight ${flick.contentHeight}`);
+        verify(diff.implicitHeight > header.implicitHeight * 2, `the card (${diff.implicitHeight}) must be taller than its own header (${header.implicitHeight}), or only the path and counts are visible`);
+    }
+
+    function test_the_real_diff_card_still_caps_a_long_diff() {
+        const diff = createTemporaryObject(realDiff, this);
+        diff.newText = "a line of diff\n".repeat(400);
+        waitForRendering(diff);
+
+        compare(diff.implicitHeight, 340, "a long diff has to stop at Theme.askCodeMaxHeight rather than growing without bound");
+    }
+
     // A ListView carrying rows. Three model shapes, so the test can say which
     // one survives an append rather than asserting the one that was picked.
     Component {
@@ -187,12 +242,30 @@ TestCase {
         return out;
     }
 
-    // WHY THE THREAD DOES NOT USE `model: rows`. Assigning a JS array of a
-    // DIFFERENT length is a model reset: QML tears down every visible delegate
-    // and snaps contentY to 0. The fold appends a row on every new block, tool
-    // call, code block and status line, so a reader who had scrolled up to
-    // reread something got thrown back to the top several times a turn.
-    function test_an_array_model_resets_the_view_when_it_grows() {
+    // The same list with one row's text replaced. This is what ask.js's
+    // appendText produces on every flush: a freshly sliced array of the same
+    // length, holding one grown-text row and otherwise the same content.
+    function editedRows(n, at, text) {
+        const out = makeRows(n);
+        out[at] = {
+            t: text
+        };
+        return out;
+    }
+
+    // WHY THE THREAD DOES NOT USE `model: rows`.
+    //
+    // The trigger is QQuickItemView::setModel's equality check on the
+    // converted list, NOT the length. An equal list early-returns; an unequal
+    // one clears the view and repositions to the top. Editing one row's text
+    // at a constant length makes the list unequal, so it resets exactly as an
+    // append does.
+    //
+    // That is the case that matters, because it is what streaming does. Every
+    // 16ms flush that grows the open text row hands over an unequal list, so a
+    // reader who had scrolled up to reread something was thrown back to the
+    // top continuously for the length of an answer.
+    function test_an_array_model_resets_the_view_on_an_edited_row() {
         const view = createTemporaryObject(arrayModelView, this);
         view.rows = makeRows(50);
         waitForRendering(view);
@@ -202,6 +275,22 @@ TestCase {
         compare(view.contentY, 400, "the probe has to start scrolled up or it proves nothing");
 
         view.torn = 0;
+        view.rows = editedRows(50, 23, "CHANGED");
+        waitForRendering(view);
+
+        compare(view.contentY, 0, "editing one row at the same length still resets a JS array model to the top");
+        verify(view.torn > 0, "and tears down the delegates that were on screen");
+    }
+
+    function test_an_array_model_resets_the_view_when_it_grows() {
+        const view = createTemporaryObject(arrayModelView, this);
+        view.rows = makeRows(50);
+        waitForRendering(view);
+
+        view.contentY = 400;
+        waitForRendering(view);
+
+        view.torn = 0;
         view.rows = makeRows(51);
         waitForRendering(view);
 
@@ -209,10 +298,15 @@ TestCase {
         verify(view.torn > 0, "and tears down the delegates that were on screen");
     }
 
-    // The same array model is fine when the length does not change, which is
-    // why plain streaming into one open text row never showed this. Measured
-    // rather than assumed, because it is the reason the defect stayed hidden.
-    function test_an_array_model_is_stable_when_the_length_holds() {
+    // The early-return, recorded so nobody measures it by accident again.
+    //
+    // An array whose content is identical compares equal and is dropped on the
+    // floor. This test asserts almost nothing about the view, and that is the
+    // point of keeping it: an earlier version of this file used exactly this
+    // shape to conclude that same-length reassignment was safe, which is
+    // wrong. Two identical arrays always compare equal, so that measurement
+    // could only ever come back clean whatever the model semantics were.
+    function test_an_identical_array_is_an_early_return_not_a_data_change() {
         const view = createTemporaryObject(arrayModelView, this);
         view.rows = makeRows(50);
         waitForRendering(view);
@@ -224,8 +318,8 @@ TestCase {
         view.rows = makeRows(50);
         waitForRendering(view);
 
-        compare(view.contentY, 400, "a same-length reassignment is a data change, not a reset");
-        compare(view.torn, 0, "so nothing is rebuilt");
+        compare(view.contentY, 400, "an equal list early-returns, which proves equality and nothing about editing");
+        compare(view.torn, 0, "so nothing is rebuilt, for a reason that does not generalise");
     }
 
     // What Thread.qml uses instead: a ListModel carrying one throwaway integer
@@ -248,10 +342,33 @@ TestCase {
         compare(view.torn, 0, "and must rebuild nothing");
     }
 
-    // The other half: editing a row still has to reach the delegate. The
-    // ListModel never changes, so the update rides entirely on the delegate's
-    // own binding into the array re-evaluating.
-    function test_a_listmodel_still_sees_an_edited_row() {
+    // The case the array model gets wrong and this one has to get right:
+    // editing a row's text at a constant length, which is what streaming does
+    // every frame. The ListModel does not change at all, so the update rides
+    // entirely on the delegate's own binding into the array re-evaluating.
+    function test_a_listmodel_holds_position_through_an_edited_row() {
+        const view = createTemporaryObject(listModelView, this);
+        view.rows = makeRows(50);
+        waitForRendering(view);
+
+        view.contentY = 400;
+        waitForRendering(view);
+
+        view.torn = 0;
+        view.rows = editedRows(50, 23, "CHANGED");
+        waitForRendering(view);
+
+        const item = view.itemAtIndex(23);
+
+        verify(item !== null, "row 23 has to be realized at this scroll position for the check to mean anything");
+        compare(item.label, "CHANGED", "an edited row must reach the delegate even though the model itself did not change");
+        compare(view.contentY, 400, "and a streaming edit must leave a scrolled-up reader where they were");
+        compare(view.torn, 0, "rebuilding nothing");
+    }
+
+    // The same, with a row appended alongside the edit, which is the mixed
+    // batch a real flush produces when a turn opens a new block.
+    function test_a_listmodel_still_sees_an_edited_row_while_growing() {
         const view = createTemporaryObject(listModelView, this);
         view.rows = makeRows(50);
         waitForRendering(view);
@@ -269,7 +386,7 @@ TestCase {
         const item = view.itemAtIndex(23);
 
         verify(item !== null, "row 23 has to be realized at this scroll position for the check to mean anything");
-        compare(item.label, "CHANGED", "an edited row must reach the delegate even though the model itself did not change");
-        compare(view.contentY, 400, "and editing must not move the viewport either");
+        compare(item.label, "CHANGED", "an edit riding along with an append still has to reach the delegate");
+        compare(view.contentY, 400, "and the viewport still holds");
     }
 }
