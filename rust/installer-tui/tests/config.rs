@@ -97,7 +97,7 @@ fn username_accepts_posix_names() {
 fn username_rejects_bad_names() {
     assert!(validate_username("").is_err());
     assert!(validate_username("9lives").is_err());
-    assert!(validate_username("Matus").is_err());
+    assert!(validate_username("Ada").is_err());
     assert!(validate_username("with space").is_err());
     assert!(validate_username(&"a".repeat(32)).is_err());
     assert!(validate_username("root").is_err(), "reserved name");
@@ -105,7 +105,7 @@ fn username_rejects_bad_names() {
 
 #[test]
 fn git_name_accepts_real_names() {
-    assert!(validate_git_name("Matus Mastena").is_ok());
+    assert!(validate_git_name("Ada Lovelace").is_ok());
     assert!(validate_git_name("O'Brien").is_ok());
     assert!(validate_git_name("田中").is_ok());
     assert!(validate_git_name(&"a".repeat(128)).is_ok());

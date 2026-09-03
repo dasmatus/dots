@@ -23,6 +23,13 @@ let
   # `iso-boot`. See tests/session-units.nix for what it guards.
   sessionUnitsTest = import ./session-units.nix { inherit pkgs lib inputs; };
 
+  # proton-calendar — eval-only for the same reason as sessionUnitsTest, and
+  # guarding the one seam nothing else covers: nix/home/proton.nix runs
+  # Betterbird while nix/home/proton-calendar.nix delivers the calendar as
+  # prefs in the mail profile, which only works while home-manager keeps that
+  # profile at ~/.thunderbird. See tests/proton-calendar.nix.
+  protonCalendarTest = import ./proton-calendar.nix { inherit pkgs lib inputs; };
+
   # limine-install-home — a lightweight runNixOSTest (no disko, no
   # nixos-install, no facter.json wall) pinning nix/modules/limine-install.nix's
   # hazard-1 HOME-provisioning fix under three HOME conditions. See
@@ -57,16 +64,15 @@ let
   # substitutes this closure verbatim.
   testTokyonight = mkTokyonight testSettings;
   testToplevel = testTokyonight.config.system.build.toplevel;
-  # The disko `destroy,format,mount` script for the test layout. The disko CLI
-  # run in the VM `nix build`s this script derivation; the VM store has no
-  # network and lacks the script's build-time closure (stdenv hooks such as
-  # update-autotools-gnu-config-scripts-hook, parted, cryptsetup…), so the
-  # in-VM build fails. Pre-staging the script here pulls its WHOLE closure into
-  # the host store (mountHostNixStore) so the CLI's `nix build` realises every
-  # dep by local substitution. Same disko.nix + args + pkgs as the CLI uses, so
-  # the drv hashes match too (substitution, no build) — but even if they did
-  # not, every input is present and the build would succeed.
-  testDiskoScript = testTokyonight.config.system.build.destroyFormatMount;
+  # limine-install.nix's ensureOwnedHome fix exposes this standalone probe
+  # (nix/modules/limine-install.nix, "exposed only for tests/limine-home.nix")
+  # so its $HOME-recovery branch can be inspected without invoking the real
+  # upstream Limine installer. limineInstallBootTest below runs it right after
+  # nixos-install, through the same nixos-enter chroot nixos-install itself
+  # uses for the bootloader step, to record which branch fired on the real
+  # install path instead of only the synthetic conditions limineHomeTest sets
+  # up directly.
+  testHomeProbe = testTokyonight.config.system.build.limineEnsureOwnedHomeProbe;
   # Flake input source paths the installer VM needs to evaluate the staged
   # flake offline: `nixos-install --flake /tmp/dots-flake#tokyonight` evals the
   # flake, and every input's SOURCE must be in the store — not just the direct
@@ -177,15 +183,30 @@ let
         # NOTE: the nixpkgs `installation-device` profile is deliberately NOT
         # imported — it sets nixpkgs.overlays, which runNixOSTest pins
         # read-only (types.unique + readOnly), so the import infinite-recurses
-        # / errors. The profile's only install-relevant provision is the
-        # nixos-install binary, provided here via nixos-install-tools instead.
+        # / errors. `../../profiles/base.nix` (which installation-device.nix's
+        # own parent, installation-cd-base.nix, also imports) carries none of
+        # that: it is what actually puts parted/gptfdisk/cryptsetup on the
+        # real ISO and, via `boot.supportedFilesystems`, is what makes NixOS's
+        # own filesystem-task modules (tasks/filesystems/btrfs.nix, lvm.nix's
+        # services.lvm.enable default, …) pull in btrfs-progs/lvm2/dosfstools/
+        # e2fsprogs — the same generic installer toolkit `nix/iso.nix:35`
+        # gets from `installation-cd-minimal.nix`. Importing it here is what
+        # lets the disko CLI below resolve its own independently-evaluated
+        # derivation (a different pkgs instantiation than this node's, see
+        # the disko step) against packages this node already has *valid*,
+        # rather than needing to build or fetch them. `boot.swraid.enable`
+        # is the one piece installation-device.nix would otherwise add
+        # (mdadm, for disko's RAID-capable `_pkgs` default set) — set
+        # directly since the module that normally sets it is off-limits.
         installer =
-          { pkgs, ... }:
+          { pkgs, modulesPath, ... }:
           {
             imports = [
               commonConfig
               autoFormatModule
+              "${modulesPath}/profiles/base.nix"
             ];
+            boot.swraid.enable = true;
             # Serve the host nix store read-only so nixos-install substitutes
             # the pre-built testToplevel with no network (no substitutes).
             virtualisation.mountHostNixStore = true;
@@ -231,13 +252,25 @@ let
               pkgs.nixos-facter
             ];
             # Everything nixos-install needs to evaluate + copy the closure
-            # offline: the test-settings toplevel, the pre-built disko script
-            # (so the disko CLI's in-VM `nix build` finds every dep in the
-            # store), and the flake input sources.
+            # offline: the test-settings toplevel, the flake input sources,
+            # and the $HOME probe (system.build.limineEnsureOwnedHomeProbe)
+            # the testScript runs after nixos-install to observe hazard 1
+            # (nix/modules/limine-install.nix) on the real install path.
+            # profiles/base.nix above gives this node the same *runtime*
+            # PATH packages disko's script needs (parted, lvm2, …), but not
+            # the *build-time* tool disko's cryptsetup-wrapping step needs to
+            # realise that script in the first place: pkgs.makeBinaryWrapper
+            # (nix/iso.nix stages the same derivation, with the full
+            # reasoning — its own build environment is the ordinary
+            # cc-having stdenv, and nothing else here pulls it in, so its
+            # absence sends disko's in-VM `nix build` all the way through a
+            # from-source gcc/binutils bootstrap that has no network to
+            # fetch through).
             system.extraDependencies = [
               testToplevel
-              testDiskoScript
+              testHomeProbe
               aipageSrc
+              pkgs.makeBinaryWrapper
             ]
             ++ flakeInputPaths;
           };
@@ -276,22 +309,37 @@ let
       with subtest("Generate the one-shot LUKS keyfile"):
           installer.succeed("umask 077; head -c 64 /dev/urandom > /tmp/dots-luks-pass")
 
-      with subtest("disko partition + format + mount on /dev/vda"):
-          # Run the PRE-BUILT disko destroy-format-mount script directly
-          # (testDiskoScript = testTokyonight.config.system.build.
-          # destroyFormatMount) instead of the `disko` CLI. The CLI does an
-          # in-VM `nix build` of the script drv, whose hash differs from the
-          # host-built one (import <nixpkgs> {} != nixosSystem's pkgs), so
-          # it rebuilds — and rebuilding pulls the offline-unfetchable stdenv
-          # bootstrap chain. The pre-built script is self-contained: it
-          # exports PATH = makeBinPath of _packages + bash + destroyDeps
-          # (all absolute store paths), so its whole tool closure (staged
-          # via extraDependencies + mountHostNixStore) is all it needs. Same
-          # disko.nix + test args as the real installer's `disko --mode
-          # destroy,format,mount` — only the dep-bundling differs.
+      with subtest("disko partition + format + mount on /dev/vda (the disko CLI, same as install.rs::plan())"):
+          # The literal command install.rs's plan() runs — `disko --mode
+          # destroy,format,mount --yes-wipe-all-disks --arg disks [...]
+          # --argstr swapSize <swap> {flake_src}/nix/disko.nix`
+          # (rust/installer-tui/src/install.rs) — against /etc/dots, the
+          # read-only flake mount, exactly as a real install does; nixos-install
+          # stages its own writable copy separately, below. disks/swapSize
+          # mirror testSettings above.
+          #
+          # The CLI evaluates its own script derivation (`import <nixpkgs> {}`
+          # via disko's pinned NIX_PATH) rather than reading
+          # config.system.build.destroyFormatMount (built through this node's
+          # own, module-system-computed pkgs) — a different derivation whose
+          # `nix build` this node must resolve on its own. profiles/base.nix
+          # above (imported the way nix/iso.nix:35 pulls in
+          # installation-cd-minimal.nix, minus the overlay it can't take
+          # here) gives this node its own, properly built copy of every
+          # package that build needs — parted/gptfdisk/cryptsetup directly,
+          # lvm2/btrfs-progs/dosfstools/e2fsprogs/mdadm via
+          # boot.supportedFilesystems + boot.swraid.enable — so the CLI's
+          # `nix build` finds them already valid and never touches the
+          # network, the same way the real ISO's own store already carries
+          # them. The one thing profiles/base.nix does not cover is
+          # pkgs.makeBinaryWrapper, a *build-time* tool disko's
+          # cryptsetup-wrapping step needs rather than a runtime PATH
+          # package — staged separately in this node's
+          # system.extraDependencies above (see that comment).
           installer.succeed(
-              "${testDiskoScript}/bin/disko-destroy-format-mount"
-              " --yes-wipe-all-disks >&2"
+              "disko --mode destroy,format,mount --yes-wipe-all-disks"
+              " --arg disks '[ \"/dev/vda\" ]' --argstr swapSize 1G"
+              " /etc/dots/nix/disko.nix >&2"
           )
 
       with subtest("Stage a writable flake copy + write test settings.nix"):
@@ -330,6 +378,25 @@ let
               "nixos-install --root /mnt --no-root-passwd"
               " --flake /tmp/dots-flake#tokyonight < /dev/null >&2"
           )
+
+      with subtest("Probe the $HOME limine-install.nix's bootloader step saw"):
+          # nixos-install's own bootloader step shells out to
+          # `nixos-enter --root "$mountPoint" -c '... switch-to-configuration
+          # boot'` (nixpkgs' nixos-install.sh) — a plain `chroot` with no HOME
+          # handling of its own, so whatever ensureOwnedHome
+          # (nix/modules/limine-install.nix) saw is whatever that same
+          # invocation shape inherits. Run the exposed probe (testHomeProbe =
+          # system.build.limineEnsureOwnedHomeProbe, "exposed only for
+          # tests/limine-home.nix") through an identical nixos-enter chroot,
+          # right after nixos-install returns, to observe the real install
+          # path's outcome without touching production code or the real
+          # nixos-install run above. Nothing between the two nixos-enter
+          # invocations touches /mnt/root, so its existence/ownership — the
+          # ensureOwnedHome condition — should match what the real run saw.
+          home_seen = installer.succeed(
+              "nixos-enter --root /mnt -c ${testHomeProbe} 2>&1"
+          ).strip()
+          print(f"limine-install.nix ensureOwnedHome saw HOME={home_seen!r}")
 
       with subtest("Enroll TPM2 token (no PCR policy) + LUKS recovery key"):
           # No --tpm2-pcrs: the token is PCR-unbound so it unseals on the
@@ -626,6 +693,7 @@ in
 {
   # Eval-only — no VM, no build. See the comment on sessionUnitsTest above.
   session-units = sessionUnitsTest;
+  proton-calendar = protonCalendarTest;
   iso-boot = isoBootTest;
   userborn-reboot-login = userbornRebootLogin;
   limine-install-home = limineHomeTest;

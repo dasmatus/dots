@@ -163,6 +163,24 @@ let
         readonly property int launcherRadius: ${toString palette.beamenu.radius};
         readonly property int launcherPreviewWidth: ${toString palette.beamenu.previewWidth};
 
+        // File-manager geometry. Its own block rather than reused launcher
+        // metrics: the two disagree on every one of them, and a shared
+        // constant that both callers immediately override is the magic
+        // number this file exists to stop.
+        readonly property int filesTabHeight: ${toString palette.files.tabHeight};
+        readonly property int filesTabPadding: ${toString palette.files.tabPadding};
+        readonly property int filesTabIndicator: ${toString palette.files.tabIndicator};
+        readonly property int filesRowHeight: ${toString palette.files.rowHeight};
+        readonly property int filesIconSize: ${toString palette.files.iconSize};
+        readonly property int filesIconColumn: ${toString palette.files.iconColumn};
+        readonly property int filesSidebarWidth: ${toString palette.files.sidebarWidth};
+        readonly property int filesGutter: ${toString palette.files.gutter};
+        readonly property int filesPadding: ${toString palette.files.padding};
+        readonly property int filesRadius: ${toString palette.files.radius};
+        readonly property int filesSizeColumn: ${toString palette.files.sizeColumn};
+        readonly property int filesTimeColumn: ${toString palette.files.timeColumn};
+        readonly property int filesCommandHeight: ${toString palette.files.commandHeight};
+
         // Alpha suffixes are applied at the seam by each consumer, so they stay
         // strings here rather than being folded into the colours above.
         readonly property string alphaPanel: "${palette.alpha.panel}";

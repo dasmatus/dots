@@ -60,15 +60,29 @@ QtObject {
             subtitle: "Power off the machine",
             argv: ["systemctl", "poweroff"]
         },
+        // These start the same dots-screenshot-*@ units the Print keybinds
+        // start (nix/home/session/actions.nix), rather than calling hyprshot
+        // themselves. Going through the unit is what gets them the wrapper
+        // that pins the save folder, the flags each mode needs, and the
+        // KillMode=process that stops systemd killing the capture — none of
+        // which a bare "hyprshot" here would have. The instance name is fixed
+        // rather than randomised the way the keybinds' is, because
+        // execDetached has no shell to expand a suffix in; the cost is that
+        // re-running one mode while it is still capturing is a no-op.
         {
             title: "Screenshot Screen",
             subtitle: "Capture the focused output",
-            argv: ["hyprshot", "-m", "output"]
+            argv: ["systemctl", "--user", "start", "--no-block", "dots-screenshot-output@launcher.service"]
         },
         {
             title: "Screenshot Region",
             subtitle: "Select a region to capture",
-            argv: ["hyprshot", "-m", "region"]
+            argv: ["systemctl", "--user", "start", "--no-block", "dots-screenshot-region@launcher.service"]
+        },
+        {
+            title: "Screenshot Window",
+            subtitle: "Pick a window to capture",
+            argv: ["systemctl", "--user", "start", "--no-block", "dots-screenshot-window@launcher.service"]
         },
         {
             title: "Toggle Touchpad",

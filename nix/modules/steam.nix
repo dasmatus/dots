@@ -18,9 +18,18 @@
 #   { dots.steam.enable = false; }  # force off (e.g. an iGPU-only laptop
 #                                  #             you don't game on)
 # Mirrors the dots.formFactor override pattern in nix/modules/form-factor.nix.
+#
+# dots.steam.millennium (default true, while Steam itself is enabled) loads
+# Millennium (SteamClientHomebrew/Millennium), a theme/plugin loader for the
+# Steam client, by overriding `programs.steam.package`. See the comment on
+# that `package` assignment below for why it's a package override rather than
+# upstream's global overlay, and how the override composes with the nixpkgs
+# steam module's own `.override` call.
 {
   config,
   lib,
+  pkgs,
+  inputs,
   ...
 }:
 let
@@ -63,6 +72,22 @@ in
     '';
   };
 
+  options.dots.steam.millennium = lib.mkOption {
+    type = lib.types.bool;
+    default = true;
+    description = ''
+      Whether to load Millennium (SteamClientHomebrew/Millennium) by
+      replacing `programs.steam.package`. Only takes effect while Steam
+      itself is enabled (dots.steam.enable resolves to true).
+
+      Turning this off later leaves behind the
+      ~/.local/share/Steam/ubuntu12_{32,64}/libXtst.so.6 symlinks
+      Millennium's profile script wrote, pointing at a store path the
+      garbage collector eventually deletes. If the client misbehaves after
+      disabling this, remove those symlinks and run `steam --reset`.
+    '';
+  };
+
   config = lib.mkIf steamEnabled {
     programs.steam = {
       enable = true;
@@ -75,6 +100,43 @@ in
       # companion for installing native Windows dependencies (e.g. a game's
       # bundled redist) into a Proton prefix.
       protontricks.enable = true;
+
+      # Millennium as a package override, not upstream's overlays.default or
+      # their millennium-steam package: those pull in a whole Steam client
+      # (and its FHS closure) built against upstream's own pinned nixpkgs,
+      # two months behind ours, which would put an old 32-bit library set
+      # under this repo's mesa32 — see the millennium input comment in
+      # flake.nix. Upstream's packages/nix/steam.nix is a plain function over
+      # `{ steam, openssl, pkgsi686Linux, lib, millennium, ... }`, so
+      # callPackage'ing it against *this* `pkgs` keeps the client and every
+      # FHS library on this repo's nixpkgs; only the small `millennium`
+      # library (MIT) comes from the input's own pinned nixpkgs.
+      #
+      # How the merge survives the nixpkgs steam module: that module's
+      # `programs.steam.package` option has an `apply` that calls
+      # `.override (prev: …)` on whatever package this returns, to splice in
+      # the graphics-driver libs (extraEnv/extraLibraries/extraPkgs). Because
+      # callPackage wraps its result in `makeOverridable`, that `.override`
+      # overrides *this call's arguments* — steam, openssl,
+      # pkgsi686Linux, lib, millennium, extraPkgs, extraLibraries, extraEnv,
+      # extraProfile — not steam's own package attrs. So the module's
+      # `.override` re-invokes
+      # upstream's steam.nix with its extraEnv/extraLibraries/extraPkgs
+      # threaded through, and steam.nix re-merges Millennium's libraries, env
+      # and profile script around them. Neither side's additions are
+      # dropped, and `extraProfile` survives untouched because the nixpkgs
+      # module never sets it.
+      #
+      # Millennium's state — plugins, themes, and the hijacked
+      # libXtst.so.6 symlinks its profile script rewrites on every launch —
+      # lives under ~/.local/share/Steam, which persists: /home is a real
+      # btrfs subvol, not routed through impermanence (see
+      # nix/modules/impermanence.nix).
+      package = lib.mkIf config.dots.steam.millennium (
+        pkgs.callPackage "${inputs.millennium}/steam.nix" {
+          millennium = inputs.millennium.packages.${pkgs.stdenv.hostPlatform.system}.millennium;
+        }
+      );
     };
 
     # NOTE: 32-bit graphics + 32-bit audio are NOT set here. nixpkgs' own
