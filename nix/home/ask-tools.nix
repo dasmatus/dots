@@ -30,14 +30,22 @@
 # The two python programs sit in their own files rather than inline. A
 # heredoc inside a Nix indented string has its leading whitespace stripped
 # by Nix's own de-indentation, which is exactly the whitespace python needs.
+#
+# The toggles arrive as the `dots` module argument, not through `config`.
+# nix/modules/users.nix hands the NixOS-side projection to home-manager via
+# extraSpecialArgs, the way nix/home/ask.nix and nix/home/edupage-mcp.nix read
+# it. `config.dots` resolves in this scope too, which is the trap: nix/home/
+# session declares options.dots.session, so the wrong spelling fails with
+# "attribute 'ai' missing" and reads like the installer answers are broken
+# rather than like the wrong `dots` was read.
 {
-  config,
+  dots,
   lib,
   pkgs,
   ...
 }:
 let
-  cfg = config.dots.ai;
+  cfg = dots.ai;
   # Same gate as the pane. The offline helper works without an account, but
   # it is part of the pane rather than a general tool, so it follows it.
   enabled = cfg.claude || cfg.codex || cfg.ollama;
