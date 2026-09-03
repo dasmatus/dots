@@ -8,3 +8,4 @@ EdgeStrip 1.0 EdgeStrip.qml
 Field 1.0 Field.qml
 Panel 1.0 Panel.qml
 Pill 1.0 Pill.qml
+PopupShell 1.0 PopupShell.qml
