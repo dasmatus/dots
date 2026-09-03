@@ -50,7 +50,7 @@ Rectangle {
         id: nav
 
         anchors.left: parent.left
-        anchors.leftMargin: Theme.filesPadding
+        anchors.leftMargin: Theme.filesRowInset
         anchors.verticalCenter: parent.verticalCenter
 
         spacing: 10
@@ -73,7 +73,7 @@ Rectangle {
                 id: backArea
 
                 anchors.fill: parent
-                anchors.margins: -6
+                anchors.margins: -Theme.filesHoverPadWide
                 enabled: root.canBack
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
@@ -96,7 +96,7 @@ Rectangle {
                 id: forwardArea
 
                 anchors.fill: parent
-                anchors.margins: -6
+                anchors.margins: -Theme.filesHoverPadWide
                 enabled: root.canForward
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
@@ -114,7 +114,7 @@ Rectangle {
                 id: upArea
 
                 anchors.fill: parent
-                anchors.margins: -6
+                anchors.margins: -Theme.filesHoverPadWide
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.navigate(FilesMath.parentOf(root.path))
@@ -128,9 +128,9 @@ Rectangle {
     // otherwise run under the arrows it is centred against.
     Item {
         anchors.left: nav.right
-        anchors.leftMargin: Theme.filesPadding
+        anchors.leftMargin: Theme.filesRowInset
         anchors.right: parent.right
-        anchors.rightMargin: Theme.filesPadding
+        anchors.rightMargin: Theme.filesRowInset
         anchors.verticalCenter: parent.verticalCenter
 
         implicitHeight: crumbs.implicitHeight
@@ -185,7 +185,7 @@ Rectangle {
                             id: crumbArea
 
                             anchors.fill: parent
-                            anchors.margins: -4
+                            anchors.margins: -Theme.filesHoverPad
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: root.navigate(crumb.modelData.path)

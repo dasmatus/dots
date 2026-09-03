@@ -143,7 +143,7 @@ Rectangle {
                 id: addArea
 
                 anchors.fill: parent
-                anchors.margins: -4
+                anchors.margins: -Theme.filesHoverPad
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.added()

@@ -51,8 +51,8 @@ PopupShell {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: Theme.filesRowInset
+                    anchors.rightMargin: Theme.filesRowInset
                     spacing: 0
 
                     Text {

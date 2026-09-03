@@ -26,14 +26,10 @@ Rectangle {
     id: root
 
     readonly property string home: Quickshell.env("HOME")
-    property var places: [
-        {
-            label: "Home",
-            path: root.home,
-            glyph: "\u{F02DC}",
-            colour: "accent"
-        }
-    ]
+    // Same shape onLoadFailed below falls back to: Places.placesFor with no
+    // user-dirs.dirs text yields Home alone, so the property starts already
+    // holding what a failed read would set it to anyway.
+    property var places: Places.placesFor("", root.home)
 
     signal requested(string path)
 
@@ -86,14 +82,9 @@ Rectangle {
 
         spacing: 2
 
-        Text {
-            Layout.bottomMargin: 4
-
-            text: "Places"
-            color: Theme.muted
-            font.family: Theme.fontUi
-            font.pixelSize: Theme.fontSize
-            font.bold: true
+        SidebarHeader {
+            first: true
+            title: "Places"
         }
 
         Repeater {
@@ -115,7 +106,7 @@ Rectangle {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
+                    anchors.leftMargin: Theme.filesRowInset
                     spacing: 0
 
                     Text {
@@ -147,15 +138,8 @@ Rectangle {
             }
         }
 
-        Text {
-            Layout.topMargin: 10
-            Layout.bottomMargin: 4
-
-            text: "Bookmarks"
-            color: Theme.muted
-            font.family: Theme.fontUi
-            font.pixelSize: Theme.fontSize
-            font.bold: true
+        SidebarHeader {
+            title: "Bookmarks"
             visible: root.bookmarks.length > 0
         }
 
@@ -178,8 +162,8 @@ Rectangle {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: Theme.filesRowInset
+                    anchors.rightMargin: Theme.filesRowInset
                     spacing: 0
 
                     Text {
@@ -211,15 +195,8 @@ Rectangle {
             }
         }
 
-        Text {
-            Layout.topMargin: 10
-            Layout.bottomMargin: 4
-
-            text: "Devices"
-            color: Theme.muted
-            font.family: Theme.fontUi
-            font.pixelSize: Theme.fontSize
-            font.bold: true
+        SidebarHeader {
+            title: "Devices"
             visible: Devices.devices.length > 0
         }
 
@@ -242,8 +219,8 @@ Rectangle {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: Theme.filesRowInset
+                    anchors.rightMargin: Theme.filesRowInset
                     spacing: 0
 
                     Text {
@@ -273,7 +250,7 @@ Rectangle {
                             id: ejectArea
 
                             anchors.fill: parent
-                            anchors.margins: -4
+                            anchors.margins: -Theme.filesHoverPad
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: Devices.eject(entry.modelData.path, entry.modelData.diskPath)
