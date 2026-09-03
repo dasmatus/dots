@@ -222,6 +222,17 @@ TestCase {
         verify(block.indexOf("AskBus.remove(conversation)") !== -1, "the daemon still has to be told");
     }
 
+    // The bus half of the same fact. `subscribed` is what a reconnect
+    // re-opens, so a deleted id left there makes the next dropped connection
+    // send op:"open" for a conversation the daemon no longer has.
+    function test_deleting_the_subscribed_thread_clears_the_subscription() {
+        const block = Scan.blockAfter(busSource(), "function remove(conversation: string): void {");
+
+        verify(block !== "", "AskBus must define remove()");
+        verify(block.indexOf("root.subscribed") !== -1, "removing the subscribed thread has to drop the subscription, or a reconnect re-opens a dead conversation");
+        verify(block.indexOf("Ask.deleteFrame(conversation)") !== -1, "and the daemon still has to be told");
+    }
+
     // Clicking the already-active backend pill is not a swap, and must not
     // abandon the open thread on its way to changing nothing.
     function test_repicking_the_same_backend_keeps_the_thread() {

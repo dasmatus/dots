@@ -177,7 +177,18 @@ Singleton {
         root.sendFrame(Ask.permissionFrame(conversation, request, decision, scope, null, decision === "deny" ? "denied from the ask pane" : null));
     }
 
+    // Deletes a thread, and stops holding it as the subscription.
+    //
+    // `subscribed` is what a reconnect re-opens. Leaving a deleted id in it
+    // means the next dropped connection sends op:"open" for a conversation the
+    // daemon no longer has, which is a bad_request the user did nothing to
+    // cause. The pane clears its own copy in Ask.qml's forget(); this is the
+    // bus half of the same fact, kept here because only the bus knows what it
+    // is about to re-open.
     function remove(conversation: string): void {
+        if (root.subscribed === conversation)
+            root.subscribed = "";
+
         root.sendFrame(Ask.deleteFrame(conversation));
     }
 

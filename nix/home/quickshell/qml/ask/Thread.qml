@@ -13,22 +13,35 @@
 // the tail.
 //
 // WHY THE MODEL IS A ListModel OF NOTHING. The obvious `model: root.rows` is
-// wrong, and measurably so. QML does not diff a JS array assigned to `model`.
-// Measured on Qt 6.11 (tests/qml/tst_ask_layout.qml pins all of it): assigning
-// a new array of the SAME length keeps contentY and rebuilds no delegate, but
-// assigning one of a DIFFERENT length is a model reset, which tears down every
-// visible delegate and snaps contentY to 0. The fold appends a row on every
-// new block, tool call, code block and status line, so a reader who scrolled
-// up to reread something got thrown back to the top of the conversation
-// several times a turn. `positionViewAtEnd` hid it from a pinned reader, which
-// is exactly the reader who did not need the help.
+// wrong, and measurably so. QML does not diff a JS array assigned to `model`:
+// QQuickItemView::setModel compares the converted list against the old one and
+// either early-returns on an equal list or clears the view and repositions to
+// the top on an unequal one. There is no middle path where it updates in
+// place.
 //
-// An integer model has the same fault, measured the same way. A ListModel does
-// not: appending to one is an insertion, so contentY holds and nothing is
-// rebuilt. So the model is a ListModel carrying one throwaway integer per row,
-// synced to `rows.length`, and the delegate reads the real row out of the
-// array by index. Nothing rich ever enters the ListModel, which also sidesteps
-// its habit of converting a nested JS object into nested ListModels.
+// The trigger is inequality, NOT length. Editing one row's text at a constant
+// length resets the view exactly as an append does. That is the case that
+// matters, because it is what streaming IS: appendText replaces the open row
+// with a grown-text object, applyEvents slices a fresh array, and the result
+// is an unequal list on every 16ms flush. So a reader who scrolled up to
+// reread something was thrown back to the top continuously for the length of
+// an answer. `positionViewAtEnd` hid it from a pinned reader, which is exactly
+// the reader who did not need the help.
+//
+// An integer model fixes the streaming case, since the count does not change
+// while text grows, but still resets on every append. A ListModel is the only
+// shape that survives both: appending to one is an insertion, and editing a
+// row touches it not at all. So the model is a ListModel carrying one
+// throwaway integer per row, synced to `rows.length`, and the delegate reads
+// the real row out of the array by index. Nothing rich ever enters the
+// ListModel, which also sidesteps its habit of converting a nested JS object
+// into nested ListModels, and these rows carry nulls and nested result, diff
+// and permission records that would not survive that.
+//
+// tests/qml/tst_ask_layout.qml measures all six cases. It also keeps the
+// identical-array early-return as its own test, because an earlier version of
+// this comment was written from exactly that measurement: comparing an array
+// against a copy of itself always comes back clean, whatever the semantics.
 //
 // Editing a row still costs nothing: `rows` changes identity, every visible
 // delegate's `root.rows[index]` binding re-evaluates, and the offscreen ones
