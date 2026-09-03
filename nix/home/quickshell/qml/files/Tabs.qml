@@ -70,10 +70,13 @@ Rectangle {
                 // No divider between inactive tabs: they already share the
                 // strip's own bgDarker fill (transparent above), so a
                 // shade change would need a fourth token invented just for
-                // this seam. A drawn rule would be the only thing telling
-                // two directory names apart, and their own icon and label
-                // already do that — this is a list of names on one
-                // surface, not two bands of colour meeting.
+                // this seam. What actually keeps two adjacent tabs from
+                // reading as one is geometry, not colour: implicitWidth
+                // above already gives every tab Theme.filesTabPadding on
+                // both sides, so neighbours sit roughly 28px of bare strip
+                // apart before either one's icon or label even starts —
+                // that gap was already doing the separating, the 1px rule
+                // was never the only thing telling two tabs apart.
                 RowLayout {
                     id: tabRow
 
