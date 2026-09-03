@@ -2,40 +2,40 @@
 //! replay, and fan-out to every connected client.
 //!
 //! More than one client can be attached, and all of them see the same
-//! conversation events. Getting that right without holes is the whole job of
-//! this module, and it rests on three things.
+//! conversation events in the same order. That rests on one rule, worth
+//! stating plainly because everything else here follows from it.
 //!
-//! One lock covers allocating a `seq`, appending it to the store, and
-//! publishing it to the fan-out. So the order clients see is the order the
-//! store holds, and no event can be published before it is durable.
+//! **Deciding what goes into a connection's queue happens under the same
+//! lock that assigns `seq`.** Allocating the number, appending it to the
+//! store, and handing it to every attached client are one critical section.
+//! So the order a client reads is the order the store holds, an event is
+//! never published before it is durable, and nothing can slip between a
+//! replay and the subscription that continues it.
 //!
-//! A connection subscribes to the fan-out inside that same lock, in the same
-//! critical section that reads its replay. An event is therefore in the
-//! replay or in the subscription, never in both and never in neither. That is
-//! what makes a reconnect with `resume_seq` deliver exactly the missed
-//! events.
+//! That is also why the queue is unbounded rather than a broadcast channel.
+//! A bounded fan-out makes the enqueue fallible under the lock, and the
+//! recovery for a client that fell behind then has to re-read the store
+//! outside the lock, which is exactly where a live event can overtake a
+//! replay. Unbounded moves the cost to memory instead, so [`MAX_QUEUED`]
+//! caps it and a client that has stopped reading is dropped rather than
+//! allowed to grow without limit.
 //!
-//! The pump that drains the fan-out remembers the highest `seq` it has
-//! written. A client too slow to keep up gets a `Lagged` from the broadcast
-//! channel, and rather than leaving a hole the pump refills from the store
-//! and carries on. The same counter makes a duplicate impossible, because
-//! anything at or below it is dropped.
-//!
-//! `open` is deliberately outside all of that. It answers one connection with
-//! the events it asks for and does not touch the pump's counter, because the
-//! client is the one that knows what it already holds.
+//! `hello` is the only automatic replay. `open` answers one connection with
+//! the events it asked for and re-sends nothing else, because the client is
+//! the one that knows what it already holds.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::proto::{
@@ -52,18 +52,20 @@ const SOCKET_NAME: &str = "dots-ask.sock";
 /// The state root's name under `$XDG_DATA_HOME`.
 const STATE_DIR_NAME: &str = "dots-ask";
 
-/// How many events the fan-out holds for a client that is behind.
+/// How many events may sit unwritten for one client before it is dropped.
 ///
-/// Overflowing is not a loss: the pump refills from the store. The number
-/// only decides how often a slow client pays for a re-read.
-const FANOUT_DEPTH: usize = 4096;
-
-/// How many events one connection's outbox holds before the producer waits.
-const OUTBOX_DEPTH: usize = 4096;
+/// A client this far behind has stopped reading, and the daemon has no way
+/// to help it. Letting the queue grow instead would trade a hung pane for a
+/// daemon that runs the machine out of memory.
+const MAX_QUEUED: usize = 100_000;
 
 /// How long the accept loop pauses after a failed accept, so a persistent
 /// failure such as running out of descriptors cannot spin a core.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(200);
+
+/// Hands out connection ids, which exist so the hub can drop a client from
+/// its fan-out when the socket closes.
+static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
 
 /// Unix milliseconds now.
 ///
@@ -140,10 +142,67 @@ pub fn placeholder_backends() -> Vec<BackendInfo> {
     .collect()
 }
 
+/// One connection's write queue.
+///
+/// Cloning is how the hub keeps a handle to a client it can publish to. The
+/// depth counter is shared with the clone, so the cap covers everything
+/// waiting on that one socket rather than one sender's share of it.
+#[derive(Clone)]
+struct Outbox {
+    events: mpsc::UnboundedSender<Arc<ServerEvent>>,
+    depth: Arc<AtomicUsize>,
+}
+
+impl Outbox {
+    /// Queue one event, reporting whether the client is still worth writing
+    /// to.
+    ///
+    /// False means the socket closed or the client stopped reading, and the
+    /// caller drops it from the fan-out.
+    fn push(&self, event: Arc<ServerEvent>) -> bool {
+        if self.depth.fetch_add(1, Ordering::Relaxed) >= MAX_QUEUED {
+            self.depth.fetch_sub(1, Ordering::Relaxed);
+            tracing::warn!(cap = MAX_QUEUED, "dropping a client that stopped reading");
+            return false;
+        }
+        if self.events.send(event).is_err() {
+            self.depth.fetch_sub(1, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
+
+    /// Queue an ephemeral reply for this connection.
+    fn reply(&self, body: EventBody) -> bool {
+        self.push(Arc::new(ServerEvent::ephemeral(body)))
+    }
+
+    /// Queue a connection-scoped `bad_request`. Never fatal: it kills no
+    /// thread.
+    fn bad_request(&self, message: String) -> bool {
+        tracing::debug!(message, "rejecting a client frame");
+        self.reply(EventBody::Error {
+            kind: ErrorKind::BadRequest,
+            message,
+            fatal: false,
+        })
+    }
+
+    /// Queue a connection-scoped `store` error, with the cause chain spelled
+    /// out, because a store failure cannot record itself.
+    fn store_failure(&self, err: &AskError) -> bool {
+        tracing::error!(error = %chain(err), "store failure");
+        self.reply(EventBody::Error {
+            kind: ErrorKind::Store,
+            message: chain(err),
+            fatal: false,
+        })
+    }
+}
+
 /// The shared state every connection works against.
 pub struct Hub {
     inner: Mutex<HubInner>,
-    fanout: broadcast::Sender<Arc<ServerEvent>>,
     backends: Vec<BackendInfo>,
 }
 
@@ -151,6 +210,8 @@ pub struct Hub {
 struct HubInner {
     store: Store,
     sessions: BTreeMap<Uuid, Session>,
+    /// Every client that has said `hello`, by connection id.
+    attached: BTreeMap<u64, Outbox>,
 }
 
 impl Hub {
@@ -170,13 +231,12 @@ impl Hub {
                 "closed turns that a previous run left open"
             );
         }
-        let (fanout, _) = broadcast::channel(FANOUT_DEPTH);
         Ok(Arc::new(Self {
             inner: Mutex::new(HubInner {
                 store: loaded.store,
                 sessions: loaded.sessions,
+                attached: BTreeMap::new(),
             }),
-            fanout,
             backends,
         }))
     }
@@ -184,48 +244,34 @@ impl Hub {
     /// Take the lock, recovering from a poisoned one.
     ///
     /// A panic in one connection's critical section must not take the daemon
-    /// down with it: the store's own invariants are re-read from disk, and
-    /// the worst a poisoned lock can leave behind is a half-updated index
-    /// entry, which the next write corrects.
+    /// down with it. The store re-reads its own invariants from disk, and the
+    /// worst a poisoned lock can leave behind is a stale index entry, which
+    /// the next write corrects.
     fn lock(&self) -> MutexGuard<'_, HubInner> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Persist a conversation event and publish it to every attached client.
-    ///
-    /// Both happen under one lock, so the order on the wire is the order in
-    /// the store.
-    fn emit(
-        inner: &mut HubInner,
-        fanout: &broadcast::Sender<Arc<ServerEvent>>,
-        conversation: Uuid,
-        body: EventBody,
-        now: u64,
-    ) -> Result<(), AskError> {
-        if let Some(session) = inner.sessions.get_mut(&conversation) {
-            session.apply(&body);
-        }
-        let event = inner.store.record(conversation, body, now)?;
-        // A send with no receivers is not a failure: no client has said
-        // hello yet, and the event is already durable for the one that will.
-        drop(fanout.send(Arc::new(event)));
-        Ok(())
+    /// Forget a client that has gone away.
+    fn detach(&self, client: u64) {
+        self.lock().attached.remove(&client);
     }
 
-    /// Handle one decoded client frame.
+    /// Handle one decoded client frame, queueing whatever it produces.
     ///
     /// This never fails. A store failure becomes a connection-scoped `error`
     /// with kind `store`, because the thing that would have recorded the
     /// failure is the thing that just failed.
-    fn dispatch(&self, frame: ClientFrame) -> Reply {
+    ///
+    /// Returns false when the connection should be closed.
+    fn dispatch(&self, frame: ClientFrame, client: u64, outbox: &Outbox) -> bool {
         let now = now_ms();
         let mut inner = self.lock();
         match frame {
             ClientFrame::Hello {
                 protocol,
                 resume_seq,
-            } => self.hello(&inner, protocol, resume_seq),
-            ClientFrame::List { limit, before } => Reply::direct(EventBody::Conversations {
+            } => self.hello(&mut inner, client, outbox, protocol, resume_seq),
+            ClientFrame::List { limit, before } => outbox.reply(EventBody::Conversations {
                 items: inner.store.list(limit, before),
             }),
             ClientFrame::Open {
@@ -233,14 +279,16 @@ impl Hub {
                 from_seq,
             } => {
                 if !inner.store.contains(conversation) {
-                    return Reply::bad_request(format!("unknown conversation {conversation}"));
+                    return outbox.bad_request(format!("unknown conversation {conversation}"));
                 }
                 match inner
                     .store
                     .conversation_events_after(conversation, from_seq)
                 {
-                    Ok(events) => Reply::Direct(events),
-                    Err(err) => Reply::store_failure(&err),
+                    // Queued under the lock, so a live event on the same
+                    // thread cannot land in the middle of this replay.
+                    Ok(events) => events.into_iter().all(|event| outbox.push(Arc::new(event))),
+                    Err(err) => outbox.store_failure(&err),
                 }
             }
             ClientFrame::New {
@@ -251,6 +299,7 @@ impl Hub {
                 title,
             } => self.new_thread(
                 &mut inner,
+                outbox,
                 ConversationMeta {
                     id: conversation,
                     title,
@@ -266,31 +315,31 @@ impl Hub {
                 blocks,
             } => {
                 if !inner.store.contains(conversation) {
-                    return Reply::bad_request(format!("unknown conversation {conversation}"));
+                    return outbox.bad_request(format!("unknown conversation {conversation}"));
                 }
                 if blocks.is_empty() {
-                    return Reply::bad_request("send carries no blocks".to_owned());
+                    return outbox.bad_request("send carries no blocks".to_owned());
                 }
                 for block in &blocks {
                     if let Err(message) = block.validate() {
-                        return Reply::bad_request(message);
+                        return outbox.bad_request(message);
                     }
                 }
-                self.spawn_backend(&mut inner, conversation, now)
+                Self::spawn_backend(&mut inner, outbox, conversation, now)
             }
             ClientFrame::Interrupt { conversation } => {
                 let Some(session) = inner.sessions.get_mut(&conversation) else {
-                    return Reply::bad_request(format!("unknown conversation {conversation}"));
+                    return outbox.bad_request(format!("unknown conversation {conversation}"));
                 };
                 // Nothing running is not an error. The pane can fire this at
                 // a thread that just finished, and the user's intent is
                 // already satisfied.
                 let Some(body) = session.interrupt(now) else {
-                    return Reply::Direct(Vec::new());
+                    return true;
                 };
-                match Self::emit(&mut inner, &self.fanout, conversation, body, now) {
-                    Ok(()) => Reply::Direct(Vec::new()),
-                    Err(err) => Reply::store_failure(&err),
+                match Self::emit(&mut inner, conversation, body, now) {
+                    Ok(()) => true,
+                    Err(err) => outbox.store_failure(&err),
                 }
             }
             ClientFrame::Permission {
@@ -299,37 +348,47 @@ impl Hub {
                 ..
             } => {
                 let Some(session) = inner.sessions.get_mut(&conversation) else {
-                    return Reply::bad_request(format!("unknown conversation {conversation}"));
+                    return outbox.bad_request(format!("unknown conversation {conversation}"));
                 };
                 // An id nothing is waiting on is an argument the daemon
                 // cannot resolve, which the scope table calls bad_request.
                 if session.resolve_permission(&request).is_none() {
-                    return Reply::bad_request(format!(
+                    return outbox.bad_request(format!(
                         "no permission request {request:?} is open on {conversation}"
                     ));
                 }
                 // The decision has nowhere to go until a backend is running,
                 // so the backend phase hooks its control_response in here.
-                Reply::Direct(Vec::new())
+                true
             }
             ClientFrame::Delete { conversation } => {
                 if !inner.store.contains(conversation) {
-                    return Reply::bad_request(format!("unknown conversation {conversation}"));
+                    return outbox.bad_request(format!("unknown conversation {conversation}"));
                 }
                 if let Err(err) = inner.store.delete(conversation) {
-                    return Reply::store_failure(&err);
+                    return outbox.store_failure(&err);
                 }
                 inner.sessions.remove(&conversation);
-                Reply::direct(EventBody::Conversations {
+                outbox.reply(EventBody::Conversations {
                     items: inner.store.list(u32::MAX, None),
                 })
             }
         }
     }
 
-    /// Build the `hello` handshake: the replay, then `ready`, then
-    /// `backends`, plus the subscription the connection pumps afterwards.
-    fn hello(&self, inner: &HubInner, protocol: u32, resume_seq: Option<u64>) -> Reply {
+    /// Answer `hello`: the replay, then `ready`, then `backends`, and only
+    /// then does the connection start receiving live events.
+    ///
+    /// All of it happens in one critical section. Attaching after the replay
+    /// is queued is what puts an event in exactly one of the two.
+    fn hello(
+        &self,
+        inner: &mut HubInner,
+        client: u64,
+        outbox: &Outbox,
+        protocol: u32,
+        resume_seq: Option<u64>,
+    ) -> bool {
         if protocol != PROTOCOL_VERSION {
             tracing::warn!(
                 client = protocol,
@@ -339,46 +398,58 @@ impl Hub {
         }
         let replay = match inner.store.events_after(resume_seq) {
             Ok(replay) => replay,
-            Err(err) => return Reply::store_failure(&err),
+            Err(err) => return outbox.store_failure(&err),
         };
-        let seq_head = inner.store.seq_head();
-        // Subscribing here, still holding the lock that emit takes, is what
-        // makes the replay and the live stream meet exactly once.
-        let fanout = self.fanout.subscribe();
-        Reply::Attach(Box::new(Attach {
-            replay,
-            tail: vec![
-                ServerEvent::ephemeral(EventBody::Ready {
-                    protocol: PROTOCOL_VERSION,
-                    seq_head,
-                }),
-                ServerEvent::ephemeral(EventBody::Backends {
-                    items: self.backends.clone(),
-                }),
-            ],
-            seq_head,
-            fanout,
-        }))
+        let alive = replay.into_iter().all(|event| outbox.push(Arc::new(event)))
+            && outbox.reply(EventBody::Ready {
+                protocol: PROTOCOL_VERSION,
+                seq_head: inner.store.seq_head(),
+            })
+            && outbox.reply(EventBody::Backends {
+                items: self.backends.clone(),
+            });
+        if alive {
+            // A second hello replaces the first rather than doubling it.
+            inner.attached.insert(client, outbox.clone());
+        }
+        alive
+    }
+
+    /// Persist a conversation event and queue it for every attached client.
+    fn emit(
+        inner: &mut HubInner,
+        conversation: Uuid,
+        body: EventBody,
+        now: u64,
+    ) -> Result<(), AskError> {
+        if let Some(session) = inner.sessions.get_mut(&conversation) {
+            session.apply(&body);
+        }
+        let event = Arc::new(inner.store.record(conversation, body, now)?);
+        inner
+            .attached
+            .retain(|_, outbox| outbox.push(Arc::clone(&event)));
+        Ok(())
     }
 
     /// Create the thread an `op:"new"` names.
-    fn new_thread(&self, inner: &mut HubInner, meta: ConversationMeta) -> Reply {
+    fn new_thread(&self, inner: &mut HubInner, outbox: &Outbox, meta: ConversationMeta) -> bool {
         if !self.backends.iter().any(|known| known.id == meta.backend) {
             // Client garbage: no backend has spoken and no thread exists, so
             // there is nothing to persist the failure against.
-            return Reply::bad_request(format!("unknown backend {:?}", meta.backend));
+            return outbox.bad_request(format!("unknown backend {:?}", meta.backend));
         }
         let conversation = meta.id;
         if inner.store.contains(conversation) {
-            return Reply::bad_request(format!("conversation {conversation} already exists"));
+            return outbox.bad_request(format!("conversation {conversation} already exists"));
         }
         if let Err(err) = inner.store.create(meta) {
-            return Reply::store_failure(&err);
+            return outbox.store_failure(&err);
         }
         inner
             .sessions
             .insert(conversation, Session::new(conversation));
-        Reply::direct(EventBody::Conversations {
+        outbox.reply(EventBody::Conversations {
             items: inner.store.list(u32::MAX, None),
         })
     }
@@ -386,76 +457,28 @@ impl Hub {
     /// Start the thread's backend, which this phase cannot do.
     ///
     /// The spec puts the spawn on the first `send` rather than on `new`, so
-    /// this is exactly where a spawn failure belongs, and it is
-    /// conversation-scoped because a thread does exist to file it against.
-    fn spawn_backend(&self, inner: &mut HubInner, conversation: Uuid, now: u64) -> Reply {
-        let detail = inner
-            .store
-            .meta(conversation)
-            .map(|meta| meta.backend.clone())
-            .map_or_else(
-                || "no backend is configured for this thread".to_owned(),
-                |backend| format!("backend {backend:?} did not start: it is not wired up yet"),
-            );
+    /// this is where a spawn failure belongs, and it is conversation-scoped
+    /// because a thread does exist to file it against.
+    fn spawn_backend(inner: &mut HubInner, outbox: &Outbox, conversation: Uuid, now: u64) -> bool {
+        let message = inner.store.meta(conversation).map_or_else(
+            || "no backend is configured for this thread".to_owned(),
+            |meta| {
+                format!(
+                    "backend {:?} did not start: it is not wired up yet",
+                    meta.backend
+                )
+            },
+        );
         let body = EventBody::Error {
             kind: ErrorKind::BackendSpawn,
-            message: detail,
+            message,
             fatal: false,
         };
-        match Self::emit(inner, &self.fanout, conversation, body, now) {
-            Ok(()) => Reply::Direct(Vec::new()),
-            Err(err) => Reply::store_failure(&err),
+        match Self::emit(inner, conversation, body, now) {
+            Ok(()) => true,
+            Err(err) => outbox.store_failure(&err),
         }
     }
-
-    /// Every persisted event above `seq`, for a pump that fell behind.
-    fn refill(&self, seq: u64) -> Result<Vec<ServerEvent>, AskError> {
-        self.lock().store.events_after(Some(seq))
-    }
-}
-
-/// What one client frame produced for the connection that sent it.
-enum Reply {
-    /// Write these to this connection only.
-    Direct(Vec<ServerEvent>),
-    /// The `hello` handshake. Boxed because it is much larger than the other
-    /// variant and this enum is returned by value on every frame.
-    Attach(Box<Attach>),
-}
-
-impl Reply {
-    /// One ephemeral event for this connection.
-    fn direct(body: EventBody) -> Self {
-        Self::Direct(vec![ServerEvent::ephemeral(body)])
-    }
-
-    /// A connection-scoped `bad_request`.
-    fn bad_request(message: String) -> Self {
-        Self::Direct(vec![connection_error(ErrorKind::BadRequest, message)])
-    }
-
-    /// A connection-scoped `store` error, with the cause chain spelled out.
-    fn store_failure(err: &AskError) -> Self {
-        tracing::error!(error = %chain(err), "store failure");
-        Self::Direct(vec![connection_error(ErrorKind::Store, chain(err))])
-    }
-}
-
-/// The `hello` handshake, and the live subscription that follows it.
-struct Attach {
-    replay: Vec<ServerEvent>,
-    tail: Vec<ServerEvent>,
-    seq_head: u64,
-    fanout: broadcast::Receiver<Arc<ServerEvent>>,
-}
-
-/// A connection-scoped error event. Never fatal: it kills no thread.
-fn connection_error(kind: ErrorKind, message: String) -> ServerEvent {
-    ServerEvent::ephemeral(EventBody::Error {
-        kind,
-        message,
-        fatal: false,
-    })
 }
 
 /// Flatten an error and its causes into one line, since the client sees a
@@ -492,8 +515,8 @@ impl Daemon {
     ///
     /// [`AskError::AlreadyRunning`] when another daemon answers on the
     /// socket, [`AskError::RemoveStaleSocket`], [`AskError::Bind`] and
-    /// [`AskError::SocketMode`] on the bind path, and whatever
-    /// [`Hub::open`] returns.
+    /// [`AskError::SocketMode`] on the bind path, and whatever [`Hub::open`]
+    /// returns.
     pub fn bind(
         socket: PathBuf,
         state_root: PathBuf,
@@ -527,8 +550,8 @@ impl Daemon {
 
     /// Accept connections until the process ends.
     ///
-    /// One failed accept does not end the daemon, because the common causes
-    /// (a descriptor limit, a peer that vanished between connect and accept)
+    /// One failed accept does not end the daemon, because the common causes,
+    /// a descriptor limit or a peer that vanished between connect and accept,
     /// clear on their own.
     pub async fn serve(self) {
         tracing::info!(socket = %self.socket.display(), "dots-ask listening");
@@ -565,10 +588,15 @@ fn clear_socket_path(socket: &Path) -> Result<(), AskError> {
 
 /// Read frames from one client and write events back to it.
 async fn serve_connection(hub: Arc<Hub>, stream: UnixStream) {
+    let client = NEXT_CLIENT.fetch_add(1, Ordering::Relaxed);
     let (reader, writer) = stream.into_split();
-    let (outbox, outbox_rx) = mpsc::channel::<Arc<ServerEvent>>(OUTBOX_DEPTH);
-    let writer = tokio::spawn(write_events(writer, outbox_rx));
-    let mut pump: Option<tokio::task::JoinHandle<()>> = None;
+    let (events, queued) = mpsc::unbounded_channel();
+    let depth = Arc::new(AtomicUsize::new(0));
+    let outbox = Outbox {
+        events,
+        depth: Arc::clone(&depth),
+    };
+    let writing = tokio::spawn(write_events(writer, queued, depth));
 
     let mut lines = BufReader::new(reader).lines();
     loop {
@@ -584,111 +612,32 @@ async fn serve_connection(hub: Arc<Hub>, stream: UnixStream) {
             continue;
         }
 
-        let reply = match decode_client_line(&line) {
-            Ok(frame) => hub.dispatch(frame),
-            Err(message) => {
-                tracing::debug!(message, "rejecting a client line");
-                Reply::Direct(vec![connection_error(ErrorKind::BadRequest, message)])
-            }
+        let alive = match decode_client_line(&line) {
+            Ok(frame) => hub.dispatch(frame, client, &outbox),
+            Err(message) => outbox.bad_request(message),
         };
-
-        let attach = match reply {
-            Reply::Direct(events) => {
-                if !send_all(&outbox, events).await {
-                    break;
-                }
-                continue;
-            }
-            Reply::Attach(attach) => *attach,
-        };
-
-        if !send_all(&outbox, attach.replay).await || !send_all(&outbox, attach.tail).await {
+        if !alive {
             break;
         }
-        // A second hello re-attaches. The old pump would keep writing from a
-        // stale cursor and duplicate what the new replay just sent.
-        if let Some(previous) = pump.replace(tokio::spawn(pump_fanout(
-            Arc::clone(&hub),
-            attach.fanout,
-            outbox.clone(),
-            attach.seq_head,
-        ))) {
-            previous.abort();
-        }
     }
 
+    // A read EOF means this client is done sending. Everything its frames
+    // produced was queued while the frame was handled, so dropping the sender
+    // here still flushes it: the writer drains before it sees the channel
+    // close.
+    hub.detach(client);
     drop(outbox);
-    if let Some(pump) = pump {
-        pump.abort();
-    }
-    drop(writer.await);
-}
-
-/// Queue events for one connection, reporting whether it is still there.
-async fn send_all(outbox: &mpsc::Sender<Arc<ServerEvent>>, events: Vec<ServerEvent>) -> bool {
-    for event in events {
-        if outbox.send(Arc::new(event)).await.is_err() {
-            return false;
-        }
-    }
-    true
-}
-
-/// Forward live conversation events to one connection.
-///
-/// `sent` is the highest `seq` already written, starting at the `seq_head`
-/// the replay ended on. Anything at or below it is a duplicate and gets
-/// dropped, which is also how a refill after falling behind stays exact.
-async fn pump_fanout(
-    hub: Arc<Hub>,
-    mut fanout: broadcast::Receiver<Arc<ServerEvent>>,
-    outbox: mpsc::Sender<Arc<ServerEvent>>,
-    mut sent: u64,
-) {
-    loop {
-        match fanout.recv().await {
-            Ok(event) => {
-                let Some(seq) = event.seq else { continue };
-                if seq <= sent {
-                    continue;
-                }
-                sent = seq;
-                if outbox.send(event).await.is_err() {
-                    return;
-                }
-            }
-            Err(broadcast::error::RecvError::Lagged(missed)) => {
-                tracing::warn!(missed, "client fell behind; refilling from the store");
-                let refilled = match hub.refill(sent) {
-                    Ok(events) => events,
-                    Err(err) => {
-                        drop(
-                            outbox
-                                .send(Arc::new(connection_error(ErrorKind::Store, chain(&err))))
-                                .await,
-                        );
-                        return;
-                    }
-                };
-                for event in refilled {
-                    let Some(seq) = event.seq else { continue };
-                    if seq <= sent {
-                        continue;
-                    }
-                    sent = seq;
-                    if outbox.send(Arc::new(event)).await.is_err() {
-                        return;
-                    }
-                }
-            }
-            Err(broadcast::error::RecvError::Closed) => return,
-        }
-    }
+    drop(writing.await);
 }
 
 /// Write queued events to the socket, one JSON object per line.
-async fn write_events(mut writer: OwnedWriteHalf, mut outbox: mpsc::Receiver<Arc<ServerEvent>>) {
-    while let Some(event) = outbox.recv().await {
+async fn write_events(
+    mut writer: OwnedWriteHalf,
+    mut queued: mpsc::UnboundedReceiver<Arc<ServerEvent>>,
+    depth: Arc<AtomicUsize>,
+) {
+    while let Some(event) = queued.recv().await {
+        depth.fetch_sub(1, Ordering::Relaxed);
         let line = match encode_server_line(&event) {
             Ok(line) => line,
             Err(err) => {

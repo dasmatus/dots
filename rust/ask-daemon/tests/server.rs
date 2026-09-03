@@ -150,6 +150,12 @@ impl Client {
         self.expect_event("conversations").await;
     }
 
+    /// Close the write half, the way a client that has asked for everything
+    /// it wants does, while still reading the answers.
+    async fn half_close(&mut self) {
+        self.writer.shutdown().await.expect("the write half closes");
+    }
+
     /// Send a message, which in this phase always fails to spawn a backend.
     async fn send_text(&mut self, id: Uuid, text: &str) {
         self.send(&json!({
@@ -625,6 +631,115 @@ async fn interrupting_an_idle_thread_emits_nothing() {
     // frame after it. A stray turn_end would land here instead and fail.
     client.send(&json!({"op": "list", "limit": 50})).await;
     client.expect_event("conversations").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_stops_sending_still_receives_what_it_asked_for() {
+    // Found by hand with socat, which writes its frames and then half-closes.
+    // Ending the connection's fan-out on a read EOF dropped the event the
+    // last frame had just produced, and the pane would lose the tail of a
+    // turn the same way.
+    let harness = Harness::start().await;
+    let thread = Uuid::new_v4();
+    let mut client = harness.client().await;
+    client.hello(None).await;
+    client.new_thread(thread).await;
+    client.send_text(thread, "the last thing i will say").await;
+    client.half_close().await;
+
+    let event = client.expect_event("error").await;
+    assert_eq!(
+        event["seq"],
+        json!(1),
+        "a half-closed client must still get the event its last frame raised"
+    );
+    assert_eq!(event["kind"], json!("backend_spawn"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_leaves_does_not_stop_the_others() {
+    // emit walks every attached client under the lock, so a dead one has to
+    // be pruned there rather than blocking or failing the whole fan-out.
+    let harness = Harness::start().await;
+    let thread = Uuid::new_v4();
+    let mut alice = harness.client().await;
+    alice.hello(None).await;
+    alice.new_thread(thread).await;
+
+    let mut bob = harness.client().await;
+    bob.hello(None).await;
+    drop(bob);
+
+    for text in ["one", "two"] {
+        alice.send_text(thread, text).await;
+    }
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        seen.push(alice.expect_event("error").await);
+    }
+    assert_eq!(seqs(&seen), vec![1, 2], "the survivor keeps its stream");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn open_leaves_the_live_subscription_alone() {
+    let harness = Harness::start().await;
+    let thread = Uuid::new_v4();
+    let mut alice = harness.client().await;
+    alice.hello(None).await;
+    alice.new_thread(thread).await;
+    alice.send_text(thread, "one").await;
+    assert_eq!(alice.expect_event("error").await["seq"], json!(1));
+
+    // Re-read the thread from the start, then keep going live.
+    alice
+        .send(&json!({"op": "open", "conversation": thread, "from_seq": null}))
+        .await;
+    assert_eq!(
+        alice.expect_event("error").await["seq"],
+        json!(1),
+        "open re-sends what the client asked for"
+    );
+
+    alice.send_text(thread, "two").await;
+    assert_eq!(
+        alice.expect_event("error").await["seq"],
+        json!(2),
+        "and the subscription carries on afterwards"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_hello_re_attaches_without_doubling_the_stream() {
+    let harness = Harness::start().await;
+    let thread = Uuid::new_v4();
+    let mut alice = harness.client().await;
+    alice.hello(None).await;
+    alice.new_thread(thread).await;
+    alice.send_text(thread, "one").await;
+    assert_eq!(alice.expect_event("error").await["seq"], json!(1));
+
+    let (replay, head) = alice.hello(Some(1)).await;
+    assert!(replay.is_empty(), "the client already holds seq 1");
+    assert_eq!(head, 1);
+
+    alice.send_text(thread, "two").await;
+    let event = alice.expect_event("error").await;
+    assert_eq!(event["seq"], json!(2));
+
+    // A doubled registration would deliver seq 2 twice, so the next thing
+    // the client sees must be the answer to the frame after it.
+    alice.send(&json!({"op": "list", "limit": 50})).await;
+    alice.expect_event("conversations").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_never_said_hello_still_gets_its_own_replies() {
+    let harness = Harness::start().await;
+    let mut client = harness.client().await;
+
+    client.send(&json!({"op": "list", "limit": 50})).await;
+    let list = client.expect_event("conversations").await;
+    assert_eq!(list["items"].as_array().expect("items").len(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
