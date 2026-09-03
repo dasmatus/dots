@@ -37,17 +37,20 @@ Rectangle {
     signal backendPicked(string id)
     signal modelPicked(string name)
 
+    // The picked backend's own entry, or null before one is picked.
+    readonly property var picked: {
+        for (const entry of root.backends) {
+            if (entry.id === root.backend)
+                return entry;
+        }
+        return null;
+    }
+
     // The models the picked backend offers, or an empty list for one the
     // daemon has not reached. Empty is not an error: ollama with nothing
     // pulled and a backend the daemon cannot reach both land here, and both
     // mean "nothing to choose from" rather than "something broke".
-    readonly property var models: {
-        for (const entry of root.backends) {
-            if (entry.id === root.backend)
-                return entry.models ?? [];
-        }
-        return [];
-    }
+    readonly property var models: root.picked ? (root.picked.models ?? []) : []
 
     implicitHeight: column.implicitHeight + Theme.askGutter * 2
 
@@ -145,6 +148,28 @@ Rectangle {
                     font.pointSize: 10
                 }
             }
+        }
+
+        // The backend's own detail line, and the pane's one honest warning.
+        //
+        // `detail` is null while a backend is ready and carries a reason when
+        // it is not. It is also where the harness says the widening the spec's
+        // security section names out loud: the CLI still applies the user's own
+        // ~/.claude/settings.json allow rules, so a tool matching those is
+        // approved inside the CLI and never reaches the approval prompt here.
+        // Anyone expecting this pane to be a second gate in front of a broad
+        // Bash(git *) rule is wrong, and this line is where they find out.
+        Text {
+            Layout.fillWidth: true
+
+            visible: root.picked !== null && (root.picked.detail ?? "") !== ""
+            text: root.picked ? (root.picked.detail ?? "") : ""
+            color: Theme.muted
+
+            font.family: Theme.fontUi
+            font.pointSize: 8
+
+            wrapMode: Text.Wrap
         }
 
         RowLayout {

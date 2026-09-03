@@ -337,6 +337,71 @@ TestCase {
         compare(rows[0].tone, "ok");
     }
 
+    // The schema makes tool_result.ok a required bool, so this only bites on a
+    // field that went missing. The schema's own default for that is success:
+    // the harness omits is_error entirely on the success path and sets it only
+    // on the two non-execution paths. Defaulting the other way would paint a
+    // failed row for a field nobody sent.
+    function test_a_missing_ok_reads_as_success() {
+        const call = "toolu_0151";
+        const state = Ask.applyEvents(Ask.emptyState(), [turnStart(1), toolCall(2, call), {
+                seq: 3,
+                conversation: conversation,
+                event: "tool_result",
+                call: call,
+                content: "File created successfully",
+                truncated: false
+            }]);
+
+        compare(rowsOfKind(state, "tool")[0].tone, "ok", "a missing is_error means success, and a missing ok has to follow it");
+    }
+
+    // hello replays every persisted event above resume_seq, and that boundary
+    // does not respect turn starts. A reconnect landing mid-answer must not
+    // drop the cost and the stop reason for the turn it landed inside.
+    function test_a_replay_that_starts_mid_turn_keeps_usage_and_the_stop() {
+        const state = Ask.applyEvents(Ask.emptyState(), [textDelta(4300, "resumed"), {
+                seq: 4301,
+                conversation: conversation,
+                event: "usage",
+                turn: turn,
+                input_tokens: 6,
+                output_tokens: 811,
+                cache_read_tokens: 83100,
+                cache_write_tokens: 12489,
+                thinking_tokens: 576,
+                cost_usd: 0.186745,
+                rate_limit: null
+            }, turnEnd(4302, "interrupted")]);
+
+        compare(rowsOfKind(state, "status")[0].stop, "interrupted", "a turn whose turn_start was never replayed still has to end");
+        compare(Ask.rowsOf(state, conversation).length, 2, "and its text still has to render");
+    }
+
+    // A backend with no estimate sends tokens null, and that must not wipe a
+    // count an earlier delta already reported.
+    function test_a_null_token_estimate_does_not_erase_the_last_one() {
+        const state = Ask.applyEvents(Ask.emptyState(), [turnStart(1), {
+                seq: 2,
+                conversation: conversation,
+                event: "thinking_delta",
+                turn: turn,
+                block: 0,
+                text: "",
+                tokens: 120
+            }, {
+                seq: 3,
+                conversation: conversation,
+                event: "thinking_delta",
+                turn: turn,
+                block: 0,
+                text: "",
+                tokens: null
+            }]);
+
+        compare(rowsOfKind(state, "thinking")[0].tokens, 120, "tokens is Option and a null one carries no news, so it must not clear the count");
+    }
+
     // op:"open" passes the highest seq the client already holds, and the
     // daemon sends strictly greater. Getting this wrong duplicates the whole
     // thread on every reconnect.

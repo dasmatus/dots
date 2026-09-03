@@ -219,16 +219,32 @@ function foldError(next, thread, event) {
 }
 
 function startTurn(thread, event) {
-    thread.turns[event.turn] = {
-        id: event.turn,
+    thread.turns[event.turn] = Object.assign({}, turnRecord(thread, event.turn), {
         backend: event.backend ?? null,
         model: event.model ?? null,
-        startedMs: event.started_ms ?? null,
+        startedMs: event.started_ms ?? null
+    });
+    thread.live = event.turn;
+}
+
+// The turn record for `turn`, created empty when there is none.
+//
+// A resume replay can begin in the middle of a turn: hello replays every
+// persisted event above resume_seq, and that boundary does not respect turn
+// starts. So usage and turn_end both have to cope with a turn whose turn_start
+// this client never saw, or a reconnect mid-answer silently drops the cost and
+// the stop reason for the turn it landed inside.
+function turnRecord(thread, turn) {
+    return thread.turns[turn] ?? {
+        id: turn,
+        backend: null,
+        model: null,
+        startedMs: null,
         stop: null,
+        text: null,
         durationMs: null,
         usage: null
     };
-    thread.live = event.turn;
 }
 
 // The coalescing rule. One row per (turn, block), grown in place, with the row
@@ -362,7 +378,13 @@ function attachResult(thread, event) {
     const at = toolRowAt(thread, event.call);
     const row = Object.assign({}, thread.rows[at], {
         result: {
-            ok: event.ok === true,
+            // `!== false`, not `=== true`. The schema makes ok a required
+            // bool, so this only differs for a field that is missing, and the
+            // schema's own default for that is success: the harness omits
+            // is_error entirely on the success path and only ever sets it on
+            // the two non-execution paths. Defaulting the other way would
+            // paint a failed row for a field nobody sent.
+            ok: event.ok !== false,
             content: event.content ?? "",
             truncated: event.truncated === true
         }
@@ -423,11 +445,7 @@ function pushPlan(thread, event) {
 }
 
 function recordUsage(thread, event) {
-    const turn = thread.turns[event.turn];
-    if (!turn)
-        return;
-
-    thread.turns[event.turn] = Object.assign({}, turn, {
+    thread.turns[event.turn] = Object.assign({}, turnRecord(thread, event.turn), {
         usage: {
             inputTokens: event.input_tokens ?? 0,
             outputTokens: event.output_tokens ?? 0,
@@ -449,15 +467,18 @@ function recordUsage(thread, event) {
 // arrives afterwards, so a row toned on arrival alone stays red on a turn the
 // user cancelled on purpose.
 function endTurn(thread, event) {
-    const turn = thread.turns[event.turn];
     const stop = event.stop ?? "end_turn";
 
-    if (turn) {
-        thread.turns[event.turn] = Object.assign({}, turn, {
-            stop: stop,
-            durationMs: event.duration_ms ?? null
-        });
-    }
+    // `text` is the turn's own summary and is null on an interrupted turn,
+    // which sends none. Kept on the record rather than pushed as a row: it
+    // repeats what text_delta already streamed, so drawing it would print the
+    // answer twice. It is here so a later reader has it without another
+    // schema change.
+    thread.turns[event.turn] = Object.assign({}, turnRecord(thread, event.turn), {
+        stop: stop,
+        text: event.text ?? null,
+        durationMs: event.duration_ms ?? null
+    });
 
     for (const key in thread.open) {
         if (key.indexOf(`${event.turn}:`) === 0)
