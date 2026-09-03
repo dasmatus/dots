@@ -41,6 +41,19 @@ Pill {
 
             opacity: entry.modelData.status === Status.Passive ? 0.6 : 1
 
+            /// Opens this item's DBus menu beneath its own icon.
+            ///
+            /// `display` positions the menu relative to the parent window,
+            /// not to the icon, so the icon has to be mapped into window
+            /// space first. Both call sites used to pass `entry.width / 2,
+            /// entry.height` instead, which is the icon's 20px size rather
+            /// than its position, so every menu opened 10px from the bar's
+            /// left edge while the tray sits at the right.
+            function openMenu(): void {
+                const at = entry.mapToItem(null, entry.width / 2, entry.height);
+                entry.modelData.display(QsWindow.window, at.x, at.y);
+            }
+
             Image {
                 id: icon
 
@@ -93,7 +106,7 @@ Pill {
                 onClicked: (mouse) => {
                     if (mouse.button === Qt.RightButton) {
                         if (entry.modelData.hasMenu) {
-                            entry.modelData.display(QsWindow.window, entry.width / 2, entry.height);
+                            entry.openMenu();
                         }
                         return;
                     }
@@ -107,7 +120,7 @@ Pill {
                     // left click there should open the menu rather than do
                     // nothing at all.
                     if (entry.modelData.onlyMenu) {
-                        entry.modelData.display(QsWindow.window, entry.width / 2, entry.height);
+                        entry.openMenu();
                     } else {
                         entry.modelData.activate();
                     }
