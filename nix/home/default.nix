@@ -24,6 +24,7 @@
     ./zellij.nix
     ./fastfetch.nix
     ./fish.nix
+    ./ask-tools.nix
     ./claude.nix
     ./codex.nix
     ./computer-use-linux.nix
