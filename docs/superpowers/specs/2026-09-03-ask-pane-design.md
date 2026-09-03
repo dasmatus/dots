@@ -59,13 +59,25 @@ permissions to write to ..., but you haven't granted it yet". A daemon that
 omits this flag gets a session where every gated tool silently fails.
 
 `--permission-mode manual` normalizes to `default` inside the bundle
-(`function Z$(e){return e==="manual"?"default":e}`). The observed behaviour
-matches: `Write` was gated rather than pre-approved.
+(`function Z$(e){return e==="manual"?"default":e}`). The fixture proves it
+rather than merely agreeing with it: all three `system/init` lines report
+`"permissionMode":"default"` although the CLI was launched with `manual`,
+and `Write` was gated rather than pre-approved.
 
 The recorded session runs three user turns against a scratch directory: the
 first `Write` is denied, the second is allowed, the third is cancelled by an
 `interrupt` while its permission request is still open. That covers all
 three outcomes the pane has to handle in one file.
+
+One limit of the fixture is worth stating up front, because it changes how
+much weight the next sections carry. The driver recorded the CLI's stdout
+only. Its own stdin frames were never captured, so every client-to-CLI
+payload printed below is reconstructed from the driver source rather than
+transcribed from a capture. The fixture corroborates them indirectly: the
+deny `message` the driver sent comes back verbatim in the `tool_result` at
+fixture line 38, and `b.txt`, which only exists because the allow reply was
+accepted, appears at fixture line 81. A later phase that wants a byte-exact
+record of the client direction has to record both pipes.
 
 ### Handshake
 
@@ -114,15 +126,18 @@ was exercised.
 
 ### can_use_tool
 
+The fixture holds three of these, one per turn, at lines 37, 80 and 126.
+This is the one the session allowed, fixture line 80:
+
 ```json
-{"type":"control_request","request_id":"a8f8ddef-85af-4455-99e8-5e4990fc17d6",
+{"type":"control_request","request_id":"29951f7f-70f1-4de6-be15-3d6939d2a806",
  "request":{"subtype":"can_use_tool","tool_name":"Write",
    "display_name":"Write",
-   "input":{"file_path":"/tmp/.../a.txt","content":"alpha\n"},
-   "description":"a.txt",
+   "input":{"file_path":"/tmp/.../b.txt","content":"beta\n"},
+   "description":"b.txt",
    "permission_suggestions":[{"type":"setMode","mode":"acceptEdits",
                               "destination":"session"}],
-   "tool_use_id":"toolu_0147PnvrgYvQkbYPA9HjHzod"}}
+   "tool_use_id":"toolu_01TQ6VDPu86gfwQs5NKnh6fa"}}
 ```
 
 Fields seen in the fixture: `tool_name`, `display_name`, `input`,
@@ -131,11 +146,11 @@ five more off the same object that this session never produced:
 `blocked_path`, `decision_reason`, `title`, `agent_id`, `matched_ask_rule`.
 Treat all of them as optional.
 
-The allow reply, accepted on the first attempt:
+The allow reply that answered it, accepted on the first attempt:
 
 ```json
 {"type":"control_response","response":{"subtype":"success",
- "request_id":"a8f8ddef-85af-4455-99e8-5e4990fc17d6",
+ "request_id":"29951f7f-70f1-4de6-be15-3d6939d2a806",
  "response":{"behavior":"allow",
              "updatedInput":{"file_path":"/tmp/.../b.txt","content":"beta\n"}}}}
 ```
@@ -145,17 +160,19 @@ The allow reply, accepted on the first attempt:
 the field keeps the original input. Passing it back unchanged, as the driver
 did, is safe.
 
-The deny reply, also accepted on the first attempt:
+The deny reply, also accepted on the first attempt, answered a different
+request: the first turn's `a.txt` write at fixture line 37.
 
 ```json
 {"type":"control_response","response":{"subtype":"success",
- "request_id":"...","response":{"behavior":"deny",
+ "request_id":"a8f8ddef-85af-4455-99e8-5e4990fc17d6",
+ "response":{"behavior":"deny",
    "message":"denied by the spike driver","interrupt":false}}}
 ```
 
 Denial is still a `success` control response. `behavior` carries the
 verdict. The CLI turns it into a normal error `tool_result` whose content is
-the `message` verbatim, and tags it:
+the `message` verbatim, and tags it (fixture line 38):
 
 ```json
 {"type":"user","message":{"role":"user","content":[
@@ -165,6 +182,46 @@ the `message` verbatim, and tags it:
  "tool_result_meta":[{"id":"toolu_0147PnvrgYvQkbYPA9HjHzod",
                       "non_execution_kind":"permission-rule"}]}
 ```
+
+### The tool_result shapes a decoder has to accept
+
+Three of the fixture's four `user` lines carry a `tool_result`, one per
+outcome, and no two of them share a field set. A decoder that keys off
+`is_error` alone gets the allowed case wrong. The fourth `user` line is not
+a tool result at all; it appears in the cancellation section below.
+
+Allowed, fixture line 81. There is **no `is_error` key at all**, and
+`tool_use_result` is an object, not a string. `tool_result_meta` is absent.
+
+```json
+{"type":"user","message":{"role":"user","content":[
+   {"tool_use_id":"toolu_01TQ6VDPu86gfwQs5NKnh6fa","type":"tool_result",
+    "content":"File created successfully at: /tmp/.../b.txt ..."}]},
+ "tool_use_result":{"type":"create","filePath":"/tmp/.../b.txt",
+   "content":"beta\n","structuredPatch":[],"originalFile":null,
+   "userModified":false}}
+```
+
+Denied, fixture line 38. `is_error` is `true`, `tool_use_result` is a
+string, and `tool_result_meta[0].non_execution_kind` reads
+`"permission-rule"`.
+
+Cancelled, fixture line 129. `is_error` is `true`, `tool_use_result` is the
+string `"User rejected tool use"`, the `content` is the CLI's own canned
+rejection text rather than anything the client wrote, and
+`non_execution_kind` reads `"user-rejected"`.
+
+Two rules follow, and both belong in `src/backend/claude_code.rs`.
+
+**A missing `is_error` means success.** Default it to `false`. Only the two
+non-execution paths set it, and only ever to `true`.
+
+**`tool_use_result` is polymorphic.** Decode it as an untyped JSON value,
+never as a string. It is a string on the two non-execution paths and a
+tool-specific object on the success path, where `Write` returns
+`{type, filePath, content, structuredPatch, originalFile, userModified}`.
+That object is where a real diff would come from if `structuredPatch` were
+non-empty, which it is not for a file that did not exist before.
 
 ### Cancelling an open permission request
 
@@ -177,9 +234,20 @@ the CLI withdraw it:
  "request_id":"req_1_interrupt","response":{"still_queued":[]}}}
 ```
 
-The client must drop the withdrawn prompt and must not answer it. The tool
-then returns the canned rejection text, and the turn ends with
-`subtype: "error_during_execution"`, `terminal_reason: "aborted_tools"`.
+The client must drop the withdrawn prompt and must not answer it. The CLI
+then emits two `user` lines back to back, not one. Line 129 is the canned
+rejection `tool_result`. Line 130 is a plain text notice with no
+`tool_use_id`, no `tool_result` block and no `tool_use_result` key at all:
+
+```json
+{"type":"user","message":{"role":"user","content":[
+   {"type":"text","text":"[Request interrupted by user for tool use]"}]},
+ "parent_tool_use_id":null,"session_id":"31c9311e-...",
+ "uuid":"fc3e5951-...","timestamp":"2026-09-03T05:17:59.462Z"}
+```
+
+The turn then ends with `subtype: "error_during_execution"` and
+`terminal_reason: "aborted_tools"`.
 
 ### Every type in the fixture
 
@@ -189,7 +257,7 @@ Examples are trimmed where a field is long.
 
 | Type / subtype | Count | What it is |
 |---|---|---|
-| `system/init` | 3 | one per user turn, carries `cwd`, `session_id`, `tools`, `model`, `apiKeySource`, `claude_code_version` |
+| `system/init` | 3 | one per user turn, carries `cwd`, `session_id`, `tools`, `model`, `permissionMode`, `mcp_servers`, `apiKeySource`, `claude_code_version` |
 | `system/hook_started` | 4 | startup only, one per `SessionStart` hook |
 | `system/hook_response` | 4 | the hook's stdout, stderr and exit code |
 | `system/status` | 7 | `"status":"requesting"` before each API call |
@@ -198,14 +266,14 @@ Examples are trimmed where a field is long.
 | `control_response` | 2 | the `initialize` reply and the `interrupt` reply |
 | `control_request/can_use_tool` | 3 | permission prompts |
 | `control_cancel_request` | 1 | withdrawal after `interrupt` |
-| `stream_event/message_start` | 7 | opens an assistant message, carries `ttft_ms` |
+| `stream_event/message_start` | 7 | opens an assistant message; `ttft_ms` rides at the top level, beside `session_id` and `uuid`, not inside `event` |
 | `stream_event/content_block_start` | 10 | `text`, `thinking` or `tool_use` block opens |
 | `stream_event/content_block_delta` | 37 | `text_delta`, `thinking_delta`, `signature_delta`, `input_json_delta` |
 | `stream_event/content_block_stop` | 10 | block closes |
 | `stream_event/message_delta` | 7 | `stop_reason` plus cumulative `usage` |
 | `stream_event/message_stop` | 7 | message closes |
 | `assistant` | 10 | the settled form of one content block |
-| `user` | 4 | `tool_result` fed back to the model |
+| `user` | 4 | two shapes. Lines 38, 81 and 129 carry a `tool_result` block; line 130 carries a plain `text` block, the interrupt notice |
 | `rate_limit_event` | 1 | `status`, `rateLimitType`, `resetsAt`, overage state |
 | `result` | 3 | end of a user turn |
 
@@ -213,8 +281,15 @@ Representative lines:
 
 ```json
 {"type":"system","subtype":"init","cwd":"/tmp/.../spike",
- "session_id":"31c9311e-...","tools":["Task","Bash",...],"apiKeySource":"none",
+ "session_id":"31c9311e-...","tools":["Task","Bash",...],
+ "model":"claude-opus-5","permissionMode":"default","apiKeySource":"none",
  "claude_code_version":"2.1.228","output_style":"default"}
+
+{"type":"stream_event","event":{"type":"message_start","message":{
+   "model":"claude-opus-5","id":"msg_011Cefw...","role":"assistant",
+   "content":[],"stop_reason":null,"usage":{...}}},
+ "session_id":"31c9311e-...","parent_tool_use_id":null,
+ "uuid":"95689f51-...","ttft_ms":1454}
 
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,
  "delta":{"type":"text_delta","text":"The"}},
@@ -236,15 +311,28 @@ Representative lines:
  "stop_reason":"end_turn","duration_ms":15673,"duration_api_ms":15505,
  "ttft_ms":7256,"total_cost_usd":0.186745,"terminal_reason":"completed",
  "result":"...","usage":{...},"session_id":"31c9311e-..."}
+
+{"type":"result","subtype":"error_during_execution","is_error":true,
+ "num_turns":3,"stop_reason":"tool_use","duration_ms":2508,
+ "duration_api_ms":27716,"total_cost_usd":0.279339,
+ "terminal_reason":"aborted_tools","usage":{...},
+ "errors":["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"],
+ "session_id":"31c9311e-..."}
 ```
+
+The two `result` shapes differ by more than `subtype`. The interrupted one
+has no `ttft_ms` and no `result` text, and it adds `errors`. Treat
+`ttft_ms`, `result` and `errors` as optional on every `result` line.
 
 Three behaviours the parser has to know about, all confirmed against the
 fixture rather than assumed.
 
 **One content block per `assistant` line.** Ten `assistant` lines carry
-exactly one block each, and the same `message.id` appears twice when a
-message held a thinking block and a tool call. The line is not a cumulative
-snapshot of the message.
+exactly one block each, across seven messages. Three `message.id` values
+appear twice, once per block the message held: two of those pairs are
+thinking plus text, the third is thinking plus a tool call. The rule is one
+line per block regardless of what the blocks are, and the line is not a
+cumulative snapshot of the message.
 
 **Harness thinking text is empty.** All 12 `thinking_delta` events carry
 `"thinking":""`, total length zero, and the settled `assistant` thinking
@@ -271,8 +359,9 @@ Every frame carries `op`. Unknown ops draw an `error` event and are ignored.
 {"op":"hello","protocol":1,"resume_seq":4210}
 ```
 `resume_seq` is the highest `seq` the client already rendered, or `null` on
-a cold start. The daemon replays everything above it in order, then sends
-`ready`. This is what makes a Quickshell restart cheap.
+a cold start. The daemon replays every persisted event above it in order,
+then sends `ready`. This is what makes a Quickshell restart cheap, and it is
+the **only** automatic replay the daemon performs.
 
 ```json
 {"op":"list","limit":50,"before":null}
@@ -283,8 +372,13 @@ Answered with a `conversations` event.
 ```json
 {"op":"open","conversation":"6f1a...","from_seq":null}
 ```
-Subscribe to one conversation and replay its stored events. `from_seq` null
-means the whole thread.
+Subscribe to one conversation. `open` never re-sends anything the client
+already holds: the client passes the highest `seq` it has for that
+conversation and the daemon sends strictly greater ones. `from_seq: null`
+means the client holds nothing and wants the whole thread. A client that
+reconnects with `hello` and then opens a conversation therefore receives
+each event once, which is what makes the gap-free claim below true rather
+than aspirational.
 
 ```json
 {"op":"new","conversation":"6f1a...","backend":"claude-code",
@@ -295,6 +389,10 @@ The client mints the conversation id so it can address the thread before the
 daemon has answered. `backend` must be one of the ids the last `backends`
 event listed. `cwd` is the working directory the harness gets through
 `--add-dir` and the directory a provider-mode MCP server starts in.
+Answered with a `conversations` event that includes the new thread, or with
+an `error` carrying `kind: "protocol"` when `backend` names an id the
+daemon does not have. The backend process does not start until the first
+`send`, so a spawn failure arrives then, as `kind: "backend_spawn"`.
 
 ```json
 {"op":"send","conversation":"6f1a...","blocks":[
@@ -313,7 +411,7 @@ Stop the running turn. In harness mode this becomes the `interrupt` control
 request; any open permission prompt is withdrawn by the CLI.
 
 ```json
-{"op":"permission","conversation":"6f1a...","request":"a8f8ddef-...",
+{"op":"permission","conversation":"6f1a...","request":"29951f7f-...",
  "decision":"allow","scope":"once","updated_input":null,"message":null}
 ```
 `decision` is `allow` or `deny`. `scope` is `once`, `session` or `forever`;
@@ -329,14 +427,30 @@ Remove the thread and its stored events. Answered with a fresh
 
 ### Daemon to client
 
-Every event carries `seq` and `conversation`. `seq` is one monotonic `u64`
-across the whole daemon, assigned at emit time and persisted with the event,
-so replay from `resume_seq` is exact and gap-free. `conversation` is `null`
-on the three daemon-scoped events (`ready`, `conversations`, `backends`) and
-a conversation id everywhere else.
+Every event carries `event`, `seq` and `conversation`. The events split into
+two groups, and that split is what makes the gap-free claim below true.
+
+**Persisted conversation events**: `turn_start`, `text_delta`,
+`thinking_delta`, `code_block`, `tool_call`, `tool_result`,
+`permission_request`, `diff`, `plan`, `usage`, `turn_end`, `error`. Each
+takes the next value of one monotonic `u64` that spans the whole daemon,
+assigned at emit time and written to the store next to the event. That
+counter has no holes, so replay from `resume_seq` is exact and gap-free.
+
+**Ephemeral per-connection replies**: `ready`, `conversations`, `backends`.
+They answer one client's question, they are never stored, and they carry
+`seq: null` and `conversation: null`. A resuming client therefore never
+replays another client's handshake, and the persisted `seq` space stays
+dense.
+
+`turn` names the turn an event belongs to. It is present on `turn_start`,
+`text_delta`, `thinking_delta`, `code_block`, `tool_call`, `plan`, `usage`
+and `turn_end`. It is absent on `tool_result`, `permission_request` and
+`diff`, which correlate through `call` instead, and on `error`, which can
+arrive with no turn running.
 
 ```json
-{"seq":4211,"conversation":null,"event":"ready","protocol":1,"seq_head":4211}
+{"seq":null,"conversation":null,"event":"ready","protocol":1,"seq_head":4211}
 
 {"seq":4212,"conversation":"6f1a...","event":"turn_start",
  "turn":"c3d0...","backend":"claude-code","model":"claude-opus-5",
@@ -369,7 +483,7 @@ a conversation id everywhere else.
  "withdrawn":false}
 
 {"seq":4234,"conversation":"6f1a...","event":"diff",
- "call":"toolu_0147...","path":"/tmp/a.txt","old_text":"","new_text":"alpha\n",
+ "call":"toolu_01TQ6...","path":"/tmp/b.txt","old_text":"","new_text":"beta\n",
  "added":1,"removed":0,"html":"<table class=\"diff\">...</table>"}
 
 {"seq":4235,"conversation":"6f1a...","event":"plan",
@@ -387,12 +501,12 @@ a conversation id everywhere else.
 {"seq":4238,"conversation":"6f1a...","event":"error","kind":"protocol",
  "message":"unparseable control_request from claude 2.1.229","fatal":false}
 
-{"seq":4239,"conversation":null,"event":"conversations","items":[
+{"seq":null,"conversation":null,"event":"conversations","items":[
   {"id":"6f1a...","title":"explain this crate","backend":"claude-code",
    "model":"claude-opus-5","cwd":"/home/matus/...","updated_ms":1788425090000,
    "turns":3}]}
 
-{"seq":4240,"conversation":null,"event":"backends","items":[
+{"seq":null,"conversation":null,"event":"backends","items":[
   {"id":"claude-code","label":"Claude Code","state":"ready",
    "models":["opus","sonnet","haiku"],"detail":null},
   {"id":"ollama","label":"Ollama","state":"unreachable",
@@ -416,8 +530,9 @@ dead and the client should offer a new one.
 `html` on `code_block` and `diff` is pre-rendered by `render.rs` so the pane
 does no highlighting work on the UI thread. Quickshell cannot host
 QtWebEngine, so this is a small rich-text subset that a QML `Text` element
-renders, not a web page. Full HTML artifacts are out of band: they open in
-`brave --app=... --class=dots-ask-artifact`.
+renders, not a web page. Anything richer than that subset, meaning a real
+HTML artifact, is out of scope here and has no event in this schema. Phase 5
+owns it and will add both the event and the module that serves it.
 
 Both `code_block` and `diff` are in the schema from the start even though
 nothing emits them until phase 3. Adding a variant later would force phase 1
@@ -427,9 +542,87 @@ files back under review after phases 2 and 3 already coded against them.
 with `withdrawn: true` when the backend cancels it. The pane must dismiss
 the prompt on that and must not send a decision.
 
-The daemon does not batch deltas. `qml/services/AskBus.qml` coalesces them
-on a 16ms timer, which keeps batching policy on the side that knows the
-frame rate.
+The daemon does not batch deltas.
+`nix/home/quickshell/qml/services/AskBus.qml` coalesces them on a 16ms
+timer, which keeps batching policy on the side that knows the frame rate.
+
+### Field types
+
+Example values do not say what is optional, and `src/proto.rs` has to. Rust
+types below; `Option<T>` is `null` on the wire, and a field not listed is
+required and non-null.
+
+| Frame and field | Type |
+|---|---|
+| any client frame `op` | `String`, tagged enum discriminant |
+| `hello.protocol` | `u32` |
+| `hello.resume_seq` | `Option<u64>` |
+| `list.limit` | `u32`, default 50 |
+| `list.before` | `Option<u64>` |
+| `open.from_seq` | `Option<u64>` |
+| `new.conversation` | `Uuid` |
+| `new.backend` | `String` |
+| `new.model` | `Option<String>`, null means the backend's default |
+| `new.cwd` | `PathBuf` |
+| `new.title` | `Option<String>` |
+| `send.blocks[].kind` | `String`, one of `text`, `image`, `file` |
+| `send.blocks[].text` | `Option<String>`, required when `kind` is `text` |
+| `send.blocks[].path` | `Option<PathBuf>`, required otherwise |
+| `send.blocks[].mime` | `Option<String>` |
+| `permission.request` | `String`, the backend's own request id |
+| `permission.decision` | `String`, `allow` or `deny` |
+| `permission.scope` | `String`, `once`, `session` or `forever` |
+| `permission.updated_input` | `Option<serde_json::Value>` |
+| `permission.message` | `Option<String>` |
+| any daemon event `seq` | `Option<u64>`, null on the three ephemeral events |
+| any daemon event `conversation` | `Option<Uuid>`, null on the same three |
+| any daemon event `turn` | `Option<Uuid>`, absent per the rule above |
+| `turn_start.model` | `Option<String>`, null until the backend names one |
+| `turn_start.backend` | `String` |
+| `turn_start.started_ms` | `u64` |
+| `text_delta.block` | `u32` |
+| `text_delta.text` | `String` |
+| `thinking_delta.text` | `String`, empty is normal, never null |
+| `thinking_delta.tokens` | `Option<u32>`, null on any backend with no estimate |
+| `code_block.language` | `Option<String>`, null when the fence had no tag |
+| `code_block.source` | `String` |
+| `code_block.html` | `Option<String>`, null until phase 3 populates it |
+| `tool_call.call` | `String` |
+| `tool_call.name` | `String` |
+| `tool_call.display_name` | `Option<String>` |
+| `tool_call.summary` | `Option<String>`, null when the backend sends no description |
+| `tool_call.input` | `serde_json::Value` |
+| `tool_call.origin` | `String`, `harness` or `mcp` |
+| `tool_result.ok` | `bool`, false only when the backend said so; a missing harness `is_error` maps to true |
+| `tool_result.content` | `String` |
+| `tool_result.truncated` | `bool` |
+| `permission_request.request` | `String` |
+| `permission_request.description` | `Option<String>` |
+| `permission_request.suggestions` | `Vec<Value>`, empty rather than null |
+| `permission_request.withdrawn` | `bool` |
+| `diff.path` | `PathBuf` |
+| `diff.old_text`, `diff.new_text` | `String` |
+| `diff.added`, `diff.removed` | `u32` |
+| `diff.html` | `Option<String>`, null until phase 3 populates it |
+| `plan.title` | `Option<String>`, null when the backend sends only a body |
+| `plan.markdown` | `String` |
+| `plan.state` | `String`, `proposed`, `accepted` or `rejected` |
+| `usage.input_tokens`, `usage.output_tokens` | `u64` |
+| `usage.cache_read_tokens`, `usage.cache_write_tokens` | `Option<u64>`, null on every backend but the two Anthropic ones |
+| `usage.thinking_tokens` | `Option<u64>` |
+| `usage.cost_usd` | `Option<f64>`, null on ollama and openai-compatible |
+| `usage.rate_limit` | `Option<RateLimit>`, harness only |
+| `turn_end.stop` | `String`, the five values listed above |
+| `turn_end.text` | `Option<String>`, null on an interrupted turn, which sends no summary |
+| `turn_end.duration_ms` | `u64` |
+| `error.kind`, `error.message` | `String` |
+| `error.fatal` | `bool` |
+| `conversations.items[].title` | `Option<String>`, null until the first turn names it |
+| `conversations.items[].turns` | `u32` |
+| `backends.items[].models` | `Vec<String>`, empty rather than null |
+| `backends.items[].detail` | `Option<String>`, null when `state` is `ready` |
+| `ready.protocol` | `u32` |
+| `ready.seq_head` | `u64`, the highest persisted seq at connect time |
 
 ## 3. Backend mapping
 
@@ -453,7 +646,7 @@ The event set is split across three tables so the cells stay readable.
 
 | Backend | `tool_call` | `tool_result` | `permission_request` | `diff` | `plan` |
 |---|---|---|---|---|---|
-| claude-code | `content_block_start`/`tool_use` for the name, settled `assistant` line for the arguments | `user` line, `is_error` inverts to `ok` | `control_request`/`can_use_tool`, answered by `control_response` | reshaped by the daemon from `Write`/`Edit`/`MultiEdit` arguments; the CLI sends no diff | `ExitPlanMode` tool input |
+| claude-code | `content_block_start`/`tool_use` for the name, settled `assistant` line for the arguments | `user` line carrying a `tool_result` block; `is_error` inverts to `ok` and a missing `is_error` means `ok: true` | `control_request`/`can_use_tool`, answered by `control_response` | reshaped by the daemon from `Write`/`Edit`/`MultiEdit` arguments; the CLI sends no diff | `ExitPlanMode` tool input |
 | anthropic | SSE `tool_use` block, arguments assembled from `input_json_delta` | emitted by the daemon after it runs the MCP tool | daemon-side, `policy.rs` only, nothing on the wire to the provider | not emitted | not emitted |
 | openai-compatible | `delta.tool_calls[]`, arguments assembled per `index` across chunks | same, daemon-run MCP result | daemon-side only | not emitted | not emitted |
 | ollama | `message.tool_calls`, arrives whole rather than streamed | same, daemon-run MCP result | daemon-side only | not emitted | not emitted |
@@ -475,8 +668,8 @@ has to render around that rather than wait for data that never comes.
 **Raw providers emit no plan and no diff.** Both come from harness tools
 (`ExitPlanMode`, `Write`, `Edit`). In provider mode there are no file tools
 at all, by design, so there is nothing to diff and no plan to accept. The
-pane hides both surfaces when the active backend declares it cannot produce
-them.
+pane hides the diff view and the plan card when the active backend declares
+it cannot produce them.
 
 **Model changes do not apply to a running thread.** For the harness, v1
 closes the child and respawns with `--resume <session-id>` and a new
@@ -540,10 +733,20 @@ made, or a rule that a person wrote earlier.
 to `default`, and it must pass `--permission-prompt-tool stdio`; without
 that flag the CLI auto-denies and the pane never sees a prompt, which the
 spike confirmed. The daemon never passes `--dangerously-skip-permissions` or
-`--permission-mode bypassPermissions`. It answers every `can_use_tool` it
-receives, because an unanswered request stalls the turn with no visible
-cause, and it drops a request the CLI withdrew with
-`control_cancel_request` instead of answering it late.
+`--permission-mode bypassPermissions`. It drops a request the CLI withdrew
+with `control_cancel_request` instead of answering it late.
+
+**Answer every server-to-client control request, not only `can_use_tool`.**
+An unanswered control request stalls the turn with no visible cause, and the
+CLI can send three of them: `can_use_tool`, `request_user_dialog` and
+`elicitation`. Only the first was exercised in the spike, so the other two
+have no verified payload shape. That is a reason to reject them explicitly,
+not a reason to ignore them. `src/backend/claude_code.rs` answers any
+control request whose subtype it does not implement with a
+`control_response` carrying a `deny` behavior and a message naming the
+subtype, and raises an `error` event with `kind: "protocol"` so the pane
+shows that something went unhandled. A daemon that silently drops an
+`elicitation` from an MCP server hangs the turn forever.
 
 One widening is worth naming rather than hiding. The harness still applies
 the user's own `~/.claude/settings.json` allow rules, so a tool matching
@@ -574,7 +777,9 @@ conversation JSONL, which is a transcript, not a permission store. A
 is owned by the user, which is the whole access-control story for the wire
 protocol. `secrets.rs` reads keys through `secret-tool` lazily, with the 10s
 timeout `nix/home/edupage-mcp.nix:160` established, and never writes a key
-into the store, an event or a log line. Artifacts are served on loopback and
-opened as a separate `brave --app=... --class=dots-ask-artifact` window, so
-untrusted model output renders in a browser sandbox and never inside the
-shell process.
+into the store, an event or a log line. Model output never reaches a real
+HTML renderer in v1, because nothing in this schema carries HTML the pane
+would trust: `render.rs` produces the small rich-text subset a QML `Text`
+element draws, and Quickshell cannot host QtWebEngine anyway. Phase 5 adds
+artifacts, and it inherits the whole question of where untrusted markup gets
+rendered along with them.
