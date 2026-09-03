@@ -184,7 +184,10 @@ async fn run(
 
 /// The `/v1/chat/completions` request, plus how a tool result rejoins the
 /// history.
-fn request(url: &str, key: &str, model: &str, tools: Vec<Value>) -> TurnRequest {
+///
+/// Public so `tests/provider.rs` can drive the real turn loop against a fake
+/// server rather than a re-implementation of this shape.
+pub fn request(url: &str, key: &str, model: &str, tools: Vec<Value>) -> TurnRequest {
     let model = model.to_owned();
     TurnRequest {
         url: url.to_owned(),
