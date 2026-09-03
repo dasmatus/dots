@@ -64,6 +64,8 @@ PanelWindow {
 
             Drives {}
 
+            Keymap {}
+
             Clock {}
 
             Tray {}

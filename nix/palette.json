@@ -18,7 +18,8 @@
   },
   "bar": {
     "height": 30, "spacing": 4, "fontSize": 15,
-    "pillPadding": 14, "iconSize": 20, "titleMaxWidth": 480
+    "pillPadding": 14, "iconSize": 20, "titleMaxWidth": 480,
+    "workspaceIconCap": 4
   },
   "beamenu": {
     "lines": 9, "widthFactor": 0.5, "iconSize": 24,

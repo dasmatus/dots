@@ -165,6 +165,12 @@ let
         readonly property int barIconSize: ${toString palette.bar.iconSize};
         readonly property int barTitleMaxWidth: ${toString palette.bar.titleMaxWidth};
 
+        // How many app icons a single crowded workspace draws before the
+        // rest fold into a "+n" badge — see Workspaces.qml's own use of it
+        // for why an unbounded row would be able to push the clock off the
+        // bar.
+        readonly property int barWorkspaceIconCap: ${toString palette.bar.workspaceIconCap};
+
         // Launcher geometry, still read from the palette's `beamenu` block.
         // The values outlive the program they were named for, so the key is
         // renamed when that crate goes rather than duplicated now.

@@ -54,4 +54,16 @@ QtObject {
     // its darker neighbour by roughly the same margin the deleted
     // Theme.border lines once gave for free.
     readonly property color raised: "#3d4463"
+
+    // Bar geometry the workspace icon-list would need if a future test ever
+    // instantiates it directly. Not exercised by any test today — the real
+    // component reaches Hyprland and DesktopEntries, both Quickshell
+    // singletons this stub cannot stand in for — but every generated Theme
+    // token gets mirrored here on principle, so a later test that does
+    // reach for one is never blocked on this file catching up first.
+    readonly property int barHeight: 30
+    readonly property int barFontSize: 15
+    readonly property int barPillPadding: 14
+    readonly property int barIconSize: 20
+    readonly property int barWorkspaceIconCap: 4
 }
