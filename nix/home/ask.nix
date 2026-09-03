@@ -33,17 +33,13 @@ let
   # One-time credential setup, the counterpart to nix/home/edupage-mcp.nix's
   # edupage-keyring. Section 5 of the spec makes secret-tool the only place a
   # provider key may live: the daemon reads it lazily at spawn and never writes
-  # one into the store, an event or a log line. Nothing else in this design
-  # carries a per-machine secret, and the spec adds no settings key, so the
-  # keyring is also where the OpenAI-compatible base URL goes even though a URL
-  # is not itself a secret. Keeping the pair together means one helper writes
-  # both halves of that backend and the daemon reads one collection.
+  # one into the store, an event or a log line.
   #
-  # THESE ATTRIBUTE NAMES ARE THE CONTRACT. src/secrets.rs does not exist yet,
-  # so whatever this helper writes is what the backend phase has to look up:
-  # `service dots-ask`, attributes `anthropic-key`, `openai-key` and
-  # `openai-base-url`. claude-code, codex and ollama need nothing here; the
-  # harnesses carry their own auth and ollama is a local port.
+  # The service name and the three attribute names this writes are the spec's,
+  # under "What is in the keyring, exactly" in section 5, and are not repeated
+  # here. src/secrets.rs reads them and is written against that document, so a
+  # second copy in this file is a second thing to keep in sync and the first
+  # one to go stale.
   #
   # It deviates from edupage-keyring in one way, deliberately. That helper
   # hands the tty straight to `secret-tool store`, which stores whatever it

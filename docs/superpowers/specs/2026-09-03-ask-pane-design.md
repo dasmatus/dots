@@ -882,18 +882,49 @@ element draws, and Quickshell cannot host QtWebEngine anyway. Phase 5 adds
 artifacts, and it inherits the whole question of where untrusted markup gets
 rendered along with them.
 
+**What is in the keyring, exactly.** `secrets.rs` and the setup helper have
+to agree on names that neither of them can derive, so they are frozen here
+rather than in either file. Every item lives in the default collection under
+the service `dots-ask`:
+
+| Attribute | Holds | Used by |
+|---|---|---|
+| `anthropic-key` | Anthropic API key | the `anthropic` backend |
+| `openai-key` | API key for an OpenAI-compatible server | the `openai-compatible` backend |
+| `openai-base-url` | base URL for that server, e.g. `https://api.openai.com/v1` | the `openai-compatible` backend |
+
+So a lookup is
+`secret-tool lookup service dots-ask attribute anthropic-key`, under the 10s
+cap above. `claude-code`, `codex` and `ollama` have no row: the harnesses
+carry their own auth and ollama is a local port.
+
+The base URL sits beside the two secrets even though a URL is not one. This
+design adds no settings key, so the keyring is the only per-machine store it
+has, and splitting the pair would mean one backend reading its two halves
+from two places that can disagree about whether it is configured at all.
+
+**An absent item and an empty item mean the same thing**, which is "this
+backend is not configured". `nix/home/ask.nix`'s `ask-keyring` helper will
+not write a blank item for that reason, but `secrets.rs` must treat one as
+absent anyway rather than offering a backend that cannot answer, because a
+person can store a blank through `secret-tool` directly. The backend table
+in section 3 says the `anthropic` backend is listed "when a key is in the
+keyring"; an empty string is not a key.
+
 ## 6. Amendments
 
 Every loosening the field table in section 2 permits gets a row here, added
-by the phase that made it.
+by the phase that made it, and so does anything a later phase had to freeze
+that section 2 does not cover.
 
 A row records what changed and what forced it, so a later reader can tell a
 correction from a preference. Tightening a field back is not an amendment.
 It is a break, it does not go in this table, and it needs the controller.
 
 Phase 1 built `src/proto.rs` from the field table and compiled every row.
-The table needed no loosening, so it stays empty, and that is a result
-rather than a state nobody has tested.
+The table needed no loosening, and that is a result rather than a state
+nobody has tested: the only row below is an addition from phase 4, not a
+field that had to give.
 
 `rust/ask-daemon/tests/proto.rs` is what keeps it that way. It round-trips
 every frame in both directions, and separately compares the serialized JSON
@@ -912,4 +943,4 @@ that cannot forget a kind is the point.
 
 | Field | Change | Why |
 |---|---|---|
-| | | |
+| section 5, keyring items | Added the `dots-ask` service and its three attribute names. | Phase 4 built the setup helper, so it had to pick names, and phase 2 writes `secrets.rs` against this document rather than against `nix/home/ask.nix`. Recorded here so the two cannot be written independently and disagree. |
