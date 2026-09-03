@@ -66,6 +66,30 @@ TestCase {
         verify(src.indexOf("Tint.gtkCss(") !== -1, "Gtk.qml must call the ported gtkCss, not hand-roll the stylesheet");
     }
 
+    // Motivating bug: a naive icon-theme write would `printf ... > "$dst"`,
+    // exactly like the two CSS writes just above it in write() — which
+    // works right up until settings.ini is still the read-only store
+    // symlink home-manager manages it as, and then fails outright (EROFS)
+    // instead of ever reaching GTK. Only `mv` (replacing the directory
+    // entry itself, rather than writing through whatever it currently
+    // points to) is safe against that. This pins both halves: write()
+    // still has to reach the icon-theme writer, and that writer still has
+    // to replace the file with mv rather than a bare redirect.
+    function test_gtk_write_reaches_the_icon_theme_settings_ini() {
+        const src = readSource("../../nix/home/quickshell/qml/wallpaper/Gtk.qml");
+
+        const start = src.indexOf("function write(");
+        verify(start !== -1, "Gtk.qml must define write(accent, accentDark, accentLight)");
+        const end = src.indexOf("\n    }", start);
+        verify(end !== -1, "write(...)'s closing brace must be found");
+        verify(src.slice(start, end).indexOf("writeIconTheme(") !== -1, "write() must also reach the icon-theme settings.ini writer, not just the two CSS files");
+
+        verify(src.indexOf("gtk-3.0/settings.ini") !== -1, "Gtk.qml must target gtk-3.0/settings.ini");
+        verify(src.indexOf("gtk-4.0/settings.ini") !== -1, "Gtk.qml must target gtk-4.0/settings.ini");
+        verify(src.indexOf("gtk-icon-theme-name") !== -1, "Gtk.qml must write the gtk-icon-theme-name key, not just regenerate the accent stylesheets");
+        verify(src.indexOf('mv "$tmp" "$dst"') !== -1, "the icon-theme write must replace the destination with mv, not a `>` redirect that fails through a read-only store symlink");
+    }
+
     function test_kvantum_target_calls_the_ported_writer() {
         const src = readSource("../../nix/home/quickshell/qml/wallpaper/Kvantum.qml");
         verify(src.indexOf("Tint.recolorKvantumText(") !== -1, "Kvantum.qml must call the ported recolorKvantumText, not hand-roll the regex");

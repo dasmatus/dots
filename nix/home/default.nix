@@ -14,6 +14,7 @@
 # rofi and beamenu used to be five programs with five theme paths.
 {
   config,
+  lib,
   pkgs,
   dots,
   ...
@@ -88,7 +89,47 @@
       file://${config.home.homeDirectory}/Dokumente/schule
       file://${config.home.homeDirectory}/Dokumente/blog
     '';
+
+    # The gtk3/gtk4 modules would otherwise manage these two as read-only
+    # symlinks into the store, same as gtk-3.0/bookmarks above. Quickshell's
+    # own Gtk.qml (nix/home/quickshell/qml/wallpaper/Gtk.qml) needs to edit
+    # gtk-icon-theme-name in place at wallpaper-pick time, and a write
+    # through that symlink fails outright (EROFS) rather than reaching
+    # anything — see that file's own header for the write(2)-level reason.
+    # Disabling just these two paths here does not stop home-manager from
+    # computing their rendered .text/.source (the gtk3/gtk4 modules still
+    # compute both regardless of `enable`; only the symlink itself is
+    # skipped) — the activation script below reuses that same source to
+    # seed a real file the first time one is missing.
+    "gtk-3.0/settings.ini".enable = false;
+    "gtk-4.0/settings.ini".enable = false;
   };
+
+  # Seeds gtk-3.0/settings.ini and gtk-4.0/settings.ini as plain, writable
+  # files the first time either is missing, using the exact rendered
+  # content the (now file-disabled, see xdg.configFile above) gtk3/gtk4
+  # modules already compute from gtk.theme/gtk.iconTheme. "Missing" covers
+  # both a first-ever switch and the one right after this option changed:
+  # home-manager's own file-linking phase, which runs before this
+  # activation script, already deletes a stale symlink to an older
+  # generation once a path stops being managed, so there is nothing left
+  # here to overwrite by the time this runs.
+  #
+  # Deliberately seed-once, not reasserted on every switch: Gtk.qml owns
+  # this file from here on, rewriting gtk-icon-theme-name in place on every
+  # wallpaper pick, and a switch that kept clobbering that back to the
+  # declared default would erase a user's current tint every time they
+  # rebuild for an unrelated reason. That is different from the dconf key
+  # below (config.gtk.iconTheme's own dconf.settings write), which a switch
+  # does still reset — dconf has no "someone else owns this file" file-
+  # ownership mechanism to hand it off through, and the schema gap that
+  # makes it inert on this machine is a separate, already-documented story.
+  home.activation.gtkSettingsIniSeed = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    dst3=${lib.escapeShellArg "${config.xdg.configHome}/gtk-3.0/settings.ini"}
+    dst4=${lib.escapeShellArg "${config.xdg.configHome}/gtk-4.0/settings.ini"}
+    [ -f "$dst3" ] || run install -Dm644 ${config.xdg.configFile."gtk-3.0/settings.ini".source} "$dst3"
+    [ -f "$dst4" ] || run install -Dm644 ${config.xdg.configFile."gtk-4.0/settings.ini".source} "$dst4"
+  '';
 
   home.packages = with pkgs; [
     brightnessctl
@@ -141,15 +182,30 @@
     # anymore, until a later plan ports the GTK/Kvantum/rofi tint writers too.
     # Papirus-Dark is the variant whose icons are all light-toned, which is
     # what suits adw-gtk3-dark above and the org/gnome/desktop/interface
-    # color-scheme = "prefer-dark" dconf key. This value is not what
-    # the desktop runs most of the time, though: the shell's wallpaper
-    # pipeline writes org/gnome/desktop/interface/icon-theme at runtime
-    # and points it at a generated Papirus-Tint. What this attribute really
-    # governs is the fallback after a `home-manager switch` rewrites that
-    # same dconf key, until the next wallpaper pick. It also puts the
+    # color-scheme = "prefer-dark" dconf key. This value is not what the
+    # desktop runs most of the time, though: the shell's wallpaper pipeline
+    # points the running icon theme at a generated Papirus-Tint. It does
+    # that two ways — Icons.qml's dconf write of
+    # org/gnome/desktop/interface/icon-theme, and Gtk.qml's own write of
+    # gtk-icon-theme-name straight into gtk-3.0/settings.ini and
+    # gtk-4.0/settings.ini. Only the second one currently does anything on
+    # this machine: gsettings-desktop-schemas is not installed, so the dconf
+    # key has no schema to be resolved through and GTK never sees it,
+    # falling back to settings.ini instead — the dconf write is kept anyway
+    # because it costs nothing and becomes the live mechanism the day that
+    # package is installed. What this iconTheme attribute actually governs,
+    # then, is the settings.ini fallback: xdg.configFile below turns off
+    # home-manager's normal management of those same two settings.ini
+    # paths, and a one-time activation seed renders this value into them as
+    # a plain file, so Gtk.qml has somewhere writable to edit afterward
+    # rather than a read-only store symlink. Unlike the dconf key, that seed
+    # is not re-applied on every `home-manager switch` — see the activation
+    # script below for why — so this value in practice only ever surfaces
+    # before the very first wallpaper pick on a given machine, not "until
+    # the next pick" after every rebuild. This attribute also puts the
     # Papirus package in the profile, which is what makes Papirus-Tint's
-    # Inherits=Papirus-Dark,Papirus,hicolor resolvable at all — so it is
-    # a hard dependency of the tint theme, not a cosmetic default.
+    # Inherits=Papirus-Dark,Papirus,hicolor resolvable at all — so it is a
+    # hard dependency of the tint theme, not a cosmetic default.
     iconTheme = {
       name = "Papirus-Dark";
       package = pkgs.papirus-icon-theme;
