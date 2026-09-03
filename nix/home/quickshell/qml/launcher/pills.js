@@ -12,6 +12,7 @@ const LABELS = {
     apps: "Apps",
     actions: "Actions",
     system: "System",
+    keyboard: "Keyboard",
     quicklinks: "Quicklinks",
     snippets: "Snippets",
     files: "Files",
