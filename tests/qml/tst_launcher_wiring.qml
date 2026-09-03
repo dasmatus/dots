@@ -64,8 +64,21 @@ TestCase {
         verify(block.indexOf("root.rankNow = Date.now()") !== -1, "opening the launcher must restamp rankNow, or scores decay against whenever the shell happened to start");
     }
 
-    // Without this the store never gains a single record and the ranking is
-    // permanently whatever the seed said.
+    // The other half of that rule, and the one a regression would reach for
+    // first. A QML binding does not re-evaluate because time passed, so
+    // reading the clock inside the sort means the keystrokes that happen to
+    // re-run it decay against a different `now` than the ones that do not,
+    // and rows minutes apart can swap places mid-typing. Nothing about the
+    // observable behaviour of a single keystroke would look wrong, which is
+    // why it needs pinning here rather than in a unit test.
+    function test_the_sort_never_reads_the_clock_itself() {
+        const block = Scan.blockAfter(launcherSource(), "readonly property var unfilteredResults: {");
+        verify(block.indexOf("Date.now()") === -1, "the sort must decay against the stamp taken in show(), never read the clock inside a binding");
+        verify(block.indexOf("root.rankNow") !== -1, "it must use that stamp");
+    }
+
+    // Without this the store never gains a single record and every row ranks
+    // 0 forever, which looks exactly like the launcher working.
     function test_activating_a_row_records_the_use() {
         const block = Scan.blockAfter(launcherSource(), "function activate(): void {");
         verify(block !== "", "Launcher must define activate()");

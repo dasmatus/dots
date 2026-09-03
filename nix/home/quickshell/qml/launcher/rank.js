@@ -23,26 +23,52 @@
 // by now.
 const HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Matches Providers.qml's clipboardLimit (`clipboardLimit: 500`) — both are
-// "how much per-item history is this shell willing to keep forever" caps,
-// and reusing that number means one already-reasoned-about constant instead
-// of a second, unrelated one nobody could explain the difference of.
-const RECORD_CAP = 500;
+// Not a limit on anything the user can see: the keyed universe is bounded
+// by what is installed (desktop entries and their actions, plus the fixed
+// system commands and whatever quicklinks and snippets are declared), so
+// this is only a backstop against records for things that no longer exist
+// accumulating across years of installs and removals. Set well clear of a
+// large but ordinary machine's real key count so that eviction is
+// effectively never reached in normal use — an eviction that fires
+// routinely would be making ranking decisions, which is order()'s job.
+const RECORD_CAP = 4000;
 
 // A record's score decayed from `record.last` forward to `now`. Missing or
-// falsy decays to 0 rather than throwing: order() calls this for every row
-// on every keystroke, and a row with no usage history yet — or ever — is
-// the common case here, not an error.
+// malformed decays to 0 rather than throwing or poisoning a comparison:
+// order() calls this for every row on every keystroke, and a row with no
+// usage history yet — or ever — is the common case here, not an error.
 //
 // Exponential decay with half-life H means multiplying by 0.5 for every H
 // of elapsed time, i.e. score * 0.5^(elapsed / H) — continuous rather than
 // "halve it once a week on a timer", so a record decays by the same factor
 // whether something reads it once a day or once a year.
+//
+// The shape check is not defensive padding. frecency.json is a real file on
+// disk that a user can edit, a half-written older schema can leave behind,
+// or a future version of this code can write differently. A record whose
+// score or last is not a finite number would make this return NaN, and NaN
+// in order()'s comparator reads as "equal" for every key at once — which
+// silently discards the input-order tiebreak the whole sort rests on. It is
+// cheaper to treat a nonsense record as no history than to let one poison
+// the ordering of every row beside it.
+//
+// elapsed is clamped at zero because it is a difference of two clocks that
+// need not agree. A record written while the system clock was ahead — an
+// unset RTC before NTP corrects it is the ordinary way this happens — has
+// `last` in the future, making elapsed negative and 0.5^negative a
+// multiplier ABOVE one. bump() then stores that inflated value as the new
+// baseline, so a single launch during the wrong-clock window could pin a
+// row to the top of the list for months of real time. Clamping costs
+// nothing and makes a future timestamp mean "just used", which is the
+// closest true statement available.
 function effectiveScore(record, now) {
-    if (!record)
+    // Number.isFinite, not the global isFinite: the global coerces, so it
+    // answers true for the string "3" and for null, and the point of this
+    // guard is to accept only what this file actually wrote.
+    if (!record || !Number.isFinite(record.score) || !Number.isFinite(record.last))
         return 0;
 
-    const elapsed = now - record.last;
+    const elapsed = Math.max(0, now - record.last);
     return record.score * Math.pow(0.5, elapsed / HALF_LIFE_MS);
 }
 
@@ -73,13 +99,36 @@ function bump(records, key, now) {
 // contract is "deterministic for a given input", so the tiebreak is
 // spelled out explicitly instead of resting on an enumeration order this
 // function has no real need to depend on.
-function evictOverCap(records, cap, now) {
-    const ranked = Object.keys(records)
-        .map(key => ({ key: key, eff: effectiveScore(records[key], now) }))
-        .sort((a, b) => b.eff - a.eff || a.key.localeCompare(b.key))
-        .slice(0, cap);
+//
+// `protect` lists the keys that must survive regardless of where they
+// score, and it exists to close a starvation bug rather than as a
+// convenience. Callers bump first and evict second, so a key being
+// recorded for the very first time is in the candidate set at the lowest
+// score any record can have: exactly 1.0, since 0 + 1 decayed across zero
+// elapsed time. Against a full store of keys launched even twice within a
+// half-life it loses every time — and because it was dropped before being
+// written, the next launch starts it from 1.0 again, and the one after
+// that. The app could be run daily forever and never enter the store or
+// rank above anything. Exempting the keys the caller just recorded means
+// an eviction can only ever drop something the user has not just reached
+// for. It is a list rather than one key because recording an app's action
+// bumps the action and the app together, and either can be the new one.
+function evictOverCap(records, cap, now, protect) {
+    const protectedKeys = (protect || []).filter(key => key in records);
+    const keys = Object.keys(records);
+
+    if (keys.length <= cap)
+        return Object.assign({}, records);
 
     const kept = {};
+    for (const key of protectedKeys)
+        kept[key] = records[key];
+
+    const ranked = keys.filter(key => protectedKeys.indexOf(key) === -1)
+        .map(key => ({ key: key, eff: effectiveScore(records[key], now) }))
+        .sort((a, b) => b.eff - a.eff || a.key.localeCompare(b.key))
+        .slice(0, Math.max(0, cap - protectedKeys.length));
+
     for (const entry of ranked)
         kept[entry.key] = records[entry.key];
 

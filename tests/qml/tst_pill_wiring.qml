@@ -15,16 +15,22 @@
 // idiom tst_monitor_parity.qml and tst_tint_wiring.qml use.
 import QtQuick
 import QtTest
+import "sourcescan.js" as Scan
 
 TestCase {
     name: "PillWiring"
 
+    // Comment-stripped, for the reason sourcescan.js's own header records:
+    // an assertion looking for a binding will happily match a comment that
+    // merely mentions it by name. The pill delegate is now several lines of
+    // prose explaining the drill, so this file is squarely in range of that
+    // failure rather than theoretically exposed to it.
     function readSource(relPath) {
         const xhr = new XMLHttpRequest();
         xhr.open("GET", Qt.resolvedUrl(relPath), false);
         xhr.send();
         compare(xhr.status, 200, relPath + " must be readable (needs QML_XHR_ALLOW_FILE_READ=1)");
-        return xhr.responseText;
+        return Scan.stripComments(xhr.responseText);
     }
 
     function launcherSource() {
@@ -66,12 +72,8 @@ TestCase {
     // Both are still pinned, because a click that reaches neither is a pill
     // that does nothing — the failure this test exists to catch.
     function test_pill_click_assigns_the_selection() {
-        const src = launcherSource();
-        const start = src.indexOf("Pill {");
-        verify(start !== -1, "the pill bar must build its delegate from the shared Pill");
-        const end = src.indexOf("Item {", start);
-        verify(end !== -1, "the Pill delegate must be followed by the bar's trailing spacer");
-        const delegate = src.slice(start, end);
+        const delegate = Scan.blockAfter(launcherSource(), "delegate: Pill {");
+        verify(delegate !== "", "the pill bar must build its delegate from the shared Pill");
 
         verify(delegate.indexOf("root.selectedPill = ") !== -1, "clicking a pill must assign root.selectedPill");
         verify(delegate.indexOf("root.drillOut()") !== -1, "clicking the drill pill must leave the drill, since it is the only visible way back out with the pointer");

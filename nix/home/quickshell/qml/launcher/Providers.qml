@@ -549,11 +549,19 @@ QtObject {
 
         const now = Date.now();
         let next = Rank.bump(root.frecencyRecords, key, now);
+        const touched = [key];
 
-        if (parentKey)
+        if (parentKey) {
             next = Rank.bump(next, parentKey, now);
+            touched.push(parentKey);
+        }
 
-        root.frecencyRecords = Rank.evictOverCap(next, Rank.RECORD_CAP, now);
+        // The keys just bumped are handed over as the ones eviction may not
+        // drop. A first-ever record scores exactly 1.0, which loses to every
+        // key launched even twice within a half-life, so without this a new
+        // app on a full store would be evicted before it was ever written —
+        // and again on the next launch, and the one after, forever.
+        root.frecencyRecords = Rank.evictOverCap(next, Rank.RECORD_CAP, now, touched);
         root.persistFrecency();
     }
 
@@ -633,6 +641,13 @@ QtObject {
         }
 
         onAdapterUpdated: root.frecencyRecords = root.frecencyFile.adapter.records
+
+        // printErrors above silences the read side, which also silences this
+        // one — and a write that fails is not the expected condition a
+        // missing file is. An unwritable state directory or a full disk would
+        // otherwise mean ranking silently never persists across restarts,
+        // with nothing anywhere to say why.
+        onSaveFailed: (error) => console.warn("launcher: could not write", root.frecencyFile.path, "-", FileViewError.toString(error))
     }
     // qmllint enable unresolved-type
 

@@ -1,5 +1,5 @@
-// rank.js's frecency arithmetic (effectiveScore, bump, evictOverCap,
-// seedRecords) and the ranked sort (order) it feeds — plain records and
+// rank.js's frecency arithmetic (effectiveScore, bump, evictOverCap) and
+// the ranked sort (order) it feeds — plain records and
 // fixed timestamps only, no launcher, no FileView-backed frecency.json,
 // and no wall clock: every "now" below is a literal so a test's own math
 // can be checked by hand instead of racing Date.now().
@@ -111,8 +111,6 @@ TestCase {
     }
 
     function test_evict_over_cap_keeps_the_highest_scoring_records_up_to_the_cap() {
-        compare(Rank.RECORD_CAP, 500);
-
         const now = 0;
         const records = {
             low: { score: 1, last: now },
@@ -123,6 +121,82 @@ TestCase {
         const kept = Rank.evictOverCap(records, 2, now);
 
         compare(Object.keys(kept).sort(), ["high", "mid"]);
+    }
+
+    // The starvation bug this protection exists for. A key recorded for the
+    // first time scores exactly 1.0 — the lowest any record can — so against
+    // a full store of keys used even twice it loses every eviction. Dropped
+    // before it was written, it starts from 1.0 again on the next launch, and
+    // the one after: the app could be run daily forever and never enter the
+    // store. Without `protect`, "fresh" below is the one that goes.
+    function test_evict_over_cap_never_drops_a_just_recorded_key() {
+        const now = 0;
+        const records = {
+            busy: { score: 50, last: now },
+            steady: { score: 20, last: now },
+            fresh: { score: 1, last: now }
+        };
+
+        const unprotected = Rank.evictOverCap(records, 2, now);
+        verify(!("fresh" in unprotected), "without protection the newest, lowest-scoring key is exactly the one evicted");
+
+        const kept = Rank.evictOverCap(records, 2, now, ["fresh"]);
+        verify("fresh" in kept, "a key the caller just recorded must survive eviction whatever it scores");
+        compare(Object.keys(kept).length, 2, "protecting a key must still respect the cap, not exceed it");
+        verify("busy" in kept, "the highest scorer must fill the remaining slot");
+    }
+
+    // Both keys are bumped together when an app's desktop action is run, and
+    // either can be the new one, so protection has to cover a list.
+    function test_evict_over_cap_protects_every_key_it_is_given() {
+        const now = 0;
+        const records = {
+            busy: { score: 50, last: now },
+            action: { score: 1, last: now },
+            app: { score: 1, last: now }
+        };
+
+        const kept = Rank.evictOverCap(records, 2, now, ["action", "app"]);
+
+        compare(Object.keys(kept).sort(), ["action", "app"]);
+    }
+
+    // A record whose `last` is in the future — an unset RTC before NTP
+    // corrects it is the ordinary way this happens — would otherwise raise
+    // 0.5 to a negative power, i.e. MULTIPLY the score. bump() then stores
+    // that inflated value as the new baseline, pinning one row to the top of
+    // the list for as long as it takes to decay 2^n away. A future timestamp
+    // has to read as "just used", the closest true statement available.
+    function test_effective_score_never_inflates_on_a_backwards_clock() {
+        const record = { score: 4, last: oneHalfLife() * 52 };
+
+        compare(Rank.effectiveScore(record, 0), 4, "a record from the future must decay by nothing, never grow");
+    }
+
+    // frecency.json is a real file that a user can edit and an older or newer
+    // schema can leave behind. A record that is not two finite numbers would
+    // make effectiveScore return NaN, and NaN in order()'s comparator reads
+    // as "equal" for every key at once, silently discarding the input-order
+    // tiebreak for every row beside it.
+    function test_malformed_records_score_zero_instead_of_poisoning_the_sort_data() {
+        return [
+            { tag: "a bare number where a record should be", record: 5 },
+            { tag: "a record missing last", record: { score: 3 } },
+            { tag: "a record missing score", record: { last: 0 } },
+            { tag: "non-numeric fields", record: { score: "3", last: "0" } },
+            { tag: "an infinite score", record: { score: Infinity, last: 0 } }
+        ];
+    }
+
+    function test_malformed_records_score_zero_instead_of_poisoning_the_sort(row) {
+        compare(Rank.effectiveScore(row.record, 0), 0, "a malformed record must score 0, never NaN");
+
+        const rows = [{ title: "Bad", key: "apps:bad" }, { title: "Good", key: "apps:good" }];
+        const records = { "apps:bad": row.record, "apps:good": { score: 1, last: 0 } };
+
+        const ranked = Rank.order(rows, records, "", 0);
+
+        compare(ranked.map(r => r.title), ["Good", "Bad"], "a real record must outrank a malformed one rather than tying with it");
     }
 
     // Ranking is earned, never granted: with nothing recorded, no row can

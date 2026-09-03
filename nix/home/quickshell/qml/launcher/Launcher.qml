@@ -200,15 +200,19 @@ Scope {
     // put root.selected on the row in question — the keyboard path reads it to
     // find the row at all, the click path assigns it first — so capturing it
     // here needs no extra parameter.
-    function drillInto(row: var): void {
+    // Returns whether it actually drilled, so a key handler can decline the
+    // keystroke when there was nothing to open rather than swallowing it.
+    function drillInto(row: var): bool {
         if (!row || !row.actionRows || row.actionRows.length === 0)
-            return;
+            return false;
 
         root.drill = {
             label: row.title,
             rows: row.actionRows,
             origin: root.selected
         };
+
+        return true;
     }
 
     // Restores the row the drill was opened from. The assignment to `drill`
@@ -216,11 +220,16 @@ Scope {
     // so `selected` is put back afterwards rather than before — otherwise the
     // handler would overwrite it and backing out would always land on the
     // first row of a list you had already scrolled past.
+    //
+    // Clamped rather than restored blindly: `origin` indexes the list as it
+    // was on the way in, and that list is a live binding. A debounced file
+    // search landing, or an app being installed or removed, can shorten it
+    // while the drill is open, leaving the remembered index past the end.
     function drillOut(): void {
         const origin = root.drill ? root.drill.origin : 0;
 
         root.drill = null;
-        root.selected = origin;
+        root.selected = Math.min(origin, Math.max(0, root.results.length - 1));
     }
 
     function cyclePill(delta: int): void {
@@ -461,7 +470,14 @@ Scope {
                                 return;
                             }
 
-                            root.drillInto(root.results[root.selected]);
+                            // Declined too when the highlighted row has no
+                            // actions to open. Qt marks the event accepted
+                            // before calling this handler, so keeping it
+                            // would eat a keystroke that did nothing —
+                            // noticeable with a selection active, where Right
+                            // is what collapses it.
+                            if (!root.drillInto(root.results[root.selected]))
+                                event.accepted = false;
                         }
 
                         // Left is the way back out, and only means that while
