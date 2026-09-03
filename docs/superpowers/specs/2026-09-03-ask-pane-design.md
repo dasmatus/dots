@@ -885,12 +885,18 @@ rendered along with them.
 ## 6. Amendments
 
 Every loosening the field table in section 2 permits gets a row here, added
-by the phase that made it. The table is empty until a phase needs it, which
-is the honest state: nothing has compiled against the schema yet.
+by the phase that made it.
 
 A row records what changed and what forced it, so a later reader can tell a
 correction from a preference. Tightening a field back is not an amendment.
 It is a break, it does not go in this table, and it needs the controller.
+
+Phase 1 built `src/proto.rs` from the field table and compiled every row.
+The table needed no loosening, so it stays empty, and that is now a result
+rather than a state nobody has tested. `rust/ask-daemon/tests/proto.rs`
+round-trips every frame in both directions and compares the serialized JSON
+against this document's own examples, so a later phase that drifts from a
+row fails there first.
 
 | Field | Change | Why |
 |---|---|---|
