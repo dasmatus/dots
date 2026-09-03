@@ -185,6 +185,48 @@ TestCase {
         verify(source.indexOf("Text.StyledText") === -1, "the plain fallback is raw source and StyledText would read an angle bracket in it as a tag");
     }
 
+    // A Flickable has no implicit height, so a card that measures itself
+    // through a layout whose body is one measures its header alone. DiffView
+    // shipped that way and rendered as a no-op. tst_ask_layout.qml proves the
+    // rule; this pins the file to it.
+    function test_the_diff_card_sums_its_body_height() {
+        const source = readSource("../../nix/home/quickshell/qml/ask/DiffView.qml");
+        const line = /implicitHeight:[^\n]*/.exec(source);
+
+        verify(line !== null, "DiffView must declare an implicitHeight");
+        verify(line[0].indexOf("body.implicitHeight") !== -1, "it has to sum the body's own implicitHeight: a fill-height Flickable contributes zero and the diff is clipped away");
+        verify(line[0].indexOf("Theme.askCodeMaxHeight") !== -1, "and still cap, or a long diff grows without bound");
+    }
+
+    // The same rule, on the component that already got it right, so a later
+    // edit cannot quietly regress CodeBlock into DiffView's old shape.
+    function test_the_code_card_sums_its_body_height() {
+        const source = readSource("../../nix/home/quickshell/qml/ask/CodeBlock.qml");
+        const line = /implicitHeight:[^\n]*/.exec(source);
+
+        verify(line !== null, "CodeBlock must declare an implicitHeight");
+        verify(line[0].indexOf("body.implicitHeight") !== -1, "summed from the body, for the same reason DiffView has to");
+    }
+
+    // Assigning a JS array of a different length to `model` is a model reset:
+    // it tears down the visible delegates and snaps contentY to 0. The fold
+    // appends a row per block, tool call and status line, so a reader who
+    // scrolled up got thrown to the top several times a turn.
+    function test_the_thread_does_not_use_a_bare_array_model() {
+        const source = readSource("../../nix/home/quickshell/qml/ask/Thread.qml");
+
+        verify(/model:\s*root\.rows\b/.test(source) === false, "model: root.rows resets the view on every append and must not come back");
+        verify(source.indexOf("model: ListModel {") !== -1, "the model has to be a ListModel, whose appends are insertions rather than resets");
+
+        const sync = Scan.blockAfter(source, "function sync(): void {");
+        verify(sync !== "", "Thread must sync the backing model to the row count");
+        verify(sync.indexOf("backing.append(") !== -1, "growing by append");
+        verify(sync.indexOf("backing.remove(") !== -1, "and shrinking by remove, never by replacing the model");
+
+        const delegate = Scan.blockAfter(source, "delegate: Message {");
+        verify(delegate.indexOf("root.rows[index]") !== -1, "the delegate reads the real row out of the array by index, since the model carries only a count");
+    }
+
     // tree.nix owns the generated data files. backends.json has to be
     // generated from the toggles the same way quicklinks.json and keybinds.json
     // already are.

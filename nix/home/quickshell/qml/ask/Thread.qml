@@ -9,8 +9,30 @@
 // STICKY BOTTOM. A streaming answer grows the content under the viewport, and
 // the reader wants to stay at the newest line without dragging. But only while
 // they are already there: scrolling up to reread something must not be undone
-// by the next token. `pinned` records whether the view was at the bottom before
-// the content grew, and only then does it follow.
+// by the next token. `follow` records that, and only then does the view chase
+// the tail.
+//
+// WHY THE MODEL IS A ListModel OF NOTHING. The obvious `model: root.rows` is
+// wrong, and measurably so. QML does not diff a JS array assigned to `model`.
+// Measured on Qt 6.11 (tests/qml/tst_ask_layout.qml pins all of it): assigning
+// a new array of the SAME length keeps contentY and rebuilds no delegate, but
+// assigning one of a DIFFERENT length is a model reset, which tears down every
+// visible delegate and snaps contentY to 0. The fold appends a row on every
+// new block, tool call, code block and status line, so a reader who scrolled
+// up to reread something got thrown back to the top of the conversation
+// several times a turn. `positionViewAtEnd` hid it from a pinned reader, which
+// is exactly the reader who did not need the help.
+//
+// An integer model has the same fault, measured the same way. A ListModel does
+// not: appending to one is an insertion, so contentY holds and nothing is
+// rebuilt. So the model is a ListModel carrying one throwaway integer per row,
+// synced to `rows.length`, and the delegate reads the real row out of the
+// array by index. Nothing rich ever enters the ListModel, which also sidesteps
+// its habit of converting a nested JS object into nested ListModels.
+//
+// Editing a row still costs nothing: `rows` changes identity, every visible
+// delegate's `root.rows[index]` binding re-evaluates, and the offscreen ones
+// are not built to care. That is O(visible), not O(conversation), per frame.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -31,19 +53,42 @@ ListView {
     // it only ever changes when the reader moves the view.
     property bool follow: true
 
-    model: root.rows
+    // Brings the backing model's count to the row count, by insertion and
+    // removal rather than by replacement. The element is a plain integer and
+    // nothing reads it; the count is the whole point.
+    function sync(): void {
+        while (backing.count > root.rows.length)
+            backing.remove(backing.count - 1, 1);
+
+        while (backing.count < root.rows.length)
+            backing.append({
+                n: backing.count
+            });
+    }
+
+    model: ListModel {
+        id: backing
+    }
+
     spacing: Theme.askRowSpacing
 
     clip: true
     reuseItems: true
     boundsBehavior: Flickable.StopAtBounds
 
+    onRowsChanged: root.sync()
+    Component.onCompleted: root.sync()
+
     delegate: Message {
-        required property var modelData
+        required property int index
 
         width: ListView.view.width
 
-        row: modelData
+        // Guarded because the model is synced from a handler, so a delegate
+        // can evaluate this once while the array has already shrunk and the
+        // backing model has not caught up. Message renders a null row as
+        // nothing, which is the right answer for a row that is on its way out.
+        row: root.rows[index] ?? null
         conversation: root.conversation
     }
 

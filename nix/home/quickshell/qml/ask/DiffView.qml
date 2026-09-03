@@ -27,7 +27,16 @@ Rectangle {
 
     readonly property bool rendered: root.html !== ""
 
-    implicitHeight: Math.min(column.implicitHeight + Theme.askGutter * 2, Theme.askCodeMaxHeight)
+    // Sums the body's own implicit height rather than the column's, the same
+    // way CodeBlock does, and for the same reason.
+    //
+    // A Flickable has NO implicit height. The body below is a fill-height
+    // Flickable, so it contributes exactly 0 to column.implicitHeight, and a
+    // card sized off that column measured the header alone: the path and the
+    // +N/-N counts drew, and the diff itself was clipped to nothing. The
+    // component rendered as a no-op and no test caught it, because nothing in
+    // this suite can instantiate a component that reaches Theme.
+    implicitHeight: Math.min(header.implicitHeight + body.implicitHeight + column.spacing + Theme.askGutter * 2, Theme.askCodeMaxHeight)
 
     radius: Theme.askRadius
     color: Theme.bgDarker
@@ -43,6 +52,8 @@ Rectangle {
         spacing: 6
 
         RowLayout {
+            id: header
+
             Layout.fillWidth: true
 
             spacing: Theme.askGutter
