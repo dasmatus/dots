@@ -39,8 +39,6 @@ Rectangle {
 
     color: Theme.bgDarker
     radius: Theme.filesRadius
-    border.width: 1
-    border.color: Theme.border
 
     property var bookmarks: []
 

@@ -2,8 +2,8 @@
 //
 // It spans the whole window between the tab strip and the body rather than
 // sitting inside the pane, because it describes the tab, not the pane —
-// the sidebar's selection changes it too. A band with its own fill and a
-// rule along the bottom, so it separates the strip above from the body
+// the sidebar's selection changes it too. A band with its own fill, one
+// shade off both neighbours, so it separates the strip above from the body
 // below instead of being a line of text floating over the same ground.
 //
 // The crumbs centre on the bar and the arrows anchor to its left edge,
@@ -36,14 +36,12 @@ Rectangle {
     signal forward()
 
     implicitHeight: Theme.filesRowHeight + Theme.filesPadding
-    color: Theme.bgDark
-
-    Rectangle {
-        anchors.bottom: parent.bottom
-        width: parent.width
-        height: 1
-        color: Theme.border
-    }
+    // bg, the middle of the three chrome/content shades — the same fill
+    // the current tab above uses, so the active tab reads as flowing
+    // straight into this bar. It also sits below Tabs' bgDarker and above
+    // Pane's bgDark, so both neighbours differ from it and the bar reads
+    // as its own band without a drawn rule on either edge.
+    color: Theme.bg
 
     RowLayout {
         id: nav

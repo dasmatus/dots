@@ -253,8 +253,6 @@ Scope {
 
             radius: 16
             color: Qt.alpha(Theme.bgDark, 0.92)
-            border.width: 2
-            border.color: Theme.border
 
             ColumnLayout {
                 anchors.fill: parent

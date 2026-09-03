@@ -88,13 +88,6 @@ Rectangle {
         root.submitted(input.text);
     }
 
-    Rectangle {
-        anchors.top: parent.top
-        width: parent.width
-        height: 1
-        color: Theme.border
-    }
-
     ColumnLayout {
         anchors.fill: parent
         spacing: 0

@@ -30,16 +30,12 @@ Rectangle {
     signal added()
 
     implicitHeight: Theme.filesTabHeight
+    // bgDarker, the darkest of the three chrome/content shades. PathBar
+    // below paints bg, one step lighter, so the seam between the strip and
+    // the bar reads as a shade change on its own — except directly under
+    // the current tab, which paints bg itself and so keeps flowing into
+    // the bar beneath it, reading as attached rather than floating.
     color: Theme.bgDarker
-
-    // The strip and the pane area below it are both dark; without this the
-    // seam between them is invisible and the active tab appears to float.
-    Rectangle {
-        anchors.bottom: parent.bottom
-        width: parent.width
-        height: 1
-        color: Theme.border
-    }
 
     RowLayout {
         anchors.fill: parent
@@ -67,17 +63,13 @@ Rectangle {
                     thickness: Theme.filesTabIndicator
                 }
 
-                Rectangle {
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.topMargin: Theme.filesTabPadding / 2
-                    anchors.bottomMargin: Theme.filesTabPadding / 2
-                    width: 1
-                    color: Theme.border
-                    visible: !tab.current
-                }
-
+                // No divider between inactive tabs: they already share the
+                // strip's own bgDarker fill (transparent above), so a
+                // shade change would need a fourth token invented just for
+                // this seam. A drawn rule would be the only thing telling
+                // two directory names apart, and their own icon and label
+                // already do that — this is a list of names on one
+                // surface, not two bands of colour meeting.
                 RowLayout {
                     id: tabRow
 

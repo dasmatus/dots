@@ -359,8 +359,6 @@ Scope {
 
                             radius: 6
                             color: Theme.bgDark
-                            border.width: 1
-                            border.color: Theme.border
 
                             TextInput {
                                 anchors.fill: parent
