@@ -275,8 +275,22 @@ impl ServerEvent {
     }
 
     /// A per-connection reply, carrying `seq: null` and `conversation: null`.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, when `body` is conversation-scoped. Wrapping one
+    /// here would route it around the store: it would reach a client with
+    /// no `seq`, never be persisted, and never be replayed. The store's own
+    /// [`crate::store::Store::record`] picks the wrapper by scope, so
+    /// reaching for this constructor directly with the wrong body is a
+    /// mistake rather than a choice.
     #[must_use]
     pub fn ephemeral(body: EventBody) -> Self {
+        debug_assert_eq!(
+            body.scope(),
+            EventScope::Connection,
+            "a conversation event needs a seq; record it instead of wrapping it here"
+        );
         Self {
             seq: None,
             conversation: None,

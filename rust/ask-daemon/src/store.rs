@@ -153,7 +153,8 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// [`AskError::Encode`] when the event will not serialize, and
+    /// [`AskError::UnknownConversation`] when the thread is not in the
+    /// index, [`AskError::Encode`] when the event will not serialize, and
     /// [`AskError::StoreWrite`] when the transcript or the index cannot be
     /// written.
     pub fn record(
@@ -166,16 +167,29 @@ impl Store {
             return Ok(ServerEvent::ephemeral(body));
         }
 
+        // Refuse before allocating anything. `events_after` walks the index,
+        // so a transcript for a thread the index does not have is a file
+        // nothing ever reads: the seq would be spent, the event would be
+        // missing from every `hello` replay, and nothing would say so. A
+        // hole in that stream is the one failure this store exists to
+        // prevent, and it leaves no trace, so it has to be an error rather
+        // than a warning or a debug assertion.
+        if !self.index.contains_key(&conversation) {
+            return Err(AskError::UnknownConversation { id: conversation });
+        }
+
         let closes_turn = matches!(body, EventBody::TurnEnd { .. });
         let event = ServerEvent::persisted(self.seq.allocate(), conversation, body);
         self.append_line(conversation, &event)?;
 
-        if let Some(meta) = self.index.get_mut(&conversation) {
-            meta.updated_ms = now_ms;
-            if closes_turn {
-                meta.turns = meta.turns.saturating_add(1);
-                self.write_index()?;
-            }
+        let Some(meta) = self.index.get_mut(&conversation) else {
+            // The guard above already proved the row is there.
+            return Ok(event);
+        };
+        meta.updated_ms = now_ms;
+        if closes_turn {
+            meta.turns = meta.turns.saturating_add(1);
+            self.write_index()?;
         }
         Ok(event)
     }

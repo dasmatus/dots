@@ -20,6 +20,7 @@ use ask_daemon::proto::{
 };
 use ask_daemon::session::TurnState;
 use ask_daemon::store::{Loaded, Store};
+use ask_daemon::AskError;
 
 /// A directory that removes itself, so a failing test leaves nothing behind.
 struct TempRoot(PathBuf);
@@ -316,6 +317,86 @@ fn an_ephemeral_body_never_reaches_disk() {
         0,
         "a store error cannot persist itself"
     );
+}
+
+#[test]
+fn recording_against_a_thread_the_index_does_not_have_is_refused() {
+    // Without the guard this call succeeds, spends a seq and writes a line
+    // into a transcript that events_after will never open, because that
+    // function walks the index. The hole it leaves in hello replay is
+    // permanent and silent, so the store has to refuse rather than warn.
+    let root = TempRoot::new();
+    let ghost = Uuid::new_v4();
+    let mut loaded = open(root.path(), 1_000);
+
+    let outcome = loaded.store.record(
+        ghost,
+        EventBody::TextDelta {
+            turn: None,
+            block: 0,
+            text: "into the void".to_owned(),
+        },
+        1_000,
+    );
+
+    match outcome {
+        Ok(event) => panic!("an unindexed thread must not be recorded against: {event:?}"),
+        Err(AskError::UnknownConversation { id }) => assert_eq!(id, ghost, "the error names it"),
+        Err(other) => panic!("wrong error for an unindexed thread: {other}"),
+    }
+
+    assert_eq!(
+        loaded.store.seq_head(),
+        0,
+        "a refused record must not spend a seq"
+    );
+    assert!(
+        !root
+            .path()
+            .join("conversations")
+            .join(format!("{ghost}.jsonl"))
+            .exists(),
+        "and must not leave a transcript nothing will read"
+    );
+}
+
+#[test]
+fn a_thread_that_was_deleted_stops_accepting_events() {
+    // The same guard, reached the way a real caller would: a backend still
+    // streaming into a thread the user just removed.
+    let root = TempRoot::new();
+    let id = Uuid::new_v4();
+    let mut loaded = open(root.path(), 1_000);
+    loaded.store.create(meta(id, 1_000)).expect("create works");
+    loaded
+        .store
+        .record(
+            id,
+            EventBody::TextDelta {
+                turn: None,
+                block: 0,
+                text: "before".to_owned(),
+            },
+            1_000,
+        )
+        .expect("record works while the thread exists");
+
+    loaded.store.delete(id).expect("delete works");
+
+    let outcome = loaded.store.record(
+        id,
+        EventBody::TextDelta {
+            turn: None,
+            block: 1,
+            text: "after".to_owned(),
+        },
+        2_000,
+    );
+    assert!(
+        matches!(outcome, Err(AskError::UnknownConversation { .. })),
+        "a deleted thread must not quietly grow a new transcript"
+    );
+    assert_eq!(loaded.store.seq_head(), 1, "and must not spend a seq");
 }
 
 #[test]

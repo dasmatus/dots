@@ -17,6 +17,8 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
+use uuid::Uuid;
+
 use miette::Diagnostic;
 
 pub mod proto;
@@ -133,6 +135,22 @@ pub enum AskError {
         source: io::Error,
     },
 
+    /// An event was recorded against a thread the store does not have.
+    ///
+    /// This is a daemon bug rather than anything a client did, and it is
+    /// caught rather than tolerated because tolerating it is invisible.
+    /// Replay walks the index, so an event filed under an unindexed thread
+    /// would spend a `seq` and then never come back, leaving a hole in the
+    /// one stream the protocol promises has none.
+    #[diagnostic(
+        code(dots_ask::unknown_conversation),
+        help("the thread has to be created in the index before any event is recorded against it")
+    )]
+    UnknownConversation {
+        /// The thread that is not in the index.
+        id: Uuid,
+    },
+
     /// A stored line is not an event this build understands.
     #[diagnostic(
         code(dots_ask::store_decode),
@@ -184,6 +202,9 @@ impl fmt::Display for AskError {
             }
             Self::StoreRead { path, .. } => write!(f, "cannot read {}", path.display()),
             Self::StoreWrite { path, .. } => write!(f, "cannot write {}", path.display()),
+            Self::UnknownConversation { id } => {
+                write!(f, "no conversation {id} in the store index")
+            }
             Self::StoreDecode { path, line, .. } => {
                 write!(f, "{}:{line} is not a stored event", path.display())
             }
@@ -199,6 +220,7 @@ impl Error for AskError {
             Self::NoRuntimeDir
             | Self::NoDataHome
             | Self::AlreadyRunning { .. }
+            | Self::UnknownConversation { .. }
             | Self::Usage { .. } => None,
             Self::CreateDir { source, .. }
             | Self::RemoveStaleSocket { source, .. }

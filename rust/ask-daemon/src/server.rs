@@ -256,6 +256,19 @@ impl Hub {
         self.lock().attached.remove(&client);
     }
 
+    /// Reject a line that is not a frame this daemon can act on.
+    ///
+    /// Nothing about this reply needs the lock. It targets one connection,
+    /// it carries `seq: null` so it can open no hole, and it runs in the
+    /// same task as [`Hub::dispatch`] so it cannot land inside that
+    /// connection's own replay. It takes the lock anyway, so that the rule
+    /// in this module's header holds with no exception attached. An
+    /// exception is the part a later phase copies.
+    fn reject(&self, outbox: &Outbox, message: String) -> bool {
+        let _queueing = self.lock();
+        outbox.bad_request(message)
+    }
+
     /// Handle one decoded client frame, queueing whatever it produces.
     ///
     /// This never fails. A store failure becomes a connection-scoped `error`
@@ -614,7 +627,7 @@ async fn serve_connection(hub: Arc<Hub>, stream: UnixStream) {
 
         let alive = match decode_client_line(&line) {
             Ok(frame) => hub.dispatch(frame, client, &outbox),
-            Err(message) => outbox.bad_request(message),
+            Err(message) => hub.reject(&outbox, message),
         };
         if !alive {
             break;
