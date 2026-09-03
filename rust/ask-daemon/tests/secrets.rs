@@ -68,9 +68,9 @@ impl FakeKeyring {
         SecretStore::new(&self.program, SHORT_TIMEOUT)
     }
 
-    /// Where the script wrote down what it was called with.
-    fn call_log(&self) -> Option<String> {
-        fs::read_to_string(self.root.join("argv.log")).ok()
+    /// One mark per run the script recorded, or `None` when it never ran.
+    fn runs(&self) -> Option<String> {
+        fs::read_to_string(self.root.join("runs")).ok()
     }
 
     /// The scratch directory, so a script can write into it.
@@ -197,33 +197,49 @@ async fn a_machine_with_no_secret_tool_degrades_rather_than_panicking() {
 
 #[tokio::test]
 async fn a_lookup_asks_for_the_attribute_under_the_dots_ask_service() {
-    let keyring = FakeKeyring::new("echo \"$@\" > \"$(dirname \"$0\")/argv.log\"\nprintf 'v\\n'");
+    // The fake echoes its own argv rather than writing it to a file. What is
+    // under test is the argv dots-ask passes, and stdout is the channel the
+    // lookup already captures, so observing it there costs the test no
+    // dependency on a shell being able to create a file next to itself.
+    let keyring = FakeKeyring::new("echo \"$@\"");
     let store = keyring.store();
-    assert_eq!(store.lookup("openai-api-key").await.value(), Some("v"));
-
-    let argv = keyring.call_log().expect("the fake recorded its argv");
+    let found = store.lookup("openai-api-key").await;
     assert_eq!(
-        argv.trim(),
-        format!("lookup service {SERVICE} attribute openai-api-key"),
-        "the argv is the one nix/home/edupage-mcp.nix uses"
+        found.value(),
+        Some(format!("lookup service {SERVICE} attribute openai-api-key").as_str()),
+        "the argv is the one nix/home/edupage-mcp.nix uses; the lookup said {found:?}"
     );
 }
 
 #[tokio::test]
 async fn a_lookup_runs_at_most_once_per_attribute() {
     // The cache is what keeps laziness from costing a ten-second wait per
-    // send. It caches a miss too, which is why the second call here still
-    // reports a miss without re-running the script.
-    let keyring = FakeKeyring::new(
-        "log=\"$(dirname \"$0\")/argv.log\"\nprintf 'x' >> \"$log\"\nprintf 'v\\n'",
-    );
+    // send. The fake appends one mark per run and prints every mark so far,
+    // so the value the first lookup returned is also the record of how many
+    // times the program had run by then, and a second run would show up as
+    // a second mark in the file afterwards.
+    let keyring = FakeKeyring::new(concat!(
+        "here=\"$(dirname \"$0\")\"\n",
+        "printf 'x' >> \"$here/runs\"\n",
+        "cat \"$here/runs\"",
+    ));
     let store = keyring.store();
-    for _ in 0..3 {
-        assert_eq!(store.lookup("openai-api-key").await.value(), Some("v"));
+    let first = store.lookup("openai-api-key").await;
+    assert_eq!(
+        first.value(),
+        Some("x"),
+        "the first lookup runs the program once: {first:?}"
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            store.lookup("openai-api-key").await.value(),
+            Some("x"),
+            "a cached hit returns what the one run produced"
+        );
     }
     assert_eq!(
-        keyring.call_log().expect("the fake recorded its runs"),
-        "x",
+        keyring.runs(),
+        Some("x".to_owned()),
         "three lookups, one process"
     );
 }
@@ -233,17 +249,17 @@ async fn nothing_is_cached_before_a_lookup_runs() {
     // This is the laziness rule as the registry sees it: `cached` never
     // causes a lookup, so a backend list can be built without touching the
     // keyring at all.
-    let keyring = FakeKeyring::new("printf 'v\\n'");
+    let keyring = FakeKeyring::new(concat!(
+        "printf 'x' >> \"$(dirname \"$0\")/runs\"\n",
+        "printf 'v\\n'",
+    ));
     let store = keyring.store();
     assert_eq!(
         store.cached("anthropic-api-key"),
         None,
         "asking what is cached must not cause a lookup"
     );
-    assert!(
-        keyring.call_log().is_none(),
-        "and must not run the program at all"
-    );
+    assert_eq!(keyring.runs(), None, "and must not run the program at all");
 
     store.lookup("anthropic-api-key").await;
     assert!(
