@@ -147,18 +147,43 @@ jobs:
           nix build -L --no-link .#aipage-firefox || echo "[isolated aipage build failed, see above — this is the real error]"
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
-      # The cheap non-VM checks are worth actually building. Build ALL the
-      # eval checks declared in flake/checks.nix so a silent regression in
-      # fido-2fa / aipage / formfactor doesn't slip past CI (nix flake check
-      # --no-build above only evaluates them, it doesn't build the asserts).
+      # Every eval check in flake/checks.nix, by name.
+      #
+      # The reason is NOT that the step above skips the asserts. It does not:
+      # `nix flake check --no-build` forces each check derivation, and an
+      # `assert` guarding one fails the command outright. Measured against a
+      # throwaway flake whose only check was `assert 1 == 2`, which flake
+      # check refused with "an integer with value '1' is not equal to an
+      # integer with value '2'". So a broken assertion is in principle caught
+      # one step earlier than here.
+      #
+      # In practice neither gate is live, and that is worth saying plainly
+      # because a stale check already slipped through. `nix flake check` dies
+      # on the aipage IFD derivation every run (see the comment above it),
+      # carries no continue-on-error, and so takes this step down with it.
+      # `shell-service-eval` sat broken behind exactly that, long enough for
+      # the code it guarded to move out from under it.
+      #
+      # Naming every check is therefore not a fix on its own. It is the half
+      # that can be fixed from here: once the flake-check step is either
+      # repaired or quarantined, this list decides how much it was actually
+      # watching, and a list that drifts from flake/checks.nix is a gate that
+      # silently shrinks. Add new checks here as they are written.
       - run: |
           nix build -L \
             .#checks.x86_64-linux.settings-eval \
             .#checks.x86_64-linux.facter-stub-eval \
             .#checks.x86_64-linux.facter-nvidia-eval \
             .#checks.x86_64-linux.fido-2fa-eval \
+            .#checks.x86_64-linux.fido-2fa-strict-eval \
             .#checks.x86_64-linux.aipage-eval \
-            .#checks.x86_64-linux.formfactor-eval
+            .#checks.x86_64-linux.aipage-bun-hashes-eval \
+            .#checks.x86_64-linux.formfactor-eval \
+            .#checks.x86_64-linux.palette-eval \
+            .#checks.x86_64-linux.agentmem-eval \
+            .#checks.x86_64-linux.hm-activation-eval \
+            .#checks.x86_64-linux.shell-service-eval \
+            .#checks.x86_64-linux.ask-service-eval
 
   rust:
     name: "rust: fmt + clippy + test"
@@ -171,22 +196,42 @@ jobs:
         with:
           toolchain: "1.97"
           components: rustfmt, clippy
-      # Swatinem/rust-cache supports a comma-separated list of workspace roots
-      # (Cargo.toml dirs). ask-daemon is a second one: it is the only other
-      # crate here whose tests run without a Postgres server or a pgrx
-      # toolchain behind them, so it is the only other one this lane can gate.
+      # Swatinem/rust-cache takes a list of workspace roots (Cargo.toml dirs),
+      # newline-separated here; it accepts commas too. ask-daemon is a second
+      # one: it is the only other crate here whose tests run without a
+      # Postgres server or a pgrx toolchain behind them, so it is the only
+      # other one this lane can gate.
       - uses: https://github.com/Swatinem/rust-cache@v2
         with:
           workspaces: |
             rust/installer-tui
             rust/ask-daemon
-      # Lint the Rust crates — matches `nix run .#nix-lint` (flake/apps.nix).
-      - run: |
+      # One step per crate, not one block for both, and the second one runs
+      # even after the first fails.
+      #
+      # A `run:` block executes under `bash -e`, so a chained block stops at
+      # its first failing line. With both crates in one block, installer-tui's
+      # `cargo fmt --check` was line 3 and every ask-daemon line sat below it,
+      # so a formatting slip in one crate silently withheld the other crate's
+      # tests. Splitting the steps is only half of that: a failed step ends
+      # the job by default, so the second step needs `always()` to report at
+      # all. `always()` rather than `!cancelled()` because it is the condition
+      # every runner implements, and the failure modes are not symmetric —
+      # this step running on a cancelled job wastes a little runner time,
+      # while an unsupported expression evaluating false would drop the gate
+      # without saying so, which is the exact bug being fixed here.
+      #
+      # Together these match `nix run .#nix-lint` (flake/apps.nix).
+      - name: "installer-tui: fmt + clippy + test"
+        run: |
           cd rust/installer-tui
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
           cargo test
-          cd ../ask-daemon
+      - name: "ask-daemon: fmt + clippy + test"
+        if: always()
+        run: |
+          cd rust/ask-daemon
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
           cargo test
