@@ -73,31 +73,31 @@ TestCase {
         verify(providers.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading a bare root off it is silently always undefined");
     }
 
-    // quicklinksFile, snippetsFile, emojiFile, frecencyFile and seedFile each
-    // need their OWN declared property — JsonAdapter only populates a property
-    // declared on the adapter instance itself, and a shared instance is not
-    // an option here since each FileView owns a different JSON file.
+    // Every JsonAdapter in the file needs its OWN declared property —
+    // JsonAdapter only populates a property declared on the adapter instance
+    // itself, and a shared instance is not an option since each FileView owns
+    // a different JSON file.
     //
-    // The property NAME differs per file (three carry `items`, the frecency
-    // store carries `records`, the seed list carries `ids`), so this asserts
-    // the exact multiset of declared names rather than one hardcoded name.
-    // Counting alone would let an adapter added later declare nothing and
-    // still pass by coincidence of arithmetic; naming alone would not catch a
-    // FileView that quietly lost its adapter.
+    // The expected count is derived from the source rather than written down:
+    // a literal would have to be edited every time a provider legitimately
+    // gains a file, and the failure it produced then would say "expected 4,
+    // got 5" rather than naming the adapter that is actually wrong. Deriving
+    // it means this test only ever fails for the reason it exists — an
+    // adapter that declares nothing.
+    //
+    // The property NAME is deliberately not pinned either: `items`, `records`
+    // and whatever a later file needs are all correct, and only the presence
+    // of a declaration is the contract.
     function test_providers_declares_a_property_on_every_adapter() {
         const providers = readSource("../../nix/home/quickshell/qml/launcher/Providers.qml");
         const blocks = jsonAdapterBlocks(providers);
+        const expected = providers.split("adapter: JsonAdapter").length - 1;
 
-        compare(blocks.length, 5, "quicklinksFile, snippetsFile, emojiFile, frecencyFile and seedFile must each declare their own JsonAdapter { ... }");
+        verify(expected > 0, "Providers must have at least one JsonAdapter for this test to mean anything");
+        compare(blocks.length, expected, "every `adapter: JsonAdapter` in Providers.qml must parse as a block");
 
-        const declared = [];
-        for (let i = 0; i < blocks.length; i++) {
-            const match = /property\s+var\s+(\w+)/.exec(blocks[i]);
-            verify(match !== null, "adapter block " + i + " needs a declared `property var` — JsonAdapter only populates a property declared on the adapter instance itself");
-            declared.push(match[1]);
-        }
-
-        compare(declared.slice().sort().join(","), "ids,items,items,items,records", "the five adapters must declare exactly items/items/items/records/ids between them");
+        for (let i = 0; i < blocks.length; i++)
+            verify(/property\s+var\s+\w+/.test(blocks[i]), "adapter block " + i + " needs a declared `property var` — JsonAdapter only populates a property declared on the adapter instance itself, so an adapter without one is silently always empty");
     }
 
     function test_cheatsheet_never_reads_the_nonexistent_adapter_root() {

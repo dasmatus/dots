@@ -73,15 +73,6 @@ self: {
     # The real cheatsheet, not an empty stub: linting a tree whose data files
     # are all empty would not exercise the delegates that read them.
     keybinds = import ../nix/home/keybinds.nix;
-    # Mirrors programs.dots-shell.launcherSeed's own default
-    # (nix/home/quickshell/default.nix) for the same reason as keybinds
-    # above. Duplicated rather than read off the option itself: tree.nix's
-    # own header explains why a home-manager module can't be evaluated from
-    # the flake's package set.
-    launcherSeed = [
-      "librewolf"
-      "brave-browser"
-    ];
   };
 
   # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned fetchGit

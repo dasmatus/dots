@@ -531,37 +531,6 @@ QtObject {
     // about where it is.
     property var frecencyRecords: ({})
 
-    // Set only when frecency.json is genuinely absent, never when it merely
-    // failed to load. See maybeSeed() for why the distinction is load-bearing.
-    property bool frecencyMissing: false
-
-    property bool seedLoaded: false
-
-    // Seeding is a two-input handshake: it needs to know both that there is no
-    // store yet AND what the seed ids are, and those two facts arrive from two
-    // different FileViews whose completion order Quickshell does not specify
-    // (Arrange.qml:360-366 records the same gap for setText). Rather than
-    // assume an order, both handlers call this and whichever runs second is
-    // the one that does the work.
-    //
-    // Clearing frecencyMissing before persisting is what makes a second call
-    // a no-op: a store now exists, so the "no store yet" precondition is
-    // false, and a seed can never overwrite real history on a later tick.
-    function maybeSeed(): void {
-        if (!root.frecencyMissing || !root.seedLoaded)
-            return;
-
-        const ids = root.seedFile.adapter.ids;
-        if (!ids || ids.length === 0) {
-            root.frecencyMissing = false;
-            return;
-        }
-
-        root.frecencyMissing = false;
-        root.frecencyRecords = Rank.seedRecords(ids.map(id => AppsLogic.appKey(id)), Date.now());
-        root.persistFrecency();
-    }
-
     // Called by Launcher.qml's activate() for any row carrying a key. Takes a
     // fresh Date.now() rather than the launcher's own open-time stamp: `last`
     // is what MRU sorts on, so it has to be when the thing was actually run,
@@ -643,53 +612,27 @@ QtObject {
     // watching it would only mean reloading our own setText back over the
     // in-memory records that produced it.
     //
-    // printErrors stays on. The one noisy case is the first launch on a fresh
-    // install, where the file legitimately does not exist yet — and that is
-    // exactly the case onLoadFailed below needs to hear about, so silencing
-    // the channel to hide one expected line is the wrong trade.
+    // printErrors is off for the one case this file has and the others do
+    // not: on a machine that has never launched anything, frecency.json does
+    // not exist yet and never did, which is not a fault worth a line in the
+    // log every session until the user happens to run something.
+    //
+    // No load failure needs handling beyond that. A missing file, an empty
+    // one, an unreadable one and an unparseable one all leave the adapter at
+    // its declared default and mean the same thing here: no history. The
+    // launcher ships with no opinion about ranking and forms one only from
+    // what actually gets launched, so "no history" is a complete answer
+    // rather than a case needing defaults filled in.
     property var frecencyFile: FileView {
         path: Theme.launcherStatePath
         atomicWrites: true
+        printErrors: false
 
         adapter: JsonAdapter {
             property var records: ({})
         }
 
         onAdapterUpdated: root.frecencyRecords = root.frecencyFile.adapter.records
-
-        // FileNotFound and only FileNotFound seeds. Any other failure —
-        // PermissionDenied above all — means the file is there and we simply
-        // could not read it this time, and seeding over it would overwrite
-        // real history with a default list. One session of flat ranking is the
-        // cheaper mistake.
-        //
-        // A file that exists but is empty or unparseable does not land here at
-        // all: it loads, leaves the adapter at its declared default, and counts
-        // as empty history. It is never re-seeded, which is what keeps the seed
-        // from resurrecting itself after the store has been legitimately cleared.
-        onLoadFailed: (error) => {
-            if (error !== FileViewError.FileNotFound)
-                return;
-
-            root.frecencyMissing = true;
-            root.maybeSeed();
-        }
-    }
-
-    // The seed list, generated into the read-only tree from the
-    // programs.dots-shell.launcherSeed Nix option. Read once; it only matters
-    // on a machine that has no store yet.
-    property var seedFile: FileView {
-        path: `${Quickshell.shellDir}/launcher/seed.json`
-
-        adapter: JsonAdapter {
-            property var ids: []
-        }
-
-        onAdapterUpdated: {
-            root.seedLoaded = true;
-            root.maybeSeed();
-        }
     }
     // qmllint enable unresolved-type
 

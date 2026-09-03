@@ -125,14 +125,19 @@ TestCase {
         compare(Object.keys(kept).sort(), ["high", "mid"]);
     }
 
-    function test_seed_records_scores_strictly_decrease_with_position() {
+    // Ranking is earned, never granted: with nothing recorded, no row can
+    // outrank another on score, and the order falls through to the input
+    // order the providers produced. This is what replaced the seeded-defaults
+    // idea — the launcher ships with no opinion about which app you prefer
+    // and forms one only from what you actually launch.
+    function test_an_empty_store_ranks_nothing_and_preserves_input_order() {
         const now = 12345;
-        const records = Rank.seedRecords(["first", "second", "third"], now);
+        const rows = [{ title: "Zed", key: "apps:zed" }, { title: "Alacritty", key: "apps:alacritty" }];
 
-        verify(records.first.score > records.second.score, "first-seeded key must outrank the second");
-        verify(records.second.score > records.third.score, "second-seeded key must outrank the third");
-        compare(records.first.last, now);
-        compare(records.third.last, now);
+        const ranked = Rank.order(rows, {}, "", now);
+
+        compare(ranked[0].title, "Zed", "an empty store must not reorder anything, not even alphabetically");
+        compare(ranked[1].title, "Alacritty");
     }
 
     function test_functions_do_not_mutate_their_inputs() {
@@ -153,19 +158,36 @@ TestCase {
         compare(JSON.stringify(records), recordsSnapshot);
     }
 
-    // nix/home/quickshell's own launcherSeed default is
-    // `[ "librewolf" "brave-browser" ]` — librewolf ranked first, so it
-    // seeds a higher score than brave-browser. Brave appears first in the
-    // *input* rows here on purpose: this pins that a fresh install (empty
-    // query, nothing used yet, only the seed) ranks LibreWolf above Brave
-    // regardless of provider registration order.
-    function test_librewolf_ranks_above_brave_on_empty_query_with_default_seed() {
-        const now = 0;
-        const rows = [{ title: "Brave", key: "apps:brave-browser" }, { title: "LibreWolf", key: "apps:librewolf" }];
-        const records = Rank.seedRecords(["apps:librewolf", "apps:brave-browser"], now);
+    // The change's originating complaint, pinned as the contract that
+    // actually replaced it. "Brave Web Browser" sorts before "LibreWolf"
+    // alphabetically, and used to win the empty query for that reason alone;
+    // it is also first in the *input* rows here, so provider order cannot be
+    // what saves LibreWolf either. One launch of LibreWolf is enough to put
+    // it on top, and it stays there for as long as it keeps being the one
+    // getting used.
+    function test_a_launched_app_outranks_an_unused_one_that_sorts_earlier() {
+        const now = oneHalfLife();
+        const rows = [{ title: "Brave Web Browser", key: "apps:brave-browser" }, { title: "LibreWolf", key: "apps:librewolf" }];
 
+        const records = Rank.bump({}, "apps:librewolf", now);
         const ranked = Rank.order(rows, records, "", now);
 
-        compare(ranked[0].title, "LibreWolf");
+        compare(ranked[0].title, "LibreWolf", "the app that has actually been launched must lead the empty query, whatever the alphabet says");
+    }
+
+    // The other half of that contract: prefix matching still outranks usage,
+    // so heavy LibreWolf use must not make "bra" stop finding Brave. Without
+    // this, "rank by what you use" would quietly break search.
+    function test_prefix_match_still_beats_a_heavily_used_row() {
+        const now = oneHalfLife();
+        const rows = [{ title: "LibreWolf", key: "apps:librewolf" }, { title: "Brave Web Browser", key: "apps:brave-browser" }];
+
+        let records = {};
+        for (let i = 0; i < 20; i++)
+            records = Rank.bump(records, "apps:librewolf", now);
+
+        const ranked = Rank.order(rows, records, "bra", now);
+
+        compare(ranked[0].title, "Brave Web Browser", "typing a prefix must reach the app that starts with it, however much the other one gets used");
     }
 }

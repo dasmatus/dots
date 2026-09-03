@@ -23,11 +23,6 @@
   quicklinks ? [ ],
   snippets ? [ ],
   keybinds ? [ ],
-  # Defaulted because flake/packages.nix's qmllint build (see its own
-  # comment) calls this function with only pkgs/stateHome/keybinds — an
-  # unmet required argument there would break that build, not just launcher
-  # seeding.
-  launcherSeed ? [ ],
 }:
 let
   inherit (pkgs) lib;
@@ -286,9 +281,6 @@ let
   quicklinksFile = pkgs.writeText "quicklinks.json" (builtins.toJSON { items = quicklinks; });
   snippetsFile = pkgs.writeText "snippets.json" (builtins.toJSON { items = snippets; });
   keybindsFile = pkgs.writeText "keybinds.json" (builtins.toJSON { groups = keybinds; });
-  # Object root for the same JsonAdapter reason as quicklinksFile/snippetsFile
-  # above: a bare array root fails to deserialize.
-  seedFile = pkgs.writeText "seed.json" (builtins.toJSON { ids = launcherSeed; });
 in
 pkgs.runCommand "dots-quickshell-config" { } ''
   mkdir -p "$out"
@@ -299,7 +291,6 @@ pkgs.runCommand "dots-quickshell-config" { } ''
   cp ${quicklinksFile} "$out/launcher/quicklinks.json"
   cp ${snippetsFile} "$out/launcher/snippets.json"
   cp ${keybindsFile} "$out/cheatsheet/keybinds.json"
-  cp ${seedFile} "$out/launcher/seed.json"
 
   # A Papirus release that renames or drops a folder colour would otherwise
   # leave nearestPapirusColor (tint.js) picking a name that resolves to

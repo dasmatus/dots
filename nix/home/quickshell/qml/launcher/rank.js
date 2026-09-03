@@ -86,27 +86,6 @@ function evictOverCap(records, cap, now) {
     return kept;
 }
 
-// Turns a priority list of ids into a starting records object: keys[0]
-// ranks highest, the last key ranks lowest, all stamped at the same `now`
-// so none of them have decayed relative to each other yet. `now` has to be
-// the real first-boot time this seed is actually applied at, not a
-// Nix-build-time constant baked ahead of it — effectiveScore's decay is
-// score * 2^(-(now-last)/H), and a `last` from whenever the flake was built
-// would already be stale by the time anyone opens the launcher, underflowing
-// every seeded score well before its rank should have faded at all.
-//
-// This is what backs launcherSeed: nix/home/quickshell's own default seed
-// order is `[ "librewolf" "brave-browser" ]`, so a fresh install ranks the
-// privacy-respecting browser above the PWA-hosting one from first launch,
-// before anyone has actually used either yet.
-function seedRecords(keys, now) {
-    const records = {};
-    for (let i = 0; i < keys.length; i++)
-        records[keys[i]] = { score: keys.length - i, last: now };
-
-    return records;
-}
-
 // A row's own record, or undefined if it has no usage history at all: no
 // `key` property — most providers' rows (files, clipboard, calc, ...) never
 // carry one — or a `key` that `records` has never seen. Both fall through
