@@ -12,8 +12,10 @@
 //! The examples use elided ids such as `"6f1a..."`. Real uuids stand in for
 //! them, since the point is the shape rather than the value.
 
+use std::fmt;
 use std::path::PathBuf;
 
+use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -413,12 +415,92 @@ fn the_spec_client_examples_decode() {
                 conversation: conversation(),
             },
         ),
+        (
+            r#"{"op":"new","conversation":"6f1a0c2e-4a1b-4c3d-8e5f-9a0b1c2d3e4f",
+               "backend":"claude-code","model":"opus",
+               "cwd":"/home/matus/Dokumente/codeberg/personal/dots","title":null}"#,
+            ClientFrame::New {
+                conversation: conversation(),
+                backend: "claude-code".to_owned(),
+                model: Some("opus".to_owned()),
+                cwd: PathBuf::from("/home/matus/Dokumente/codeberg/personal/dots"),
+                title: None,
+            },
+        ),
+        (
+            r#"{"op":"send","conversation":"6f1a0c2e-4a1b-4c3d-8e5f-9a0b1c2d3e4f","blocks":[
+                 {"kind":"text","text":"explain this crate"},
+                 {"kind":"image","mime":"image/png","path":"/run/user/1000/dots-ask/cap-3.png"},
+                 {"kind":"file","mime":"text/x-rust","path":"/home/matus/rpc.rs"}]}"#,
+            ClientFrame::Send {
+                conversation: conversation(),
+                blocks: vec![
+                    SendBlock {
+                        kind: BlockKind::Text,
+                        text: Some("explain this crate".to_owned()),
+                        path: None,
+                        mime: None,
+                    },
+                    SendBlock {
+                        kind: BlockKind::Image,
+                        text: None,
+                        path: Some(PathBuf::from("/run/user/1000/dots-ask/cap-3.png")),
+                        mime: Some("image/png".to_owned()),
+                    },
+                    SendBlock {
+                        kind: BlockKind::File,
+                        text: None,
+                        path: Some(PathBuf::from("/home/matus/rpc.rs")),
+                        mime: Some("text/x-rust".to_owned()),
+                    },
+                ],
+            },
+        ),
+        (
+            r#"{"op":"permission","conversation":"6f1a0c2e-4a1b-4c3d-8e5f-9a0b1c2d3e4f",
+               "request":"29951f7f-70f1-4de6-be15-3d6939d2a806","decision":"allow",
+               "scope":"once","updated_input":null,"message":null}"#,
+            ClientFrame::Permission {
+                conversation: conversation(),
+                request: "29951f7f-70f1-4de6-be15-3d6939d2a806".to_owned(),
+                decision: PermissionDecision::Allow,
+                scope: PermissionScope::Once,
+                updated_input: None,
+                message: None,
+            },
+        ),
     ];
+
+    let mut covered = Vec::new();
     for (line, expected) in cases {
-        assert_eq!(
-            decode_client_line(line).expect("the spec's own example decodes"),
-            expected,
-            "decoding {line}"
+        // The spec prints these across several lines for the page; the wire
+        // rule is one object per line, so they are rejoined before decoding.
+        let line = line.replace('\n', "").replace("               ", "");
+        let frame = decode_client_line(&line).expect("the spec's own example decodes");
+        assert_eq!(frame, expected, "decoding {line}");
+        covered.push(
+            serde_json::to_value(&frame).expect("frame serializes")["op"]
+                .as_str()
+                .expect("op is a string")
+                .to_owned(),
+        );
+    }
+
+    // The point of this test is that every op has a literal from the spec
+    // behind it, so a gap in the coverage is itself a failure.
+    for op in [
+        "hello",
+        "list",
+        "open",
+        "new",
+        "send",
+        "interrupt",
+        "permission",
+        "delete",
+    ] {
+        assert!(
+            covered.iter().any(|seen| seen == op),
+            "no spec example covers op {op:?}"
         );
     }
 }
@@ -500,10 +582,203 @@ fn the_spec_event_examples_match_the_wire() {
                    "kind": "bad_request", "message": "unknown op \"opne\"",
                    "fatal": false}),
         ),
+        (
+            EventBody::TurnStart {
+                turn: Some(turn()),
+                backend: "claude-code".to_owned(),
+                model: Some("claude-opus-5".to_owned()),
+                started_ms: 1_788_425_059_000,
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "turn_start",
+                   "turn": turn(), "backend": "claude-code", "model": "claude-opus-5",
+                   "started_ms": 1_788_425_059_000_u64}),
+        ),
+        (
+            EventBody::CodeBlock {
+                turn: Some(turn()),
+                block: 1,
+                language: Some("rust".to_owned()),
+                source: "fn main() {}\n".to_owned(),
+                html: Some("<pre class=\"code\">...</pre>".to_owned()),
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "code_block",
+                   "turn": turn(), "block": 1, "language": "rust",
+                   "source": "fn main() {}\n", "html": "<pre class=\"code\">...</pre>"}),
+        ),
+        (
+            EventBody::ToolCall {
+                turn: Some(turn()),
+                call: "toolu_0147".to_owned(),
+                name: "Write".to_owned(),
+                display_name: Some("Write".to_owned()),
+                summary: Some("a.txt".to_owned()),
+                input: json!({"file_path": "/tmp/a.txt", "content": "alpha\n"}),
+                origin: ToolOrigin::Harness,
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "tool_call",
+                   "turn": turn(), "call": "toolu_0147", "name": "Write",
+                   "display_name": "Write", "summary": "a.txt",
+                   "input": {"file_path": "/tmp/a.txt", "content": "alpha\n"},
+                   "origin": "harness"}),
+        ),
+        (
+            EventBody::PermissionRequest {
+                request: "a8f8ddef".to_owned(),
+                call: "toolu_0147".to_owned(),
+                name: "Write".to_owned(),
+                display_name: Some("Write".to_owned()),
+                description: Some("a.txt".to_owned()),
+                input: json!({"file_path": "/tmp/a.txt", "content": "alpha\n"}),
+                suggestions: vec![json!({
+                    "type": "setMode", "mode": "acceptEdits", "destination": "session"
+                })],
+                withdrawn: false,
+            },
+            json!({"seq": 4212, "conversation": conversation(),
+                   "event": "permission_request", "request": "a8f8ddef",
+                   "call": "toolu_0147", "name": "Write", "display_name": "Write",
+                   "description": "a.txt",
+                   "input": {"file_path": "/tmp/a.txt", "content": "alpha\n"},
+                   "suggestions": [{"type": "setMode", "mode": "acceptEdits",
+                                    "destination": "session"}],
+                   "withdrawn": false}),
+        ),
+        (
+            EventBody::Diff {
+                call: "toolu_01TQ6".to_owned(),
+                path: PathBuf::from("/tmp/b.txt"),
+                old_text: String::new(),
+                new_text: "beta\n".to_owned(),
+                added: 1,
+                removed: 0,
+                html: Some("<table class=\"diff\">...</table>".to_owned()),
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "diff",
+                   "call": "toolu_01TQ6", "path": "/tmp/b.txt", "old_text": "",
+                   "new_text": "beta\n", "added": 1, "removed": 0,
+                   "html": "<table class=\"diff\">...</table>"}),
+        ),
+        (
+            EventBody::Plan {
+                turn: Some(turn()),
+                title: Some("Rewrite the parser".to_owned()),
+                markdown: "1. ...".to_owned(),
+                state: PlanState::Proposed,
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "plan",
+                   "turn": turn(), "title": "Rewrite the parser",
+                   "markdown": "1. ...", "state": "proposed"}),
+        ),
+        (
+            EventBody::Usage {
+                turn: Some(turn()),
+                input_tokens: 6,
+                output_tokens: 811,
+                cache_read_tokens: Some(83_100),
+                cache_write_tokens: Some(12_489),
+                thinking_tokens: Some(576),
+                cost_usd: Some(0.186_745),
+                rate_limit: Some(RateLimit {
+                    kind: "five_hour".to_owned(),
+                    status: "allowed".to_owned(),
+                    resets_at: 1_788_428_400,
+                }),
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "usage",
+                   "turn": turn(), "input_tokens": 6, "output_tokens": 811,
+                   "cache_read_tokens": 83_100, "cache_write_tokens": 12_489,
+                   "thinking_tokens": 576, "cost_usd": 0.186_745,
+                   "rate_limit": {"type": "five_hour", "status": "allowed",
+                                  "resets_at": 1_788_428_400_u64}}),
+        ),
+        (
+            EventBody::Error {
+                kind: ErrorKind::Protocol,
+                message: "unparseable control_request from claude 2.1.229".to_owned(),
+                fatal: false,
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "error",
+                   "kind": "protocol",
+                   "message": "unparseable control_request from claude 2.1.229",
+                   "fatal": false}),
+        ),
+        (
+            EventBody::Conversations {
+                items: vec![ConversationMeta {
+                    id: conversation(),
+                    title: Some("explain this crate".to_owned()),
+                    backend: "claude-code".to_owned(),
+                    model: Some("claude-opus-5".to_owned()),
+                    cwd: PathBuf::from("/home/matus"),
+                    updated_ms: 1_788_425_090_000,
+                    turns: 3,
+                }],
+            },
+            json!({"seq": null, "conversation": null, "event": "conversations",
+                   "items": [{"id": conversation(), "title": "explain this crate",
+                              "backend": "claude-code", "model": "claude-opus-5",
+                              "cwd": "/home/matus",
+                              "updated_ms": 1_788_425_090_000_u64, "turns": 3}]}),
+        ),
+        (
+            EventBody::Backends {
+                items: vec![
+                    BackendInfo {
+                        id: "claude-code".to_owned(),
+                        label: "Claude Code".to_owned(),
+                        state: BackendState::Ready,
+                        models: vec!["opus".to_owned(), "sonnet".to_owned(), "haiku".to_owned()],
+                        detail: None,
+                    },
+                    BackendInfo {
+                        id: "ollama".to_owned(),
+                        label: "Ollama".to_owned(),
+                        state: BackendState::Unreachable,
+                        models: Vec::new(),
+                        detail: Some("connect 127.0.0.1:11434: refused".to_owned()),
+                    },
+                ],
+            },
+            json!({"seq": null, "conversation": null, "event": "backends",
+                   "items": [{"id": "claude-code", "label": "Claude Code",
+                              "state": "ready",
+                              "models": ["opus", "sonnet", "haiku"], "detail": null},
+                             {"id": "ollama", "label": "Ollama",
+                              "state": "unreachable", "models": [],
+                              "detail": "connect 127.0.0.1:11434: refused"}]}),
+        ),
     ];
+
+    let mut covered = Vec::new();
     for (body, expected) in cases {
         let got = serde_json::to_value(wrap(body)).expect("event serializes");
         assert_eq!(got, expected, "wire shape drifted from the spec");
+        covered.push(got["event"].as_str().expect("event is a string").to_owned());
+    }
+
+    // Same rule as the client half: a type with no spec literal behind it is
+    // a type nothing would catch drifting.
+    for name in [
+        "ready",
+        "turn_start",
+        "text_delta",
+        "thinking_delta",
+        "code_block",
+        "tool_call",
+        "tool_result",
+        "permission_request",
+        "diff",
+        "plan",
+        "usage",
+        "turn_end",
+        "error",
+        "conversations",
+        "backends",
+    ] {
+        assert!(
+            covered.iter().any(|seen| seen == name),
+            "no spec example covers event {name:?}"
+        );
     }
 }
 
@@ -573,40 +848,79 @@ fn each_error_kind_has_the_scope_the_table_gives_it() {
     }
 }
 
-#[test]
-fn every_error_kind_spells_itself_the_way_the_table_does() {
-    let cases = [
-        (ErrorKind::BackendSpawn, "backend_spawn"),
-        (ErrorKind::Protocol, "protocol"),
-        (ErrorKind::Auth, "auth"),
-        (ErrorKind::RateLimit, "rate_limit"),
-        (ErrorKind::Cancelled, "cancelled"),
-        (ErrorKind::BadRequest, "bad_request"),
-        (ErrorKind::Store, "store"),
-    ];
-    for (kind, expected) in cases {
-        assert_eq!(
-            serde_json::to_value(kind).expect("kind serializes"),
-            json!(expected)
-        );
-    }
+/// Assert one variant of a closed value set reaches the wire as the spec
+/// spells it.
+fn spells<T: Serialize + fmt::Debug>(value: T, expected: &str) {
+    assert_eq!(
+        serde_json::to_value(&value).expect("a value set member serializes"),
+        json!(expected),
+        "{value:?} must reach the wire as {expected:?}"
+    );
 }
 
 #[test]
-fn every_stop_reason_spells_itself_the_way_the_spec_does() {
-    let cases = [
-        (StopReason::EndTurn, "end_turn"),
-        (StopReason::ToolUse, "tool_use"),
-        (StopReason::Interrupted, "interrupted"),
-        (StopReason::MaxTokens, "max_tokens"),
-        (StopReason::Error, "error"),
-    ];
-    for (stop, expected) in cases {
-        assert_eq!(
-            serde_json::to_value(stop).expect("stop serializes"),
-            json!(expected)
-        );
-    }
+fn every_closed_value_set_spells_itself_the_way_the_spec_does() {
+    // Section 2 types these as `String` and then lists their legal values,
+    // so they are Rust enums here. That is only safe while the wire bytes
+    // are pinned: the round trips above are symmetric, so dropping a
+    // rename_all would change what the pane reads and still pass every one
+    // of them. This is the test that would fail instead.
+    spells(ErrorKind::BackendSpawn, "backend_spawn");
+    spells(ErrorKind::Protocol, "protocol");
+    spells(ErrorKind::Auth, "auth");
+    spells(ErrorKind::RateLimit, "rate_limit");
+    spells(ErrorKind::Cancelled, "cancelled");
+    spells(ErrorKind::BadRequest, "bad_request");
+    spells(ErrorKind::Store, "store");
+
+    spells(StopReason::EndTurn, "end_turn");
+    spells(StopReason::ToolUse, "tool_use");
+    spells(StopReason::Interrupted, "interrupted");
+    spells(StopReason::MaxTokens, "max_tokens");
+    spells(StopReason::Error, "error");
+
+    spells(PermissionDecision::Allow, "allow");
+    spells(PermissionDecision::Deny, "deny");
+
+    spells(PermissionScope::Once, "once");
+    spells(PermissionScope::Session, "session");
+    spells(PermissionScope::Forever, "forever");
+
+    spells(BlockKind::Text, "text");
+    spells(BlockKind::Image, "image");
+    spells(BlockKind::File, "file");
+
+    spells(ToolOrigin::Harness, "harness");
+    spells(ToolOrigin::Mcp, "mcp");
+
+    spells(PlanState::Proposed, "proposed");
+    spells(PlanState::Accepted, "accepted");
+    spells(PlanState::Rejected, "rejected");
+
+    spells(BackendState::Ready, "ready");
+    spells(BackendState::Unconfigured, "unconfigured");
+    spells(BackendState::Unreachable, "unreachable");
+}
+
+#[test]
+fn a_closed_value_set_refuses_a_value_the_spec_does_not_list() {
+    // The other half of the enum decision: a backend or a client cannot
+    // invent a value the pane has no branch for.
+    let frame = r#"{"op":"permission","conversation":"6f1a0c2e-4a1b-4c3d-8e5f-9a0b1c2d3e4f",
+        "request":"r","decision":"maybe","scope":"once",
+        "updated_input":null,"message":null}"#;
+    assert!(
+        decode_client_line(&frame.replace('\n', "")).is_err(),
+        "decision is allow or deny, and nothing else"
+    );
+
+    let scope = r#"{"op":"permission","conversation":"6f1a0c2e-4a1b-4c3d-8e5f-9a0b1c2d3e4f",
+        "request":"r","decision":"allow","scope":"for a bit",
+        "updated_input":null,"message":null}"#;
+    assert!(
+        decode_client_line(&scope.replace('\n', "")).is_err(),
+        "scope is once, session or forever, and nothing else"
+    );
 }
 
 #[test]
