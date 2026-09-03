@@ -199,6 +199,60 @@ TestCase {
         compare(ranked.map(r => r.title), ["Good", "Bad"], "a real record must outrank a malformed one rather than tying with it");
     }
 
+    // The `last` half of the same defect, which the score-based case above
+    // never reaches: effectiveScore guarding `score` keeps NaN out of `eff`,
+    // but order() compares `last` directly.
+    //
+    // Engineered so the broken and correct behaviours give DIFFERENT output,
+    // which took some care — a malformed record that merely ties would leave
+    // both answers as input order and prove nothing. Both records score 0
+    // here, so the sort must fall through to recency. Treating the malformed
+    // record as history reads its `last` as 999999 and hoists it above a real
+    // record last used at 0; discarding it as unusable drops it to `last` 0,
+    // where the two tie and the input-index tiebreak keeps "Real" first.
+    function test_a_malformed_last_is_not_treated_as_recent_use() {
+        const rows = [{ title: "Real", key: "apps:real" }, { title: "Malformed", key: "apps:malformed" }];
+        const records = {
+            "apps:real": { score: 0, last: 0 },
+            "apps:malformed": { score: "not a number", last: 999999 }
+        };
+
+        const ranked = Rank.order(rows, records, "", 0);
+
+        compare(ranked.map(r => r.title), ["Real", "Malformed"], "an unreadable record must not rank as the most recently used thing on the list");
+    }
+
+    // evictOverCap promises "at most `cap` records". These two cases cannot
+    // arise from recordUse — it passes an action key and its distinct parent
+    // against a cap in the thousands — but the promise should not be one
+    // wider caller away from breaking.
+    function test_evict_over_cap_honours_the_cap_even_when_over_protected() {
+        const now = 0;
+        const records = {
+            a: { score: 1, last: now },
+            b: { score: 2, last: now },
+            c: { score: 3, last: now }
+        };
+
+        const kept = Rank.evictOverCap(records, 2, now, ["a", "b", "c"]);
+
+        compare(Object.keys(kept).length, 2, "protecting more keys than the cap must not push the result over it");
+    }
+
+    function test_evict_over_cap_ignores_duplicates_in_the_protected_list() {
+        const now = 0;
+        const records = {
+            a: { score: 1, last: now },
+            b: { score: 2, last: now },
+            c: { score: 3, last: now }
+        };
+
+        const kept = Rank.evictOverCap(records, 2, now, ["a", "a"]);
+
+        compare(Object.keys(kept).length, 2, "a repeated protected key must not consume two slots and under-fill the result");
+        verify("a" in kept, "the protected key must still survive");
+    }
+
     // Ranking is earned, never granted: with nothing recorded, no row can
     // outrank another on score, and the order falls through to the input
     // order the providers produced. This is what replaced the seeded-defaults

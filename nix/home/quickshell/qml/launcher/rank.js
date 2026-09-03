@@ -113,8 +113,17 @@ function bump(records, key, now) {
 // an eviction can only ever drop something the user has not just reached
 // for. It is a list rather than one key because recording an app's action
 // bumps the action and the app together, and either can be the new one.
+// The protected list is deduplicated and itself capped, so `cap` holds
+// whatever a caller passes. Neither case can arise from recordUse, which
+// passes at most an action key and its distinct parent against a cap in the
+// thousands — but a function whose whole contract is "returns at most `cap`
+// records" should not be one wider use away from returning more, or from
+// under-filling because a caller repeated a key.
 function evictOverCap(records, cap, now, protect) {
-    const protectedKeys = (protect || []).filter(key => key in records);
+    const protectedKeys = (protect || [])
+        .filter((key, i, all) => key in records && all.indexOf(key) === i)
+        .slice(0, cap);
+
     const keys = Object.keys(records);
 
     if (keys.length <= cap)
@@ -135,17 +144,28 @@ function evictOverCap(records, cap, now, protect) {
     return kept;
 }
 
-// A row's own record, or undefined if it has no usage history at all: no
-// `key` property — most providers' rows (files, clipboard, calc, ...) never
-// carry one — or a `key` that `records` has never seen. Both fall through
-// to effectiveScore's own `!record` branch and score 0, per this file's
-// contract that a row with no history ranks by prefix and input order
-// alone, never by a `key` that merely happens to be present.
+// A row's own usable record, or undefined when it has no usage history to
+// rank on: no `key` property — most providers' rows (files, clipboard,
+// calc, ...) never carry one — a `key` that `records` has never seen, or a
+// stored record that is not the two finite numbers this file writes.
+//
+// The shape check lives here as well as in effectiveScore because the two
+// sort keys read different fields. effectiveScore guarding `score` keeps
+// NaN out of the `eff` comparison, but `last` is compared directly, and
+// `b.last - a.last` on a non-finite `last` is NaN just the same — which the
+// comparator reads as "these are equal" and so skips the input-index
+// tiebreak the whole sort rests on. Returning undefined for a malformed
+// record means both keys fall to the same 0 that a row with no history
+// gets, which is the honest answer: an unreadable record is not history.
 function recordFor(row, records) {
     if (typeof row.key !== "string")
         return undefined;
 
-    return records[row.key];
+    const record = records[row.key];
+    if (!record || !Number.isFinite(record.score) || !Number.isFinite(record.last))
+        return undefined;
+
+    return record;
 }
 
 // Ranks `rows` for display: a prefix match on `needle` first, then usage
