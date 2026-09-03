@@ -23,6 +23,13 @@ let
   # `iso-boot`. See tests/session-units.nix for what it guards.
   sessionUnitsTest = import ./session-units.nix { inherit pkgs lib inputs; };
 
+  # proton-calendar — eval-only for the same reason as sessionUnitsTest, and
+  # guarding the one seam nothing else covers: nix/home/proton.nix runs
+  # Betterbird while nix/home/proton-calendar.nix delivers the calendar as
+  # prefs in the mail profile, which only works while home-manager keeps that
+  # profile at ~/.thunderbird. See tests/proton-calendar.nix.
+  protonCalendarTest = import ./proton-calendar.nix { inherit pkgs lib inputs; };
+
   # limine-install-home — a lightweight runNixOSTest (no disko, no
   # nixos-install, no facter.json wall) pinning nix/modules/limine-install.nix's
   # hazard-1 HOME-provisioning fix under three HOME conditions. See
@@ -686,6 +693,7 @@ in
 {
   # Eval-only — no VM, no build. See the comment on sessionUnitsTest above.
   session-units = sessionUnitsTest;
+  proton-calendar = protonCalendarTest;
   iso-boot = isoBootTest;
   userborn-reboot-login = userbornRebootLogin;
   limine-install-home = limineHomeTest;

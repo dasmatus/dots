@@ -37,6 +37,17 @@
     "mitigations=auto"
   ];
 
+  # Proton account address, edited from the settings panel (SUPER+comma) and
+  # read back by its Proton page to seed both logins. Nothing on the Nix side
+  # consumes it: the page reads it through `global-settings dump`, the same
+  # path every other row uses. Empty by default because the installer never
+  # asks for it, and an empty field is what tells the page it is unconfigured.
+  #
+  # NB nix/home/proton.nix carries the same address literally for the mail
+  # account. Bridging this key through nix/modules/dots.nix would collapse the
+  # two, at the cost of editing a working account, so they are separate.
+  protonEmail = "";
+
   # Network — consumed by nix/modules/network.nix. wifiBackend is one of
   # "wpa_supplicant" | "iwd"; reversePathFilter is one of "loose" | "strict"
   # (or false) — see networking.firewall.checkReversePath in nixpkgs.

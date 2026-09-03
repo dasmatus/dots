@@ -3,6 +3,7 @@
 //! stdio. Drives the real subprocess rather than extracted functions, so a
 //! framing bug (missing newline, wrong flush) would actually be caught.
 
+use global_settings::menu::ITEMS;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 
@@ -99,7 +100,9 @@ fn serve_renders_the_form_on_start() {
     assert_eq!(tree["type"], "form");
     assert_eq!(tree["submit_label"], "Save");
     let fields = tree["fields"].as_array().unwrap();
-    assert_eq!(fields.len(), 6);
+    // ITEMS.len(), not a literal: the render tree is generated from that same
+    // table, so a count here only restates it and breaks whenever a row lands.
+    assert_eq!(fields.len(), ITEMS.len());
     let hostname = fields.iter().find(|f| f["key"] == "hostname").unwrap();
     assert_eq!(hostname["type"], "text");
     assert_eq!(hostname["value"], "box");

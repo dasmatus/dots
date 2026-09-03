@@ -4,6 +4,7 @@
 //! every field) and `set` (validate-then-save one field). `serve`'s
 //! JSON-RPC conversation is covered separately in tests/serve.rs.
 
+use global_settings::menu::ITEMS;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -63,7 +64,7 @@ fn write_rejects_garbage_and_leaves_file_untouched() {
 fn dump_prints_the_documented_json_shape() {
     let path = temp_settings_file(
         "cli-dump",
-        "{\n  hostname = \"box\";\n  gitName = \"Matus\";\n  gitEmail = \"a@b.com\";\n  aiClaude = true;\n  aiCodex = false;\n  aiOllama = true;\n}\n",
+        "{\n  hostname = \"box\";\n  gitName = \"Ada\";\n  gitEmail = \"a@b.com\";\n  aiClaude = true;\n  aiCodex = false;\n  aiOllama = true;\n}\n",
     );
     let output = settings_bin()
         .args(["dump", "--file"])
@@ -74,7 +75,9 @@ fn dump_prints_the_documented_json_shape() {
     let parsed: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("dump must print JSON");
     let items = parsed.as_array().expect("dump prints a JSON array");
-    assert_eq!(items.len(), 6);
+    // Against ITEMS.len(), not a literal: a hardcoded 6 here made adding one
+    // menu row fail a test that has nothing to say about which rows exist.
+    assert_eq!(items.len(), ITEMS.len());
     let hostname = items.iter().find(|i| i["key"] == "hostname").unwrap();
     assert_eq!(hostname["type"], "text");
     assert_eq!(hostname["value"], "box");
