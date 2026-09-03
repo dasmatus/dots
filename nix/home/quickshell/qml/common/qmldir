@@ -1,1 +1,9 @@
+# Every component here must be listed, not only the singleton. A qmldir
+# makes this directory an explicit module: anything it does not name stops
+# resolving for `import "../common"`, which took the bar down with
+# "Pill is not a type" the first time this file listed Tokens alone.
 singleton Tokens 1.0 Tokens.qml
+Chrome 1.0 Chrome.qml
+Field 1.0 Field.qml
+Panel 1.0 Panel.qml
+Pill 1.0 Pill.qml
