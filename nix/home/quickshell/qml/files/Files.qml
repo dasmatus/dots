@@ -590,6 +590,19 @@ Scope {
                             catcher.pendingG = true;
 
                         return;
+                    // gt/gT reuse the same pair; anywhere else, t opens a
+                    // tab and Shift+T closes the current one.
+                    case Qt.Key_T:
+                        if (wasPendingG) {
+                            const step = (event.modifiers & Qt.ShiftModifier) ? -1 : 1;
+                            root.switchTab(TabsMath.cycleIndex(root.activeTab, root.displayTabs.length, step));
+                        } else if (event.modifiers & Qt.ShiftModifier) {
+                            root.closeTab(root.activeTab);
+                        } else {
+                            root.addTab();
+                        }
+
+                        return;
                     }
 
                     event.accepted = false;

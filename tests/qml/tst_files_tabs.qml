@@ -61,6 +61,15 @@ TestCase {
         compare(Tabs.clampIndex(0, 0), 0);
     }
 
+    // gt/gT's arithmetic: one step, wrapping at either end.
+    function test_cycleindex_wraps_at_both_ends() {
+        compare(Tabs.cycleIndex(2, 3, 1), 0, "forward past the last tab wraps to the first");
+        compare(Tabs.cycleIndex(0, 3, -1), 2, "backward past the first tab wraps to the last");
+        compare(Tabs.cycleIndex(0, 1, 1), 0, "a single tab has nowhere to go, forward");
+        compare(Tabs.cycleIndex(0, 1, -1), 0, "a single tab has nowhere to go, backward");
+        compare(Tabs.cycleIndex(0, 0, 1), 0, "an empty list stays at zero rather than dividing by it");
+    }
+
     // One path component is what a tab strip has room for, and the full path
     // already sits in the pane header below it.
     function test_the_label_is_the_basename() {
