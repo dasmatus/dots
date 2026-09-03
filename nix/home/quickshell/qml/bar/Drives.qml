@@ -31,7 +31,6 @@ Pill {
 
     visible: root.mounted.length > 0
     interactive: root.mounted.length === 1
-    color: Theme.blue
 
     onMiddleClicked: {
         const device = root.mounted[0];
@@ -40,7 +39,7 @@ Pill {
 
     Text {
         text: `\u{F02CA} ${root.mounted.length}`
-        color: Theme.bg
+        color: Theme.fg
 
         font.family: Theme.fontUi
         font.pixelSize: Theme.barFontSize

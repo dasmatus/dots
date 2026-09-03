@@ -14,7 +14,6 @@ Pill {
 
     property bool expanded: false
 
-    color: Theme.magenta
     interactive: true
 
     onClicked: root.expanded = !root.expanded
@@ -27,7 +26,7 @@ Pill {
 
     Text {
         text: root.expanded ? Qt.formatDateTime(clock.date, "dd.MM.yyyy HH:mm:ss") : Qt.formatDateTime(clock.date, "HH:mm")
-        color: Theme.bg
+        color: Theme.fg
 
         font.family: Theme.fontUi
         font.pixelSize: Theme.barFontSize

@@ -52,18 +52,32 @@ TestCase {
         verify(index >= 0 && index <= 10);
     }
 
+    // waybar's thresholds still hold for the two warnings and for charging.
+    // What changed is the healthy discharging case: it names no colour, so the
+    // pill falls back to the bar's neutral fill and only a real state lights
+    // up. An empty string here is the assertion, not a missing value.
     function test_color_follows_waybar_thresholds_data() {
         return [
             { tag: "critical", percent: 15, charging: false, expected: "red" },
             { tag: "just above critical", percent: 16, charging: false, expected: "yellow" },
             { tag: "warning", percent: 30, charging: false, expected: "yellow" },
-            { tag: "just above warning", percent: 31, charging: false, expected: "green" },
-            { tag: "healthy", percent: 45, charging: false, expected: "green" },
+            { tag: "just above warning", percent: 31, charging: false, expected: "" },
+            { tag: "healthy", percent: 45, charging: false, expected: "" },
             { tag: "charging while critical", percent: 7, charging: true, expected: "green" }
         ];
     }
 
     function test_color_follows_waybar_thresholds(row) {
         compare(Battery.colorName(row.percent, row.charging), row.expected);
+    }
+
+    // Guards the pairing the bar depends on: a named colour means a bright
+    // fill and therefore dark text, and no name means the neutral fill and
+    // light text. Battery.qml and Network.qml both branch on exactly this,
+    // and getting it backwards renders the percentage invisible.
+    function test_healthy_and_charging_are_distinguishable() {
+        compare(Battery.colorName(80, false), "", "a healthy discharging battery names no colour");
+        compare(Battery.colorName(80, true), "green", "the same battery charging still names one");
+        verify(Battery.colorName(10, false) !== "", "a critical battery must never fall through to neutral");
     }
 }
