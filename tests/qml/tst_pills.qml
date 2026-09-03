@@ -111,6 +111,7 @@ TestCase {
     function test_labelFor_known_providers_data() {
         return [
             { tag: "apps", id: "apps", expected: "Apps" },
+            { tag: "actions", id: "actions", expected: "Actions" },
             { tag: "status", id: "status", expected: "Status" },
             { tag: "websearch", id: "websearch", expected: "Web" }
         ];

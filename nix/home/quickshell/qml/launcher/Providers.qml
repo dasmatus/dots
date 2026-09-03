@@ -307,6 +307,49 @@ QtObject {
         return rows;
     }
 
+    // The same desktop actions applicationRows nests onto each app row,
+    // flattened out here under their own provider id so rank.js can score
+    // them and pills.js can count them — nested under actionRows: above,
+    // they were reachable only by drilling into the parent app first
+    // (Right-arrow), and typing an action's own name, "compose" for
+    // Mastodon's "Compose new post", found nothing.
+    //
+    // DesktopAction carries only id, name, icon, execString and command —
+    // no keywords or genericName the way DesktopEntry has — so the match
+    // is against the action's own name and its parent app's name, the
+    // closest a query has to go on. Concatenated after applicationRows in
+    // Launcher.qml's ambientRows, never before: that ordering is what
+    // keeps an action's original index above its own app's when rank.js's
+    // final tiebreak is what two equally-scored rows fall to.
+    function appActionRows(text: string): var {
+        const rows = [];
+
+        for (const entry of DesktopEntries.applications.values) {
+            if (entry.noDisplay)
+                continue;
+
+            const icon = entry.icon ? Quickshell.iconPath(entry.icon, true) : "";
+
+            for (const action of entry.actions) {
+                if (!root.matches(`${action.name} ${entry.name}`, text))
+                    continue;
+
+                rows.push({
+                    title: action.name,
+                    subtitle: entry.name,
+                    icon: icon,
+                    accessory: "action",
+                    provider: "actions",
+                    key: AppsLogic.actionKey(entry.id, action.id),
+                    parentKey: AppsLogic.appKey(entry.id),
+                    run: () => action.execute()
+                });
+            }
+        }
+
+        return rows;
+    }
+
     function systemRows(text: string): var {
         const rows = [];
 

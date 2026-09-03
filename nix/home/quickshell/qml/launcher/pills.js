@@ -10,6 +10,7 @@
 // readable pill instead of a blank one.
 const LABELS = {
     apps: "Apps",
+    actions: "Actions",
     system: "System",
     quicklinks: "Quicklinks",
     snippets: "Snippets",

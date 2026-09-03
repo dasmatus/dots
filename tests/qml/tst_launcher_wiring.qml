@@ -155,6 +155,42 @@ TestCase {
         verify(block.indexOf("AppsLogic.appKey(") !== -1, "and a parent key pointing back at the app");
     }
 
+    // Task 10: desktop actions used to reach the flat list nowhere except
+    // nested under their app's own actionRows:, so rank.js never scored them
+    // and pills.js never counted them — typing an action's own name, like
+    // "compose" for Mastodon's "Compose new post", found nothing outside
+    // drilling into the app first. appActionRows is the fix; this pins that
+    // the ambient chain actually calls it, and after applicationRows rather
+    // than before, since Launcher.qml's comment on unfilteredResults says the
+    // final tiebreak on the row's original index is what keeps an action
+    // below its own app when both score equally — appending rather than
+    // prepending is the whole mechanism.
+    function test_app_actions_reach_the_ambient_chain_after_applications() {
+        const block = Scan.blockAfter(launcherSource(), "readonly property var ambientRows: {");
+        verify(block !== "", "Launcher must define ambientRows");
+        verify(block.indexOf("providers.appActionRows(") !== -1, "the ambient chain must call the app-actions provider, or actions stay unreachable outside drill-in");
+
+        const appsAt = block.indexOf("providers.applicationRows(");
+        const actionsAt = block.indexOf("providers.appActionRows(");
+        verify(appsAt !== -1, "applicationRows must still be called");
+        verify(appsAt < actionsAt, "appActionRows must be concatenated AFTER applicationRows, not before — that ordering is the whole tiebreak mechanism");
+    }
+
+    // The new provider's own shape: it must earn the same frecency keys the
+    // nested actionRows: already use — tst_launcher_wiring.qml:82 pins that
+    // activate() forwards parentKey, so a mismatch here would leave that
+    // wiring pointing at a row nothing ever produces — and it must carry its
+    // own provider id rather than "apps", or pills.js's pillsFor would fold
+    // it into the Apps pill instead of counting it apart.
+    function test_app_action_rows_carry_the_right_keys_and_provider() {
+        const block = Scan.blockAfter(providersSource(), "function appActionRows(text: string): var {");
+        verify(block !== "", "Providers must define appActionRows");
+
+        verify(block.indexOf("AppsLogic.actionKey(") !== -1, "each action row needs its own ranking key, the same one actionRows: already uses");
+        verify(block.indexOf("AppsLogic.appKey(") !== -1, "and a parentKey pointing back at the app, so activating it also lifts the app's own frecency");
+        verify(block.indexOf("provider: \"actions\"") !== -1, "the row must carry its own provider id, not \"apps\", or pills.js cannot count it apart from the app it belongs to");
+    }
+
     // Hidden on the default screen, reachable by typing. The `text === ""`
     // guard is the whole difference between those two.
     function test_web_apps_are_hidden_only_on_the_empty_query() {
