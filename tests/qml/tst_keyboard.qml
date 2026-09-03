@@ -124,7 +124,7 @@ TestCase {
         compare(rows.length, 2);
     }
 
-    function test_keyboardRows_data() {
+    function test_keyboardRows_typing_a_shared_keyword_finds_every_row_data() {
         return [
             { tag: "keyboard", query: "keyboard" },
             { tag: "layout", query: "layout" },
