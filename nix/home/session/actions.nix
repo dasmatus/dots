@@ -202,6 +202,23 @@ let
     # launcher beat three. That keyword went with beamenu, and a form the
     # shell draws itself has no launcher row to hide behind, so the direct
     # bind comes back.
+    # The AI side pane (nix/home/quickshell/qml/ask). The bind exists whatever
+    # the dots.ai toggles say, and the pane gates itself on the generated
+    # ask/backends.json: with every toggle off this key does nothing at all
+    # rather than opening a pane with an empty backend picker in it. Gating
+    # the bind here instead would put the same decision in two places and let
+    # them disagree.
+    {
+      name = "ask-toggle";
+      mods = [ "SUPER" ];
+      key = "A";
+      desc = "Ask an AI backend in a side pane";
+      category = "launchers";
+      kind = "action";
+      dispatch = null;
+      repeating = false;
+      mouse = false;
+    }
     {
       name = "settings-toggle";
       mods = [ "SUPER" ];
