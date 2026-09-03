@@ -172,13 +172,21 @@ jobs:
           toolchain: "1.97"
           components: rustfmt, clippy
       # Swatinem/rust-cache supports a comma-separated list of workspace roots
-      # (Cargo.toml dirs); only installer-tui needs one here.
+      # (Cargo.toml dirs). ask-daemon is a second one: it is the only other
+      # crate here whose tests run without a Postgres server or a pgrx
+      # toolchain behind them, so it is the only other one this lane can gate.
       - uses: https://github.com/Swatinem/rust-cache@v2
         with:
-          workspaces: rust/installer-tui
-      # Lint the Rust crate — matches `nix run .#nix-lint` (flake/apps.nix).
+          workspaces: |
+            rust/installer-tui
+            rust/ask-daemon
+      # Lint the Rust crates — matches `nix run .#nix-lint` (flake/apps.nix).
       - run: |
           cd rust/installer-tui
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cd ../ask-daemon
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
           cargo test

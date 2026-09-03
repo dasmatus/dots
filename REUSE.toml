@@ -48,3 +48,17 @@ path = [
 precedence = "override"
 SPDX-FileCopyrightText = "NONE"
 SPDX-License-Identifier = "CC0-1.0"
+
+# The ask daemon's fixtures are recorded protocol transcripts: stdout captured
+# verbatim from the `claude` CLI while a spike drove it
+# (docs/superpowers/specs/2026-09-03-ask-pane-design.md, "How the fixture was
+# recorded"). Choosing which frames to record is not authorship of the frames,
+# and neither the wire format nor the model's output is ours to relicense, so
+# the repo-wide AGPL block above would be claiming something that is not true.
+# CC0 for the same reason the lockfiles above carry it: it says we assert
+# nothing rather than pretending the terms are settled.
+[[annotations]]
+path = "rust/ask-daemon/tests/fixtures/**"
+precedence = "override"
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "CC0-1.0"
