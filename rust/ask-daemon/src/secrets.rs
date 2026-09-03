@@ -99,6 +99,7 @@ impl Secret {
 /// that can block for ten seconds on every send.
 pub struct SecretStore {
     program: OsString,
+    leading: Vec<OsString>,
     timeout: Duration,
     cache: Mutex<BTreeMap<String, Secret>>,
 }
@@ -118,8 +119,33 @@ impl SecretStore {
     /// [`DEFAULT_TIMEOUT`].
     #[must_use]
     pub fn new(program: impl Into<OsString>, timeout: Duration) -> Self {
+        Self::with_prefix(program, Vec::new(), timeout)
+    }
+
+    /// A store that runs `program` with `leading` before the lookup
+    /// arguments.
+    ///
+    /// The shape exists because a lookup command is not always a bare
+    /// binary. `nix/home/edupage-mcp.nix` already wraps `secret-tool` in a
+    /// shell wrapper, and pointing this at one means naming the arguments
+    /// that come before `lookup`.
+    ///
+    /// It is also what lets a test drive `/bin/sh -c <script> --` rather than
+    /// writing an executable to a temporary directory. That matters more
+    /// than it sounds: several tests writing and then exec'ing their own
+    /// scripts in one process race on `ETXTBSY`, because a `fork` for one
+    /// test's spawn inherits the still-open write descriptor for another
+    /// test's file, and the kernel refuses to exec a file anybody holds open
+    /// for writing.
+    #[must_use]
+    pub fn with_prefix(
+        program: impl Into<OsString>,
+        leading: Vec<OsString>,
+        timeout: Duration,
+    ) -> Self {
         Self {
             program: program.into(),
+            leading,
             timeout,
             cache: Mutex::new(BTreeMap::new()),
         }
@@ -158,6 +184,7 @@ impl SecretStore {
     /// Run one `secret-tool lookup`, killing it when the deadline passes.
     async fn run_lookup(&self, attribute: &str) -> Secret {
         let child = match Command::new(&self.program)
+            .args(&self.leading)
             .arg("lookup")
             .arg("service")
             .arg(SERVICE)
