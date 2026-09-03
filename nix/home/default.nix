@@ -26,6 +26,7 @@
     ./fish.nix
     ./claude.nix
     ./codex.nix
+    ./ask.nix
     ./computer-use-linux.nix
     ./edupage-mcp.nix
     ./nixvim.nix
