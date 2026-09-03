@@ -36,11 +36,14 @@ Rectangle {
     signal forward()
 
     implicitHeight: Theme.filesRowHeight + Theme.filesPadding
-    // bg, the middle of the three chrome/content shades — the same fill
-    // the current tab above uses, so the active tab reads as flowing
-    // straight into this bar. It also sits below Tabs' bgDarker and above
-    // Pane's bgDark, so both neighbours differ from it and the bar reads
-    // as its own band without a drawn rule on either edge.
+    // Pinned to bg rather than lifted to the lighter `raised` token: below,
+    // Pane fills with Theme.selection, and bg reads at a solid ~1.74:1
+    // against it — moving this bar any lighter (raised or selection
+    // itself) would collapse that seam back toward 1:1 instead. bg also
+    // keeps this bar's own breadcrumb trail and nav arrows, both
+    // Theme.muted/Theme.dim by default, at a healthy contrast. The seam
+    // against the tab strip above is the one casualty of staying here —
+    // see Tabs.qml's own comment on why that side was not lightened either.
     color: Theme.bg
 
     RowLayout {

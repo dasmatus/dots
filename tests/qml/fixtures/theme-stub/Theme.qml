@@ -48,4 +48,10 @@ QtObject {
     readonly property int filesHoverPadWide: 6
     readonly property int filesMenuWidth: 220
     readonly property int chromeStripWidth: 3
+
+    // The raised-surface token task 5's contrast fix-round added to
+    // nix/palette.json: a fill for a band that needs to read as lifted off
+    // its darker neighbour by roughly the same margin the deleted
+    // Theme.border lines once gave for free.
+    readonly property color raised: "#3d4463"
 }

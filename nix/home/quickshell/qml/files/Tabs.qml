@@ -30,11 +30,15 @@ Rectangle {
     signal added()
 
     implicitHeight: Theme.filesTabHeight
-    // bgDarker, the darkest of the three chrome/content shades. PathBar
-    // below paints bg, one step lighter, so the seam between the strip and
-    // the bar reads as a shade change on its own — except directly under
-    // the current tab, which paints bg itself and so keeps flowing into
-    // the bar beneath it, reading as attached rather than floating.
+    // bgDarker computes at only ~1.05:1 against PathBar's bg below —
+    // barely a seam. Left as-is anyway: every inactive tab's label and
+    // icon default to Theme.muted, which reads at a healthy 4.32:1 against
+    // this bgDarker fill; lifting the strip to the lighter `raised` token
+    // to fix the seam would drop that to 2.28:1, the same order of
+    // regression a sibling task's fix introduced on Pane.qml's muted
+    // columns. The strip is not left with no boundary at all, though: the
+    // active tab still gets its own EdgeStrip and its own Theme.bg fill,
+    // which is the pairing that actually needs to read as distinct.
     color: Theme.bgDarker
 
     RowLayout {

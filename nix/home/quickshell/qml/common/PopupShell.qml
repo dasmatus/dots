@@ -61,12 +61,13 @@ Item {
         implicitWidth: root.panelWidth
         implicitHeight: root.panelHeight
 
-        // bgDarker, not bgDark: this panel's most common backdrop is
-        // files/Pane.qml, which fills with bgDark. Matching it would have
-        // made the popup's own edges vanish into the pane the moment its
-        // outline went, leaving only the row text floating with no
-        // container. bgDarker is the one shade in the palette guaranteed
-        // to differ from whatever a caller's content paints in bgDark.
+        // bgDarker, not the pane's own fill: this panel's most common
+        // backdrop is files/Pane.qml, which paints Theme.selection.
+        // Matching it would have made the popup's own edges vanish into
+        // the pane the moment its outline went, leaving only the row text
+        // floating with no container. bgDarker against selection computes
+        // to ~1.83:1, comfortably in range without needing the new
+        // `raised` token here at all.
         radius: Theme.filesRadius
         color: Theme.bgDarker
     }

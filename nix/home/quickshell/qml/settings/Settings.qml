@@ -357,8 +357,17 @@ Scope {
 
                             visible: row.modelData.type === "text"
 
+                            // bgDark against this panel's own ~95%-opaque
+                            // Theme.bg fill computed at roughly 1.1:1 —
+                            // with the field's own border gone, that pair
+                            // was not actually distinguishable. raised
+                            // sits at ~1.8:1 against bg instead. Safe to
+                            // lighten here: the only text this box carries
+                            // is the field's own Theme.fg value, which
+                            // stays comfortably above AA even after the
+                            // lift (~5.9:1).
                             radius: 6
-                            color: Theme.bgDark
+                            color: Theme.raised
 
                             TextInput {
                                 anchors.fill: parent
