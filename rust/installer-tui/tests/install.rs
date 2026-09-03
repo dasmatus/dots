@@ -132,13 +132,25 @@ fn plan_stage_step_recreates_staging_dir_and_copies_from_flake_src() {
     };
     assert_eq!(program, "sh");
     let script = args.join(" ");
-    assert!(script.contains(&format!("rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new")), "{script}");
-    assert!(script.contains(&format!("cp -a /etc/dots/. {STAGED_FLAKE}.new/")), "{script}");
+    assert!(
+        script.contains(&format!("rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new")),
+        "{script}"
+    );
+    assert!(
+        script.contains(&format!("cp -a /etc/dots/. {STAGED_FLAKE}.new/")),
+        "{script}"
+    );
     assert!(script.contains("find "), "{script}");
     assert!(script.contains("readlink"), "{script}");
     assert!(script.contains("ln -sfn"), "{script}");
-    assert!(script.contains(&format!("chmod -R u+w {STAGED_FLAKE}.new")), "{script}");
-    assert!(script.contains(&format!("mv {STAGED_FLAKE}.new {STAGED_FLAKE}")), "{script}");
+    assert!(
+        script.contains(&format!("chmod -R u+w {STAGED_FLAKE}.new")),
+        "{script}"
+    );
+    assert!(
+        script.contains(&format!("mv {STAGED_FLAKE}.new {STAGED_FLAKE}")),
+        "{script}"
+    );
 }
 
 #[test]
@@ -199,18 +211,19 @@ fn plan_stashes_exactly_settings_and_facter_to_var_lib_dots() {
     // cps; either way both answers must end up under the persist path.
     assert!(
         script.contains(&format!("cp {STAGED_FLAKE}/nix/facter.json"))
-            || script.contains(&format!("cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json")),
+            || script.contains(&format!(
+                "cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json"
+            )),
         "{script}"
     );
     assert!(
         script.contains(&format!("cp {STAGED_FLAKE}/nix/settings.nix"))
-            || script.contains(&format!("cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json")),
+            || script.contains(&format!(
+                "cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json"
+            )),
         "{script}"
     );
-    assert!(
-        script.contains("/mnt/persist/var/lib/dots/"),
-        "{script}"
-    );
+    assert!(script.contains("/mnt/persist/var/lib/dots/"), "{script}");
 }
 
 #[test]
