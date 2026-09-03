@@ -247,10 +247,33 @@ QtObject {
             if (!root.matches(`${entry.name} ${entry.genericName} ${entry.keywords}`, text))
                 continue;
 
+            const icon = entry.icon ? Quickshell.iconPath(entry.icon, true) : "";
+
+            // An app's desktop actions used to be pushed into this same flat
+            // list, one row each, titled "Brave Web Browser: New Window". A
+            // handful of browsers and terminals was enough to bury the
+            // programs themselves under their own submenu items. They hang off
+            // the app row instead now, and Launcher.qml swaps the list for
+            // them when the row is drilled into.
+            //
+            // parentKey is what makes running an action count as using the
+            // app: recordUse bumps both, so reaching for "New Private Window"
+            // lifts LibreWolf itself rather than only that one action.
+            const actionRows = entry.actions.map(action => ({
+                        title: action.name,
+                        subtitle: entry.name,
+                        icon: icon,
+                        accessory: "action",
+                        provider: "apps",
+                        key: AppsLogic.actionKey(entry.id, action.id),
+                        parentKey: AppsLogic.appKey(entry.id),
+                        run: () => action.execute()
+                    }));
+
             rows.push({
                 title: entry.name,
                 subtitle: entry.comment || entry.genericName,
-                icon: entry.icon ? Quickshell.iconPath(entry.icon, true) : "",
+                icon: icon,
                 accessory: "",
                 provider: "apps",
                 // The row's identity for ranking. Built from entry.id, which
@@ -258,22 +281,13 @@ QtObject {
                 // a title is localizable, so keying on it would lose an app's
                 // history the first time the session language changes.
                 key: AppsLogic.appKey(entry.id),
+                actionCount: actionRows.length,
+                actionRows: actionRows,
                 // execute() rather than execDetached(entry.command): it honours
                 // Terminal=true and the entry's working directory, which a raw
                 // argv spawn silently drops.
                 run: () => entry.execute()
             });
-
-            for (const action of entry.actions) {
-                rows.push({
-                    title: `${entry.name}: ${action.name}`,
-                    subtitle: entry.comment || entry.genericName,
-                    icon: entry.icon ? Quickshell.iconPath(entry.icon, true) : "",
-                    accessory: "action",
-                    provider: "apps",
-                    run: () => action.execute()
-                });
-            }
         }
 
         return rows;

@@ -8,6 +8,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import ".."
+import "../common"
 
 Rectangle {
     id: root
@@ -18,12 +19,33 @@ Rectangle {
     required property string accessory
     required property bool current
 
+    // How many desktop actions the row's app has, 0 for every row that is not
+    // an app with actions. Defaulted rather than required so the providers
+    // that know nothing about actions need no change to keep working.
+    property int actionCount: 0
+
     signal activated
+
+    // Raised when the action pill is clicked, as distinct from activating the
+    // row itself: one launches the app, the other opens its action list.
+    signal drillRequested
 
     implicitHeight: Theme.launcherLineHeight
 
     radius: 8
     color: root.current ? Theme.accent : "transparent"
+
+    // Declared BEFORE the RowLayout, deliberately. Later siblings sit on top
+    // in QML, and this used to come last — which was fine while the row had
+    // nothing clickable inside it, and stops being fine the moment the
+    // accessory pill below wants its own clicks. With the order flipped the
+    // pill wins inside its own bounds and this still catches everywhere else.
+    MouseArea {
+        anchors.fill: parent
+
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.activated()
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -93,12 +115,28 @@ Rectangle {
             font.family: Theme.fontMono
             font.pointSize: 9
         }
-    }
 
-    MouseArea {
-        anchors.fill: parent
+        // The way into an app's desktop actions. Built from the shared capsule
+        // rather than a second rounded rectangle, so it reads as the same kind
+        // of control as the filter pills directly above the list — which is
+        // what it is, since drilling in is a filter that happens to be scoped
+        // to one app instead of one provider.
+        Pill {
+            Layout.alignment: Qt.AlignVCenter
 
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.activated()
+            visible: root.actionCount > 0
+            interactive: true
+            color: root.current ? Theme.bg : Theme.bgDark
+
+            onClicked: root.drillRequested()
+
+            Text {
+                text: `${root.actionCount} actions`
+                color: root.current ? Theme.fg : Theme.dim
+
+                font.family: Theme.fontMono
+                font.pointSize: 9
+            }
+        }
     }
 }

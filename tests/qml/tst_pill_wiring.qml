@@ -60,8 +60,21 @@ TestCase {
         verify(launcherSource().indexOf("interactive: true") !== -1, "the Pill delegate must set interactive: true or the pointer cannot drive it");
     }
 
+    // The handler stopped being a one-line assignment when the drill pill
+    // arrived: clicking a pill now either leaves an app's action list or
+    // toggles the provider filter, so it is a block with both paths in it.
+    // Both are still pinned, because a click that reaches neither is a pill
+    // that does nothing — the failure this test exists to catch.
     function test_pill_click_assigns_the_selection() {
-        verify(launcherSource().indexOf("onClicked: root.selectedPill") !== -1, "clicking a pill must assign root.selectedPill");
+        const src = launcherSource();
+        const start = src.indexOf("Pill {");
+        verify(start !== -1, "the pill bar must build its delegate from the shared Pill");
+        const end = src.indexOf("Item {", start);
+        verify(end !== -1, "the Pill delegate must be followed by the bar's trailing spacer");
+        const delegate = src.slice(start, end);
+
+        verify(delegate.indexOf("root.selectedPill = ") !== -1, "clicking a pill must assign root.selectedPill");
+        verify(delegate.indexOf("root.drillOut()") !== -1, "clicking the drill pill must leave the drill, since it is the only visible way back out with the pointer");
     }
 
     function test_tab_and_backtab_reach_cyclePill() {

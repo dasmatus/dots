@@ -55,6 +55,19 @@ Scope {
     // new one.
     onSelectedPillChanged: root.selected = 0
 
+    // The app whose desktop actions the list is currently showing, or null for
+    // the ordinary list. Holds `{label, rows}` rather than an id, so nothing
+    // downstream has to go back to DesktopEntries to render the view.
+    //
+    // Kept separate from selectedPill rather than folded into it: drilling out
+    // must restore whatever provider filter was engaged before, and one
+    // property cannot hold both states at once.
+    property var drill: null
+
+    // Same rule as onSelectedPillChanged above — a different list means the
+    // old index means nothing.
+    onDrillChanged: root.selected = 0
+
     // The highlighted row's path, or "" for a row that has none. The file
     // provider sets `path` on every row it returns, and deviceRows sets it
     // too, deliberately, on a mounted device's open row, so arrowing onto
@@ -137,11 +150,23 @@ Scope {
     // clicking it shows. Sourcing both from ambientRows once let a provider
     // pushed past unfilteredResults' 50-row cap keep a nonzero pill that
     // delivered fewer rows than promised, or none at all.
-    readonly property var pills: Pills.pillsFor(root.ambientRows, root.unfilteredResults)
+    // While drilled into an app the bar carries exactly one pill, named after
+    // that app, standing in for the provider pills it replaces — it is the
+    // visible answer to "why is this list only four rows". The sentinel id no
+    // provider can produce keeps it from ever colliding with a real one:
+    // providerOf only ever returns a row's own provider string or "other".
+    readonly property var pills: root.drill ? [
+        {
+            id: "__drill",
+            label: root.drill.label,
+            count: root.drill.rows.length
+        }
+    ] : Pills.pillsFor(root.ambientRows, root.unfilteredResults)
 
-    // What the list actually shows: the pill bar's filter applied on top of
-    // the query's own matches and their display sort.
-    readonly property var results: Pills.filterByPill(root.unfilteredResults, root.selectedPill)
+    // What the list actually shows: an app's actions when drilled in,
+    // otherwise the pill bar's filter applied on top of the query's own
+    // matches and their display sort.
+    readonly property var results: root.drill ? root.drill.rows : Pills.filterByPill(root.unfilteredResults, root.selectedPill)
 
     function calculatorRows(expression: string): var {
         const value = calculator.evaluate(expression);
@@ -167,7 +192,44 @@ Scope {
     // half. Wraps through "" (All) the same way `move()` wraps the row
     // selection, and resets which row is highlighted since the list under a
     // new pill is a different list.
+    // Opens the highlighted app's action list. Guarded rather than trusting
+    // the caller, because both a keystroke and a click reach it and neither
+    // can promise the row under them has actions.
+    //
+    // `origin` is the row index being left behind. Both callers have already
+    // put root.selected on the row in question — the keyboard path reads it to
+    // find the row at all, the click path assigns it first — so capturing it
+    // here needs no extra parameter.
+    function drillInto(row: var): void {
+        if (!row || !row.actionRows || row.actionRows.length === 0)
+            return;
+
+        root.drill = {
+            label: row.title,
+            rows: row.actionRows,
+            origin: root.selected
+        };
+    }
+
+    // Restores the row the drill was opened from. The assignment to `drill`
+    // fires onDrillChanged, which zeroes the selection for the incoming list,
+    // so `selected` is put back afterwards rather than before — otherwise the
+    // handler would overwrite it and backing out would always land on the
+    // first row of a list you had already scrolled past.
+    function drillOut(): void {
+        const origin = root.drill ? root.drill.origin : 0;
+
+        root.drill = null;
+        root.selected = origin;
+    }
+
     function cyclePill(delta: int): void {
+        // Nothing to cycle while drilled: the bar is showing one pill that
+        // stands for the drill itself, and Tab must not be able to filter a
+        // list of actions down to a provider.
+        if (root.drill)
+            return;
+
         if (root.pills.length === 0)
             return;
 
@@ -184,6 +246,7 @@ Scope {
         root.query = "";
         root.selected = 0;
         root.selectedPill = "";
+        root.drill = null;
         root.rankNow = Date.now();
         window.visible = true;
     }
@@ -353,6 +416,13 @@ Scope {
                             // in another.
                             root.selectedPill = "";
 
+                            // The drill is released by the same rule and for
+                            // the same reason: a list of one app's actions is
+                            // not what a fresh search wants to be filtered to,
+                            // and leaving it engaged would silently hide every
+                            // row the new query matched anywhere else.
+                            root.drill = null;
+
                             // File search is driven by assignment rather than from
                             // the results binding, because kicking off a process
                             // inside a binding makes the binding a side effect and
@@ -362,11 +432,51 @@ Scope {
 
                         Keys.onDownPressed: root.move(1)
                         Keys.onUpPressed: root.move(-1)
-                        Keys.onEscapePressed: root.hide()
+
+                        // Escape backs out one level at a time rather than
+                        // closing outright: having drilled into an app's
+                        // actions, the thing you want out of is the drill.
+                        Keys.onEscapePressed: {
+                            if (root.drill) {
+                                root.drillOut();
+                                return;
+                            }
+
+                            root.hide();
+                        }
+
                         Keys.onReturnPressed: root.activate()
                         Keys.onEnterPressed: root.activate()
                         Keys.onTabPressed: root.cyclePill(1)
                         Keys.onBacktabPressed: root.cyclePill(-1)
+
+                        // Right drills in, but only with the caret already at
+                        // the end of the query — which is where it sits while
+                        // typing. Anywhere else the arrow is being used to
+                        // move through text that was typed, and stealing it
+                        // would make the field impossible to edit.
+                        Keys.onRightPressed: (event) => {
+                            if (input.cursorPosition !== input.text.length) {
+                                event.accepted = false;
+                                return;
+                            }
+
+                            root.drillInto(root.results[root.selected]);
+                        }
+
+                        // Left is the way back out, and only means that while
+                        // drilled — otherwise it is an ordinary caret move.
+                        // No caret guard on this side: any edit releases the
+                        // drill anyway, so there is no state where the caret
+                        // matters and the drill is still up.
+                        Keys.onLeftPressed: (event) => {
+                            if (!root.drill) {
+                                event.accepted = false;
+                                return;
+                            }
+
+                            root.drillOut();
+                        }
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
@@ -405,7 +515,10 @@ Scope {
 
                                 required property var modelData
 
-                                readonly property bool active: root.selectedPill === pillDelegate.modelData.id
+                                // The drill pill is always the active one:
+                                // it is not a filter you can toggle off and
+                                // leave the bar, it IS the drilled state.
+                                readonly property bool active: root.drill !== null || root.selectedPill === pillDelegate.modelData.id
 
                                 interactive: true
                                 color: pillDelegate.active ? Theme.accent : Theme.bgDark
@@ -413,8 +526,17 @@ Scope {
                                 // Clicking the active pill clears it, so the
                                 // pill bar is also its own "All" toggle and
                                 // needs no separate All pill taking up space
-                                // when nothing is filtered yet.
-                                onClicked: root.selectedPill = pillDelegate.active ? "" : pillDelegate.modelData.id
+                                // when nothing is filtered yet. Clicking the
+                                // drill pill is the same gesture one level up:
+                                // it leaves the app's action list.
+                                onClicked: {
+                                    if (root.drill) {
+                                        root.drillOut();
+                                        return;
+                                    }
+
+                                    root.selectedPill = pillDelegate.active ? "" : pillDelegate.modelData.id;
+                                }
 
                                 Text {
                                     text: `${pillDelegate.modelData.label} ${pillDelegate.modelData.count}`
@@ -457,11 +579,20 @@ Scope {
                             subtitle: modelData.subtitle ?? ""
                             icon: modelData.icon ?? ""
                             accessory: modelData.accessory ?? ""
+                            actionCount: modelData.actionCount ?? 0
                             current: index === root.selected
 
                             onActivated: {
                                 root.selected = index;
                                 root.activate();
+                            }
+
+                            // Highlighted first: drillInto reads root.selected
+                            // to remember where to come back to, and a click
+                            // can land on a row the keyboard never visited.
+                            onDrillRequested: {
+                                root.selected = index;
+                                root.drillInto(modelData);
                             }
                         }
                     }
