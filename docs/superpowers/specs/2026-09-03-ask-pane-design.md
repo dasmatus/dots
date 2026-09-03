@@ -106,7 +106,7 @@ the driver attached before the first turn.
 
 Three top-level types carry control traffic, and they are not symmetric.
 
-| Frame | Where `request_id` lives | Direction |
+| Frame | Where `request_id` appears | Direction |
 |---|---|---|
 | `control_request` | top level, next to `type` | both ways |
 | `control_response` | nested, `response.request_id` | both ways |
@@ -228,12 +228,18 @@ tool-specific object on the success path, where `Write` returns
 `{type, filePath, content, structuredPatch, originalFile, userModified}`.
 
 **The daemon always produces the `diff` event itself, and this is the one
-place that says where it comes from.** The CLI never sends a diff. When
+place that says where it comes from.** The CLI emits no `diff` event of its
+own, but its tool result can carry a hunk list the daemon can reuse. When
 `tool_use_result.structuredPatch` is present and non-empty, the daemon
-builds `diff` from it, because that is the CLI's own hunk list and beats
-anything reconstructed. Otherwise the daemon reshapes `diff` from the tool
-arguments. Both paths are live from the first turn: `Write` on a file that
-did not exist returns `structuredPatch: []`, which is the second case.
+builds `diff` from that rather than reconstructing one. Otherwise it
+reshapes `diff` from the tool arguments.
+
+Only the second branch is verified. The fixture holds exactly one
+`structuredPatch` and it is empty, because `Write` on a file that did not
+exist has nothing to diff against. So a non-empty `structuredPatch` was
+never observed, this spec nowhere defines the shape of one of its elements,
+and phase 3 has to record a real edit before it can code the first branch.
+Until then it stays unverified, the same way `set_model` in section 3 does.
 
 ### Cancelling an open permission request
 
@@ -405,9 +411,12 @@ daemon has answered. `backend` must be one of the ids the last `backends`
 event listed. `cwd` is the working directory the harness gets through
 `--add-dir` and the directory a provider-mode MCP server starts in.
 Answered with a `conversations` event that includes the new thread, or with
-an `error` carrying `kind: "protocol"` when `backend` names an id the
-daemon does not have. The backend process does not start until the first
-`send`, so a spawn failure arrives then, as `kind: "backend_spawn"`.
+a connection-scoped `error` carrying `kind: "bad_request"` when `backend`
+names an id the daemon does not have. That is client garbage: no backend
+has spoken and no thread exists, so there is nothing to persist it against.
+The backend process does not start until the first `send`, so a spawn
+failure arrives then instead, as a conversation-scoped
+`kind: "backend_spawn"`.
 
 ```json
 {"op":"send","conversation":"6f1a...","blocks":[
@@ -423,7 +432,10 @@ conversation closes.
 {"op":"interrupt","conversation":"6f1a..."}
 ```
 Stop the running turn. In harness mode this becomes the `interrupt` control
-request; any open permission prompt is withdrawn by the CLI.
+request, and the CLI withdraws any open permission prompt. The turn then
+ends with a `turn_end` carrying `stop: "interrupted"` and no `error` event.
+The client asked for this, so it is not a failure and nothing reports it as
+one.
 
 ```json
 {"op":"permission","conversation":"6f1a...","request":"29951f7f-...",
@@ -468,13 +480,14 @@ kind has exactly one scope, so a decoder never has to guess.
 | `protocol` | conversation | the backend sent something the decoder could not use |
 | `auth` | conversation | the provider refused the credential |
 | `rate_limit` | conversation | the provider or the plan refused the request |
-| `cancelled` | conversation | a turn ended because the client interrupted it |
-| `bad_request` | connection | the client sent an unparseable line, or an `op` the daemon does not have |
+| `cancelled` | conversation | the backend abandoned a turn on its own, with no `op:"interrupt"` behind it |
+| `bad_request` | connection | the client sent an unparseable line, an `op` the daemon does not have, or an argument it cannot resolve, such as a `new` naming an unknown `backend` id |
 | `store` | connection | the daemon could not read or write the conversation store |
 
 `store` is connection-scoped by definition, because writing the record is
 the thing that just failed. `bad_request` is connection-scoped because a
-line the daemon could not parse names no conversation to file it under.
+frame the daemon cannot act on names no thread to file the failure under,
+whether it failed to parse or named something that does not exist.
 
 `turn` names the turn an event belongs to. It is present on `turn_start`,
 `text_delta`, `thinking_delta`, `code_block`, `tool_call`, `plan`, `usage`
@@ -553,7 +566,12 @@ Field notes.
 
 `stop` on `turn_end` is one of `end_turn`, `tool_use`, `interrupted`,
 `max_tokens`, `error`. `interrupted` is what an `op:"interrupt"` produces,
-including the `aborted_tools` case above.
+including the `aborted_tools` case above, and it arrives alone: a
+client-driven interrupt never also raises an `error`. The `cancelled` error
+kind covers the opposite case, a turn the backend abandoned without being
+asked. One cause, one event. The two never both fire for a single turn, so
+a client can treat `stop: "interrupted"` as "I did this" and `cancelled` as
+"something else did".
 
 `kind` on `error` takes the seven values in the scope table above, and the
 kind alone tells the client whether the event is persisted. `fatal` true
@@ -576,7 +594,7 @@ nothing emits them until phase 3. Adding a variant later would force phase 1
 files back under review after phases 2 and 3 already coded against them.
 
 `permission_request` carries `withdrawn`, and the daemon re-emits the event
-with `withdrawn: true` when the backend cancels it. The pane must dismiss
+with `withdrawn: true` when the backend withdraws it. The pane must dismiss
 the prompt on that and must not send a decision.
 
 The daemon does not batch deltas.
@@ -591,6 +609,12 @@ owns has a row here. The rows stop at the schema boundary: keys inside
 `tool_call.input`, `permission_request.input` and
 `permission_request.suggestions[]` belong to the backend, and the daemon
 carries them through untyped rather than modelling them.
+
+These rows assert nullability for roughly ninety fields against code nobody
+has compiled yet, so they need an amendment rule. Phase 1 may loosen a field
+to `Option` when the compiler or the fixture shows it must be, and records
+that it did. Tightening an `Option` back to required is a break, because
+phases 2 to 5 code against the published table, and it needs the controller.
 
 | Frame and field | Type |
 |---|---|
@@ -657,10 +681,10 @@ carries them through untyped rather than modelling them.
 | `plan.markdown` | `String` |
 | `plan.state` | `String`, `proposed`, `accepted` or `rejected` |
 | `usage.input_tokens`, `usage.output_tokens` | `u64` |
-| `usage.cache_read_tokens`, `usage.cache_write_tokens` | `Option<u64>`, null whenever the backend reports no cache split; see the mapping table |
+| `usage.cache_read_tokens`, `usage.cache_write_tokens` | `Option<u64>`, null on every backend but the two Anthropic ones, `claude-code` and `anthropic` |
 | `usage.thinking_tokens` | `Option<u64>` |
 | `usage.cost_usd` | `Option<f64>`, null whenever the backend reports no cost; see the mapping table |
-| `usage.rate_limit` | `Option<RateLimit>`, null on every backend that reports no limit |
+| `usage.rate_limit` | `Option<RateLimit>`, `claude-code` only; the other three report no limit in the stream |
 | `turn_end.stop` | `String`, the five values listed above |
 | `turn_end.text` | `Option<String>`, null on an interrupted turn, which sends no summary |
 | `turn_end.duration_ms` | `u64` |
@@ -670,7 +694,7 @@ carries them through untyped rather than modelling them.
 | `conversations.items[].id` | `Uuid` |
 | `conversations.items[].title` | `Option<String>`, null until the first turn names it |
 | `conversations.items[].backend` | `String` |
-| `conversations.items[].model` | `Option<String>`, null while the thread still rides the backend default |
+| `conversations.items[].model` | `Option<String>`, null while the thread still uses the backend default |
 | `conversations.items[].cwd` | `PathBuf` |
 | `conversations.items[].updated_ms` | `u64`, unix milliseconds |
 | `conversations.items[].turns` | `u32` |
@@ -713,7 +737,7 @@ The event set is split across three tables so the cells stay readable.
 
 | Backend | `tool_call` | `tool_result` | `permission_request` | `diff` | `plan` |
 |---|---|---|---|---|---|
-| claude-code | `content_block_start`/`tool_use` for the name, settled `assistant` line for the arguments | `user` line carrying a `tool_result` block; `is_error` inverts to `ok` and a missing `is_error` means `ok: true` | `control_request`/`can_use_tool`, answered by `control_response` | always produced by the daemon, from `structuredPatch` when it is non-empty and from the tool arguments otherwise; see "The tool_result shapes a decoder has to accept" in section 1 | `ExitPlanMode` tool input |
+| claude-code | `content_block_start`/`tool_use` for the name, settled `assistant` line for the arguments | `user` line carrying a `tool_result` block; `is_error` inverts to `ok` and a missing `is_error` means `ok: true` | `control_request`/`can_use_tool`, answered by `control_response` | always produced by the daemon, from `structuredPatch` when it is non-empty, which is unverified, and from the tool arguments otherwise, which is what the fixture shows; see "The tool_result shapes a decoder has to accept" in section 1 | `ExitPlanMode` tool input |
 | anthropic | SSE `tool_use` block, arguments assembled from `input_json_delta` | emitted by the daemon after it runs the MCP tool | daemon-side, `policy.rs` only, nothing on the wire to the provider | not emitted | not emitted |
 | openai-compatible | `delta.tool_calls[]`, arguments assembled per `index` across chunks | same, daemon-run MCP result | daemon-side only | not emitted | not emitted |
 | ollama | `message.tool_calls`, arrives whole rather than streamed | same, daemon-run MCP result | daemon-side only | not emitted | not emitted |
@@ -786,7 +810,7 @@ touches a contiguous set.
 
 Tests live in `rust/ask-daemon/tests/`, never inline, per `CLAUDE.md`:
 `proto.rs` for schema round-trip, `server.rs` for `seq` replay and multiple
-clients, `store.rs` for append and resume, and a replay test that drives
+clients, `store.rs` for append and resume, and a replay test that feeds
 `tests/fixtures/claude-stream.jsonl` through the harness decoder and asserts
 the three permission outcomes.
 
