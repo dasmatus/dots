@@ -25,8 +25,11 @@ Rectangle {
     implicitHeight: 44
     radius: 6
     color: Theme.bgDark
-    border.width: 1
-    border.color: input.activeFocus ? Theme.accent : Theme.border
+
+    EdgeStrip {
+        edge: "left"
+        active: input.activeFocus
+    }
 
     function focusInput() {
         input.forceActiveFocus();

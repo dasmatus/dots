@@ -48,14 +48,18 @@ Rectangle {
     // them want the same "now" anyway — the one the listing was taken at.
     property double listedAt: 0
 
-    color: Theme.bg
+    // Theme.bgDark, not Theme.bg: the window this pane sits in is
+    // Theme.bg itself, so with no border to fall back on, an inactive
+    // pane needs its own shade or it disappears into the window behind
+    // it. The active/inactive distinction is now the strip below, not
+    // the fill.
+    color: Theme.bgDark
     radius: Theme.filesRadius
 
-    // Constant width, colour-only change. A border that appears on focus
-    // steals its own width from the content and shifts every row sideways
-    // as the active side moves, which is what this file used to do.
-    border.width: 1
-    border.color: root.active ? Theme.accent : Theme.border
+    EdgeStrip {
+        edge: "top"
+        active: root.active
+    }
 
     // A stale `selected` pointing at an entry the list no longer shows is
     // how a write operation can land on something the UI never highlighted:

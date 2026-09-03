@@ -16,6 +16,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Services.Notifications
 import ".."
+import "../common"
 
 Rectangle {
     id: root
@@ -55,10 +56,18 @@ Rectangle {
     implicitHeight: layout.implicitHeight + 20
 
     radius: 8
-    border.width: 2
 
     color: Qt.alpha(root.low ? Theme.bg : Theme.bgDark, root.backgroundAlpha)
-    border.color: root.frame
+
+    // `low` is dunst's no-urgency case, where `frame` falls back to the
+    // neutral Theme.border rather than an urgency colour — that carries no
+    // information, so this draws no strip for it rather than a neutral one.
+    EdgeStrip {
+        edge: "left"
+        active: !root.low
+        tint: root.frame
+        thickness: 2
+    }
 
     RowLayout {
         id: layout

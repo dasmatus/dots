@@ -525,9 +525,16 @@ Scope {
                             height: Math.max(24, rect.modelData.height * root.transform.scale)
 
                             radius: 6
+                            // Already distinct from the panel behind it
+                            // (Theme.bg, alpha-blended) without a border,
+                            // so an unselected rectangle needs no change
+                            // here now that selection is the strip below.
                             color: Theme.bgDark
-                            border.width: rect.selected ? 3 : 2
-                            border.color: Theme.accent
+
+                            EdgeStrip {
+                                edge: "top"
+                                active: rect.selected
+                            }
 
                             Column {
                                 anchors.centerIn: parent
