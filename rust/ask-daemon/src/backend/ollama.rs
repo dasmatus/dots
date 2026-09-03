@@ -31,8 +31,21 @@ pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:11434";
 /// The variable that moves it.
 const BASE_URL_VAR: &str = "DOTS_ASK_OLLAMA_URL";
 
-/// The model a thread created with no model gets.
-const DEFAULT_MODEL: &str = "llama3";
+/// Where the daemon reads how much memory is going spare.
+///
+/// `MemAvailable` rather than `MemFree`, because the kernel's own estimate
+/// of what a new allocation could have is the number that matters; `MemFree`
+/// on a box with a warm page cache reads near zero and would pick the
+/// smallest model every time.
+const MEMINFO: &str = "/proc/meminfo";
+
+/// How much of available memory one model may claim.
+///
+/// A model that exactly fills the space leaves nothing for the context
+/// window, the KV cache or the rest of the desktop, and ollama then either
+/// swaps or falls back to CPU. Two thirds is a guess, but it is a guess in
+/// the safe direction and it is written down rather than buried.
+const MEMORY_HEADROOM: f64 = 0.66;
 
 /// How long the startup probe waits for `/api/tags`.
 ///
@@ -40,11 +53,21 @@ const DEFAULT_MODEL: &str = "llama3";
 /// machine with no ollama must not pay for that with a slow start.
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 
+/// One model `/api/tags` reported as installed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledModel {
+    /// The tag, which is what `/api/chat` takes as `model`.
+    pub name: String,
+    /// How much disk the blobs take, which is the closest thing `/api/tags`
+    /// gives to how much memory loading it will want.
+    pub size_bytes: u64,
+}
+
 /// The local ollama server, as the startup probe found it.
 pub struct OllamaBackend {
     base_url: String,
     state: BackendState,
-    models: Vec<String>,
+    models: Vec<InstalledModel>,
     detail: Option<String>,
 }
 
@@ -66,7 +89,7 @@ impl OllamaBackend {
                 Ok(body) => Self {
                     base_url,
                     state: BackendState::Ready,
-                    models: model_names(&body),
+                    models: installed_models(&body),
                     detail: None,
                 },
                 Err(err) => Self::down(base_url, format!("/api/tags did not answer JSON: {err}")),
@@ -75,16 +98,22 @@ impl OllamaBackend {
         }
     }
 
-    /// A backend pinned to one base url, which is how a test points at a
-    /// local fake without touching the environment.
+    /// A backend pinned to one base url and one model list, which is how a
+    /// test points at a local fake without touching the environment.
     #[must_use]
-    pub fn at(base_url: impl Into<String>) -> Self {
+    pub fn at(base_url: impl Into<String>, models: Vec<InstalledModel>) -> Self {
         Self {
             base_url: base_url.into(),
             state: BackendState::Ready,
-            models: Vec::new(),
+            models,
             detail: None,
         }
+    }
+
+    /// The models this server has, as the probe found them.
+    #[must_use]
+    pub fn models(&self) -> &[InstalledModel] {
+        &self.models
     }
 
     /// The unreachable form, with the connect failure attached.
@@ -114,17 +143,21 @@ impl Backend for OllamaBackend {
             id: OLLAMA.to_owned(),
             label: "Ollama".to_owned(),
             state: self.state,
-            models: self.models.clone(),
+            models: self.models.iter().map(|model| model.name.clone()).collect(),
             detail: self.detail.clone(),
         }
     }
 
     fn start(&self, ctx: BackendContext) -> Result<BackendHandle, String> {
+        let model = match ctx.model.clone() {
+            Some(model) => model,
+            None => choose_model(&self.models, available_memory())
+                .ok_or_else(|| {
+                    "ollama has no model installed; pull one with `ollama pull`".to_owned()
+                })?
+                .to_owned(),
+        };
         let (commands, inbox) = mpsc::unbounded_channel();
-        let model = ctx
-            .model
-            .clone()
-            .unwrap_or_else(|| DEFAULT_MODEL.to_owned());
         let session = ProviderSession::new(&ctx, OLLAMA);
         let url = format!("{}/api/chat", self.base_url);
         tokio::spawn(run(session, url, model, inbox));
@@ -132,18 +165,78 @@ impl Backend for OllamaBackend {
     }
 }
 
-/// The model names `/api/tags` listed.
-fn model_names(body: &Value) -> Vec<String> {
+/// The models `/api/tags` listed, with their sizes.
+fn installed_models(body: &Value) -> Vec<InstalledModel> {
     body.get("models")
         .and_then(Value::as_array)
         .map(|models| {
             models
                 .iter()
-                .filter_map(|model| model.get("name").and_then(Value::as_str))
-                .map(str::to_owned)
+                .filter_map(|model| {
+                    Some(InstalledModel {
+                        name: model.get("name").and_then(Value::as_str)?.to_owned(),
+                        size_bytes: model.get("size").and_then(Value::as_u64).unwrap_or(0),
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Pick the model a thread that names none should run.
+///
+/// No tag is written into this file. A tag hardcoded in Rust is stale the
+/// day the next model ships, and it names something this machine may never
+/// have pulled, so the daemon would answer a `send` with a 404 from a server
+/// that is running perfectly well. The list comes from `/api/tags` instead.
+///
+/// Among what is installed, the biggest model that fits is the best one: a
+/// larger local model is a better answer, and the only thing stopping it is
+/// memory. "Fits" is [`MEMORY_HEADROOM`] of what the kernel says is
+/// available, because the weights are not the only thing that has to be
+/// resident. When nothing fits, the smallest installed model is still a
+/// better answer than refusing, since ollama will page or fall back to CPU
+/// and be slow rather than fail.
+///
+/// `available` is a parameter rather than read here, so this is a pure
+/// function a test can drive.
+#[must_use]
+pub fn choose_model(models: &[InstalledModel], available: Option<u64>) -> Option<&str> {
+    let budget = available.map(|bytes| {
+        #[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)]
+        let budget = (bytes as f64 * MEMORY_HEADROOM) as u64;
+        budget
+    });
+    let fitting = budget.and_then(|budget| {
+        models
+            .iter()
+            .filter(|model| model.size_bytes <= budget)
+            .max_by_key(|model| (model.size_bytes, &model.name))
+    });
+    fitting
+        .or_else(|| {
+            models
+                .iter()
+                .min_by_key(|model| (model.size_bytes, &model.name))
+        })
+        .map(|model| model.name.as_str())
+}
+
+/// How much memory the kernel says a new allocation could have.
+///
+/// `None` when `/proc/meminfo` is not readable, which is what a sandbox with
+/// no `/proc` looks like. The caller then falls back to the smallest model,
+/// which is the right answer when the daemon cannot tell how much room it
+/// has.
+#[must_use]
+pub fn available_memory() -> Option<u64> {
+    let meminfo = std::fs::read_to_string(MEMINFO).ok()?;
+    meminfo
+        .lines()
+        .find_map(|line| line.strip_prefix("MemAvailable:"))
+        .and_then(|value| value.split_whitespace().next())
+        .and_then(|kilobytes| kilobytes.parse::<u64>().ok())
+        .map(|kilobytes| kilobytes.saturating_mul(1024))
 }
 
 /// Serve one thread until its command channel closes.

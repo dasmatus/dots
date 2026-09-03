@@ -1,0 +1,24 @@
+: keepalive
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{"reasoning_content":"Short answer wanted."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{"content":"Use "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{"content":"bind:\n\n```rust\n"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{"content":"UnixListener::bind(p)?\n```\n"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"searxng__","arguments":""}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"web_search","arguments":"{\"query\":"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"unix socket\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1788440000,"model":"local-model","choices":[],"usage":{"prompt_tokens":41,"completion_tokens":63,"total_tokens":104,"completion_tokens_details":{"reasoning_tokens":12}}}
+
+data: [DONE]
+

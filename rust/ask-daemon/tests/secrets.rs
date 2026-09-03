@@ -21,12 +21,20 @@ use uuid::Uuid;
 
 use ask_daemon::secrets::{Secret, SecretStore, DEFAULT_TIMEOUT, SERVICE};
 
-/// The deadline the tests give a lookup.
+/// The deadline the two timeout tests give a lookup.
 ///
-/// Short, so a test that has to wait one out finishes in a blink. Production
-/// uses [`DEFAULT_TIMEOUT`], which one test below asserts is still ten
-/// seconds.
-const TEST_TIMEOUT: Duration = Duration::from_millis(300);
+/// Short, so a test that has to wait one out finishes in a blink. It is only
+/// used where the deadline firing is the thing under test.
+const SHORT_TIMEOUT: Duration = Duration::from_millis(300);
+
+/// The deadline every other test gives a lookup.
+///
+/// Generous on purpose. Those tests are about what a lookup returns, not
+/// about the clock, and a fork plus an `sh` startup can take a surprising
+/// while when nine test binaries are running at once. A tight budget there
+/// buys nothing and produces a test that fails under load and passes alone,
+/// which is worse than no test.
+const PATIENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A directory holding a fake lookup command, removed on drop.
 struct FakeKeyring {
@@ -50,9 +58,14 @@ impl FakeKeyring {
         Self { root, program }
     }
 
-    /// A store pointed at this fake, with the short test deadline.
+    /// A store pointed at this fake, with a deadline that will not fire.
     fn store(&self) -> SecretStore {
-        SecretStore::new(&self.program, TEST_TIMEOUT)
+        SecretStore::new(&self.program, PATIENT_TIMEOUT)
+    }
+
+    /// A store pointed at this fake, with a deadline that will.
+    fn impatient_store(&self) -> SecretStore {
+        SecretStore::new(&self.program, SHORT_TIMEOUT)
     }
 
     /// Where the script wrote down what it was called with.
@@ -79,7 +92,7 @@ async fn a_lookup_that_would_block_gives_up_rather_than_hanging() {
     // the cap is ever removed, which is the failure a user sees on a cold
     // boot.
     let keyring = FakeKeyring::new("sleep 60");
-    let store = keyring.store();
+    let store = keyring.impatient_store();
 
     let started = Instant::now();
     let found = store.lookup("anthropic-api-key").await;
@@ -90,7 +103,7 @@ async fn a_lookup_that_would_block_gives_up_rather_than_hanging() {
         "a lookup that ran out the clock is unavailable, not a hang: {found:?}"
     );
     assert!(
-        waited < TEST_TIMEOUT * 8,
+        waited < SHORT_TIMEOUT * 8,
         "the deadline did not fire: waited {waited:?}"
     );
     let detail = found.detail().expect("a miss carries its reason");
@@ -115,7 +128,7 @@ async fn a_lookup_that_times_out_leaves_no_child_running() {
         "sleep 60\n",
         "echo finished > \"$here/finished\"",
     ));
-    let store = keyring.store();
+    let store = keyring.impatient_store();
     assert!(matches!(
         store.lookup("anthropic-api-key").await,
         Secret::Missing(_)
@@ -124,7 +137,7 @@ async fn a_lookup_that_times_out_leaves_no_child_running() {
         keyring.root().join("started").exists(),
         "the fake really did run, so the next assertion means something"
     );
-    tokio::time::sleep(TEST_TIMEOUT * 2).await;
+    tokio::time::sleep(SHORT_TIMEOUT * 2).await;
     assert!(
         !keyring.root().join("finished").exists(),
         "the child ran to completion, so it was never killed"
@@ -170,7 +183,7 @@ async fn an_empty_key_counts_as_missing() {
 
 #[tokio::test]
 async fn a_machine_with_no_secret_tool_degrades_rather_than_panicking() {
-    let store = SecretStore::new("/nonexistent/secret-tool", TEST_TIMEOUT);
+    let store = SecretStore::new("/nonexistent/secret-tool", PATIENT_TIMEOUT);
     let found = store.lookup("anthropic-api-key").await;
     assert!(matches!(found, Secret::Missing(_)));
     assert!(

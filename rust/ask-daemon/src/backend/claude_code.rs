@@ -89,6 +89,9 @@ const INIT_REQUEST: &str = "req_0_init";
 /// say the result was cut rather than showing a sentence that stops.
 const MAX_TOOL_RESULT: usize = 16 * 1024;
 
+/// How long a collapsed tool row's summary may be.
+const MAX_SUMMARY: usize = 120;
+
 /// The `claude` CLI, if it is installed.
 pub struct ClaudeCodeBackend {
     program: Option<PathBuf>,
@@ -1160,18 +1163,36 @@ fn plan_event(block: &Value) -> Option<EventBody> {
 /// Only the arguments the harness tools actually carry, and nothing
 /// invented: a tool with none gets `None` and the pane shows the name alone.
 fn tool_summary(name: &str, input: &Value) -> Option<String> {
-    let key = match name {
-        "Write" | "Edit" | "Read" | "NotebookEdit" => "file_path",
-        "Bash" => "command",
-        "WebFetch" => "url",
-        "WebSearch" | "Grep" => "query",
-        "Glob" => "pattern",
+    let (key, is_path) = match name {
+        "Write" | "Edit" | "Read" | "NotebookEdit" => ("file_path", true),
+        "Bash" => ("command", false),
+        "WebFetch" => ("url", false),
+        "WebSearch" | "Grep" => ("query", false),
+        "Glob" => ("pattern", false),
         _ => return None,
     };
-    input
-        .get(key)
-        .and_then(Value::as_str)
-        .map(|text| truncate(text, 120))
+    let text = input.get(key).and_then(Value::as_str)?;
+    if text.len() <= MAX_SUMMARY {
+        return Some(text.to_owned());
+    }
+    // A long path is cut from the front, because the informative end of a
+    // path is the file name and the informative end of a command is the
+    // command. Cutting a scratch path from the back leaves the pane showing
+    // /tmp/claude-1000/… and nothing a person can act on.
+    Some(if is_path {
+        format!("...{}", tail(text, MAX_SUMMARY))
+    } else {
+        truncate(text, MAX_SUMMARY)
+    })
+}
+
+/// The last `limit` bytes of a string, on a character boundary.
+fn tail(text: &str, limit: usize) -> &str {
+    let mut start = text.len().saturating_sub(limit);
+    while start < text.len() && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
 }
 
 /// The stream index of one content block event.
