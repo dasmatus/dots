@@ -1,3 +1,15 @@
+// Builds a QApplication rather than Quickshell's default QGuiApplication,
+// which is what Qt's platform-menu layer needs to exist at all. Tray.qml
+// opens a tray item's DBusMenu through SystemTrayItem.display(), and without
+// this line every one of those calls aborts into the log — "Cannot display
+// PlatformMenuEntry as quickshell was not started in QApplication mode" —
+// having drawn nothing and thrown nothing. QsMenuAnchor.open() is gated on
+// the same flag, so it is the platform-menu path that needs this, not the
+// one API. Costs no closure: the quickshell binary already links
+// libQt6Widgets. Pinned by tests/qml/tst_platform_menu.qml, which has to
+// read this file's raw text because the line is a comment.
+//@ pragma UseQApplication
+
 // Entry point for the dots Quickshell shell.
 //
 // Variants over Quickshell.screens rather than one window: it builds and tears
