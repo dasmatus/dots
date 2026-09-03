@@ -13,12 +13,23 @@ path = "src/main.rs"
 name = "ask_daemon"
 path = "src/lib.rs"
 
+# Every dependency here carries the reason it is present and the reason its
+# feature set is shaped the way it is, which is this repo's convention (see
+# rust/settings-global/Cargo.toml). The three that would otherwise drag a C
+# toolchain into the devshell are called out, because nothing in
+# flake/packages.nix gives this crate a buildInputs entry and adding one for
+# a transitive native library would be the kind of surprise a rebuild finds.
 [dependencies]
+# "process" is the harness backend: it spawns `claude` and reads its stdout.
+# "fs" is not here on purpose; the store and the policy file are small and
+# synchronous, and blocking reads of a few kilobytes buy nothing from an
+# async filesystem API.
 tokio = { version = "1", features = [
   "rt-multi-thread",
   "net",
   "io-util",
   "macros",
+  "process",
   "sync",
   "time",
 ] }
@@ -28,6 +39,47 @@ uuid = { version = "1", features = ["serde", "v4"] }
 miette = { version = "7", features = ["fancy"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# reqwest with default-features off so it does not pull native-tls, and so
+# TLS comes from rustls rather than from OpenSSL. OpenSSL would need
+# pkg-config, openssl.dev and an OPENSSL_NO_VENDOR dance in
+# flake/packages.nix, and the ISO work in this repo has already paid for
+# openssl surprises once. "json" encodes the request bodies, "stream" turns
+# a response into a byte stream so SSE and NDJSON can be decoded as they
+# arrive rather than after the turn ends. "http2" is the default reqwest
+# would have given us and the Anthropic and OpenAI endpoints both want it.
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+  "stream",
+  "http2",
+] }
+# futures-util for StreamExt over the reqwest byte stream. reqwest exposes
+# the stream as a `futures_core::Stream` and gives no combinators of its own.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# rmcp on the client role, which is a different feature set from the one
+# rust/dots-memory-mcp vendors ("server", "macros", "transport-io"). There is
+# no client-role code in this repo to copy. "transport-child-process" is the
+# only transport a locally configured MCP server uses: every server in
+# nix/home/*.nix is a stdio command, none of them listens on a socket.
+rmcp = { version = "3.1.4", default-features = false, features = [
+  "client",
+  "transport-child-process",
+] }
+# pulldown-cmark parses the assistant's markdown so render.rs can find the
+# fenced code blocks. CommonMark, pure Rust, no regex engine behind it.
+pulldown-cmark = { version = "0.13", default-features = false }
+# syntect on "default-fancy" rather than the plain default. The default uses
+# oniguruma, which is a C library and would need a buildInputs entry the
+# devshell does not carry; "default-fancy" swaps in fancy-regex, which is
+# pure Rust. The syntax and theme dumps come along with it, so highlighting
+# needs no files at runtime.
+syntect = { version = "5", default-features = false, features = [
+  "default-fancy",
+] }
+# similar for the line diff behind `diff.html` and the added/removed counts.
+# Pure Rust, no build script, and the alternative is hand-rolling an LCS that
+# would need its own tests to earn the same trust.
+similar = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
