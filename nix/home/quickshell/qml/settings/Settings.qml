@@ -42,6 +42,24 @@ Scope {
     // out from under whatever the mouse last put it on.
     property int selected: 0
 
+    // Which surface the panel is showing. The Proton page is a second screen
+    // rather than more rows because connecting an account is an action, not a
+    // field you save, and mixing the two under one Enter key would make Enter
+    // mean "save" on five rows and "log in" on a sixth.
+    property string page: "form"
+
+    // What the cursor actually walks: the dumped fields plus one synthetic
+    // row that opens the Proton page. Synthetic rather than a seventh entry in
+    // the Rust ITEMS table, because global-settings only knows how to dump and
+    // set values, and this row has none.
+    readonly property var rows: root.fields.concat([
+        {
+            key: "proton",
+            label: "Proton",
+            type: "page"
+        }
+    ])
+
     function load(): void {
         root.edits = {};
         root.status = "";
@@ -52,7 +70,7 @@ Scope {
 
     // Wraps, matching Launcher's own move().
     function moveSelection(delta: int): void {
-        const count = root.fields.length;
+        const count = root.rows.length;
         if (count === 0)
             return;
 
@@ -82,6 +100,45 @@ Scope {
         root.status = `Writing ${keys.length} field${keys.length === 1 ? "" : "s"}…`;
         writer.pending = keys.slice();
         writer.next();
+    }
+
+    // Enter does whatever the highlighted row is for. Only the synthetic
+    // Proton row is a page; everything else is a value, and for those Enter
+    // still means save, exactly as before.
+    function activate(): void {
+        const row = root.rows[root.selected];
+        if (row && row.type === "page") {
+            root.openProton();
+            return;
+        }
+        root.save();
+    }
+
+    function openProton(): void {
+        root.page = "proton";
+        proton.refresh();
+    }
+
+    // Leaving drops whatever was typed. A password held in a property until
+    // the next visit would outlive the reason it was entered, and the panel
+    // builds this page once rather than per visit, so nothing else would
+    // clear it.
+    function leaveProton(): void {
+        proton.forget();
+        root.page = "form";
+        panel.forceActiveFocus();
+    }
+
+    // The address lives in the same settings.nix every other row uses, so the
+    // Proton page hands it back here and it is written through the same
+    // per-field writer rather than a second path to the same file.
+    function rememberProtonEmail(value: string): void {
+        const current = root.fields.find(f => f.key === "protonEmail");
+        if (!current || current.value === value) {
+            return;
+        }
+        root.edit("protonEmail", value);
+        root.save();
     }
 
     IpcHandler {
@@ -231,9 +288,18 @@ Scope {
                 }
             ]
 
-            Keys.onEscapePressed: window.visible = false
-            Keys.onReturnPressed: root.save()
-            Keys.onEnterPressed: root.save()
+            // Esc means "one step back", not "close", once there is somewhere
+            // to step back to. Closing the whole panel from the Proton page
+            // would throw away a half-typed login for the sake of one keypress.
+            Keys.onEscapePressed: {
+                if (root.page === "proton") {
+                    root.leaveProton();
+                } else {
+                    window.visible = false;
+                }
+            }
+            Keys.onReturnPressed: root.activate()
+            Keys.onEnterPressed: root.activate()
             Keys.onUpPressed: root.moveSelection(-1)
             Keys.onDownPressed: root.moveSelection(1)
 
@@ -255,13 +321,15 @@ Scope {
             ColumnLayout {
                 id: form
 
+                visible: root.page === "form"
+
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
                 spacing: 14
 
                 Repeater {
-                    model: root.fields
+                    model: root.rows
 
                     delegate: RowLayout {
                         id: row
@@ -397,6 +465,24 @@ Scope {
                         }
                     }
                 }
+            }
+
+            // The second surface. Built once and hidden rather than created
+            // per visit, which is why leaveProton() clears its fields by hand.
+            Proton {
+                id: proton
+
+                Layout.fillWidth: true
+
+                visible: root.page === "proton"
+
+                initialEmail: {
+                    const row = root.fields.find(f => f.key === "protonEmail");
+                    return row ? `${row.value}` : "";
+                }
+
+                onBack: root.leaveProton()
+                onEmailEdited: value => root.rememberProtonEmail(value)
             }
         }
     }
