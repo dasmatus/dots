@@ -17,6 +17,7 @@ import QtQuick.Layouts
 import "tabs.js" as TabsMath
 import "icons.js" as Icons
 import ".."
+import "../common"
 
 Rectangle {
     id: root
@@ -60,13 +61,10 @@ Rectangle {
 
                 color: tab.current ? Theme.bg : "transparent"
 
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: Theme.filesTabIndicator
-                    color: Theme.accent
-                    visible: tab.current
+                EdgeStrip {
+                    edge: "left"
+                    active: tab.current
+                    thickness: Theme.filesTabIndicator
                 }
 
                 Rectangle {

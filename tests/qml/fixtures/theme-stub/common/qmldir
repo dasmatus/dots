@@ -8,5 +8,6 @@
 # it has symlinked, not what the shipped directory holds.
 singleton Tokens 1.0 Tokens.qml
 Chrome 1.0 Chrome.qml
+EdgeStrip 1.0 EdgeStrip.qml
 Field 1.0 Field.qml
 Panel 1.0 Panel.qml
