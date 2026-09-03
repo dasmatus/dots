@@ -48,12 +48,13 @@ Rectangle {
     // them want the same "now" anyway — the one the listing was taken at.
     property double listedAt: 0
 
-    // Theme.bgDark, not Theme.bg: the window this pane sits in is
-    // Theme.bg itself, so with no border to fall back on, an inactive
-    // pane needs its own shade or it disappears into the window behind
-    // it. The active/inactive distinction is now the strip below, not
-    // the fill.
-    color: Theme.bgDark
+    // Theme.bgDark reads at roughly 1.1:1 contrast against the window's
+    // own Theme.bg — with no border to fall back on, that pair is not
+    // actually distinguishable. Theme.selection is the strongest fill the
+    // existing palette offers against bg (~1.7:1) without inventing a new
+    // token. The active/inactive distinction is carried by the strip
+    // below, not by this fill, which stays the same for both.
+    color: Theme.selection
     radius: Theme.filesRadius
 
     EdgeStrip {

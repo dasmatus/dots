@@ -525,11 +525,16 @@ Scope {
                             height: Math.max(24, rect.modelData.height * root.transform.scale)
 
                             radius: 6
-                            // Already distinct from the panel behind it
-                            // (Theme.bg, alpha-blended) without a border,
-                            // so an unselected rectangle needs no change
-                            // here now that selection is the strip below.
-                            color: Theme.bgDark
+                            // Theme.bgDark against the panel's Theme.bg
+                            // computes to roughly 1.1:1 contrast — with the
+                            // border gone, that pair reads as one flat
+                            // smudge rather than a distinct rectangle.
+                            // Theme.selection is the strongest fill the
+                            // existing palette offers against bg (~1.7:1);
+                            // still short of WCAG's 3:1 floor for a
+                            // non-text boundary, but roughly double
+                            // bgDark's contrast without inventing a token.
+                            color: Theme.selection
 
                             EdgeStrip {
                                 edge: "top"
