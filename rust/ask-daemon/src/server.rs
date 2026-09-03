@@ -38,9 +38,10 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::backend::{BackendCommand, BackendHandle, BackendMessage, Registry};
 use crate::proto::{
-    decode_client_line, encode_server_line, BackendInfo, BackendState, ClientFrame,
-    ConversationMeta, ErrorKind, EventBody, ServerEvent, PROTOCOL_VERSION,
+    decode_client_line, encode_server_line, ClientFrame, ConversationMeta, ErrorKind, EventBody,
+    SendBlock, ServerEvent, PROTOCOL_VERSION,
 };
 use crate::session::Session;
 use crate::store::Store;
@@ -114,32 +115,40 @@ pub fn default_state_root() -> Result<PathBuf, AskError> {
         .ok_or(AskError::NoDataHome)
 }
 
-/// The backends this build can offer.
+/// The state root's name under `$XDG_STATE_HOME`, where `policy.json` lives.
+const POLICY_DIR_NAME: &str = "dots-ask";
+
+/// The approval store's file name.
+const POLICY_FILE: &str = "policy.json";
+
+/// Where `forever` approvals are kept, per section 5 of the spec:
+/// `$XDG_STATE_HOME/dots-ask/policy.json`, falling back to
+/// `~/.local/state`.
 ///
-/// Every id the spec names is listed as `unconfigured`, which is the truthful
-/// state: this phase ships no backend at all. Phase 2 replaces this with
-/// `src/backend/mod.rs`, which reads the `dots.ai.*` toggles and probes each
-/// one. The list still does real work today, because `op:"new"` validates its
-/// `backend` against it and a `send` reports this `detail` back.
-#[must_use]
-pub fn placeholder_backends() -> Vec<BackendInfo> {
-    let unwired = "no backend runs until the ask pane's backend phase lands";
-    [
-        ("claude-code", "Claude Code"),
-        ("anthropic", "Anthropic API"),
-        ("openai-compatible", "OpenAI-compatible"),
-        ("ollama", "Ollama"),
-        ("codex", "Codex"),
-    ]
-    .into_iter()
-    .map(|(id, label)| BackendInfo {
-        id: id.to_owned(),
-        label: label.to_owned(),
-        state: BackendState::Unconfigured,
-        models: Vec::new(),
-        detail: Some(unwired.to_owned()),
-    })
-    .collect()
+/// Deliberately not the conversation root. Section 4 puts transcripts under
+/// `$XDG_DATA_HOME` and section 5 puts approvals under `$XDG_STATE_HOME`,
+/// and the split is the right one: a transcript is a record a person may
+/// prune, and pruning it must not silently revoke an approval.
+///
+/// # Errors
+///
+/// [`AskError::NoDataHome`] when neither variable is set.
+pub fn default_policy_path() -> Result<PathBuf, AskError> {
+    if let Some(state_home) = std::env::var_os("XDG_STATE_HOME").filter(|dir| !dir.is_empty()) {
+        return Ok(PathBuf::from(state_home)
+            .join(POLICY_DIR_NAME)
+            .join(POLICY_FILE));
+    }
+    std::env::var_os("HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(|home| {
+            PathBuf::from(home)
+                .join(".local")
+                .join("state")
+                .join(POLICY_DIR_NAME)
+                .join(POLICY_FILE)
+        })
+        .ok_or(AskError::NoDataHome)
 }
 
 /// One connection's write queue.
@@ -203,7 +212,12 @@ impl Outbox {
 /// The shared state every connection works against.
 pub struct Hub {
     inner: Mutex<HubInner>,
-    backends: Vec<BackendInfo>,
+    registry: Arc<Registry>,
+    /// Where a running backend sends what it produced.
+    ///
+    /// Cloned into each backend at start. The receiving half is taken once,
+    /// by [`Daemon::serve`], and driven by [`pump`].
+    events: mpsc::UnboundedSender<BackendMessage>,
 }
 
 /// Everything the lock covers.
@@ -212,6 +226,12 @@ struct HubInner {
     sessions: BTreeMap<Uuid, Session>,
     /// Every client that has said `hello`, by connection id.
     attached: BTreeMap<u64, Outbox>,
+    /// The backend running each thread that has had a `send`.
+    ///
+    /// A thread gets an entry on its first `send` and loses it when the
+    /// thread is deleted, which is what the spec means by putting the spawn
+    /// on the first `send` rather than on `new`.
+    running: BTreeMap<Uuid, BackendHandle>,
 }
 
 impl Hub {
@@ -223,7 +243,10 @@ impl Hub {
     /// # Errors
     ///
     /// Whatever [`Store::open`] returns.
-    pub fn open(state_root: PathBuf, backends: Vec<BackendInfo>) -> Result<Arc<Self>, AskError> {
+    pub fn open(
+        state_root: PathBuf,
+        registry: Arc<Registry>,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<BackendMessage>), AskError> {
         let loaded = Store::open(state_root, now_ms())?;
         if !loaded.recovered.is_empty() {
             tracing::info!(
@@ -231,14 +254,51 @@ impl Hub {
                 "closed turns that a previous run left open"
             );
         }
-        Ok(Arc::new(Self {
+        let (events, produced) = mpsc::unbounded_channel();
+        let hub = Arc::new(Self {
             inner: Mutex::new(HubInner {
                 store: loaded.store,
                 sessions: loaded.sessions,
                 attached: BTreeMap::new(),
+                running: BTreeMap::new(),
             }),
-            backends,
-        }))
+            registry,
+            events,
+        });
+        Ok((hub, produced))
+    }
+
+    /// Take one event a backend produced and put it through the same
+    /// critical section every other persisted event goes through.
+    ///
+    /// This is the whole of the backend-to-client path, and it is one
+    /// function on purpose. The `await` that waited for the event happened in
+    /// [`pump`], outside the lock; everything from stamping the turn to
+    /// queueing the event for each attached client happens inside it and
+    /// awaits nothing. So a backend's output is ordered against every other
+    /// client's replay exactly the way a frame's output already was.
+    pub fn absorb(&self, message: BackendMessage) {
+        let now = now_ms();
+        let mut inner = self.lock();
+        let Some(session) = inner.sessions.get(&message.conversation) else {
+            tracing::warn!(
+                conversation = %message.conversation,
+                "a backend produced an event for a thread that is gone"
+            );
+            return;
+        };
+        // Stamped before the store sees it, because `turn` is part of the
+        // bytes that get written, and dropped here rather than recorded when
+        // the session says the event has no turn to belong to.
+        let Some(body) = session.adopt(message.body, now) else {
+            return;
+        };
+        if let Err(err) = Self::emit(&mut inner, message.conversation, body, now) {
+            // Nothing to answer to: the event came from a backend, not from
+            // a client, so there is no connection whose `store` error this
+            // would be. The journal is the only place it can go.
+            tracing::error!(error = %chain(&err), "cannot record a backend event");
+        }
     }
 
     /// Take the lock, recovering from a poisoned one.
@@ -338,7 +398,7 @@ impl Hub {
                         return outbox.bad_request(message);
                     }
                 }
-                Self::spawn_backend(&mut inner, outbox, conversation, now)
+                self.send(&mut inner, outbox, conversation, blocks, now)
             }
             ClientFrame::Interrupt { conversation } => {
                 let Some(session) = inner.sessions.get_mut(&conversation) else {
@@ -350,6 +410,10 @@ impl Hub {
                 let Some(body) = session.interrupt(now) else {
                     return true;
                 };
+                // Tell the backend before the event goes out, so the CLI is
+                // already withdrawing its permission prompt by the time the
+                // pane sees the turn close.
+                inner.command(conversation, BackendCommand::Interrupt);
                 match Self::emit(&mut inner, conversation, body, now) {
                     Ok(()) => true,
                     Err(err) => outbox.store_failure(&err),
@@ -358,7 +422,10 @@ impl Hub {
             ClientFrame::Permission {
                 conversation,
                 request,
-                ..
+                decision,
+                scope,
+                updated_input,
+                message,
             } => {
                 let Some(session) = inner.sessions.get_mut(&conversation) else {
                     return outbox.bad_request(format!("unknown conversation {conversation}"));
@@ -370,8 +437,19 @@ impl Hub {
                         "no permission request {request:?} is open on {conversation}"
                     ));
                 }
-                // The decision has nowhere to go until a backend is running,
-                // so the backend phase hooks its control_response in here.
+                // Sending is synchronous and non-blocking, so the relay costs
+                // the lock nothing. The harness turns this into a
+                // control_response; a provider hands it to policy.rs.
+                inner.command(
+                    conversation,
+                    BackendCommand::Permission {
+                        request,
+                        decision,
+                        scope,
+                        updated_input,
+                        message,
+                    },
+                );
                 true
             }
             ClientFrame::Delete { conversation } => {
@@ -382,6 +460,12 @@ impl Hub {
                     return outbox.store_failure(&err);
                 }
                 inner.sessions.remove(&conversation);
+                // Dropping the handle would close the channel on its own.
+                // Asking first gives the backend the chance to shut its child
+                // down rather than have it killed on drop.
+                inner.command(conversation, BackendCommand::Shutdown);
+                inner.running.remove(&conversation);
+                self.registry.forget_session(conversation);
                 outbox.reply(EventBody::Conversations {
                     items: inner.store.list(u32::MAX, None),
                 })
@@ -419,7 +503,11 @@ impl Hub {
                 seq_head: inner.store.seq_head(),
             })
             && outbox.reply(EventBody::Backends {
-                items: self.backends.clone(),
+                // Built per handshake rather than cached, so a provider that
+                // was `unconfigured` at startup and has since had its
+                // credential read reports `ready` to the next client that
+                // connects. Nothing here causes a keyring lookup.
+                items: self.registry.info(),
             });
         if alive {
             // A second hello replaces the first rather than doubling it.
@@ -429,16 +517,25 @@ impl Hub {
     }
 
     /// Persist a conversation event and queue it for every attached client.
+    ///
+    /// The store is written before the session is folded, and the order is
+    /// load-bearing. Phase 1 had it the other way round, which was safe only
+    /// because every call site checked `store.contains` or `sessions.get_mut`
+    /// first. Phase 2 adds many more emit sites, one of them a pump reading
+    /// a channel a deleted thread may still have events on, so the guarantee
+    /// is moved into this function rather than left as a rule each new caller
+    /// has to know. If `record` refuses, nothing was applied, and a reload
+    /// rebuilds exactly the state the transcript describes.
     fn emit(
         inner: &mut HubInner,
         conversation: Uuid,
         body: EventBody,
         now: u64,
     ) -> Result<(), AskError> {
-        if let Some(session) = inner.sessions.get_mut(&conversation) {
-            session.apply(&body);
-        }
         let event = Arc::new(inner.store.record(conversation, body, now)?);
+        if let Some(session) = inner.sessions.get_mut(&conversation) {
+            session.apply(&event.body);
+        }
         inner
             .attached
             .retain(|_, outbox| outbox.push(Arc::clone(&event)));
@@ -447,7 +544,7 @@ impl Hub {
 
     /// Create the thread an `op:"new"` names.
     fn new_thread(&self, inner: &mut HubInner, outbox: &Outbox, meta: ConversationMeta) -> bool {
-        if !self.backends.iter().any(|known| known.id == meta.backend) {
+        if !self.registry.contains(&meta.backend) {
             // Client garbage: no backend has spoken and no thread exists, so
             // there is nothing to persist the failure against.
             return outbox.bad_request(format!("unknown backend {:?}", meta.backend));
@@ -467,30 +564,147 @@ impl Hub {
         })
     }
 
-    /// Start the thread's backend, which this phase cannot do.
+    /// Record the user's message, start the backend if this is the first
+    /// send, and hand it the blocks.
+    ///
+    /// The `user_message` event goes out first and unconditionally, even when
+    /// the backend then fails to start. What the person typed is part of the
+    /// thread whether or not anything answered it, and a transcript that
+    /// drops the question on a spawn failure is the exact gap the event was
+    /// added to close.
+    fn send(
+        &self,
+        inner: &mut HubInner,
+        outbox: &Outbox,
+        conversation: Uuid,
+        blocks: Vec<SendBlock>,
+        now: u64,
+    ) -> bool {
+        let body = EventBody::UserMessage {
+            blocks: blocks.clone(),
+            sent_ms: now,
+        };
+        if let Err(err) = Self::emit(inner, conversation, body, now) {
+            return outbox.store_failure(&err);
+        }
+        if !self.ensure_backend(inner, outbox, conversation, now) {
+            return true;
+        }
+        if !inner.command(conversation, BackendCommand::Send { blocks }) {
+            // The task ended between the start and this send, which means
+            // the child died. The handle is dropped so the next send tries a
+            // fresh one rather than writing into a closed pipe forever.
+            inner.running.remove(&conversation);
+            return Self::spawn_failed(
+                inner,
+                outbox,
+                conversation,
+                "the backend stopped before it could take the message".to_owned(),
+                now,
+            );
+        }
+        true
+    }
+
+    /// Make sure the thread has a running backend, starting one on the first
+    /// `send`.
     ///
     /// The spec puts the spawn on the first `send` rather than on `new`, so
     /// this is where a spawn failure belongs, and it is conversation-scoped
     /// because a thread does exist to file it against.
-    fn spawn_backend(inner: &mut HubInner, outbox: &Outbox, conversation: Uuid, now: u64) -> bool {
-        let message = inner.store.meta(conversation).map_or_else(
-            || "no backend is configured for this thread".to_owned(),
-            |meta| {
-                format!(
-                    "backend {:?} did not start: it is not wired up yet",
-                    meta.backend
-                )
-            },
-        );
+    ///
+    /// Returns false when the backend could not be started, in which case
+    /// the `error` event has already been queued.
+    fn ensure_backend(
+        &self,
+        inner: &mut HubInner,
+        outbox: &Outbox,
+        conversation: Uuid,
+        now: u64,
+    ) -> bool {
+        if inner.running.contains_key(&conversation) {
+            return true;
+        }
+        let Some(meta) = inner.store.meta(conversation).cloned() else {
+            return Self::spawn_failed(
+                inner,
+                outbox,
+                conversation,
+                "no backend is configured for this thread".to_owned(),
+                now,
+            );
+        };
+        // Called under the lock, which is why `Backend::start` is a plain fn
+        // that returns as soon as the process is forked or the task is
+        // spawned. Nothing it does awaits.
+        match self.registry.start(
+            &meta.backend,
+            conversation,
+            meta.model.clone(),
+            &meta.cwd,
+            self.events.clone(),
+        ) {
+            Ok(handle) => {
+                inner.running.insert(conversation, handle);
+                true
+            }
+            Err(detail) => Self::spawn_failed(
+                inner,
+                outbox,
+                conversation,
+                format!("backend {:?} did not start: {detail}", meta.backend),
+                now,
+            ),
+        }
+    }
+
+    /// Raise the conversation-scoped `backend_spawn` for a thread that has
+    /// no backend behind it.
+    fn spawn_failed(
+        inner: &mut HubInner,
+        outbox: &Outbox,
+        conversation: Uuid,
+        message: String,
+        now: u64,
+    ) -> bool {
         let body = EventBody::Error {
             kind: ErrorKind::BackendSpawn,
             message,
             fatal: false,
         };
         match Self::emit(inner, conversation, body, now) {
-            Ok(()) => true,
-            Err(err) => outbox.store_failure(&err),
+            Ok(()) => false,
+            Err(err) => {
+                outbox.store_failure(&err);
+                false
+            }
         }
+    }
+}
+
+impl HubInner {
+    /// Hand one command to a thread's backend, if it has one running.
+    ///
+    /// Returns false when the thread has no backend or its task has ended.
+    /// The send itself is synchronous and non-blocking, which is what lets
+    /// this be called from inside the lock.
+    fn command(&mut self, conversation: Uuid, command: BackendCommand) -> bool {
+        self.running
+            .get(&conversation)
+            .is_some_and(|handle| handle.send(command))
+    }
+}
+
+/// Take events off the shared backend channel and put each through
+/// [`Hub::absorb`].
+///
+/// One task for every backend, rather than one per thread, so the ordering
+/// of persisted events across threads is decided in a single place. The
+/// `await` is here, outside the lock, and `absorb` takes the lock and
+/// releases it without awaiting anything.
+pub async fn pump(hub: Arc<Hub>, mut produced: mpsc::UnboundedReceiver<BackendMessage>) {
+    while let Some(message) = produced.recv().await {
+        hub.absorb(message);
     }
 }
 
@@ -512,6 +726,9 @@ pub struct Daemon {
     hub: Arc<Hub>,
     listener: UnixListener,
     socket: PathBuf,
+    /// The backend channel's receiving half, handed to [`pump`] by
+    /// [`Daemon::serve`].
+    produced: mpsc::UnboundedReceiver<BackendMessage>,
 }
 
 impl Daemon {
@@ -533,9 +750,9 @@ impl Daemon {
     pub fn bind(
         socket: PathBuf,
         state_root: PathBuf,
-        backends: Vec<BackendInfo>,
+        registry: Arc<Registry>,
     ) -> Result<Self, AskError> {
-        let hub = Hub::open(state_root, backends)?;
+        let (hub, produced) = Hub::open(state_root, registry)?;
         clear_socket_path(&socket)?;
         let listener = UnixListener::bind(&socket).map_err(|source| AskError::Bind {
             path: socket.clone(),
@@ -552,6 +769,7 @@ impl Daemon {
             hub,
             listener,
             socket,
+            produced,
         })
     }
 
@@ -568,6 +786,7 @@ impl Daemon {
     /// clear on their own.
     pub async fn serve(self) {
         tracing::info!(socket = %self.socket.display(), "dots-ask listening");
+        tokio::spawn(pump(Arc::clone(&self.hub), self.produced));
         loop {
             match self.listener.accept().await {
                 Ok((stream, _)) => {

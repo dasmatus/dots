@@ -319,6 +319,25 @@ pub enum EventBody {
         /// The highest persisted `seq` at connect time.
         seq_head: u64,
     },
+    /// The user's own message, persisted so a replay brings back the
+    /// question as well as the answer.
+    ///
+    /// Phase 1's persisted set ran `turn_start` to `turn_end` and carried
+    /// nothing for what the user typed, so reloading a thread produced
+    /// answers with no questions. The pane could have kept its own echoes,
+    /// but that would be a second transcript diverging from the daemon's
+    /// JSONL, so the record belongs here. Section 6 of the spec carries it
+    /// as an addition.
+    ///
+    /// It is emitted when a `send` is accepted, which puts it before the
+    /// `turn_start` it caused, and it carries no `turn` because at that
+    /// point no turn exists.
+    UserMessage {
+        /// The message body, in order, exactly as `op:"send"` carried it.
+        blocks: Vec<SendBlock>,
+        /// Unix milliseconds the daemon accepted the send.
+        sent_ms: u64,
+    },
     /// A turn opened.
     TurnStart {
         /// The turn this event belongs to.
@@ -517,7 +536,8 @@ impl EventBody {
                 EventScope::Connection
             }
             Self::Error { kind, .. } => kind.scope(),
-            Self::TurnStart { .. }
+            Self::UserMessage { .. }
+            | Self::TurnStart { .. }
             | Self::TextDelta { .. }
             | Self::ThinkingDelta { .. }
             | Self::CodeBlock { .. }

@@ -21,7 +21,12 @@ use uuid::Uuid;
 
 use miette::Diagnostic;
 
+pub mod backend;
+pub mod mcp;
+pub mod policy;
 pub mod proto;
+pub mod render;
+pub mod secrets;
 pub mod server;
 pub mod session;
 pub mod store;

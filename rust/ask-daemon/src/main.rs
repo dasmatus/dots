@@ -11,10 +11,15 @@
 //! for that would cost more than it explains.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use tracing_subscriber::EnvFilter;
 
-use ask_daemon::server::{default_socket_path, default_state_root, placeholder_backends, Daemon};
+use ask_daemon::backend::Registry;
+use ask_daemon::mcp::McpPool;
+use ask_daemon::policy::Policy;
+use ask_daemon::secrets::SecretStore;
+use ask_daemon::server::{default_policy_path, default_socket_path, default_state_root, Daemon};
 use ask_daemon::AskError;
 
 /// What the command line asked for.
@@ -76,8 +81,25 @@ async fn main() -> miette::Result<()> {
         None => default_state_root()?,
     };
 
+    let policy_path = default_policy_path()?;
+    tracing::info!(path = %policy_path.display(), "loading the approval store");
+    let policy = Arc::new(Mutex::new(Policy::open(policy_path)?));
+
+    // Discovery reads config files and starts nothing, so it is safe here.
+    // The one probe the registry does run is a local connect to ollama's
+    // 11434, which is bounded. Nothing touches the keyring: a locked
+    // collection would block this for ten seconds before the socket exists,
+    // which is what `secrets.rs` is written to avoid.
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let mcp = Arc::new(home.as_deref().map_or_else(McpPool::empty, |home| {
+        McpPool::discover(home, std::env::current_dir().ok().as_deref())
+    }));
+    let registry = Arc::new(
+        Registry::discover(Arc::new(SecretStore::default()), mcp, Arc::clone(&policy)).await,
+    );
+
     tracing::info!(state = %state_root.display(), "opening the conversation store");
-    let daemon = Daemon::bind(socket, state_root, placeholder_backends())?;
+    let daemon = Daemon::bind(socket, state_root, registry)?;
     daemon.serve().await;
     Ok(())
 }
