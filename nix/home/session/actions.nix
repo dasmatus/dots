@@ -650,17 +650,22 @@ let
     }
 
     # Print (no modifier) is the screenshot key; SUPER+SHIFT+S stays reserved
-    # for the magic special workspace (was double-bound in hyprlang). It grabs
-    # the focused output with hyprshot, which writes Screenshot_<stamp>.png
-    # into the xdg-user-dir PICTURES folder itself; notify-send surfaces the
-    # folder. SUPER+Print is the region variant. The command skips the notify
-    # if the capture failed. Both are also reachable from beamenu's System
-    # provider.
+    # for the magic special workspace (was double-bound in hyprlang).
+    # SUPER+Print selects a region, SUPER+SHIFT+Print picks a window — the one
+    # capture grim + slurp could not do, and the reason all three moved to
+    # hyprshot. Each saves into the xdg-user-dir PICTURES folder, copies the
+    # image to the clipboard and raises its own notification. The commands
+    # themselves live in nix/home/hyprland.nix, since hyprshot speaks
+    # Hyprland's own IPC. All three are also reachable from the launcher.
+    #
+    # `screenshot-output` says "focused output", not "whole screen": hyprshot
+    # grabs one monitor, where the grim call it replaces composited every
+    # output into a single image.
     {
       name = "screenshot-output";
       mods = [ ];
       key = "Print";
-      desc = "Screenshot (whole screen)";
+      desc = "Screenshot (focused output)";
       category = "session";
       kind = "action";
       dispatch = null;
@@ -672,6 +677,20 @@ let
       mods = [ "SUPER" ];
       key = "Print";
       desc = "Screenshot (select region)";
+      category = "session";
+      kind = "action";
+      dispatch = null;
+      repeating = false;
+      mouse = false;
+    }
+    {
+      name = "screenshot-window";
+      mods = [
+        "SUPER"
+        "SHIFT"
+      ];
+      key = "Print";
+      desc = "Screenshot (pick a window)";
       category = "session";
       kind = "action";
       dispatch = null;

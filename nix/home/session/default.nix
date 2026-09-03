@@ -7,9 +7,10 @@
 #
 # This module is WM-agnostic on purpose: it takes no WM-specific argument and
 # reaches for no WM-specific package, so it evaluates on its own with no
-# tiling WM in scope at all. One `execDefaults` entry this table describes —
-# `reload` — is Hyprland-only, and is therefore not defined here; see the
-# `exec` option's description below for where it actually comes from.
+# tiling WM in scope at all. Four `execDefaults` entries this table describes
+# — `reload` and the three `screenshot-*` actions — are Hyprland-only, and are
+# therefore not defined here; see the `exec` option's description below for
+# where they actually come from.
 #
 # Quickshell is deliberately NOT one of the daemons this module generates a
 # unit for, even though it is exactly the kind of long-running, no-key thing
@@ -47,40 +48,6 @@ let
   qs = lib.getExe' pkgs.quickshell "qs";
   systemctl = lib.getExe' pkgs.systemd "systemctl";
 
-  # Both screenshot binds are shell pipelines (capture, then notify), so
-  # systemd cannot take them as a bare ExecStart — built the same way
-  # nix/home/dots-repo.nix builds its clone script, as a derivation whose own
-  # store path is the executable. Every binary inside is an absolute store
-  # path: this script's ExecStart context is a `dots-<name>@.service`
-  # instance, not an interactive shell, so nothing on $PATH can be assumed.
-  #
-  # This replaces `hyprshot`, which is not packaged anywhere in this repo (so
-  # both binds were already dead) and only speaks Hyprland's own IPC; grim +
-  # slurp work on any wlroots compositor.
-  mkScreenshotScript =
-    { name, grim }:
-    pkgs.writeShellScript "dots-${name}" ''
-      set -euo pipefail
-      pictures="$(${lib.getExe' pkgs.xdg-user-dirs "xdg-user-dir"} PICTURES 2> /dev/null || true)"
-      pictures="''${pictures:-$HOME/Pictures}"
-      ${lib.getExe' pkgs.coreutils "mkdir"} -p "$pictures"
-      # hyprshot's own default stamp format, kept for continuity with what
-      # this replaces.
-      file="$pictures/Screenshot_$(${lib.getExe' pkgs.coreutils "date"} +%Y-%m-%d-%H%M%S).png"
-      ${grim} "$file"
-      ${lib.getExe pkgs.libnotify} "Screenshot saved in $pictures"
-    '';
-
-  screenshotOutput = mkScreenshotScript {
-    name = "screenshot-output";
-    # No `-o`: captures every output composited, matching "whole screen".
-    grim = lib.getExe pkgs.grim;
-  };
-  screenshotRegion = mkScreenshotScript {
-    name = "screenshot-region";
-    grim = ''${lib.getExe pkgs.grim} -g "$(${lib.getExe pkgs.slurp})"'';
-  };
-
   # The command line for every non-dispatch, non-`lock` action that has one.
   # Keyed by `name` (actions.nix's join key), never by `dispatch`. No
   # `quickshell` entry: that daemon's unit lives in
@@ -102,8 +69,6 @@ let
     settings-toggle = "${qs} ipc call settings toggle";
     wallpaper-toggle = "${qs} ipc call wallpaper toggle";
     arrange-toggle = "${qs} ipc call arrange toggle";
-    screenshot-output = "${screenshotOutput}";
-    screenshot-region = "${screenshotRegion}";
     volume-mute = "${qs} ipc call osd volumeMute";
     mic-mute = "${qs} ipc call osd micToggle";
     touchpad-toggle = "${qs} ipc call osd touchpadToggle";
@@ -268,14 +233,16 @@ in
         Command line for an actions.nix entry, keyed by `name`. Every
         non-dispatch action needs one of `exec` or `commands`; `lock` is the
         one exception, deliberately absent here (see `commands.lock`).
-        `reload` is the one entry this module does not supply: it is a
-        Hyprland-only command (`hyprctl reload`), so nix/home/hyprland.nix
-        contributes it directly as its own ordinary assignment to this same
-        `attrsOf str` option — see the comment on `default` above for why
-        that has to be a plain assignment on both sides rather than living
-        in either module's inline `default`. A second WM module (e.g. a
-        future sway.nix) does the same for whichever entries it owns, with
-        `lib.mkForce` where it needs to replace one rather than add it.
+        `reload` and the three `screenshot-*` actions are the entries this
+        module does not supply: they are Hyprland-only commands (`hyprctl
+        reload`, and hyprshot, which speaks Hyprland's own IPC), so
+        nix/home/hyprland.nix contributes them directly as its own ordinary
+        assignment to this same `attrsOf str` option — see the comment on
+        `default` above for why that has to be a plain assignment on both
+        sides rather than living in either module's inline `default`. A
+        second WM module (e.g. a future sway.nix) does the same for
+        whichever entries it owns, with `lib.mkForce` where it needs to
+        replace one rather than add it.
       '';
     };
 

@@ -3,7 +3,7 @@
 # nix/home/hyprland.nix). Eval-only, in the style of `settings-eval` and
 # `facter-stub-eval` in flake/checks.nix: no VM, no activation, just a
 # standalone `home-manager.lib.homeManagerConfiguration` evaluated far enough
-# to read `.config` back out, then five `assert`s over it.
+# to read `.config` back out, then seven `assert`s over it.
 #
 # Built on a standalone home-manager configuration rather than
 # `nixosConfigurations.tokyonight` because the latter cannot evaluate here at
@@ -178,6 +178,28 @@ let
   # theme, which ignores qt6ct and Kvantum outright and would silently strand
   # the wallpaper-accent retint in nix/home/quickshell/qml/wallpaper/Kvantum.qml.
   qtPlatformTheme = sessionVars.QT_QPA_PLATFORMTHEME or null;
+
+  # --- 7. Screenshot units don't get torn down mid-write. -------------------
+  # hyprshot's last line backgrounds the actual grab and races it against a
+  # foreground watcher, `checkRunning` (.hyprshot-wrapped:132-140), that
+  # sleeps one second and then exits the instant `slurp` is gone
+  # (.hyprshot-wrapped:309) — while `grim`, `wl-copy` and `notify-send` are
+  # still running. Under systemd's default KillMode=control-group, the whole
+  # cgroup is torn down with the process it was tracking: the unit reports
+  # success and no file appears. `KillMode = "process"` on every
+  # `dots-screenshot-*` unit (nix/home/hyprland.nix's job to set) is what
+  # keeps the capture alive long enough to finish.
+  screenshotUnits = lib.filterAttrs (name: _: lib.hasPrefix "dots-screenshot-" name) (
+    cfg.systemd.user.services
+  );
+  unprotectedScreenshotUnits = lib.filterAttrs (
+    _: unit: (unit.Service.KillMode or "control-group") != "process"
+  ) screenshotUnits;
+  unprotectedScreenshotUnitsMsg = lib.concatStringsSep ", " (
+    lib.mapAttrsToList (
+      name: unit: "${name} (KillMode = ${unit.Service.KillMode or "control-group"})"
+    ) unprotectedScreenshotUnits
+  );
 in
 assert lib.assertMsg (relativeExecStarts == { })
   "tests/session-units.nix: dots-* systemd unit(s) with a non-absolute ExecStart: ${relativeExecStartsMsg}. systemd refuses a relative ExecStart, so this unit never runs.";
@@ -205,6 +227,10 @@ assert lib.assertMsg (qtPlatformTheme == "qt5ct") ''
   dots.session.sessionVariables — defining it in both is an eval conflict that
   takes the whole `nixos-rebuild` down, and "gtk3" in particular bypasses
   qt6ct and Kvantum and breaks the wallpaper retint.'';
+assert lib.assertMsg (unprotectedScreenshotUnits == { })
+  "tests/session-units.nix: dots-screenshot-* unit(s) without KillMode = \"process\": ${unprotectedScreenshotUnitsMsg}. hyprshot's checkRunning watcher (.hyprshot-wrapped:132-140) exits the instant slurp is gone while grim/wl-copy/notify-send are still writing, and systemd's default KillMode=control-group tears down the whole cgroup with the process it tracked — silent data loss. nix/home/hyprland.nix is where KillMode = \"process\" belongs.";
+assert lib.assertMsg (screenshotUnits != { })
+  "tests/session-units.nix: found no dots-screenshot-* unit(s) at all — check 7 would pass vacuously if the screenshot actions were renamed out from under it.";
 pkgs.writeText "session-units-ok" ''
   execstart-absolute
   app-action-templated
@@ -212,4 +238,5 @@ pkgs.writeText "session-units-ok" ''
   hyprland-lua-clean
   session-variables-intact
   qt-platform-theme-unclaimed
+  screenshot-units-protected
 ''
