@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use miette::Diagnostic;
 
 pub mod proto;
+pub mod server;
 pub mod session;
 pub mod store;
 
@@ -71,6 +72,20 @@ pub enum AskError {
         path: PathBuf,
         /// What the filesystem said.
         source: io::Error,
+    },
+
+    /// Another daemon already answers on the socket.
+    ///
+    /// This is the case the stale-socket unlink must not swallow. Unlinking
+    /// blind would steal the socket from a live daemon and leave the pane
+    /// talking to whichever process bound it last.
+    #[diagnostic(
+        code(dots_ask::already_running),
+        help("stop the running dots-ask first, or pass --socket <path> for a second one")
+    )]
+    AlreadyRunning {
+        /// The socket somebody else is serving.
+        path: PathBuf,
     },
 
     /// The listener could not bind.
@@ -160,6 +175,9 @@ impl fmt::Display for AskError {
             Self::RemoveStaleSocket { path, .. } => {
                 write!(f, "cannot remove the stale socket at {}", path.display())
             }
+            Self::AlreadyRunning { path } => {
+                write!(f, "another dots-ask is already serving {}", path.display())
+            }
             Self::Bind { path, .. } => write!(f, "cannot bind {}", path.display()),
             Self::SocketMode { path, .. } => {
                 write!(f, "cannot set mode 0600 on {}", path.display())
@@ -178,7 +196,10 @@ impl fmt::Display for AskError {
 impl Error for AskError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::NoRuntimeDir | Self::NoDataHome | Self::Usage { .. } => None,
+            Self::NoRuntimeDir
+            | Self::NoDataHome
+            | Self::AlreadyRunning { .. }
+            | Self::Usage { .. } => None,
             Self::CreateDir { source, .. }
             | Self::RemoveStaleSocket { source, .. }
             | Self::Bind { source, .. }

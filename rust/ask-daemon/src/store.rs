@@ -53,9 +53,13 @@ pub struct Loaded {
     pub store: Store,
     /// One session per thread in the index, folded from its transcript.
     pub sessions: BTreeMap<Uuid, Session>,
-    /// The `turn_end` events written to close turns a restart killed. They
-    /// are already on disk and already counted; the server broadcasts them
-    /// so a client attached later sees the same history.
+    /// The `turn_end` events written to close turns a restart killed.
+    ///
+    /// They are already on disk, so nothing has to send them: recovery
+    /// finishes before the listener binds, no client can be attached, and
+    /// every client that connects afterwards picks them up in the ordinary
+    /// `hello` replay. They are handed back so the caller can say how many
+    /// turns a restart cut short.
     pub recovered: Vec<ServerEvent>,
 }
 
