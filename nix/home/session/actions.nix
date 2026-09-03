@@ -196,12 +196,6 @@ let
       repeating = false;
       mouse = false;
     }
-    # The settings form (rust/settings-global, rendered by the shell). This
-    # bind was retired when the settings menu became a beamenu plugin
-    # answering the `set ` keyword, on the grounds that one door into the
-    # launcher beat three. That keyword went with beamenu, and a form the
-    # shell draws itself has no launcher row to hide behind, so the direct
-    # bind comes back.
     # The AI side pane (nix/home/quickshell/qml/ask). The bind exists whatever
     # the dots.ai toggles say, and the pane gates itself on the generated
     # ask/backends.json: with every toggle off this key does nothing at all
@@ -219,6 +213,12 @@ let
       repeating = false;
       mouse = false;
     }
+    # The settings form (rust/settings-global, rendered by the shell). This
+    # bind was retired when the settings menu became a beamenu plugin
+    # answering the `set ` keyword, on the grounds that one door into the
+    # launcher beat three. That keyword went with beamenu, and a form the
+    # shell draws itself has no launcher row to hide behind, so the direct
+    # bind comes back.
     {
       name = "settings-toggle";
       mods = [ "SUPER" ];

@@ -26,6 +26,12 @@
 // op:"open" never re-sends what the client already holds, because open passes
 // the conversation's own highest seq and the daemon sends strictly greater.
 //
+// NOTHING DIALS UNTIL THE PANE SAYS SO. This singleton never opens the socket
+// on its own. Ask.qml calls enable() once ask/backends.json turns out to hold
+// a backend, so a machine with every dots.ai toggle off opens no socket and
+// re-dials nothing for the life of the session. The gate stays in the file
+// that already reads it rather than being tested for a second time here.
+//
 // INJECTABLE. ingestEvent() and ingestLine() are public and know nothing about
 // the socket, so a test drives an event sequence straight into the model with
 // no daemon running. tst_ask_stream.qml uses the same ask.js entry point the
@@ -188,11 +194,52 @@ Singleton {
         onTriggered: root.flushPending()
     }
 
-    // How long the next re-dial waits. Doubles per failure to 30s and resets
-    // on a connection, so a daemon that is briefly down comes back fast and one
-    // that is not installed at all costs a dial every half minute rather than a
-    // tight loop.
+    // How long the next re-dial waits. Doubles per failed attempt to 30s and
+    // resets on a connection, so a daemon that is briefly down comes back fast
+    // and one that is not installed at all costs a dial every half minute
+    // rather than a tight loop.
     property int backoffMs: 500
+
+    // Whether anything wants a connection at all. False until the pane opens
+    // the gate, so a machine with every dots.ai toggle off never opens a
+    // socket and never re-dials.
+    //
+    // The gate itself stays in Ask.qml, which is the only thing that reads
+    // ask/backends.json. This singleton is told, rather than reading the file
+    // a second time, so the toggle decision keeps exactly one home.
+    property bool enabled: false
+
+    function enable(): void {
+        if (root.enabled)
+            return;
+
+        root.enabled = true;
+        root.dial();
+    }
+
+    // Dials, unless there is nothing to dial or nobody asking. Dialing an
+    // empty path fails, and the failure would start the backoff running
+    // against a socket that was never going to answer.
+    function dial(): void {
+        if (!root.enabled || root.socketPath === "")
+            return;
+
+        socket.connected = true;
+    }
+
+    // Schedules one re-dial and backs off exactly once for it.
+    //
+    // A refused connection raises BOTH onError and onConnectionStateChanged,
+    // so doubling in each handler grew the wait 4x per attempt while the
+    // comment above promised 2x. Leaving an already-scheduled redial alone is
+    // what makes the two handlers idempotent for a single failure.
+    function retry(): void {
+        if (redial.running)
+            return;
+
+        root.backoffMs = Math.min(root.backoffMs * 2, 30000);
+        redial.restart();
+    }
 
     Timer {
         id: redial
@@ -200,10 +247,7 @@ Singleton {
         interval: root.backoffMs
         repeat: false
 
-        onTriggered: {
-            if (root.socketPath !== "")
-                socket.connected = true;
-        }
+        onTriggered: root.dial()
     }
 
     Socket {
@@ -221,6 +265,7 @@ Singleton {
         onConnectionStateChanged: {
             if (socket.connected) {
                 root.backoffMs = 500;
+                redial.stop();
                 root.sendFrame(Ask.helloFrame(root.state.lastSeq));
                 root.list();
 
@@ -230,26 +275,13 @@ Singleton {
                 return;
             }
 
-            root.backoffMs = Math.min(root.backoffMs * 2, 30000);
-            redial.restart();
+            root.retry();
         }
 
         // QLocalSocket::LocalSocketError is not a type Quickshell exports, the
         // same gap Devices.qml works around for QProcess::ExitStatus.
         // qmllint disable signal-handler-parameters
-        onError: error => {
-            root.backoffMs = Math.min(root.backoffMs * 2, 30000);
-            redial.restart();
-        }
+        onError: error => root.retry()
         // qmllint enable signal-handler-parameters
-    }
-
-    // The first dial. Deferred to a component completion rather than
-    // `connected: true` on the Socket itself so `socketPath` is already
-    // resolved: dialing an empty path fails, and the failure would set the
-    // backoff going before there was anything to reach.
-    Component.onCompleted: {
-        if (root.socketPath !== "")
-            socket.connected = true;
     }
 }

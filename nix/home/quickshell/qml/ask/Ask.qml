@@ -129,6 +129,19 @@ Scope {
         return root.gate.length > 0;
     }
 
+    // The same gate, applied to the socket. AskBus does not dial until this
+    // fires, so a machine with every toggle off never opens a connection and
+    // never re-dials for the life of the session. The bus is told rather than
+    // reading backends.json itself, which keeps one gate in one file.
+    //
+    // Driven by the change signal rather than by Component.onCompleted because
+    // FileView loads asynchronously: the list is empty at completion whether
+    // or not there is anything in it.
+    onGateChanged: {
+        if (root.enabled())
+            AskBus.enable();
+    }
+
     function open(): void {
         if (!root.enabled())
             return;
@@ -152,6 +165,20 @@ Scope {
 
         root.conversation = AskBus.create(root.backend, root.model, Quickshell.env("HOME") ?? "/");
         root.persist();
+    }
+
+    // Deletes a thread, and lets go of it first when it is the open one.
+    //
+    // Without the check the pane keeps rendering rows for a thread the daemon
+    // has just dropped, and persist() writes the dead id into session.json for
+    // the next session to try to restore.
+    function forget(conversation: string): void {
+        if (root.conversation === conversation) {
+            root.conversation = "";
+            root.persist();
+        }
+
+        AskBus.remove(conversation);
     }
 
     function pick(conversation: string): void {
@@ -274,7 +301,7 @@ Scope {
                     current: root.conversation
 
                     onPicked: conversation => root.pick(conversation)
-                    onRemoved: conversation => AskBus.remove(conversation)
+                    onRemoved: conversation => root.forget(conversation)
                     onCreated: root.startThread()
                 }
 
@@ -340,12 +367,17 @@ Scope {
                         onSubmitted: text => root.ask(text)
                         onInterrupted: AskBus.interrupt(root.conversation)
 
-                        // A backend swap starts a new thread rather than
+                        // A real backend swap starts a new thread rather than
                         // moving this one: the harness has to be respawned with
                         // a different argv, so a thread cannot change backend
                         // mid-flight and pretending otherwise would silently
-                        // drop the history.
+                        // drop the history. Clicking the pill that is already
+                        // active is not a swap, and must not abandon the open
+                        // thread on its way to changing nothing.
                         onBackendPicked: id => {
+                            if (id === root.backend)
+                                return;
+
                             root.backend = id;
                             root.model = "";
                             root.conversation = "";

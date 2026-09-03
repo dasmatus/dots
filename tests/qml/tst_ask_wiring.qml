@@ -127,8 +127,109 @@ TestCase {
 
         const state = Scan.blockAfter(source, "onConnectionStateChanged: {");
         verify(state.indexOf("Ask.helloFrame(root.state.lastSeq)") !== -1, "every connection opens with hello carrying the highest seq already rendered");
-        verify(state.indexOf("redial.restart()") !== -1, "a dropped connection has to re-dial, or the pane goes quiet for the session");
-        verify(state.indexOf("root.backoffMs * 2") !== -1, "and back off, so a daemon that is not installed costs one dial a half minute");
+        verify(state.indexOf("root.retry()") !== -1, "a dropped connection has to re-dial, or the pane goes quiet for the session");
+    }
+
+    // A refused connection raises both onError and onConnectionStateChanged.
+    // Doubling in each handler grows the wait 4x per attempt while the comment
+    // beside it promises 2x, so both go through one scheduler that leaves an
+    // already-armed redial alone.
+    function test_one_failed_dial_backs_off_exactly_once() {
+        const source = busSource();
+        const retry = Scan.blockAfter(source, "function retry(): void {");
+
+        verify(retry !== "", "AskBus must funnel both failure paths through retry()");
+        verify(retry.indexOf("if (redial.running)") !== -1, "a redial already scheduled must not be backed off a second time for the same failure");
+        verify(retry.indexOf("root.backoffMs * 2") !== -1, "and the backoff still has to double per attempt");
+        verify(retry.indexOf("30000") !== -1, "capped, so a daemon that is not installed costs one dial a half minute");
+
+        // Exactly one place multiplies the backoff. Two would be the bug this
+        // test exists to stop, whatever the handlers happen to look like.
+        const doublings = source.split("backoffMs * 2").length - 1;
+        compare(doublings, 1, "exactly one place may double the backoff");
+    }
+
+    // With every dots.ai toggle off there is no daemon to reach, so the shell
+    // must not open a socket or re-dial for the life of the session. The gate
+    // itself stays in Ask.qml so the toggle decision has one home.
+    function test_the_socket_does_not_dial_until_the_gate_opens() {
+        const bus = busSource();
+        const dial = Scan.blockAfter(bus, "function dial(): void {");
+
+        verify(dial !== "", "AskBus must route every dial through one function");
+        verify(dial.indexOf("if (!root.enabled") !== -1, "and refuse to dial before the gate is open");
+        verify(bus.indexOf("Component.onCompleted") === -1, "the bus must not dial itself on completion: it cannot see the gate");
+
+        const pane = paneSource();
+        const gate = Scan.blockAfter(pane, "onGateChanged: {");
+
+        verify(gate !== "", "Ask must open the gate when backends.json arrives");
+        verify(gate.indexOf("AskBus.enable()") !== -1, "by telling the bus, rather than the bus reading backends.json a second time");
+        verify(gate.indexOf("root.enabled()") !== -1, "and only when the toggle list is non-empty");
+    }
+
+    // A Flickable has no implicit height, so a card that measures itself
+    // through a layout whose body is one measures its header alone. DiffView
+    // shipped that way and rendered as a no-op. tst_ask_layout.qml proves the
+    // rule; this pins the file to it.
+    function test_the_diff_card_sums_its_body_height() {
+        const source = readSource("../../nix/home/quickshell/qml/ask/DiffView.qml");
+        const line = /implicitHeight:[^\n]*/.exec(source);
+
+        verify(line !== null, "DiffView must declare an implicitHeight");
+        verify(line[0].indexOf("body.implicitHeight") !== -1, "it has to sum the body's own implicitHeight: a fill-height Flickable contributes zero and the diff is clipped away");
+        verify(line[0].indexOf("Theme.askCodeMaxHeight") !== -1, "and still cap, or a long diff grows without bound");
+    }
+
+    // The same rule, on the component that already got it right, so a later
+    // edit cannot quietly regress CodeBlock into DiffView's old shape.
+    function test_the_code_card_sums_its_body_height() {
+        const source = readSource("../../nix/home/quickshell/qml/ask/CodeBlock.qml");
+        const line = /implicitHeight:[^\n]*/.exec(source);
+
+        verify(line !== null, "CodeBlock must declare an implicitHeight");
+        verify(line[0].indexOf("body.implicitHeight") !== -1, "summed from the body, for the same reason DiffView has to");
+    }
+
+    // Assigning a JS array of a different length to `model` is a model reset:
+    // it tears down the visible delegates and snaps contentY to 0. The fold
+    // appends a row per block, tool call and status line, so a reader who
+    // scrolled up got thrown to the top several times a turn.
+    function test_the_thread_does_not_use_a_bare_array_model() {
+        const source = readSource("../../nix/home/quickshell/qml/ask/Thread.qml");
+
+        verify(/model:\s*root\.rows\b/.test(source) === false, "model: root.rows resets the view on every append and must not come back");
+        verify(source.indexOf("model: ListModel {") !== -1, "the model has to be a ListModel, whose appends are insertions rather than resets");
+
+        const sync = Scan.blockAfter(source, "function sync(): void {");
+        verify(sync !== "", "Thread must sync the backing model to the row count");
+        verify(sync.indexOf("backing.append(") !== -1, "growing by append");
+        verify(sync.indexOf("backing.remove(") !== -1, "and shrinking by remove, never by replacing the model");
+
+        const delegate = Scan.blockAfter(source, "delegate: Message {");
+        verify(delegate.indexOf("root.rows[index]") !== -1, "the delegate reads the real row out of the array by index, since the model carries only a count");
+    }
+
+    // Deleting the open thread has to let go of it. Otherwise the pane keeps
+    // rendering a thread the daemon dropped, and persist() writes the dead id
+    // into session.json for the next session to restore.
+    function test_deleting_the_open_thread_clears_it() {
+        const block = Scan.blockAfter(paneSource(), "function forget(conversation: string): void {");
+
+        verify(block !== "", "Ask must define forget()");
+        verify(block.indexOf("root.conversation === conversation") !== -1, "deleting the open thread has to be told apart from deleting another one");
+        verify(block.indexOf("root.persist()") !== -1, "and the cleared id has to reach session.json, or the next session restores a dead thread");
+        verify(block.indexOf("AskBus.remove(conversation)") !== -1, "the daemon still has to be told");
+    }
+
+    // Clicking the already-active backend pill is not a swap, and must not
+    // abandon the open thread on its way to changing nothing.
+    function test_repicking_the_same_backend_keeps_the_thread() {
+        const block = Scan.blockAfter(paneSource(), "onBackendPicked: id => {");
+
+        verify(block !== "", "Ask must handle onBackendPicked");
+        verify(block.indexOf("if (id === root.backend)") !== -1, "re-picking the active backend has to return early");
+        verify(block.indexOf('root.conversation = ""') !== -1, "a real swap still starts a new thread, since the harness respawns with different argv");
     }
 
     // op:"open" never re-sends what the client already holds. Passing null
@@ -183,48 +284,6 @@ TestCase {
         verify(source.indexOf("Text.RichText") !== -1, "the pre-rendered html is drawn as rich text");
         verify(source.indexOf("Quickshell.clipboardText = root.source") !== -1, "copying must take the plain source, since copying the rich text would paste markup");
         verify(source.indexOf("Text.StyledText") === -1, "the plain fallback is raw source and StyledText would read an angle bracket in it as a tag");
-    }
-
-    // A Flickable has no implicit height, so a card that measures itself
-    // through a layout whose body is one measures its header alone. DiffView
-    // shipped that way and rendered as a no-op. tst_ask_layout.qml proves the
-    // rule; this pins the file to it.
-    function test_the_diff_card_sums_its_body_height() {
-        const source = readSource("../../nix/home/quickshell/qml/ask/DiffView.qml");
-        const line = /implicitHeight:[^\n]*/.exec(source);
-
-        verify(line !== null, "DiffView must declare an implicitHeight");
-        verify(line[0].indexOf("body.implicitHeight") !== -1, "it has to sum the body's own implicitHeight: a fill-height Flickable contributes zero and the diff is clipped away");
-        verify(line[0].indexOf("Theme.askCodeMaxHeight") !== -1, "and still cap, or a long diff grows without bound");
-    }
-
-    // The same rule, on the component that already got it right, so a later
-    // edit cannot quietly regress CodeBlock into DiffView's old shape.
-    function test_the_code_card_sums_its_body_height() {
-        const source = readSource("../../nix/home/quickshell/qml/ask/CodeBlock.qml");
-        const line = /implicitHeight:[^\n]*/.exec(source);
-
-        verify(line !== null, "CodeBlock must declare an implicitHeight");
-        verify(line[0].indexOf("body.implicitHeight") !== -1, "summed from the body, for the same reason DiffView has to");
-    }
-
-    // Assigning a JS array of a different length to `model` is a model reset:
-    // it tears down the visible delegates and snaps contentY to 0. The fold
-    // appends a row per block, tool call and status line, so a reader who
-    // scrolled up got thrown to the top several times a turn.
-    function test_the_thread_does_not_use_a_bare_array_model() {
-        const source = readSource("../../nix/home/quickshell/qml/ask/Thread.qml");
-
-        verify(/model:\s*root\.rows\b/.test(source) === false, "model: root.rows resets the view on every append and must not come back");
-        verify(source.indexOf("model: ListModel {") !== -1, "the model has to be a ListModel, whose appends are insertions rather than resets");
-
-        const sync = Scan.blockAfter(source, "function sync(): void {");
-        verify(sync !== "", "Thread must sync the backing model to the row count");
-        verify(sync.indexOf("backing.append(") !== -1, "growing by append");
-        verify(sync.indexOf("backing.remove(") !== -1, "and shrinking by remove, never by replacing the model");
-
-        const delegate = Scan.blockAfter(source, "delegate: Message {");
-        verify(delegate.indexOf("root.rows[index]") !== -1, "the delegate reads the real row out of the array by index, since the model carries only a count");
     }
 
     // tree.nix owns the generated data files. backends.json has to be

@@ -376,6 +376,17 @@ TestCase {
 
         compare(rowsOfKind(state, "status")[0].stop, "interrupted", "a turn whose turn_start was never replayed still has to end");
         compare(Ask.rowsOf(state, conversation).length, 2, "and its text still has to render");
+
+        // The half this test is named for and used to skip. Dropping the usage
+        // record is what correction 2 in a2d4edd actually fixed, and asserting
+        // only the status row left that fix uncovered.
+        const usage = state.threads[conversation].turns[turn].usage;
+
+        verify(usage !== null && usage !== undefined, "the usage for a turn whose turn_start was never replayed must still be recorded");
+        compare(usage.outputTokens, 811);
+        compare(usage.cacheReadTokens, 83100);
+        compare(usage.costUsd, 0.186745);
+        compare(state.threads[conversation].turns[turn].stop, "interrupted", "and the stop has to land on the same record the usage did");
     }
 
     // A backend with no estimate sends tokens null, and that must not wipe a
