@@ -191,6 +191,170 @@ impl Session {
         Some(body)
     }
 
+    /// Stamp a backend-produced event with this session's turn, or drop it.
+    ///
+    /// A backend knows what it produced but not which turn the daemon is
+    /// calling it, because the turn id is minted here and never leaves. So a
+    /// backend emits bodies with `turn: None` and this fills them in, which
+    /// keeps the turn machinery in one file and stops an adapter inventing a
+    /// turn the pane never saw open.
+    ///
+    /// Three cases have no event behind them and return `None`:
+    ///
+    /// - A `turn_start` while a turn is already running. A backend speaks one
+    ///   turn at a time, and a second one would leave the first with no
+    ///   `turn_end`, which is the exact shape restart recovery repairs.
+    /// - A `turn_end` while nothing is running, so a stray `result` cannot
+    ///   close a turn twice.
+    /// - Anything else while nothing is running, because a delta with no
+    ///   turn behind it is a decoder bug rather than something to persist.
+    ///   The two correlate-by-`call` events and `error` are exempt: they
+    ///   carry no `turn` and can legitimately arrive between turns.
+    ///
+    /// This does not mutate the session. The caller records the returned
+    /// body first and folds it in only once the store has taken it, so a
+    /// store failure cannot leave the in-memory session ahead of the
+    /// transcript.
+    #[must_use]
+    pub fn adopt(&self, body: EventBody, now_ms: u64) -> Option<EventBody> {
+        match body {
+            EventBody::TurnStart {
+                backend,
+                model,
+                started_ms,
+                ..
+            } => {
+                if matches!(self.turn, TurnState::Running { .. }) {
+                    tracing::warn!(
+                        conversation = %self.id,
+                        "dropping a turn_start while a turn is already running"
+                    );
+                    return None;
+                }
+                Some(EventBody::TurnStart {
+                    turn: Some(Uuid::new_v4()),
+                    backend,
+                    model,
+                    started_ms,
+                })
+            }
+            EventBody::TurnEnd { stop, text, .. } => {
+                let TurnState::Running { turn, started_ms } = self.turn else {
+                    tracing::debug!(
+                        conversation = %self.id,
+                        "dropping a turn_end with no turn running"
+                    );
+                    return None;
+                };
+                Some(EventBody::TurnEnd {
+                    turn,
+                    stop,
+                    text,
+                    duration_ms: now_ms.saturating_sub(started_ms),
+                })
+            }
+            other => self.stamp_turn(other),
+        }
+    }
+
+    /// Fill in `turn` on a body that carries one, or pass it through.
+    fn stamp_turn(&self, body: EventBody) -> Option<EventBody> {
+        // The events that correlate through `call`, plus `error` and
+        // `user_message`, carry no turn at all and are always in season.
+        let turn = match &body {
+            EventBody::ToolResult { .. }
+            | EventBody::PermissionRequest { .. }
+            | EventBody::Diff { .. }
+            | EventBody::UserMessage { .. }
+            | EventBody::Error { .. } => return Some(body),
+            _ => match self.turn {
+                TurnState::Idle => {
+                    tracing::warn!(
+                        conversation = %self.id,
+                        "dropping a turn event with no turn running"
+                    );
+                    return None;
+                }
+                TurnState::Running { turn, .. } => turn,
+            },
+        };
+
+        Some(match body {
+            EventBody::TextDelta { block, text, .. } => EventBody::TextDelta { turn, block, text },
+            EventBody::ThinkingDelta {
+                block, text, tokens, ..
+            } => EventBody::ThinkingDelta {
+                turn,
+                block,
+                text,
+                tokens,
+            },
+            EventBody::CodeBlock {
+                block,
+                language,
+                source,
+                html,
+                ..
+            } => EventBody::CodeBlock {
+                turn,
+                block,
+                language,
+                source,
+                html,
+            },
+            EventBody::ToolCall {
+                call,
+                name,
+                display_name,
+                summary,
+                input,
+                origin,
+                ..
+            } => EventBody::ToolCall {
+                turn,
+                call,
+                name,
+                display_name,
+                summary,
+                input,
+                origin,
+            },
+            EventBody::Plan {
+                title,
+                markdown,
+                state,
+                ..
+            } => EventBody::Plan {
+                turn,
+                title,
+                markdown,
+                state,
+            },
+            EventBody::Usage {
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                thinking_tokens,
+                cost_usd,
+                rate_limit,
+                ..
+            } => EventBody::Usage {
+                turn,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                thinking_tokens,
+                cost_usd,
+                rate_limit,
+            },
+            // The connection-scoped replies never reach a session, and the
+            // two turn-boundary events were handled by the caller.
+            other => other,
+        })
+    }
+
     /// Close the running turn as interrupted.
     ///
     /// This serves both the `op:"interrupt"` path and startup recovery. A

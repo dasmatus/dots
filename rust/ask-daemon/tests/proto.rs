@@ -154,6 +154,15 @@ fn every_event_body() -> Vec<EventBody> {
             protocol: PROTOCOL_VERSION,
             seq_head: 4211,
         },
+        EventBody::UserMessage {
+            blocks: vec![SendBlock {
+                kind: BlockKind::Text,
+                text: Some("explain this crate".to_owned()),
+                path: None,
+                mime: None,
+            }],
+            sent_ms: 1_788_425_058_000,
+        },
         EventBody::TurnStart {
             turn: Some(turn()),
             backend: "claude-code".to_owned(),
@@ -355,6 +364,7 @@ fn every_daemon_event_name_appears() {
         .collect();
     for name in [
         "ready",
+        "user_message",
         "turn_start",
         "text_delta",
         "thinking_delta",
@@ -530,6 +540,21 @@ fn the_spec_event_examples_match_the_wire() {
             },
             json!({"seq": null, "conversation": null, "event": "ready",
                    "protocol": 1, "seq_head": 4211}),
+        ),
+        (
+            EventBody::UserMessage {
+                blocks: vec![SendBlock {
+                    kind: BlockKind::Text,
+                    text: Some("explain this crate".to_owned()),
+                    path: None,
+                    mime: None,
+                }],
+                sent_ms: 1_788_425_058_000,
+            },
+            json!({"seq": 4212, "conversation": conversation(), "event": "user_message",
+                   "blocks": [{"kind": "text", "text": "explain this crate",
+                               "path": null, "mime": null}],
+                   "sent_ms": 1_788_425_058_000_u64}),
         ),
         (
             EventBody::TextDelta {
@@ -760,6 +785,7 @@ fn the_spec_event_examples_match_the_wire() {
     // a type nothing would catch drifting.
     for name in [
         "ready",
+        "user_message",
         "turn_start",
         "text_delta",
         "thinking_delta",

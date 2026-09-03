@@ -462,8 +462,8 @@ Remove the thread and its stored events. Answered with a fresh
 Every event carries `event`, `seq` and `conversation`. The events split into
 two groups, and that split is what makes the gap-free claim below true.
 
-**Persisted conversation events**: `turn_start`, `text_delta`,
-`thinking_delta`, `code_block`, `tool_call`, `tool_result`,
+**Persisted conversation events**: `user_message`, `turn_start`,
+`text_delta`, `thinking_delta`, `code_block`, `tool_call`, `tool_result`,
 `permission_request`, `diff`, `plan`, `usage`, `turn_end`, and the
 conversation-scoped half of `error`. Each takes the next value of one
 monotonic `u64` that spans the whole daemon, assigned at emit time and
@@ -497,11 +497,16 @@ whether it failed to parse or named something that does not exist.
 `turn` names the turn an event belongs to. It is present on `turn_start`,
 `text_delta`, `thinking_delta`, `code_block`, `tool_call`, `plan`, `usage`
 and `turn_end`. It is absent on `tool_result`, `permission_request` and
-`diff`, which correlate through `call` instead, and on `error`, which can
-arrive with no turn running.
+`diff`, which correlate through `call` instead, on `error`, which can
+arrive with no turn running, and on `user_message`, which is emitted before
+the turn it causes exists.
 
 ```json
 {"seq":null,"conversation":null,"event":"ready","protocol":1,"seq_head":4211}
+
+{"seq":4211,"conversation":"6f1a...","event":"user_message",
+ "blocks":[{"kind":"text","text":"explain this crate","path":null,"mime":null}],
+ "sent_ms":1788425058000}
 
 {"seq":4212,"conversation":"6f1a...","event":"turn_start",
  "turn":"c3d0...","backend":"claude-code","model":"claude-opus-5",
@@ -649,6 +654,8 @@ needs the controller.
 | any daemon event `seq` | `Option<u64>`, null on `ready`, `conversations`, `backends` and a connection-scoped `error` |
 | any daemon event `conversation` | `Option<Uuid>`, null on exactly the same four |
 | any daemon event `turn` | `Option<Uuid>`, absent per the rule above |
+| `user_message.blocks` | `Vec<SendBlock>`, the same rows as `send.blocks[]` |
+| `user_message.sent_ms` | `u64`, unix milliseconds |
 | `turn_start.backend` | `String` |
 | `turn_start.model` | `Option<String>`, null until the backend names one |
 | `turn_start.started_ms` | `u64`, unix milliseconds |
@@ -898,7 +905,7 @@ rather than a state nobody has tested.
 `rust/ask-daemon/tests/proto.rs` is what keeps it that way. It round-trips
 every frame in both directions, and separately compares the serialized JSON
 against this document's own examples for all eight client ops and all
-fifteen daemon event types. Both coverage lists are hand-written string
+sixteen daemon event types. Both coverage lists are hand-written string
 arrays copied out of this document, so they pin the types the schema has
 today: dropping an example fails the suite. They do not derive themselves
 from the Rust enums, so adding a sixteenth event type passes until somebody
@@ -913,6 +920,10 @@ changes is that a value outside the listed set no longer decodes, which is
 deliberate: `error.kind` decides whether an event is persisted, and a match
 that cannot forget a kind is the point.
 
+Phase 2 loosened nothing either. It added one event type, which is an
+addition rather than an edit to section 2, and it is recorded here for the
+same reason a loosening would be.
+
 | Field | Change | Why |
 |---|---|---|
-| | | |
+| `user_message` | added, persisted, conversation-scoped | Phase 3 found that the persisted set ran `turn_start` to `turn_end` and carried nothing for the user's own message, so replaying a thread brought back answers with no questions. The pane could have stashed its own echoes, but that is a second transcript diverging from the daemon's JSONL. It carries `blocks` and `sent_ms`, takes a `seq` like every other persisted event so replay stays gap-free, and is emitted when a `send` is accepted, which puts it before the `turn_start` it causes. |
