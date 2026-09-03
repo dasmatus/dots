@@ -522,6 +522,15 @@ in
   # present, wanted by graphical-session.target and pointed at a store path.
   # With all three forced off there is no unit, no want symlink and no
   # dots-ask in the profile.
+  #
+  # nix/home/ask-tools.nix rides the same gate and is checked here rather than
+  # in a second check, because it is the same claim about the same three
+  # toggles and splitting it would let one half drift. Its two helpers are
+  # plain packages and its indexer is a timer, so nothing about them fails
+  # visibly either: a missing dots-ask-index leaves the pane resolving paths
+  # by walking $HOME, which is slow rather than broken, and a timer that was
+  # never installed leaves an index that is only ever as fresh as the last
+  # manual run.
   ask-service-eval =
     let
       sys = self.nixosConfigurations.tokyonight.config;
@@ -542,6 +551,12 @@ in
         ];
       };
       offHm = off.config.home-manager.users.${off.config.dots.username};
+
+      # By pname, not by an infix over the store path. "dots-ask" is a prefix
+      # of both helpers, so an infix test cannot tell the daemon from the
+      # indexer, and a bare "ask" matches haskell-language-server, which is
+      # also in this profile.
+      hasPackage = packages: name: builtins.any (p: (p.pname or (p.name or "")) == name) packages;
     in
     # The toggles this machine actually ships with, named so a settings.nix
     # that turns everything off cannot quietly reduce the on-case below to a
@@ -565,10 +580,35 @@ in
     # Copied from quickshell.service, this condition would mean no AI pane on
     # any compositor but Hyprland, for a socket the daemon never reads.
     assert !(unit.Unit ? ConditionPathExists);
-    # And the other direction: no toggle, no daemon.
+    # Everything the gate is supposed to install, named one by one. The daemon
+    # is useless without a way to resolve "what is in my nixos config" to a
+    # path, and the offline helper is what still answers when the harness has
+    # no live session, so all four ship together or the pane is half a feature.
+    assert hasPackage hm.home.packages "dots-ask";
+    assert hasPackage hm.home.packages "ask-keyring";
+    assert hasPackage hm.home.packages "dots-ask-index";
+    assert hasPackage hm.home.packages "dots-ask-offline";
+    # The indexer is a oneshot plus a timer, and only the timer carries an
+    # Install section. Asserting the generated want symlink and not just the
+    # timer unit, for the reason the daemon's own want symlink is asserted
+    # above: it is the half that actually schedules anything, and a timer unit
+    # with no want is a file systemd never looks at.
+    assert hm.systemd.user.services ? dots-ask-index;
+    assert hm.systemd.user.services.dots-ask-index.Service.Type == "oneshot";
+    assert hm.systemd.user.timers ? dots-ask-index;
+    assert builtins.elem "timers.target" hm.systemd.user.timers.dots-ask-index.Install.WantedBy;
+    assert hm.xdg.configFile ? "systemd/user/timers.target.wants/dots-ask-index.timer";
+    # Persistent, because a machine that was asleep at the scheduled hour
+    # should catch up rather than wait out a whole day on a stale index.
+    assert hm.systemd.user.timers.dots-ask-index.Timer.Persistent;
+    # And the other direction: no toggle, no daemon, no helpers, no timer.
     assert !(offHm.systemd.user.services ? dots-ask);
     assert !(offHm.xdg.configFile ? "systemd/user/graphical-session.target.wants/dots-ask.service");
+    assert !(offHm.systemd.user.services ? dots-ask-index);
+    assert !(offHm.systemd.user.timers ? dots-ask-index);
+    assert !(offHm.xdg.configFile ? "systemd/user/timers.target.wants/dots-ask-index.timer");
     assert !(builtins.any (p: lib.hasInfix "dots-ask" "${p}") offHm.home.packages);
+    assert !(hasPackage offHm.home.packages "ask-keyring");
     # The bind survives the gate, because it is the pane that degrades and not
     # the keymap. Asserting it here rather than trusting the comment in
     # actions.nix: a future attempt to make the entry conditional would break
