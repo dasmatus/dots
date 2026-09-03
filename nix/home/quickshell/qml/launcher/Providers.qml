@@ -15,6 +15,9 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
+import ".."
+import "apps.js" as AppsLogic
+import "rank.js" as Rank
 import "preview.js" as PreviewMath
 import "status.js" as StatusMath
 import "../services"
@@ -226,6 +229,21 @@ QtObject {
             if (entry.noDisplay)
                 continue;
 
+            // Brave and Chromium install one .desktop per installed web app,
+            // so a browser with three PWAs contributes four entries that all
+            // look like ordinary applications. On the empty query — the
+            // default screen, where every app is a match — they are noise
+            // between the programs actually worth launching. A non-empty
+            // query still reaches them, so typing "edu" finds EduPage.
+            //
+            // The test is on execString rather than on the entry id: the id
+            // of a Brave PWA is `brave-<32 chars>-Default`, but the real
+            // browser's is `brave-browser`, so a `brave-` prefix test would
+            // hide the browser itself. `--app-id=` is the flag that makes an
+            // invocation a web app, and it catches Chromium's PWAs too.
+            if (text === "" && AppsLogic.isWebApp(entry.execString))
+                continue;
+
             if (!root.matches(`${entry.name} ${entry.genericName} ${entry.keywords}`, text))
                 continue;
 
@@ -235,6 +253,11 @@ QtObject {
                 icon: entry.icon ? Quickshell.iconPath(entry.icon, true) : "",
                 accessory: "",
                 provider: "apps",
+                // The row's identity for ranking. Built from entry.id, which
+                // DesktopEntry declares constant, rather than from the title:
+                // a title is localizable, so keying on it would lose an app's
+                // history the first time the session language changes.
+                key: AppsLogic.appKey(entry.id),
                 // execute() rather than execDetached(entry.command): it honours
                 // Terminal=true and the entry's working directory, which a raw
                 // argv spawn silently drops.
@@ -269,6 +292,10 @@ QtObject {
                 icon: "",
                 accessory: "system",
                 provider: "system",
+                // Keyed on the title because systemCommands above is a
+                // hand-written literal: the titles are fixed strings in this
+                // file, not data from anywhere that could churn.
+                key: `system:${command.title}`,
                 run: () => Quickshell.execDetached(command.argv)
             });
         }
@@ -355,6 +382,10 @@ QtObject {
                 icon: "",
                 accessory: link.command ? "run" : "open",
                 provider: "quicklinks",
+                // Keyed on the name rather than the target: renaming a
+                // quicklink is renaming the thing, but editing its URL to fix
+                // a typo is not, and the history should survive the second.
+                key: `quicklinks:${link.name}`,
                 run: () => Quickshell.execDetached(link.command ? ["sh", "-c", link.target] : ["xdg-open", link.target])
             });
         }
@@ -376,6 +407,10 @@ QtObject {
                 icon: "",
                 accessory: "copy",
                 provider: "snippets",
+                // Same reasoning as quicklinks: the name is the identity, the
+                // body is the payload, and editing the body should not reset
+                // how often the snippet gets reached for.
+                key: `snippets:${snippet.name}`,
                 run: () => root.copy(snippet.text)
             });
         }
@@ -467,6 +502,180 @@ QtObject {
         }
 
         onAdapterUpdated: root.emojiData = root.emojiFile.adapter.items
+    }
+
+    // The frecency store: how often and how recently each keyed row has been
+    // activated, which is what Launcher.qml's sort ranks on once the prefix
+    // test has had its say. Shape is `{ "<key>": { score, last } }`; the file
+    // wraps it in an object because JsonAdapter refuses a non-object root,
+    // the same constraint tree.nix's own comment records for quicklinks.json.
+    //
+    // Unlike the three files above this one is NOT in the read-only shell
+    // tree — it is the one piece of launcher data the user writes by using
+    // the launcher, so it lives in XDG state, at the path tree.nix generates
+    // into Theme so the writer here and any future reader cannot disagree
+    // about where it is.
+    property var frecencyRecords: ({})
+
+    // Set only when frecency.json is genuinely absent, never when it merely
+    // failed to load. See maybeSeed() for why the distinction is load-bearing.
+    property bool frecencyMissing: false
+
+    property bool seedLoaded: false
+
+    // Seeding is a two-input handshake: it needs to know both that there is no
+    // store yet AND what the seed ids are, and those two facts arrive from two
+    // different FileViews whose completion order Quickshell does not specify
+    // (Arrange.qml:360-366 records the same gap for setText). Rather than
+    // assume an order, both handlers call this and whichever runs second is
+    // the one that does the work.
+    //
+    // Clearing frecencyMissing before persisting is what makes a second call
+    // a no-op: a store now exists, so the "no store yet" precondition is
+    // false, and a seed can never overwrite real history on a later tick.
+    function maybeSeed(): void {
+        if (!root.frecencyMissing || !root.seedLoaded)
+            return;
+
+        const ids = root.seedFile.adapter.ids;
+        if (!ids || ids.length === 0) {
+            root.frecencyMissing = false;
+            return;
+        }
+
+        root.frecencyMissing = false;
+        root.frecencyRecords = Rank.seedRecords(ids.map(id => AppsLogic.appKey(id)), Date.now());
+        root.persistFrecency();
+    }
+
+    // Called by Launcher.qml's activate() for any row carrying a key. Takes a
+    // fresh Date.now() rather than the launcher's own open-time stamp: `last`
+    // is what MRU sorts on, so it has to be when the thing was actually run,
+    // not when the window it was run from opened.
+    //
+    // parentKey is how an app's own history rises when one of its desktop
+    // actions is what got activated — running "New Private Window" is using
+    // LibreWolf, and the app row should climb accordingly.
+    //
+    // Reassigning frecencyRecords rather than mutating it in place is what
+    // re-fires the sort binding in Launcher.qml; a mutated object is the same
+    // object and QML has nothing to notice.
+    function recordUse(key: string, parentKey: string): void {
+        if (!key)
+            return;
+
+        const now = Date.now();
+        let next = Rank.bump(root.frecencyRecords, key, now);
+
+        if (parentKey)
+            next = Rank.bump(next, parentKey, now);
+
+        root.frecencyRecords = Rank.evictOverCap(next, Rank.RECORD_CAP, now);
+        root.persistFrecency();
+    }
+
+    // Whether the state directory is known to exist. Starts false because on a
+    // fresh install it does not, and FileView has no createParentDirectories
+    // to lean on.
+    property bool launcherStateDirReady: false
+
+    // A write that arrived before the directory existed, held until mkdir
+    // returns. Last one wins, which is correct rather than lossy: each stashed
+    // payload is the complete serialized store, not a delta, so an older one
+    // has nothing the newer is missing.
+    property string pendingFrecencyWrite: ""
+
+    // Picker.qml solves the same missing-directory problem by forking mkdir
+    // before every single write. That is affordable there because a wallpaper
+    // is picked rarely; it is not affordable here, because this runs on every
+    // activation. So the fork is one-shot: the first write pays for it, every
+    // later write finds the gate already open, and a session where nothing
+    // keyed is ever launched pays nothing at all.
+    function persistFrecency(): void {
+        const payload = JSON.stringify({
+            records: root.frecencyRecords
+        });
+
+        if (root.launcherStateDirReady) {
+            root.frecencyFile.setText(payload);
+            return;
+        }
+
+        root.pendingFrecencyWrite = payload;
+        root.stateDirProbe.running = true;
+    }
+
+    property var stateDirProbe: Process {
+        command: ["mkdir", "-p", Theme.launcherStateDir]
+
+        // qmllint disable signal-handler-parameters
+        onExited: (exitCode, exitStatus) => {
+            root.launcherStateDirReady = true;
+
+            if (root.pendingFrecencyWrite === "")
+                return;
+
+            root.frecencyFile.setText(root.pendingFrecencyWrite);
+            root.pendingFrecencyWrite = "";
+        }
+        // qmllint enable signal-handler-parameters
+    }
+
+    // atomicWrites because this file is rewritten in full on every activation:
+    // a crash partway through a plain write would leave a truncated JSON that
+    // the next launch reads as no history at all.
+    //
+    // Deliberately NOT watchChanges: this process is the only writer, so
+    // watching it would only mean reloading our own setText back over the
+    // in-memory records that produced it.
+    //
+    // printErrors stays on. The one noisy case is the first launch on a fresh
+    // install, where the file legitimately does not exist yet — and that is
+    // exactly the case onLoadFailed below needs to hear about, so silencing
+    // the channel to hide one expected line is the wrong trade.
+    property var frecencyFile: FileView {
+        path: Theme.launcherStatePath
+        atomicWrites: true
+
+        adapter: JsonAdapter {
+            property var records: ({})
+        }
+
+        onAdapterUpdated: root.frecencyRecords = root.frecencyFile.adapter.records
+
+        // FileNotFound and only FileNotFound seeds. Any other failure —
+        // PermissionDenied above all — means the file is there and we simply
+        // could not read it this time, and seeding over it would overwrite
+        // real history with a default list. One session of flat ranking is the
+        // cheaper mistake.
+        //
+        // A file that exists but is empty or unparseable does not land here at
+        // all: it loads, leaves the adapter at its declared default, and counts
+        // as empty history. It is never re-seeded, which is what keeps the seed
+        // from resurrecting itself after the store has been legitimately cleared.
+        onLoadFailed: (error) => {
+            if (error !== FileViewError.FileNotFound)
+                return;
+
+            root.frecencyMissing = true;
+            root.maybeSeed();
+        }
+    }
+
+    // The seed list, generated into the read-only tree from the
+    // programs.dots-shell.launcherSeed Nix option. Read once; it only matters
+    // on a machine that has no store yet.
+    property var seedFile: FileView {
+        path: `${Quickshell.shellDir}/launcher/seed.json`
+
+        adapter: JsonAdapter {
+            property var ids: []
+        }
+
+        onAdapterUpdated: {
+            root.seedLoaded = true;
+            root.maybeSeed();
+        }
     }
     // qmllint enable unresolved-type
 

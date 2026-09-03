@@ -73,17 +73,31 @@ TestCase {
         verify(providers.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading a bare root off it is silently always undefined");
     }
 
-    // quicklinksFile, snippetsFile and emojiFile each need their OWN
-    // declared `items` property — JsonAdapter only populates a property
+    // quicklinksFile, snippetsFile, emojiFile, frecencyFile and seedFile each
+    // need their OWN declared property — JsonAdapter only populates a property
     // declared on the adapter instance itself, and a shared instance is not
     // an option here since each FileView owns a different JSON file.
+    //
+    // The property NAME differs per file (three carry `items`, the frecency
+    // store carries `records`, the seed list carries `ids`), so this asserts
+    // the exact multiset of declared names rather than one hardcoded name.
+    // Counting alone would let an adapter added later declare nothing and
+    // still pass by coincidence of arithmetic; naming alone would not catch a
+    // FileView that quietly lost its adapter.
     function test_providers_declares_a_property_on_every_adapter() {
         const providers = readSource("../../nix/home/quickshell/qml/launcher/Providers.qml");
         const blocks = jsonAdapterBlocks(providers);
 
-        compare(blocks.length, 3, "quicklinksFile, snippetsFile and emojiFile must each declare their own JsonAdapter { ... }");
-        for (let i = 0; i < blocks.length; i++)
-            verify(blocks[i].indexOf("property var items") !== -1, "adapter block " + i + " needs a declared `items` property — JsonAdapter only populates a property declared on the adapter instance itself");
+        compare(blocks.length, 5, "quicklinksFile, snippetsFile, emojiFile, frecencyFile and seedFile must each declare their own JsonAdapter { ... }");
+
+        const declared = [];
+        for (let i = 0; i < blocks.length; i++) {
+            const match = /property\s+var\s+(\w+)/.exec(blocks[i]);
+            verify(match !== null, "adapter block " + i + " needs a declared `property var` — JsonAdapter only populates a property declared on the adapter instance itself");
+            declared.push(match[1]);
+        }
+
+        compare(declared.slice().sort().join(","), "ids,items,items,items,records", "the five adapters must declare exactly items/items/items/records/ids between them");
     }
 
     function test_cheatsheet_never_reads_the_nonexistent_adapter_root() {
