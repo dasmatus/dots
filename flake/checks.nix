@@ -178,7 +178,13 @@ in
         fetchurl = args: args;
       };
       allZeroSha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-      isBad = n: (raw.${n} ? hash) && (builtins.elem raw.${n}.hash [ "" allZeroSha256 ]);
+      isBad =
+        n:
+        (raw.${n} ? hash)
+        && (builtins.elem raw.${n}.hash [
+          ""
+          allZeroSha256
+        ]);
       bad = builtins.filter isBad (builtins.attrNames raw);
     in
     assert lib.assertMsg (bad == [ ]) (
@@ -483,6 +489,17 @@ in
     assert !(lib.hasInfix ''hl.exec_cmd("qs")'' lua);
     # But still reachable from the keybinds, which is a different code path
     # and must not be collateral damage of removing the start line.
-    assert lib.hasInfix "qs ipc call launcher toggle" lua;
+    #
+    # That path has one more hop in it than it used to. nix/home/session
+    # renders every app and action row into a `dots-<name>@.service` template
+    # and binds the key to `systemctl --user start` on an instance of it, so
+    # the client command sits in the unit and the lua names the unit. Checking
+    # the lua for the old inline `qs ipc call launcher toggle` had quietly
+    # stopped describing anything, which is exactly the drift these two lines
+    # are for.
+    assert lib.hasInfix "dots-launcher-toggle@" lua;
+    assert lib.hasInfix "qs ipc call launcher toggle" (
+      toString hm.systemd.user.services."dots-launcher-toggle@".Service.ExecStart
+    );
     pkgs.writeText "shell-service-eval-ok" execStart;
 }
