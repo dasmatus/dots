@@ -24,6 +24,7 @@
   quicklinks ? [ ],
   snippets ? [ ],
   keybinds ? [ ],
+  backends ? [ ],
 }:
 let
   inherit (pkgs) lib;
@@ -53,6 +54,12 @@ let
   # and is rebuilt from scratch every ten minutes, so losing it costs one
   # walk and nothing else.
   filesIndexDir = "${cacheHome}/dots-shell/files";
+
+  # And again for the ask pane, which remembers which conversation was open
+  # and which backend and model were picked. $XDG_CONFIG_HOME/quickshell is a
+  # whole-directory symlink into this derivation's output, so nothing the pane
+  # writes at runtime can live beside its QML.
+  askStateDir = "${stateHome}/dots-shell/ask";
 
   # Double-quoted, not an indented string: Nix strips the common indentation
   # off a '' '' literal, which would flatten every one of these to column 0.
@@ -194,6 +201,19 @@ let
         readonly property int filesTimeColumn: ${toString palette.files.timeColumn};
         readonly property int filesCommandHeight: ${toString palette.files.commandHeight};
 
+        // Ask-pane geometry. Its own block for the same reason the file
+        // manager's is: a side pane docked to one screen edge shares no
+        // metric with a centred launcher panel, and reusing one would only
+        // mean overriding it at every call site.
+        readonly property int askWidth: ${toString palette.ask.width};
+        readonly property int askPadding: ${toString palette.ask.padding};
+        readonly property int askGutter: ${toString palette.ask.gutter};
+        readonly property int askRadius: ${toString palette.ask.radius};
+        readonly property int askRowSpacing: ${toString palette.ask.rowSpacing};
+        readonly property int askHistoryWidth: ${toString palette.ask.historyWidth};
+        readonly property int askComposerHeight: ${toString palette.ask.composerHeight};
+        readonly property int askCodeMaxHeight: ${toString palette.ask.codeMaxHeight};
+
         // Alpha suffixes are applied at the seam by each consumer, so they stay
         // strings here rather than being folded into the colours above.
         readonly property string alphaPanel: "${palette.alpha.panel}";
@@ -268,6 +288,10 @@ let
         readonly property string filesIndexAll: "${filesIndexDir}/all.tsv";
         readonly property string filesIndexVisible: "${filesIndexDir}/visible.tsv";
 
+        // Same again for the ask pane's own last-open record.
+        readonly property string askStateDir: "${askStateDir}";
+        readonly property string askStatePath: "${askStateDir}/session.json";
+
         // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
         // without exporting it, so qmllint cannot resolve anything reached
         // through it — that is why the category is suppressed here. Separately,
@@ -319,6 +343,16 @@ let
   quicklinksFile = pkgs.writeText "quicklinks.json" (builtins.toJSON { items = quicklinks; });
   snippetsFile = pkgs.writeText "snippets.json" (builtins.toJSON { items = snippets; });
   keybindsFile = pkgs.writeText "keybinds.json" (builtins.toJSON { groups = keybinds; });
+
+  # Which AI backends the ask pane may offer, from the dots.ai.* toggles that
+  # nix/home/quickshell/default.nix reads. This is the gate, not the live
+  # state: whether a backend can actually answer is the daemon's `backends`
+  # event, and it can only ever narrow this list.
+  #
+  # An empty list is a real answer, not a missing one. Ask.qml's toggle returns
+  # early on it, so a machine with every AI toggle off gets no pane at all
+  # rather than an empty one that flickers open on the keybind.
+  backendsFile = pkgs.writeText "backends.json" (builtins.toJSON { items = backends; });
 in
 pkgs.runCommand "dots-quickshell-config" { } ''
   mkdir -p "$out"
@@ -329,6 +363,7 @@ pkgs.runCommand "dots-quickshell-config" { } ''
   cp ${quicklinksFile} "$out/launcher/quicklinks.json"
   cp ${snippetsFile} "$out/launcher/snippets.json"
   cp ${keybindsFile} "$out/cheatsheet/keybinds.json"
+  cp ${backendsFile} "$out/ask/backends.json"
 
   # A Papirus release that renames or drops a folder colour would otherwise
   # leave nearestPapirusColor (tint.js) picking a name that resolves to

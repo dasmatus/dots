@@ -30,5 +30,10 @@
     "rowHeight": 30, "iconSize": 16, "iconColumn": 26,
     "sidebarWidth": 200, "gutter": 8, "padding": 10, "radius": 10,
     "sizeColumn": 84, "timeColumn": 124, "commandHeight": 40
+  },
+  "ask": {
+    "width": 560, "padding": 16, "gutter": 10, "radius": 10,
+    "rowSpacing": 12, "historyWidth": 210, "composerHeight": 92,
+    "codeMaxHeight": 340
   }
 }
