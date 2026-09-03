@@ -65,55 +65,24 @@ fn nothing_is_allowed_by_default() {
 }
 
 #[test]
-fn an_unknown_tool_is_denied_without_asking_anything() {
+fn this_module_does_not_decide_whether_a_tool_exists() {
+    // It used to try, through a declared-name set, and that gate was disabled
+    // by exactly the empty set that should have refused everything. The
+    // refusal now lives in provider.rs, which is the code that knows what the
+    // MCP servers expose;
+    // tests/provider.rs::a_tool_nobody_configured_is_refused_without_a_prompt
+    // is where "denied without asking anything" is asserted now.
+    //
+    // What this module owes is the other half: a name it has no rule for is
+    // Ask, whether or not anything can run it. Answering otherwise here would
+    // put the tool list in two places.
     let scratch = Scratch::new();
-    let mut policy = scratch.open();
-    // This is what mcp.rs discovered: two tools, and nothing else exists.
-    policy.declare_tools([
-        "searxng__web_search".to_owned(),
-        "memory__recall".to_owned(),
-    ]);
-
-    let conversation = Uuid::new_v4();
+    let policy = scratch.open();
     let unknown = PolicyKey::new("ollama", "Bash", &PathBuf::from("/tmp"), &json!({}));
     assert_eq!(
-        policy.decide(conversation, &unknown),
-        Verdict::Deny,
-        "a tool no configured MCP server exposes is refused, not prompted"
-    );
-
-    // And an allow-always rule written for that name does not rescue it,
-    // because there is still nothing to run.
-    policy
-        .remember(
-            conversation,
-            unknown.clone(),
-            PermissionDecision::Allow,
-            PermissionScope::Forever,
-        )
-        .expect("the rule writes");
-    assert_eq!(
-        policy.decide(conversation, &unknown),
-        Verdict::Deny,
-        "the tool-name gate sits in front of the rule store, not behind it"
-    );
-}
-
-#[test]
-fn a_declared_tool_is_still_asked_about() {
-    let scratch = Scratch::new();
-    let mut policy = scratch.open();
-    policy.declare_tools(["searxng__web_search".to_owned()]);
-    let known = PolicyKey::new(
-        "ollama",
-        "searxng__web_search",
-        &PathBuf::from("/tmp"),
-        &json!({"query": "nixos"}),
-    );
-    assert_eq!(
-        policy.decide(Uuid::new_v4(), &known),
+        policy.decide(Uuid::new_v4(), &unknown),
         Verdict::Ask,
-        "existing is not the same as permitted"
+        "no rule means ask, and existence is somebody else's question"
     );
 }
 

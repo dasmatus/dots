@@ -446,11 +446,15 @@ impl ProviderSession {
             let outcome = match approval {
                 Approval::Gone => return false,
                 Approval::Denied(reason) => Err(reason),
-                Approval::Allowed(edited) => {
+                Approval::Allowed {
+                    server,
+                    tool,
+                    edited,
+                } => {
                     if let Some(edited) = edited {
                         input = edited;
                     }
-                    self.invoke(&call.name, &input).await
+                    self.mcp.call(&server, &tool, &input).await
                 }
             };
 
@@ -474,12 +478,30 @@ impl ProviderSession {
 
     /// Decide whether one tool call may run, asking the client if nothing
     /// already decides it.
+    ///
+    /// Existence is settled before permission, and that order is the point.
+    /// v1 ships no built-in tools, so a name no configured MCP server exposes
+    /// can never execute no matter what anybody answers, and prompting for it
+    /// would ask a person to approve something that cannot happen. Deciding
+    /// it here also means the located server travels with the approval, so
+    /// the call does not list the tools a second time to find it again.
     async fn approve(
         &mut self,
         call: &PendingToolCall,
         input: &Value,
         inbox: &mut mpsc::UnboundedReceiver<BackendCommand>,
     ) -> Approval {
+        let Some((server, tool)) = self.locate(&call.name).await else {
+            tracing::warn!(
+                tool = call.name,
+                "refusing a tool no configured MCP server exposes"
+            );
+            return Approval::Denied(format!(
+                "no configured MCP server exposes a tool named {:?}, and dots-ask ships no built-in tools",
+                call.name
+            ));
+        };
+
         let key = PolicyKey::new(self.backend, &call.name, &self.cwd, input);
         let conversation = self.sink.conversation();
         let verdict = match self.policy.lock() {
@@ -487,10 +509,16 @@ impl ProviderSession {
             Err(poisoned) => poisoned.into_inner().decide(conversation, &key),
         };
         match verdict {
-            Verdict::Allow => return Approval::Allowed(None),
+            Verdict::Allow => {
+                return Approval::Allowed {
+                    server,
+                    tool,
+                    edited: None,
+                }
+            }
             Verdict::Deny => {
                 return Approval::Denied(format!(
-                    "{:?} is not a tool this backend may run",
+                    "a standing rule refuses {:?} with these arguments",
                     call.name
                 ))
             }
@@ -526,7 +554,11 @@ impl ProviderSession {
                     .unwrap_or_else(|| "denied from the ask pane".to_owned()),
             );
         }
-        Approval::Allowed(answer.updated_input)
+        Approval::Allowed {
+            server,
+            tool,
+            edited: answer.updated_input,
+        }
     }
 
     /// Block until the decision for `request` arrives, still serving the
@@ -584,20 +616,11 @@ impl ProviderSession {
         }
     }
 
-    /// Run one MCP tool.
-    ///
-    /// A name no configured server exposes gets a synthesized error rather
-    /// than an execution, which is section 5's rule stated as code.
-    async fn invoke(&self, tool: &str, input: &Value) -> Result<String, String> {
-        let Some((server, name)) = self.locate(tool).await else {
-            return Err(format!(
-                "no configured MCP server exposes a tool named {tool:?}, and dots-ask ships no built-in tools"
-            ));
-        };
-        self.mcp.call(&server, &name, input).await
-    }
-
     /// Which server exposes `tool`, and under what name.
+    ///
+    /// `None` is section 5's rule stated as code: v1 ships no built-in tools,
+    /// so a name that is on no configured server is a name nothing can run.
+    /// [`Self::approve`] turns that into a refusal before it prompts.
     async fn locate(&self, tool: &str) -> Option<(String, String)> {
         self.mcp
             .list_tools()
@@ -610,8 +633,15 @@ impl ProviderSession {
 
 /// What [`ProviderSession::approve`] concluded.
 enum Approval {
-    /// The call may run, with these arguments if the user edited them.
-    Allowed(Option<Value>),
+    /// The call may run, on the server that turned out to expose it.
+    Allowed {
+        /// The MCP server the tool belongs to.
+        server: String,
+        /// Its name on that server, without the qualifying prefix.
+        tool: String,
+        /// Replacement arguments, when the user edited them.
+        edited: Option<Value>,
+    },
     /// The call may not run, and this is what the model is told.
     Denied(String),
     /// The daemon has gone away.

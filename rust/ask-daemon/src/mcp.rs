@@ -120,6 +120,14 @@ pub struct McpTool {
 pub struct McpPool {
     configs: BTreeMap<String, ServerConfig>,
     running: Mutex<BTreeMap<String, Arc<RunningService<RoleClient, ()>>>>,
+    /// The tools every server exposes, listed once.
+    ///
+    /// Every tool call has to find which server owns the name, so without a
+    /// cache each call re-lists every server. A server that gains a tool
+    /// while the daemon runs stays invisible until a restart, which is the
+    /// price: MCP has a `tools/list_changed` notification and this build does
+    /// not subscribe to it.
+    tools: std::sync::Mutex<Option<Vec<McpTool>>>,
 }
 
 impl McpPool {
@@ -129,6 +137,7 @@ impl McpPool {
         Self {
             configs,
             running: Mutex::new(BTreeMap::new()),
+            tools: std::sync::Mutex::new(None),
         }
     }
 
@@ -137,6 +146,22 @@ impl McpPool {
     #[must_use]
     pub fn empty() -> Self {
         Self::new(BTreeMap::new())
+    }
+
+    /// A pool whose tool list is already known, so [`Self::list_tools`]
+    /// starts nothing.
+    ///
+    /// This is how a test gets a pool that offers tools without a server
+    /// behind them, which is enough to drive the approval gate: the gate runs
+    /// before the call does, and the call then fails on the missing server
+    /// rather than on the missing name.
+    #[must_use]
+    pub fn with_tools(configs: BTreeMap<String, ServerConfig>, tools: Vec<McpTool>) -> Self {
+        Self {
+            configs,
+            running: Mutex::new(BTreeMap::new()),
+            tools: std::sync::Mutex::new(Some(tools)),
+        }
     }
 
     /// Read the config files and build a pool over what they name.
@@ -182,6 +207,10 @@ impl McpPool {
     /// logged and skipped: one broken server must not take the other three
     /// down with it.
     pub async fn list_tools(&self) -> Vec<McpTool> {
+        if let Some(cached) = self.cached_tools() {
+            return cached;
+        }
+
         let mut tools = Vec::new();
         for name in self.configs.keys() {
             let Some(service) = self.service(name).await else {
@@ -199,7 +228,16 @@ impl McpPool {
                 }
             }
         }
+
+        if let Ok(mut cache) = self.tools.lock() {
+            *cache = Some(tools.clone());
+        }
         tools
+    }
+
+    /// The tool list, if it has already been taken.
+    fn cached_tools(&self) -> Option<Vec<McpTool>> {
+        self.tools.lock().ok().and_then(|cache| cache.clone())
     }
 
     /// Call one tool and return its result as text.

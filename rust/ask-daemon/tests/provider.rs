@@ -40,7 +40,7 @@ use uuid::Uuid;
 use ask_daemon::backend::ollama::OllamaDecoder;
 use ask_daemon::backend::provider::{PendingToolCall, ProviderSession, TurnRequest};
 use ask_daemon::backend::{BackendCommand, BackendContext, BackendMessage, EventSink};
-use ask_daemon::mcp::McpPool;
+use ask_daemon::mcp::{McpPool, McpTool};
 use ask_daemon::policy::Policy;
 use ask_daemon::proto::{
     ErrorKind, EventBody, PermissionDecision, PermissionScope, SendBlock, StopReason,
@@ -188,13 +188,32 @@ struct Harness {
 }
 
 impl Harness {
-    /// A session for one thread, with no MCP server configured.
-    ///
-    /// An empty pool is the honest default and it is enough for every
-    /// assertion here: `locate` finds nothing, so a tool call is refused
-    /// after the gate has run, which is exactly the path the history
-    /// assertions need and the one section 5 promises.
+    /// A session with no MCP server configured, so no tool exists.
     fn new() -> Self {
+        Self::with_pool(McpPool::empty())
+    }
+
+    /// A session that knows about `searxng__web_search` but has no server
+    /// running behind it.
+    ///
+    /// That is the pool the approval gate needs: the name resolves, so the
+    /// gate runs and prompts, and the call afterwards fails on the missing
+    /// server rather than on the missing name. Standing up a real MCP server
+    /// in a test would prove nothing more about the gate.
+    fn with_a_known_tool() -> Self {
+        Self::with_pool(McpPool::with_tools(
+            BTreeMap::new(),
+            vec![McpTool {
+                server: "searxng".to_owned(),
+                name: "web_search".to_owned(),
+                description: Some("search the web".to_owned()),
+                input_schema: json!({"type": "object"}),
+            }],
+        ))
+    }
+
+    /// A session for one thread over the pool given.
+    fn with_pool(mcp: McpPool) -> Self {
         let root = std::env::temp_dir().join(format!("dots-ask-provider-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("temp root is creatable");
         let policy = Arc::new(Mutex::new(
@@ -207,7 +226,7 @@ impl Harness {
             cwd: root.clone(),
             sink: EventSink::new(Uuid::new_v4(), sender),
             secrets: Arc::new(SecretStore::default()),
-            mcp: Arc::new(McpPool::empty()),
+            mcp: Arc::new(mcp),
             policy: Arc::clone(&policy),
         };
         let session = ProviderSession::new(&context, "ollama");
@@ -437,7 +456,7 @@ async fn a_tool_call_is_denied_by_default_and_asks_first() {
     // Nothing in the policy store decides this call, so the daemon must ask
     // rather than assume, and the pane's answer is what settles it.
     let provider = FakeProvider::start(vec![TOOLS.to_owned(), PROSE.to_owned()]).await;
-    let mut harness = Harness::new();
+    let mut harness = Harness::with_a_known_tool();
     harness
         .turn(&provider, "search for something", PermissionDecision::Deny)
         .await;
@@ -464,10 +483,12 @@ async fn a_tool_call_is_denied_by_default_and_asks_first() {
 }
 
 #[tokio::test]
-async fn an_allowed_call_still_cannot_run_a_tool_nobody_configured() {
+async fn a_tool_nobody_configured_is_refused_without_a_prompt() {
     // Section 5's narrowest promise: v1 ships no built-in shell tool and no
-    // built-in file tool, so approving a call the daemon has no server for
-    // still executes nothing.
+    // built-in file tool, so a name no configured server exposes can never
+    // execute whatever anybody answers. Asking about it would put a dialog in
+    // front of a person whose only correct answer is no, so existence is
+    // settled before permission and no prompt is raised at all.
     let provider = FakeProvider::start(vec![TOOLS.to_owned(), PROSE.to_owned()]).await;
     let mut harness = Harness::new();
     harness
@@ -475,6 +496,13 @@ async fn an_allowed_call_still_cannot_run_a_tool_nobody_configured() {
         .await;
 
     let events = harness.drained();
+    assert!(
+        !events
+            .iter()
+            .any(|body| matches!(body, EventBody::PermissionRequest { .. })),
+        "nothing may be asked about a call that cannot run: {events:#?}"
+    );
+
     let [EventBody::ToolResult { ok, content, .. }] = events
         .iter()
         .filter(|body| matches!(body, EventBody::ToolResult { .. }))
@@ -482,7 +510,7 @@ async fn an_allowed_call_still_cannot_run_a_tool_nobody_configured() {
     else {
         panic!("expected exactly one tool result: {events:#?}");
     };
-    assert!(!ok, "an approved call with nothing behind it still fails");
+    assert!(!ok, "a call with nothing behind it fails");
     assert!(
         content.contains("no configured MCP server"),
         "and says why rather than pretending it ran: {content}"
@@ -498,7 +526,7 @@ async fn the_tool_call_reaches_the_pane_before_the_prompt_does() {
     // The pane draws the call and then the approval on top of it, so a
     // prompt arriving first would have nothing to attach to.
     let provider = FakeProvider::start(vec![TOOLS.to_owned(), PROSE.to_owned()]).await;
-    let mut harness = Harness::new();
+    let mut harness = Harness::with_a_known_tool();
     harness
         .turn(&provider, "search for something", PermissionDecision::Deny)
         .await;
@@ -524,7 +552,7 @@ async fn the_tool_call_reaches_the_pane_before_the_prompt_does() {
 async fn a_denied_call_is_not_remembered_as_a_standing_rule() {
     // The test answers with scope Once, so nothing may reach the store.
     let provider = FakeProvider::start(vec![TOOLS.to_owned(), PROSE.to_owned()]).await;
-    let mut harness = Harness::new();
+    let mut harness = Harness::with_a_known_tool();
     harness
         .turn(&provider, "search for something", PermissionDecision::Deny)
         .await;
