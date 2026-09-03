@@ -278,6 +278,7 @@ let
         "reload"
         "screenshot-output"
         "screenshot-region"
+        "screenshot-window"
       ]
       ++ [ { collapse = collapses.mouseDrag; } ];
     media =

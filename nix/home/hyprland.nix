@@ -17,6 +17,28 @@ let
   # hence `getExe'` rather than `getExe`.
   hyprctl = lib.getExe' pkgs.hyprland "hyprctl";
 
+  # hyprshot picks its save folder from $HYPRSHOT_DIR, then $XDG_PICTURES_DIR,
+  # then `xdg-user-dir PICTURES` — and only if that binary is on $PATH, which
+  # nixpkgs' wrapper does not arrange (it prefixes hyprland, jq, grim, slurp,
+  # wl-clipboard, libnotify and hyprpicker, not xdg-user-dirs). Its last
+  # resort is $HOME, so an unresolved lookup drops screenshots in the home
+  # directory rather than in the pictures folder. A unit's ExecStart is not a
+  # shell, so the lookup cannot be inlined there; this resolves it by absolute
+  # store path and hands the answer to `-o`, which overrides every lookup
+  # hyprshot would otherwise do. hyprshot creates the folder itself.
+  #
+  # `|| true` is not laziness. hyprshot's exit status is whatever its final
+  # `pkill hyprpicker` returned (its watcher ends `pkill hyprpicker; exit`),
+  # so it says nothing about whether the capture worked and is 1 on every run
+  # that did not freeze the screen. Letting that through would mark a
+  # perfectly good screenshot's unit failed on every Print tap. hyprshot's own
+  # notification is the success signal.
+  hyprshot = pkgs.writeShellScript "dots-hyprshot" ''
+    set -euo pipefail
+    pictures="$(${lib.getExe' pkgs.xdg-user-dirs "xdg-user-dir"} PICTURES 2> /dev/null || true)"
+    ${lib.getExe pkgs.hyprshot} -o "''${pictures:-$HOME/Pictures}" "$@" || true
+  '';
+
   # The dispatcher map: `dispatch` (actions.nix) → the Lua expression that
   # invokes it. This is the WM-specific half of this file — the only part
   # that knows Hyprland's own `hl.dsp.*` spelling — and is exactly what a
@@ -118,16 +140,51 @@ let
   };
 in
 {
-  # The one `dots.session.exec` entry that is Hyprland-only (see that
-  # option's description in nix/home/session/default.nix): `reload` shells
-  # out to `hyprctl` directly. Contributed here rather than in the
-  # WM-agnostic session module so that module stays evaluable with no tiling
-  # WM in scope at all. `hyprmon-apply` used to be a second entry here; it is
-  # gone along with hyprmon itself, not ported — the monitor layout is
-  # applied by qml/monitors/Watcher.qml now.
+  # The `dots.session.exec` entries that are Hyprland-only (see that option's
+  # description in nix/home/session/default.nix): `reload` shells out to
+  # `hyprctl` directly, and the three screenshot actions run hyprshot, whose
+  # window and active-output modes drive Hyprland's own IPC. Contributed here
+  # rather than in the WM-agnostic session module so that module stays
+  # evaluable with no tiling WM in scope at all. `hyprmon-apply` used to be
+  # another entry here; it is gone along with hyprmon itself, not ported —
+  # the monitor layout is applied by qml/monitors/Watcher.qml now.
   dots.session.exec = {
     reload = "${hyprctl} reload";
+
+    # `-m active` turns `-m output` into a non-interactive grab of the
+    # focused output. Bare `-m output` opens a slurp monitor picker, which is
+    # wrong for a key that should just fire. This is a behaviour change from
+    # the grim script it replaces, which composited every output into one
+    # image — hyprshot has no such mode.
+    screenshot-output = "${hyprshot} -m output -m active";
+
+    # `-z` freezes the screen for the duration of the selection, so a menu or
+    # a hover state survives being pointed at. That is the reason to prefer
+    # hyprshot over grim + slurp for the two interactive modes.
+    screenshot-region = "${hyprshot} -m region -z";
+    screenshot-window = "${hyprshot} -m window -z";
   };
+
+  # hyprshot runs the capture in a backgrounded subshell and returns from its
+  # foreground watcher the moment slurp exits, so grim, wl-copy and
+  # notify-send are still working when the process systemd tracks is already
+  # gone. On the default KillMode=control-group systemd tears the cgroup down
+  # with that process and the screenshot is lost while the unit still reports
+  # success. KillMode=process signals only the (already dead) main PID and
+  # lets the capture finish. tests/session-units.nix asserts this on every
+  # `dots-screenshot-*` unit, because the failure is silent otherwise.
+  #
+  # Contributed here rather than from the session module's `mkUnit` because
+  # only hyprshot needs it: home-manager types `systemd.user.services` as an
+  # `attrsOf submodule` whose `Service` is a freeform `attrsOf`, so this
+  # merges into the units nix/home/session/default.nix generates instead of
+  # conflicting with them. Spelled out one leaf at a time rather than built
+  # with `lib.genAttrs`: `systemd.user.services.hyprlock` below is a second
+  # leaf under the same path, and a whole-attrset assignment here would be a
+  # duplicate definition of that path inside this one attrset literal.
+  systemd.user.services."dots-screenshot-output@".Service.KillMode = "process";
+  systemd.user.services."dots-screenshot-region@".Service.KillMode = "process";
+  systemd.user.services."dots-screenshot-window@".Service.KillMode = "process";
 
   systemd.user.services.hyprlock = {
     Unit = {
@@ -448,20 +505,22 @@ in
     };
   };
 
-  # Screenshots run grim + slurp from a unit script built in
-  # nix/home/session/default.nix (mkScreenshotScript), which resolves every
-  # binary as an absolute store path and needs nothing from this list. That
-  # replaces hyprshot, which was never on PATH here — the nix/home/beamenu.nix
-  # that once carried it was deleted in f74f647, which is why both screenshot
-  # binds were dead before this change. libnotify and xdg-user-dirs stay for
-  # interactive use: a shell calling notify-send or xdg-user-dir by hand still
-  # wants them on PATH.
+  # Screenshots run hyprshot from the `dots-screenshot-*@` units, through the
+  # `dots-hyprshot` wrapper above, which resolves every binary as an absolute
+  # store path and needs nothing from this list. hyprshot is listed anyway on
+  # the same grounds nix/home/pkgs.nix uses elsewhere: it is useful by hand,
+  # and a package a unit depends on ought to be visible in the profile. It
+  # lives here rather than in pkgs.nix because it only speaks Hyprland's own
+  # IPC, so it belongs with the rest of this module's Hyprland-only choices.
+  # libnotify and xdg-user-dirs stay for interactive use: a shell calling
+  # notify-send or xdg-user-dir by hand still wants them on PATH.
   #
   # xdg-desktop-portal-gtk is also listed here (not just in the system
   # xdg.portal.extraPortals) because NixOS sets NIX_XDG_DESKTOP_PORTAL_DIR to
   # the per-user profile portal dir, so xdg-desktop-portal only sees portal
   # backends that are in the user's environment.
   home.packages = [
+    pkgs.hyprshot
     pkgs.libnotify
     pkgs.xdg-user-dirs
     pkgs.xdg-desktop-portal-gtk

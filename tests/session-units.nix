@@ -3,7 +3,7 @@
 # nix/home/hyprland.nix). Eval-only, in the style of `settings-eval` and
 # `facter-stub-eval` in flake/checks.nix: no VM, no activation, just a
 # standalone `home-manager.lib.homeManagerConfiguration` evaluated far enough
-# to read `.config` back out, then five `assert`s over it.
+# to read `.config` back out, then seven `assert`s over it.
 #
 # Built on a standalone home-manager configuration rather than
 # `nixosConfigurations.tokyonight` because the latter cannot evaluate here at

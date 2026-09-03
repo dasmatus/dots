@@ -145,14 +145,6 @@ in
       # start since forever, but nothing in this repo ever packaged it, so
       # the network tray icon has silently never actually appeared.
       networkmanagerapplet
-      # Screenshot capture pair for the Print / SUPER+Print binds, replacing
-      # hyprshot (went with nix/home/beamenu.nix in f74f647, never
-      # re-added). The generated unit scripts in nix/home/session/default.nix
-      # reference these by absolute store path, so the binds work without
-      # this; they go on PATH too since both are useful by hand and a
-      # package a unit depends on ought to be visible in the profile.
-      grim
-      slurp
     ])
     ++ [ haveno ]
     # Newelle's only purpose here is the ollama cloud chat front-end (the
