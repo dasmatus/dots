@@ -199,6 +199,18 @@ TestCase {
         verify(block.indexOf("text === \"\" && AppsLogic.isWebApp(") !== -1, "the web-app skip must be guarded on the EMPTY query — unguarded it would make PWAs unreachable by typing, which is not what was asked for");
     }
 
+    // The same guard, mirrored onto the actions provider so it cannot drift
+    // out of step with applicationRows. A PWA hidden from the empty-query
+    // screen must not have an Actions= group on that same .desktop file
+    // reopen the door — that row's subtitle would carry the hidden app's own
+    // name, which is exactly the noise the guard exists to keep out.
+    function test_app_action_rows_hide_web_apps_only_on_the_empty_query() {
+        const block = Scan.blockAfter(providersSource(), "function appActionRows(text: string): var {");
+        verify(block !== "", "Providers must define appActionRows");
+        verify(block.indexOf("AppsLogic.isWebApp(") !== -1, "appActionRows must filter web apps through apps.js, the same as applicationRows");
+        verify(block.indexOf("text === \"\" && AppsLogic.isWebApp(") !== -1, "the web-app skip must be guarded on the EMPTY query here too — unguarded it would make a PWA's actions unreachable by typing");
+    }
+
     // Writing our own file back over the records that produced it, forever.
     function test_the_frecency_store_does_not_watch_itself() {
         const block = Scan.blockAfter(providersSource(), "property var frecencyFile: FileView {");

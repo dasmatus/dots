@@ -328,6 +328,15 @@ QtObject {
             if (entry.noDisplay)
                 continue;
 
+            // Same guard applicationRows applies to the app row itself: a
+            // PWA's own entry is hidden from the empty-query default screen,
+            // and an Actions= group on that same entry is not a back door
+            // around it — the action's subtitle is the hidden app's own
+            // name, so it would be exactly the noise that guard exists to
+            // keep out. A non-empty query still reaches it either way.
+            if (text === "" && AppsLogic.isWebApp(entry.execString))
+                continue;
+
             const icon = entry.icon ? Quickshell.iconPath(entry.icon, true) : "";
 
             for (const action of entry.actions) {
