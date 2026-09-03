@@ -188,6 +188,40 @@ TestCase {
         verify(argv.indexOf("-maxdepth") > 0);
     }
 
+    // The query is a glob passed as its own argv element, so `find` matches
+    // it and no shell ever sees it. A space or a quote is just a pattern.
+    function test_searchargv_passes_the_query_as_one_glob_element() {
+        const argv = Files.searchArgv("/home/matus", "my report", false);
+
+        compare(argv[0], "find");
+        compare(argv[1], "/home/matus");
+        verify(argv.indexOf("*my report*") > 0);
+    }
+
+    // Pruning hidden directories is a speed decision before a display one:
+    // .cache, .local and every .git dominate a home-directory walk.
+    function test_searchargv_prunes_hidden_directories_unless_showing_them() {
+        verify(Files.searchArgv("/h", "q", false).indexOf("-prune") > 0);
+        compare(Files.searchArgv("/h", "q", true).indexOf("-prune"), -1);
+    }
+
+    // %P is the path relative to the start, so a hit three levels down
+    // displays as "sub/dir/file" and joins straight back onto the path.
+    function test_searchargv_prints_paths_relative_to_the_search_root() {
+        const argv = Files.searchArgv("/h", "q", true);
+
+        verify(argv[argv.length - 2].indexOf("%P") > 0);
+    }
+
+    // parseListing reads the search format too, and a relative path in the
+    // name field survives because only tabs separate the fields.
+    function test_parselisting_keeps_a_relative_path_in_the_name() {
+        const entries = Files.parseListing("f\t10\t1\tsub/dir/readme.md\n");
+
+        compare(entries[0].name, "sub/dir/readme.md");
+        compare(Files.join("/home/matus", entries[0].name), "/home/matus/sub/dir/readme.md");
+    }
+
     function test_formatsize_uses_binary_units_above_a_kilobyte() {
         compare(Files.formatSize({ isDir: false, size: 812 }), "812 B");
         compare(Files.formatSize({ isDir: false, size: 1024 }), "1.0 KB");

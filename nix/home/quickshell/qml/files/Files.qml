@@ -70,6 +70,20 @@ Scope {
     // comment in operations.js for why.
     property var promptSnapshot: null
 
+    // `/` searches the whole tree below the current directory, not just the
+    // listing on screen. The walk runs in `find` and lands here; until it
+    // does, and whenever the query is empty, the line falls back to the
+    // directory already in memory so it is never blank while typing.
+    property var searchResults: []
+    readonly property string searchQuery: root.promptMode === "search" ? cmdline.query.trim() : ""
+    readonly property var searchEntries: root.searchQuery === "" ? pane.entries : root.searchResults
+
+    // A cap, not a page: a search for "e" under a home directory matches
+    // tens of thousands of paths, and no one scrolls past the first screen
+    // of a fuzzy search. The count of what was dropped is worth showing.
+    readonly property int searchCap: 200
+    property int searchFound: 0
+
     // Set by opRunner's onExited below when a write operation's exit code
     // is non-zero, so a refused gio trash or an mv/mkdir failure has
     // somewhere to surface instead of the pane just quietly re-listing as
@@ -277,7 +291,12 @@ Scope {
     // menu cannot grow different ideas of what "Trash" does.
     function runRow(row: var): void {
         if (row.kind === "entry") {
-            const entry = pane.entries[row.index];
+            // searchEntries, not pane.entries: in search mode the rows come
+            // from the recursive walk, and their names are paths relative to
+            // the current directory. pane.activate joins against that same
+            // directory, so a hit three levels down opens correctly without
+            // a second join here.
+            const entry = root.searchEntries[row.index];
             root.closeCmdline();
 
             if (entry)
@@ -312,6 +331,50 @@ Scope {
             root.closeCmdline();
             root.showHidden = !root.showHidden;
             break;
+        }
+    }
+
+    // Debounced rather than fired per keystroke: a recursive walk of a home
+    // directory costs far more than the keystroke that started it, and
+    // typing "report" would otherwise launch six of them and race their
+    // results back in whatever order they finished.
+    Timer {
+        id: searchDebounce
+
+        interval: 180
+        onTriggered: root.runSearch()
+    }
+
+    onSearchQueryChanged: {
+        if (root.searchQuery === "") {
+            searchDebounce.stop();
+            searchProc.running = false;
+            root.searchResults = [];
+            root.searchFound = 0;
+            return;
+        }
+
+        searchDebounce.restart();
+    }
+
+    function runSearch(): void {
+        // Killing the previous walk before starting the next is what stops
+        // a slow search for "r" from delivering its results on top of a
+        // finished search for "report".
+        searchProc.running = false;
+        searchProc.command = FilesMath.searchArgv(root.path, root.searchQuery, root.showHidden);
+        searchProc.running = true;
+    }
+
+    Process {
+        id: searchProc
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const hits = FilesMath.parseListing(this.text);
+                root.searchFound = hits.length;
+                root.searchResults = hits.slice(0, root.searchCap);
+            }
         }
     }
 
@@ -560,7 +623,7 @@ Scope {
                     Layout.fillWidth: true
 
                     mode: root.promptMode
-                    entries: pane.entries
+                    entries: root.searchEntries
                     selection: pane.selected
                     clipboard: root.clipboard
                     showHidden: root.showHidden

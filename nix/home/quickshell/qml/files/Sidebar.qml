@@ -19,6 +19,7 @@ import Quickshell.Io
 import "places.js" as Places
 import "../services"
 import "../services/devices.js" as DevicesMath
+import "../common"
 import ".."
 
 Rectangle {
@@ -113,7 +114,7 @@ Rectangle {
                     Text {
                         Layout.preferredWidth: Theme.filesIconColumn
                         text: place.modelData.glyph
-                        color: Theme[place.modelData.colour] ?? Theme.fg
+                        color: Tokens.colourOf(place.modelData.colour)
                         font.family: Theme.fontUi
                         font.pixelSize: Theme.filesIconSize
                     }
@@ -177,7 +178,7 @@ Rectangle {
                     Text {
                         Layout.preferredWidth: Theme.filesIconColumn
                         text: bookmark.modelData.glyph
-                        color: Theme[bookmark.modelData.colour] ?? Theme.fg
+                        color: Tokens.colourOf(bookmark.modelData.colour)
                         font.family: Theme.fontUi
                         font.pixelSize: Theme.filesIconSize
                     }

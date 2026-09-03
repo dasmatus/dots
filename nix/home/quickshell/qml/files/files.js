@@ -30,6 +30,36 @@ function listingArgv(path) {
     return ["find", path, "-maxdepth", "1", "-mindepth", "1", "-printf", "%Y\t%s\t%T@\t%f\n"];
 }
 
+// Recursive search below `path`, matched by `find` rather than by walking
+// the tree in QML: one process does in C what a JS recursion would do with
+// a Process per directory.
+//
+// `%P` prints the path relative to the starting point, so a hit three
+// directories down displays as "sub/dir/file.rs" and joins straight back
+// onto `path`. Everything else about the format matches listingArgv, which
+// is what lets parseListing read both.
+//
+// Hidden directories are pruned rather than filtered afterwards, and that
+// is a speed decision before it is a display one: on a home directory
+// .cache, .local and every .git dominate the walk, and descending into
+// them to throw the results away is most of the cost of the search. The
+// prune follows showHidden so revealing dotfiles also searches them.
+//
+// The pattern is a glob passed as its own argv element. `find` does the
+// matching, never a shell, so a query containing a space or a quote is
+// just a pattern; a query containing `*` or `?` is a wildcard, which is
+// worth having rather than escaping away.
+function searchArgv(path, query, showHidden) {
+    const argv = ["find", path, "-mindepth", "1"];
+
+    if (!showHidden)
+        argv.push("(", "-name", ".*", "-prune", ")", "-o");
+
+    argv.push("(", "-iname", `*${query}*`, "-printf", "%Y\t%s\t%T@\t%P\n", ")");
+
+    return argv;
+}
+
 // A line is type, size in bytes, mtime as an epoch float, then the
 // basename. The name is joined back rather than indexed so a name that
 // itself contains a tab loses only its own display, not the whole listing.

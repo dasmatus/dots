@@ -15,6 +15,7 @@ import Quickshell.Io
 import "files.js" as FilesMath
 import "icons.js" as Icons
 import "operations.js" as Operations
+import "../common"
 import ".."
 
 Rectangle {
@@ -175,10 +176,12 @@ Rectangle {
                         Layout.preferredWidth: Theme.filesIconColumn
 
                         text: Icons.glyphFor(row.modelData)
-                        // icons.js hands back a Theme property name, so the
-                        // lookup is a property access rather than a switch
-                        // repeated in every consumer of the module.
-                        color: row.current ? Theme.bg : (Theme[Icons.colourFor(row.modelData)] ?? Theme.fg)
+                        // icons.js hands back a Theme property NAME, and
+                        // common/Tokens resolves it. Not `Theme[name]`: a
+                        // dynamic key does not reliably register the binding
+                        // dependency, so a wallpaper change would leave every
+                        // icon on the old accent while the borders repainted.
+                        color: row.current ? Theme.bg : Tokens.colourOf(Icons.colourFor(row.modelData))
                         font.family: Theme.fontUi
                         font.pixelSize: Theme.filesIconSize
                     }

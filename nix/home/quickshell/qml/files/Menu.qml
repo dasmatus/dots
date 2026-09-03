@@ -11,6 +11,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import "commands.js" as Commands
+import "../common"
 import ".."
 
 Item {
@@ -100,7 +101,7 @@ Item {
                             // icons.js and commands.js hand back a Theme
                             // property name, so the lookup is the property
                             // access rather than a switch in every consumer.
-                            color: itemArea.containsMouse ? Theme.bg : (Theme[item.modelData.colour] ?? Theme.fg)
+                            color: itemArea.containsMouse ? Theme.bg : Tokens.colourOf(item.modelData.colour)
                             font.family: Theme.fontUi
                             font.pixelSize: Theme.filesIconSize
                         }

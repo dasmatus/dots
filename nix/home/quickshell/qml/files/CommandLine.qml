@@ -12,6 +12,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import "commands.js" as Commands
+import "../common"
 import ".."
 
 Rectangle {
@@ -135,7 +136,7 @@ Rectangle {
                         // icons.js and palette.js hand back a Theme property
                         // name, so the lookup is the property access rather
                         // than a switch repeated in every consumer.
-                        color: hit.isCurrent ? Theme.bg : (Theme[hit.modelData.colour] ?? Theme.fg)
+                        color: hit.isCurrent ? Theme.bg : Tokens.colourOf(hit.modelData.colour)
                         font.family: Theme.fontUi
                         font.pixelSize: Theme.filesIconSize
                     }
