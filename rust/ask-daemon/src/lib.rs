@@ -20,6 +20,8 @@ use std::path::PathBuf;
 use miette::Diagnostic;
 
 pub mod proto;
+pub mod session;
+pub mod store;
 
 /// Everything the daemon can fail at outside the wire protocol.
 ///
@@ -119,7 +121,9 @@ pub enum AskError {
     /// A stored line is not an event this build understands.
     #[diagnostic(
         code(dots_ask::store_decode),
-        help("the transcript came from another protocol version; move it aside to recover the rest")
+        help(
+            "the transcript came from another protocol version; move it aside to recover the rest"
+        )
     )]
     StoreDecode {
         /// The transcript the line came from.
