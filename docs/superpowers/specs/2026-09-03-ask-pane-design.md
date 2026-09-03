@@ -183,7 +183,9 @@ then returns the canned rejection text, and the turn ends with
 
 ### Every type in the fixture
 
-131 lines, 19 distinct shapes. Examples are trimmed where a field is long.
+131 lines and 18 distinct shapes. The table adds `system/permission_denied`
+from the run without the hidden flag, which is why one count reads zero.
+Examples are trimmed where a field is long.
 
 | Type / subtype | Count | What it is |
 |---|---|---|
