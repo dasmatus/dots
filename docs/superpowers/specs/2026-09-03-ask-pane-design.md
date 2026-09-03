@@ -892,11 +892,23 @@ correction from a preference. Tightening a field back is not an amendment.
 It is a break, it does not go in this table, and it needs the controller.
 
 Phase 1 built `src/proto.rs` from the field table and compiled every row.
-The table needed no loosening, so it stays empty, and that is now a result
-rather than a state nobody has tested. `rust/ask-daemon/tests/proto.rs`
-round-trips every frame in both directions and compares the serialized JSON
-against this document's own examples, so a later phase that drifts from a
-row fails there first.
+The table needed no loosening, so it stays empty, and that is a result
+rather than a state nobody has tested.
+
+`rust/ask-daemon/tests/proto.rs` is what keeps it that way. It round-trips
+every frame in both directions, and separately compares the serialized JSON
+against this document's own examples for all eight client ops and all
+fifteen daemon event types. Both halves assert their own coverage, so a
+type added without an example behind it fails rather than passing
+unnoticed.
+
+One thing that test also pins is not in the table. The rows type `decision`,
+`scope`, `stop`, `kind`, `origin`, `state` and a send block's `kind` as
+`String` and then list every legal value, so phase 1 made each of them a
+Rust enum. The wire bytes are unchanged and the tests hold them there. What
+changes is that a value outside the listed set no longer decodes, which is
+deliberate: `error.kind` decides whether an event is persisted, and a match
+that cannot forget a kind is the point.
 
 | Field | Change | Why |
 |---|---|---|
