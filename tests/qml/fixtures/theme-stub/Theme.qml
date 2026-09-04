@@ -47,6 +47,7 @@ QtObject {
     readonly property int filesHoverPad: 4
     readonly property int filesHoverPadWide: 6
     readonly property int filesMenuWidth: 220
+    readonly property int filesCrumbMenuCap: 15
     readonly property int chromeStripWidth: 3
 
     // The raised-surface token task 5's contrast fix-round added to

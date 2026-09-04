@@ -636,6 +636,7 @@ Scope {
                     onNavigate: (path) => root.setActivePath(path)
                     onBack: root.goBack()
                     onForward: root.goForward()
+                    onBrowse: (path, x, y) => crumbMenu.openFor(path, x, y)
                 }
 
                 RowLayout {
@@ -738,6 +739,18 @@ Scope {
                 showHidden: root.showHidden
 
                 onActivated: (row) => root.runRow(row)
+                onDismissed: catcher.forceActiveFocus()
+            }
+
+            // Mounted on the window for the same reason: a crumb near
+            // either edge would otherwise be unable to open a popup wider
+            // than the space left beside it.
+            CrumbMenu {
+                id: crumbMenu
+
+                showHidden: root.showHidden
+
+                onNavigate: (path) => root.setActivePath(path)
                 onDismissed: catcher.forceActiveFocus()
             }
         }

@@ -204,6 +204,16 @@ let
         readonly property int filesHoverPadWide: ${toString palette.files.hoverPadWide};
         readonly property int filesMenuWidth: ${toString palette.files.menuWidth};
 
+        // How many entries a crumb's dropdown shows before it cuts off and
+        // reports the rest as a count instead — see files/crumbmenu.js's own
+        // comment for why a directory like /nix/store forces a cap at all.
+        // 15 is chosen against filesRowHeight: 15 entries plus the fixed
+        // open-this-folder row and, when the cap bites, the one-line
+        // remainder trailer come to 17 rows, or ~530px including padding,
+        // comfortably inside this file manager's own 700px window with
+        // headroom left for PopupShell's flip-above-the-anchor case.
+        readonly property int filesCrumbMenuCap: ${toString palette.files.crumbMenuCap};
+
         // Accent edge-strip geometry, its own top-level palette block since
         // it belongs to no single component the way the file manager's
         // metrics do.

@@ -15,6 +15,10 @@
 // Crumb paths come from FilesMath.crumbsFor, which is unit-tested: a
 // breadcrumb that is one slash out sends a click somewhere the user did
 // not point at, and nothing on screen would show it was wrong.
+//
+// A crumb click opens CrumbMenu rather than navigating straight there —
+// see browse() below and Files.qml's own wiring of it — so the click still
+// reaches the right directory, just one row further in.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -34,6 +38,10 @@ Rectangle {
     signal navigate(string path)
     signal back()
     signal forward()
+    // Window coordinates, because the dropdown this opens mounts on the
+    // window rather than inside this bar: a popup clipped to the bar could
+    // not overhang its bottom edge the way Menu.qml's already does.
+    signal browse(string path, real x, real y)
 
     implicitHeight: Theme.filesRowHeight + Theme.filesPadding
     // Pinned to bg rather than lifted to the lighter `raised` token: below,
@@ -188,7 +196,15 @@ Rectangle {
                             anchors.margins: -Theme.filesHoverPad
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.navigate(crumb.modelData.path)
+                            // A single click used to navigate straight
+                            // there; it opens the dropdown instead now, so
+                            // navigating this crumb's own directory is one
+                            // click further in, through that dropdown's own
+                            // first row.
+                            onClicked: (mouse) => {
+                                const at = crumbArea.mapToItem(null, mouse.x, mouse.y);
+                                root.browse(crumb.modelData.path, at.x, at.y);
+                            }
                         }
                     }
                 }
