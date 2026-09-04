@@ -303,6 +303,9 @@ in
     assert palette.alpha.opaque == "ff";
     assert palette.fonts.canvasUi == "Manrope";
     assert palette.beamenu.lines == 9;
+    assert palette.bar.pillSpacing == 6;
+    assert palette.settings.sidebarWidth == 260;
+    assert palette.settings.panelWidthFactor == 0.72;
     assert carries palette.colors.bg;
     assert carries palette.accentFallback;
     assert carries palette.fonts.ui;

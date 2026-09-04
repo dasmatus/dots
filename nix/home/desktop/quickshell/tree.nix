@@ -165,6 +165,13 @@ let
         readonly property int barIconSize: ${toString palette.bar.iconSize};
         readonly property int barTitleMaxWidth: ${toString palette.bar.titleMaxWidth};
 
+        // common/Pill.qml's internal Row hardcodes this same 6px spacing
+        // today; this token exists so a sibling that has to duplicate the
+        // number to compute available width has something to read instead
+        // of a second literal. Pill.qml itself is not wired to it yet — a
+        // follow-up rewires the consumer once the file it lives in is free.
+        readonly property int barPillSpacing: ${toString palette.bar.pillSpacing};
+
         // How many app icons a single crowded workspace draws before the
         // rest fold into a "+n" badge — see Workspaces.qml's own use of it
         // for why an unbounded row would be able to push the clock off the
@@ -216,6 +223,46 @@ let
         readonly property int filesHoverPad: ${toString palette.files.hoverPad};
         readonly property int filesHoverPadWide: ${toString palette.files.hoverPadWide};
         readonly property int filesMenuWidth: ${toString palette.files.menuWidth};
+
+        // Settings panel geometry. Its own block for the same reason
+        // filesTabHeight and friends above get one rather than reusing the
+        // launcher's: the richer sidebar-nav layout disagrees with every
+        // other feature on spacing, and a shared constant every caller
+        // immediately overrides is the magic number this file exists to
+        // stop. Nothing under qml/settings/ reads these yet — that lands
+        // with the layout rebuild these tokens were cut for.
+        readonly property int settingsSidebarWidth: ${toString palette.settings.sidebarWidth};
+        readonly property int settingsHeaderHeight: ${toString palette.settings.headerHeight};
+        readonly property int settingsSearchHeight: ${toString palette.settings.searchHeight};
+        readonly property int settingsRowHeight: ${toString palette.settings.rowHeight};
+        readonly property int settingsRowPadding: ${toString palette.settings.rowPadding};
+        readonly property int settingsRowGap: ${toString palette.settings.rowGap};
+        readonly property int settingsGroupGap: ${toString palette.settings.groupGap};
+        readonly property int settingsControlColumn: ${toString palette.settings.controlColumn};
+        readonly property int settingsRadius: ${toString palette.settings.radius};
+
+        // Fractions of the screen, not pixels, matching how
+        // launcherWidthFactor sizes the launcher above: the settings panel
+        // is itself sized relative to the monitor, so a constant here would
+        // mean something different on every one.
+        readonly property real settingsPanelWidthFactor: ${toString palette.settings.panelWidthFactor};
+        readonly property real settingsPanelHeightFactor: ${toString palette.settings.panelHeightFactor};
+
+        // font.pointSize, not pixelSize: every existing Settings/Proton
+        // control already sizes its text that way (Settings.qml,
+        // Proton.qml), unlike the bar's barFontSize above, which feeds
+        // font.pixelSize instead. QML's own font.pointSize property is a
+        // real (Qt exposes it as `double`), so these follow suit rather
+        // than being declared int like the pixel-sized ones.
+        readonly property real settingsTitleFontSize: ${toString palette.settings.titleFontSize};
+        readonly property real settingsGroupFontSize: ${toString palette.settings.groupFontSize};
+        readonly property real settingsRowTitleFontSize: ${toString palette.settings.rowTitleFontSize};
+        readonly property real settingsRowDescFontSize: ${toString palette.settings.rowDescFontSize};
+        readonly property real settingsNavFontSize: ${toString palette.settings.navFontSize};
+
+        readonly property int settingsFooterHeight: ${toString palette.settings.footerHeight};
+        readonly property int settingsToggleWidth: ${toString palette.settings.toggleWidth};
+        readonly property int settingsToggleHeight: ${toString palette.settings.toggleHeight};
 
         // How many entries a crumb's dropdown shows before it cuts off and
         // reports the rest as a count instead — see files/crumbmenu.js's own
