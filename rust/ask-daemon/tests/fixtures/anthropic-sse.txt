@@ -1,5 +1,5 @@
 event: message_start
-data: {"type":"message_start","message":{"id":"msg_01Abc","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":24,"cache_creation_input_tokens":118,"cache_read_input_tokens":4096,"output_tokens":1}}}
+data: {"type":"message_start","message":{"id":"msg_01Abc","type":"message","role":"assistant","model":"claude-haiku-4-5-20251001","content":[],"stop_reason":null,"usage":{"input_tokens":24,"cache_creation_input_tokens":118,"cache_read_input_tokens":4096,"output_tokens":1}}}
 
 event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}
