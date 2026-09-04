@@ -286,18 +286,23 @@ impl ProviderSession {
             // else does, and before any early exit below. A provider is
             // stateless: everything the model knows about this conversation
             // is the array the next round posts, so leaving its reply out
-            // makes every follow-up a fresh conversation. Leaving out the
-            // block that carried a tool call is worse, because the
-            // `tool_result` appended just below would then follow nothing,
-            // and both keyed providers answer an orphan result with a 400.
+            // makes every follow-up a fresh conversation.
             //
             // A round that produced neither text nor a call records nothing,
             // which is the failed-request case: an empty assistant message is
             // itself a 400.
             request.push_assistant(self, &outcome.text, &outcome.tool_calls);
 
+            // Recording the calls is what makes an orphan possible, so every
+            // path that leaves the loop from here without reaching
+            // `run_tools` has to close them out. See `abandon_tools`.
             if self.interrupted {
                 stop = StopReason::Interrupted;
+                self.abandon_tools(
+                    request,
+                    &outcome.tool_calls,
+                    "The person stopped the turn before this tool ran.",
+                );
                 break;
             }
             if outcome.tool_calls.is_empty() || outcome.failed {
@@ -310,6 +315,11 @@ impl ProviderSession {
                     false,
                 );
                 stop = StopReason::Error;
+                self.abandon_tools(
+                    request,
+                    &outcome.tool_calls,
+                    "The turn stopped here: the model asked for tools too many rounds running.",
+                );
                 break;
             }
             if !self.run_tools(request, outcome.tool_calls, inbox).await {
@@ -417,6 +427,35 @@ impl ProviderSession {
             tool_calls: decoder.take_tool_calls(),
             failed: false,
         })
+    }
+
+    /// Answer calls the turn recorded but will never run.
+    ///
+    /// Both providers require every call an assistant message announces to be
+    /// answered in the same history: Anthropic rejects a `tool_use` with no
+    /// following `tool_result`, OpenAI rejects `tool_calls` not followed by a
+    /// matching `role:"tool"`. Nothing here prunes the history, so an
+    /// unanswered call is not one failed turn, it is every turn after it. A
+    /// person pressing stop mid-tool-call would otherwise brick the thread.
+    ///
+    /// Synthesizing the results rather than dropping the assistant message is
+    /// what both APIs expect, and it keeps the transcript honest: the model
+    /// asked, and on the next turn it can read that the call was abandoned
+    /// and why, instead of finding no trace of having asked at all.
+    ///
+    /// Nothing is emitted to the pane. These calls never produced a
+    /// `tool_call` event, because that happens in `run_tools`, which is
+    /// exactly the step being skipped, so a `tool_result` event here would
+    /// answer a call the pane never saw.
+    fn abandon_tools(&mut self, request: &TurnRequest, calls: &[PendingToolCall], why: &str) {
+        for call in calls {
+            tracing::debug!(
+                tool = call.name,
+                why,
+                "closing out a call that will not run"
+            );
+            request.push_tool_result(self, call, false, why);
+        }
     }
 
     /// Approve, refuse and run each tool the model asked for.

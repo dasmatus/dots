@@ -332,6 +332,37 @@ impl Harness {
         }
     }
 
+    /// Send `command` once the turn has produced an event matching `ready`.
+    ///
+    /// Queuing a command before `run_turn` starts says nothing about where in
+    /// the turn it lands: against a held response the inbox is ready first and
+    /// the command is taken before a single byte is decoded. That is what the
+    /// interrupt test wants and the opposite of what an orphaned call needs,
+    /// which is an interrupt *after* the calls are parsed.
+    ///
+    /// Waiting for an event the decoder only emits once it has read the body
+    /// pins the command to that point. It stays deterministic because the held
+    /// response leaves the stream branch pending afterwards, so the inbox is
+    /// the only branch that can advance the turn; the poll interval decides
+    /// how quickly the command lands, never whether it wins.
+    fn send_after(&self, ready: fn(&EventBody) -> bool, command: BackendCommand) {
+        let seen = Arc::clone(&self.seen);
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            let deadline = tokio::time::Instant::now() + PATIENCE;
+            while tokio::time::Instant::now() < deadline {
+                let arrived = seen
+                    .lock()
+                    .map(|seen| seen.iter().any(ready))
+                    .unwrap_or(false);
+                if arrived {
+                    let _ = commands.send(command);
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        });
+    }
     /// How many turns have closed so far.
     fn closes(&self) -> usize {
         self.drained()
@@ -958,10 +989,14 @@ async fn stopping_a_tool_turn_leaves_no_orphaned_call() {
         .push_user(&[text_block("search for something")]);
     let request = ask_daemon::backend::ollama::request(&provider.url(), "ornith:9b", Vec::new());
 
-    harness
-        .commands
-        .send(BackendCommand::Interrupt)
-        .expect("the inbox is open");
+    // After the usage event, which the decoder emits only once it has read
+    // the body, so the calls are parsed and recorded by the time the stop
+    // lands. Queuing it up front would interrupt before any byte was decoded
+    // and there would be no call to orphan.
+    harness.send_after(
+        |body| matches!(body, EventBody::Usage { .. }),
+        BackendCommand::Interrupt,
+    );
     harness.run(&request).await;
 
     let history = harness.session.messages();
@@ -976,7 +1011,7 @@ async fn stopping_a_tool_turn_leaves_no_orphaned_call() {
         .as_str()
         .expect("the synthesized result carries text");
     assert!(
-        answer.contains("interrupted"),
+        answer.contains("stopped"),
         "and says why it never ran, so the model is not left guessing: {answer}"
     );
 }
