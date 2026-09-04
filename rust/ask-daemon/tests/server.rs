@@ -15,16 +15,25 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use ask_daemon::backend::unconfigured_registry;
+use ask_daemon::backend::{
+    unconfigured_registry, Backend, BackendCommand, BackendContext, BackendHandle, Registry,
+    CLAUDE_CODE,
+};
+use ask_daemon::mcp::McpPool;
+use ask_daemon::policy::Policy;
+use ask_daemon::proto::{BackendInfo, BackendState, EventBody, SendBlock, StopReason};
+use ask_daemon::secrets::SecretStore;
 use ask_daemon::server::{Artifacts, Daemon};
 
 /// How long any single read may take before the test gives up.
@@ -40,13 +49,18 @@ struct Harness {
 impl Harness {
     /// Bind a daemon and start accepting.
     async fn start() -> Self {
+        Self::with_registry(unconfigured_registry()).await
+    }
+
+    /// Bind a daemon that runs the backends `registry` holds.
+    async fn with_registry(registry: Arc<Registry>) -> Self {
         let root = std::env::temp_dir().join(format!("dots-ask-srv-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp root is creatable");
         let socket = root.join("dots-ask.sock");
         let daemon = Daemon::bind(
             socket.clone(),
             root.join("state"),
-            unconfigured_registry(),
+            registry,
             Artifacts::unserved(&root.join("state")).expect("the artifact root opens"),
         )
         .expect("the daemon binds");
@@ -818,4 +832,376 @@ async fn a_socket_left_by_a_dead_run_is_replaced() {
 
     serving.abort();
     drop(fs::remove_dir_all(&root));
+}
+
+// -- attachments and artifacts ---------------------------------------------
+
+/// What one scripted backend was handed: its attachment directory and the
+/// blocks of the last send it saw.
+type Seen = Arc<Mutex<Option<(PathBuf, Vec<SendBlock>)>>>;
+
+/// A backend that answers every send with a scripted event list.
+///
+/// It exists because the artifact path runs from `send` through a backend,
+/// the shared channel, `pump` and `absorb` before it reaches a client, and
+/// there is no way to drive that with `unconfigured_registry()`, which starts
+/// nothing. It runs no process, opens no socket and reads no credential, so
+/// the suite still cannot reach a real `claude` or a real ollama.
+struct ScriptedBackend {
+    /// The bodies to emit for every send, in order.
+    script: Vec<EventBody>,
+    /// What the last `start` was handed, so a test can read the attachment
+    /// directory the daemon gave the backend and the blocks it received.
+    seen: Seen,
+}
+
+impl Backend for ScriptedBackend {
+    fn id(&self) -> &'static str {
+        CLAUDE_CODE
+    }
+
+    fn info(&self, _secrets: &SecretStore) -> BackendInfo {
+        BackendInfo {
+            id: CLAUDE_CODE.to_owned(),
+            label: "Scripted".to_owned(),
+            state: BackendState::Ready,
+            models: Vec::new(),
+            detail: None,
+        }
+    }
+
+    fn start(&self, ctx: BackendContext) -> Result<BackendHandle, String> {
+        let (commands, mut inbox) = mpsc::unbounded_channel();
+        let script = self.script.clone();
+        let seen = Arc::clone(&self.seen);
+        let attachments = ctx.attachments.clone();
+        let sink = ctx.sink.clone();
+        tokio::spawn(async move {
+            while let Some(command) = inbox.recv().await {
+                if let BackendCommand::Send { blocks } = command {
+                    *seen.lock().expect("the recorder is not poisoned") =
+                        Some((attachments.clone(), blocks));
+                    for body in script.clone() {
+                        sink.emit(body);
+                    }
+                }
+            }
+        });
+        Ok(BackendHandle::new(commands))
+    }
+}
+
+/// A registry holding one scripted backend under the `claude-code` id.
+fn scripted(script: Vec<EventBody>) -> (Arc<Registry>, Seen) {
+    let seen: Seen = Arc::new(Mutex::new(None));
+    let backend = Arc::new(ScriptedBackend {
+        script,
+        seen: Arc::clone(&seen),
+    });
+    let policy = Policy::open(PathBuf::from("/nonexistent/dots-ask/policy.json"))
+        .expect("a policy file that is not there loads as empty");
+    let registry = Registry::new(
+        vec![backend],
+        Arc::new(SecretStore::default()),
+        Arc::new(McpPool::empty()),
+        Arc::new(Mutex::new(policy)),
+    );
+    (Arc::new(registry), seen)
+}
+
+/// The three bodies a turn that writes one HTML page produces.
+fn html_turn(source: &str) -> Vec<EventBody> {
+    vec![
+        EventBody::TurnStart {
+            turn: None,
+            backend: CLAUDE_CODE.to_owned(),
+            model: None,
+            started_ms: 1,
+        },
+        EventBody::CodeBlock {
+            turn: None,
+            block: 0,
+            language: Some("html".to_owned()),
+            source: source.to_owned(),
+            html: None,
+        },
+        EventBody::TurnEnd {
+            turn: None,
+            stop: StopReason::EndTurn,
+            text: None,
+            duration_ms: 1,
+        },
+    ]
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_html_fence_produces_an_artifact_beside_its_code_block() {
+    // Beside, not instead of. The code block is the record of what the model
+    // wrote, and a person should be able to read a page's source without
+    // opening the page.
+    let (registry, _seen) = scripted(html_turn("<html><body>hi</body></html>"));
+    let harness = Harness::with_registry(registry).await;
+    let mut client = harness.client().await;
+    client.hello(None).await;
+    let conversation = Uuid::new_v4();
+    client.new_thread(conversation).await;
+    client
+        .send(&json!({"op": "send", "conversation": conversation,
+                      "blocks": [{"kind": "text", "text": "make me a page"}]}))
+        .await;
+
+    client.expect_event("user_message").await;
+    client.expect_event("turn_start").await;
+    let code = client.expect_event("code_block").await;
+    assert_eq!(code["language"], json!("html"));
+    let artifact = client.expect_event("artifact").await;
+
+    assert_eq!(artifact["conversation"], json!(conversation));
+    assert_eq!(artifact["revision"], json!(1));
+    assert_eq!(
+        artifact["turn"], code["turn"],
+        "same turn as its code block"
+    );
+    assert_eq!(
+        artifact["seq"].as_u64().expect("seq"),
+        code["seq"].as_u64().expect("seq") + 1,
+        "the two are adjacent, so a replay brings them back together"
+    );
+    let path = PathBuf::from(artifact["path"].as_str().expect("path"));
+    assert_eq!(
+        fs::read_to_string(&path).expect("the page is on disk"),
+        "<html><body>hi</body></html>",
+        "the page is durable before the event announcing it goes out"
+    );
+    assert!(
+        path.starts_with(harness.root.join("state").join("artifacts")),
+        "artifacts live under the data root, beside the transcripts: {}",
+        path.display()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fence_that_is_not_html_produces_no_artifact() {
+    // Markdown, code, SVG and images render in the pane. Only HTML leaves it.
+    let script = vec![
+        EventBody::TurnStart {
+            turn: None,
+            backend: CLAUDE_CODE.to_owned(),
+            model: None,
+            started_ms: 1,
+        },
+        EventBody::CodeBlock {
+            turn: None,
+            block: 0,
+            language: Some("rust".to_owned()),
+            source: "fn main() {}\n".to_owned(),
+            html: None,
+        },
+        EventBody::TurnEnd {
+            turn: None,
+            stop: StopReason::EndTurn,
+            text: None,
+            duration_ms: 1,
+        },
+    ];
+    let (registry, _seen) = scripted(script);
+    let harness = Harness::with_registry(registry).await;
+    let mut client = harness.client().await;
+    client.hello(None).await;
+    let conversation = Uuid::new_v4();
+    client.new_thread(conversation).await;
+    client
+        .send(&json!({"op": "send", "conversation": conversation,
+                      "blocks": [{"kind": "text", "text": "hi"}]}))
+        .await;
+
+    client.expect_event("user_message").await;
+    client.expect_event("turn_start").await;
+    client.expect_event("code_block").await;
+    client.expect_event("turn_end").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_regenerated_page_keeps_its_id_and_raises_its_revision() {
+    // What makes an already-open window reload rather than a second window
+    // open: the id and the URL stand still and only the revision moves.
+    let (registry, _seen) = scripted(html_turn("<p>version</p>"));
+    let harness = Harness::with_registry(registry).await;
+    let mut client = harness.client().await;
+    client.hello(None).await;
+    let conversation = Uuid::new_v4();
+    client.new_thread(conversation).await;
+
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        client
+            .send(&json!({"op": "send", "conversation": conversation,
+                          "blocks": [{"kind": "text", "text": "again"}]}))
+            .await;
+        client.expect_event("user_message").await;
+        client.expect_event("turn_start").await;
+        client.expect_event("code_block").await;
+        seen.push(client.expect_event("artifact").await);
+        client.expect_event("turn_end").await;
+    }
+
+    assert_eq!(
+        seen[0]["artifact"], seen[1]["artifact"],
+        "the id must not move"
+    );
+    assert_eq!(seen[0]["path"], seen[1]["path"], "the file must not move");
+    assert_eq!(seen[0]["revision"], json!(1));
+    assert_eq!(seen[1]["revision"], json!(2));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_attachment_is_copied_in_before_the_user_message_records_it() {
+    // The path a transcript keeps has to outlive the pane's scratch, and it
+    // has to be the one the backend was given, or the two disagree about
+    // which bytes were sent.
+    let (registry, seen) = scripted(Vec::new());
+    let harness = Harness::with_registry(registry).await;
+    let scratch = harness.root.join("cap-3.png");
+    fs::write(&scratch, b"not really a png").expect("the capture writes");
+
+    let mut client = harness.client().await;
+    client.hello(None).await;
+    let conversation = Uuid::new_v4();
+    client.new_thread(conversation).await;
+    client
+        .send(
+            &json!({"op": "send", "conversation": conversation, "blocks": [
+            {"kind": "text", "text": "what is this"},
+            {"kind": "image", "path": scratch, "mime": "image/png"}]}),
+        )
+        .await;
+
+    let recorded = client.expect_event("user_message").await;
+    let kept = PathBuf::from(
+        recorded["blocks"][1]["path"]
+            .as_str()
+            .expect("the block keeps a path"),
+    );
+    assert_ne!(kept, scratch, "the transcript names the copy");
+    assert!(
+        kept.starts_with(harness.root.join("state").join("attachments")),
+        "attachments live under the data root, beside the transcripts: {}",
+        kept.display()
+    );
+    assert_eq!(
+        fs::read(&kept).expect("the copy is there"),
+        b"not really a png"
+    );
+    assert!(
+        scratch.exists(),
+        "the original is not the daemon's to delete"
+    );
+
+    // And the backend was handed the same rewritten block plus the directory
+    // it sits in, which is what the harness turns into one --add-dir.
+    let (attachments, blocks) = loop {
+        if let Some(seen) = seen.lock().expect("the recorder is not poisoned").clone() {
+            break seen;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    };
+    assert_eq!(blocks[1].path.as_deref(), Some(kept.as_path()));
+    assert!(kept.starts_with(&attachments), "{}", attachments.display());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_naming_a_file_that_is_not_there_is_refused_and_records_nothing() {
+    let harness = Harness::start().await;
+    let mut client = harness.client().await;
+    let (_, before) = client.hello(None).await;
+    let conversation = Uuid::new_v4();
+    client.new_thread(conversation).await;
+    client
+        .send(
+            &json!({"op": "send", "conversation": conversation, "blocks": [
+            {"kind": "image", "path": "/nowhere/at/all.png", "mime": "image/png"}]}),
+        )
+        .await;
+
+    let error = client.expect_event("error").await;
+    assert_eq!(error["kind"], json!("bad_request"));
+    assert_eq!(
+        error["seq"],
+        Value::Null,
+        "bad_request is connection-scoped"
+    );
+    assert!(
+        error["message"]
+            .as_str()
+            .expect("message")
+            .contains("/nowhere/at/all.png"),
+        "{error}"
+    );
+
+    // Nothing was persisted, so a reconnect replays no half-message.
+    let mut second = harness.client().await;
+    let (replay, seq_head) = second.hello(Some(before)).await;
+    assert!(
+        replay
+            .iter()
+            .all(|event| event["event"] != json!("user_message")),
+        "a refused send must leave no user_message: {replay:?}"
+    );
+    assert_eq!(seq_head, before, "a refused send spends no seq");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_thread_takes_its_pages_and_its_attachments() {
+    let (registry, _seen) = scripted(html_turn("<p>gone</p>"));
+    let harness = Harness::with_registry(registry).await;
+    let scratch = harness.root.join("cap.png");
+    fs::write(&scratch, b"bytes").expect("the capture writes");
+
+    let mut client = harness.client().await;
+    client.hello(None).await;
+    let conversation = Uuid::new_v4();
+    client.new_thread(conversation).await;
+    client
+        .send(
+            &json!({"op": "send", "conversation": conversation, "blocks": [
+            {"kind": "image", "path": scratch, "mime": "image/png"}]}),
+        )
+        .await;
+
+    let recorded = client.expect_event("user_message").await;
+    let attachment = PathBuf::from(recorded["blocks"][0]["path"].as_str().expect("path"));
+    client.expect_event("turn_start").await;
+    client.expect_event("code_block").await;
+    let artifact = client.expect_event("artifact").await;
+    let page = PathBuf::from(artifact["path"].as_str().expect("path"));
+    client.expect_event("turn_end").await;
+    assert!(attachment.exists() && page.exists());
+
+    client
+        .send(&json!({"op": "delete", "conversation": conversation}))
+        .await;
+    client.expect_event("conversations").await;
+
+    assert!(
+        !attachment.exists(),
+        "a deleted thread keeps no attachments"
+    );
+    assert!(!page.exists(), "a deleted thread keeps no pages");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ready_carries_an_artifact_base_key_that_is_null_with_no_server() {
+    // The port lives on an ephemeral reply and never in a transcript, so a
+    // daemon with no loopback listener says null rather than a dead URL.
+    let harness = Harness::start().await;
+    let mut client = harness.client().await;
+    client
+        .send(&json!({"op": "hello", "protocol": 1, "resume_seq": null}))
+        .await;
+    let ready = client.expect_event("ready").await;
+    assert!(
+        ready.get("artifact_base").is_some(),
+        "the key is always there: {ready}"
+    );
+    assert_eq!(ready["artifact_base"], Value::Null);
 }

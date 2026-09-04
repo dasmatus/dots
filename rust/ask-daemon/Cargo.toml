@@ -104,6 +104,11 @@ similar = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+# tests/artifact_serve.rs builds requests and reads responses back. Both are
+# already dependencies of the library, so naming them here adds no crate; a
+# test crate simply cannot see a library's own dependencies.
+hyper = { version = "1", default-features = false }
+http-body-util = "0.1"
 
 [profile.release]
 lto = true
