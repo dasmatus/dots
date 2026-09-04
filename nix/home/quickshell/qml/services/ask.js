@@ -53,6 +53,7 @@ function emptyState() {
         seqHead: null,
         lastSeq: null,
         backends: [],
+        artifactBase: null,
         conversations: [],
         threads: {},
         notice: null
@@ -72,6 +73,7 @@ function applyEvents(state, events) {
         seqHead: state.seqHead,
         lastSeq: state.lastSeq,
         backends: state.backends,
+        artifactBase: state.artifactBase,
         conversations: state.conversations,
         threads: Object.assign({}, state.threads),
         notice: state.notice
@@ -140,6 +142,11 @@ function fold(next, touched, event) {
         next.ready = true;
         next.protocol = event.protocol ?? null;
         next.seqHead = event.seq_head ?? null;
+        // Never persisted: the port is picked fresh on every daemon start, so
+        // the base rides the handshake and an `artifact` event carries only
+        // the id. A replayed artifact stays openable; a replayed URL would
+        // not.
+        next.artifactBase = event.artifact_base ?? null;
         return;
     case "conversations":
         next.conversations = event.items ?? [];
@@ -164,6 +171,9 @@ function fold(next, touched, event) {
         return;
     case "thinking_delta":
         appendThinking(thread, event);
+        return;
+    case "artifact":
+        pushArtifact(thread, event);
         return;
     case "code_block":
         pushCode(thread, event);
@@ -315,6 +325,49 @@ function appendThinking(thread, event) {
 // Text element draws, produced by the daemon's render.rs, so nothing here
 // parses markdown or picks a colour per token. `source` is what the copy
 // button puts on the clipboard, since the rich text is for the eye only.
+
+// One model-written HTML page, as a card offering to open it.
+//
+// A REVISION REPLACES ITS ROW rather than appending a second one. A thread
+// keeps one artifact, and the daemon rewrites the same file and raises
+// `revision` when the model regenerates it, so a second card would be two
+// buttons pointing at one page. The row is replaced in place, which also
+// means the card's revision label moves without the thread scrolling.
+//
+// The row carries no url. `artifactBase` is a per-connection fact and the
+// card joins the two, so a thread replayed against a daemon that restarted
+// gets this run's port rather than the dead one the page was written under.
+function pushArtifact(thread, event) {
+    const row = {
+        kind: "artifact",
+        turn: event.turn ?? null,
+        artifact: event.artifact ?? "",
+        title: event.title ?? null,
+        path: event.path ?? "",
+        revision: event.revision ?? 1,
+        bytes: event.bytes ?? 0
+    };
+
+    for (let i = 0; i < thread.rows.length; i++) {
+        if (thread.rows[i].kind === "artifact" && thread.rows[i].artifact === row.artifact) {
+            thread.rows[i] = row;
+            return;
+        }
+    }
+
+    thread.rows.push(row);
+}
+
+// The url one artifact card opens, or "" when this daemon has no artifact
+// server. Empty is what the card greys itself out on: a page that exists on
+// disk with nothing serving it is worth saying so about rather than offering
+// a button that cannot work.
+function artifactUrl(state, conversation, artifact) {
+    if (!state.artifactBase || !conversation || !artifact)
+        return "";
+
+    return `${state.artifactBase}/${conversation}/${artifact}`;
+}
 function pushCode(thread, event) {
     thread.rows.push({
         kind: "code",
@@ -555,12 +608,18 @@ function stopLabel(stop) {
 
 // Adds the prompt the user just sent as a row, and returns a new state.
 //
-// The daemon has no event for a user message: the schema's persisted set runs
-// from turn_start to turn_end and never carries what was asked. So the pane
-// echoes its own prompt locally, which also means a prompt does not survive a
-// shell restart the way the answer to it does. Nothing here can close that
-// gap; it needs an event the daemon does not send.
-function pushUserRow(state, conversation, text) {
+// This is still a local echo. Phase 2 added a persisted `user_message`, so
+// the daemon does now carry the question, but nothing here folds it yet and
+// wiring that up means deciding what to do about the echo already on screen.
+// Until then a prompt does not survive a shell restart the way the answer to
+// it does, and the attachment chips below go with it.
+//
+// `attachments` is the composer's own staged list, {path, mime, name}. The
+// names are what the row draws. The paths it draws are this side's, which is
+// not what the transcript keeps: the daemon copies each file into the
+// conversation's directory and records the copy. That divergence is the same
+// one the echo already has, and it closes the same way.
+function pushUserRow(state, conversation, text, attachments) {
     const touched = {};
     const next = applyEvents(state, []);
     const thread = threadOf(next, touched, conversation);
@@ -570,10 +629,28 @@ function pushUserRow(state, conversation, text) {
 
     thread.rows.push({
         kind: "user",
-        text: text
+        text: text,
+        attachments: attachments ?? []
     });
 
     return next;
+}
+
+// One send block for a staged attachment.
+//
+// `kind` is decided by the media type rather than by the extension, because
+// the schema splits image from file and the daemon inlines only the first.
+// An empty mime means the composer could not guess one, which lands as
+// `file`: the daemon fills a type in from the extension itself and refuses to
+// inline anything no provider accepts, so guessing `image` here would only
+// move the refusal.
+function attachmentBlock(attachment) {
+    const mime = attachment.mime ?? "";
+    return {
+        kind: mime.indexOf("image/") === 0 ? "image" : "file",
+        path: attachment.path,
+        mime: mime === "" ? null : mime
+    };
 }
 
 // The rows a conversation draws, or an empty list for one nothing has arrived

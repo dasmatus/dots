@@ -360,6 +360,28 @@ in
             class = ".*";
           };
         }
+        # The ask pane's artifact window. Quickshell cannot host QtWebEngine,
+        # so a model-written HTML page opens in Brave instead
+        # (nix/home/quickshell/qml/services/AskBus.qml's openArtifact), and
+        # `--class=dots-ask-artifact` exists purely so this rule can find it:
+        # an --app window carries no title worth matching and would otherwise
+        # tile like any other browser window.
+        #
+        # Floating and pinned so it stays beside the pane while the reader
+        # keeps working, which is the same reasoning that makes the pane
+        # itself OnDemand rather than an exclusive grab. Sized and placed to
+        # the left of Theme.askWidth (560px), so the two do not overlap on the
+        # right edge the pane docks to.
+        {
+          name = "ask-artifact";
+          match = {
+            class = "^(dots-ask-artifact)$";
+          };
+          float = true;
+          pin = true;
+          size = "900 700";
+          move = "100%-1480 80";
+        }
       ];
 
       # The launcher draws into a wlr-layer-shell surface, and its namespace is

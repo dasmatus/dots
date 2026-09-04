@@ -21,6 +21,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import ".."
+import "../common"
 import "../services"
 import "../services/ask.js" as AskMath
 
@@ -42,6 +43,8 @@ Loader {
             return thinkingRow;
         case "code":
             return codeRow;
+        case "artifact":
+            return artifactRow;
         case "tool":
             return toolRow;
         case "plan":
@@ -55,36 +58,77 @@ Loader {
         }
     }
 
-    // The prompt the user sent. Echoed by the client, because no daemon event
-    // carries a user message back; ask.js's pushUserRow says what that costs
-    // after a shell restart.
+    // The prompt the user sent, and whatever rode with it. Echoed by the
+    // client rather than folded from the daemon's `user_message`; ask.js's
+    // pushUserRow says what that still costs after a shell restart.
     Component {
         id: userRow
 
         Rectangle {
-            implicitHeight: prompt.implicitHeight + Theme.askGutter * 2
+            implicitHeight: promptBody.implicitHeight + Theme.askGutter * 2
 
             radius: Theme.askRadius
             color: Qt.alpha(Theme.accent, 0.14)
             border.width: 1
             border.color: Theme.accent
 
-            Text {
-                id: prompt
+            ColumnLayout {
+                id: promptBody
 
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.top: parent.top
+                anchors.verticalCenter: parent.verticalCenter
                 anchors.margins: Theme.askGutter
 
-                text: root.row.text
-                textFormat: Text.PlainText
-                color: Theme.fg
+                spacing: 6
 
-                font.family: Theme.fontUi
-                font.pointSize: 10
+                Text {
+                    Layout.fillWidth: true
 
-                wrapMode: Text.Wrap
+                    visible: root.row.text !== ""
+                    text: root.row.text
+                    textFormat: Text.PlainText
+                    color: Theme.fg
+
+                    font.family: Theme.fontUi
+                    font.pointSize: 10
+
+                    wrapMode: Text.Wrap
+                }
+
+                // What was attached, by name. Not a thumbnail: the path this
+                // row holds is the composer's scratch copy, which the tmpfs
+                // clears at logout, so an Image bound to it would draw a
+                // broken frame for the rest of the session. The daemon's own
+                // copy is the durable one and this side does not know its
+                // name.
+                Flow {
+                    Layout.fillWidth: true
+
+                    visible: (root.row.attachments ?? []).length > 0
+                    spacing: 6
+
+                    Repeater {
+                        model: root.row.attachments ?? []
+
+                        delegate: Pill {
+                            id: sent
+
+                            required property var modelData
+
+                            color: Qt.alpha(Theme.accent, 0.2)
+
+                            Text {
+                                text: sent.modelData.name
+                                textFormat: Text.PlainText
+                                color: Theme.fgDark
+
+                                font.family: Theme.fontMono
+                                font.pointSize: 9
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -187,6 +231,102 @@ Loader {
             language: root.row.language ?? ""
             source: root.row.source
             html: root.row.html ?? ""
+        }
+    }
+
+    // A model-written HTML page, as a card that opens it in its own window.
+    //
+    // A card and not a preview, because there is nothing here that could draw
+    // one: Quickshell cannot host QtWebEngine, which is the reason artifacts
+    // leave the pane at all. The `code_block` beside this row carries the same
+    // page as source, so a reader who wants to know what the button will open
+    // can read it without opening it.
+    //
+    // The card is greyed when the daemon reported no artifact_base, which
+    // means the page is on disk and nothing is serving it. Saying so is better
+    // than a button that does nothing.
+    Component {
+        id: artifactRow
+
+        Rectangle {
+            id: card
+
+            readonly property string url: AskMath.artifactUrl(AskBus.state, root.conversation, root.row.artifact)
+            readonly property bool openable: card.url !== ""
+
+            implicitHeight: cardBody.implicitHeight + Theme.askGutter * 2
+
+            radius: Theme.askRadius
+            color: Theme.bgDark
+            border.width: 1
+            border.color: card.openable ? Theme.accent : Theme.border
+
+            RowLayout {
+                id: cardBody
+
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.margins: Theme.askGutter
+
+                spacing: 8
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+
+                    spacing: 2
+
+                    Text {
+                        Layout.fillWidth: true
+
+                        text: root.row.title ?? "Untitled page"
+                        textFormat: Text.PlainText
+                        color: Theme.fg
+                        elide: Text.ElideRight
+
+                        font.family: Theme.fontUi
+                        font.pointSize: 10
+                        font.bold: true
+                    }
+
+                    // The revision is shown from the second one on. "revision
+                    // 1" on every first page would be noise; "revision 3" is
+                    // the thing worth noticing, because it says the window
+                    // that is already open has been reloaded twice.
+                    Text {
+                        Layout.fillWidth: true
+
+                        text: {
+                            if (!card.openable)
+                                return "written to disk; no artifact server is running";
+
+                            const size = `${Math.max(1, Math.round(root.row.bytes / 1024))} KiB`;
+                            return root.row.revision > 1 ? `HTML · ${size} · revision ${root.row.revision}` : `HTML · ${size}`;
+                        }
+                        textFormat: Text.PlainText
+                        color: Theme.muted
+
+                        font.family: Theme.fontMono
+                        font.pointSize: 8
+                    }
+                }
+
+                Pill {
+                    interactive: card.openable
+                    color: card.openable ? Theme.accent : Theme.bgDarker
+
+                    onClicked: AskBus.openArtifact(root.conversation, root.row.artifact)
+
+                    Text {
+                        text: "Open"
+                        color: card.openable ? Theme.bg : Theme.muted
+
+                        font.family: Theme.fontUi
+                        font.pointSize: 9
+                        font.bold: true
+                    }
+                }
+            }
         }
     }
 

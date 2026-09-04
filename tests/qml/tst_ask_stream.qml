@@ -522,4 +522,138 @@ TestCase {
         const id = Ask.newConversationId();
         verify(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id), `the client mints its own conversation id and it has to be a uuid: ${id}`);
     }
+
+    // -- artifacts and attachments -----------------------------------------
+
+    function artifact(seq, revision) {
+        return {
+            seq: seq,
+            conversation: conversation,
+            event: "artifact",
+            turn: turn,
+            artifact: "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e",
+            title: "Sales dashboard",
+            path: "/home/matus/.local/share/dots-ask/artifacts/6f1a/9c2b.html",
+            revision: revision,
+            bytes: 4821
+        };
+    }
+
+    // An artifact arrives beside its code block, so the thread holds both: the
+    // source to read and the card to open.
+    function test_an_artifact_lands_as_its_own_row() {
+        const state = Ask.applyEvents(Ask.emptyState(), [
+            turnStart(1),
+            {
+                seq: 2,
+                conversation: conversation,
+                event: "code_block",
+                turn: turn,
+                block: 0,
+                language: "html",
+                source: "<html><body>hi</body></html>",
+                html: null
+            },
+            artifact(3, 1)
+        ]);
+
+        const rows = Ask.rowsOf(state, conversation);
+        compare(rows.length, 2, "the code block and the card, not one or the other");
+        compare(rows[0].kind, "code");
+        compare(rows[1].kind, "artifact");
+        compare(rows[1].title, "Sales dashboard");
+        compare(rows[1].revision, 1);
+        compare(rows[1].artifact, "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e");
+    }
+
+    // A REGENERATED PAGE REPLACES ITS CARD. The daemon rewrites one file per
+    // thread and raises `revision`, so appending a second card would be two
+    // buttons pointing at one page and the older one would open the newer
+    // content while claiming to be older.
+    function test_a_revision_replaces_the_card_rather_than_adding_one() {
+        const state = Ask.applyEvents(Ask.emptyState(), [
+            turnStart(1),
+            artifact(2, 1),
+            artifact(3, 2)
+        ]);
+
+        const rows = Ask.rowsOf(state, conversation);
+        compare(rows.length, 1, "one page, one card");
+        compare(rows[0].revision, 2, "and it shows the revision that is on disk");
+    }
+
+    // THE URL IS BUILT AT DRAW TIME, NOT STORED. The port changes on every
+    // daemon start, so a url folded into the row would be a dead link the
+    // first time the daemon restarted while the pane kept its state.
+    function test_the_artifact_url_comes_from_this_connections_base() {
+        const cold = Ask.applyEvents(Ask.emptyState(), [artifact(1, 1)]);
+        compare(Ask.artifactUrl(cold, conversation, "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e"), "",
+                "no ready yet means nothing to open, not a guessed port");
+
+        const first = Ask.applyEvents(Ask.emptyState(), [
+            {seq: null, conversation: null, event: "ready", protocol: 1, seq_head: 0, artifact_base: "http://127.0.0.1:41234"},
+            artifact(1, 1)
+        ]);
+        compare(Ask.artifactUrl(first, conversation, "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e"),
+                `http://127.0.0.1:41234/${conversation}/9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e`);
+
+        // A reconnect against a restarted daemon moves the port, and the same
+        // stored row now opens the new one.
+        const second = Ask.applyEvents(first, [
+            {seq: null, conversation: null, event: "ready", protocol: 1, seq_head: 1, artifact_base: "http://127.0.0.1:55000"}
+        ]);
+        compare(Ask.artifactUrl(second, conversation, "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e"),
+                `http://127.0.0.1:55000/${conversation}/9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e`,
+                "a replayed artifact follows the port this connection reported");
+    }
+
+    // A daemon whose loopback bind failed reports null, and the card has to
+    // read that as "nothing serves this" rather than build a url from null.
+    function test_a_daemon_with_no_artifact_server_offers_no_url() {
+        const state = Ask.applyEvents(Ask.emptyState(), [
+            {seq: null, conversation: null, event: "ready", protocol: 1, seq_head: 0, artifact_base: null},
+            artifact(1, 1)
+        ]);
+        compare(state.artifactBase, null);
+        compare(Ask.artifactUrl(state, conversation, "9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e"), "");
+    }
+
+    // The block kind is decided by the media type, because the schema splits
+    // image from file and the daemon inlines only the first.
+    function test_an_attachment_becomes_the_block_its_type_calls_for() {
+        const image = Ask.attachmentBlock({path: "/run/user/1000/dots-ask/cap-3.png", mime: "image/png", name: "cap-3.png"});
+        compare(image.kind, "image");
+        compare(image.path, "/run/user/1000/dots-ask/cap-3.png");
+        compare(image.mime, "image/png");
+
+        const other = Ask.attachmentBlock({path: "/home/matus/notes.txt", mime: "text/plain", name: "notes.txt"});
+        compare(other.kind, "file");
+
+        // An unguessable type lands as `file` with a null mime. The daemon
+        // fills one in from the extension and refuses to inline anything no
+        // provider takes, so guessing `image` here would only move the
+        // refusal.
+        const unknown = Ask.attachmentBlock({path: "/home/matus/thing.tiff", mime: "", name: "thing.tiff"});
+        compare(unknown.kind, "file");
+        compare(unknown.mime, null);
+    }
+
+    // The echoed row carries the chips, so a message that was nothing but a
+    // screenshot does not draw as an empty bubble.
+    function test_the_echoed_prompt_carries_its_attachments() {
+        const staged = [{path: "/run/user/1000/dots-ask/cap-3.png", mime: "image/png", name: "cap-3.png"}];
+        const state = Ask.pushUserRow(Ask.emptyState(), conversation, "", staged);
+        const rows = Ask.rowsOf(state, conversation);
+
+        compare(rows.length, 1);
+        compare(rows[0].kind, "user");
+        compare(rows[0].text, "");
+        compare(rows[0].attachments.length, 1);
+        compare(rows[0].attachments[0].name, "cap-3.png");
+
+        // And a plain prompt still gets an empty list rather than undefined,
+        // which is what the delegate's Repeater binds to.
+        const plain = Ask.pushUserRow(Ask.emptyState(), conversation, "hi");
+        compare(Ask.rowsOf(plain, conversation)[0].attachments.length, 0);
+    }
 }

@@ -107,9 +107,26 @@ in
     # The binary itself, so `dots-ask --version` and a by-hand
     # `dots-ask --socket /tmp/x` are available for debugging. The unit below
     # names the store path directly rather than relying on this.
+    #
+    # grim, slurp and wl-clipboard are here because the composer shells out to
+    # all three by bare name: `grim -g "$(slurp)"` for the capture button and
+    # `wl-paste --type image/png` for a pasted image. Quickshell's Process
+    # inherits the session PATH, so without these the buttons fail silently.
+    #
+    # They are NOT already on it. hyprshot brings its own copies, but nixpkgs'
+    # wrapper prefixes them onto hyprshot's PATH rather than the user's
+    # (nix/home/hyprland.nix says the same thing about xdg-user-dirs), so
+    # nothing outside that wrapper can reach them.
+    #
+    # Gated with the daemon rather than installed globally: a machine with no
+    # dots.ai toggle on has no pane to capture into, and the screenshot key
+    # goes through hyprshot either way.
     home.packages = [
       dots-ask
       ask-keyring
+      pkgs.grim
+      pkgs.slurp
+      pkgs.wl-clipboard
     ];
 
     # Modelled on systemd.user.services.quickshell in

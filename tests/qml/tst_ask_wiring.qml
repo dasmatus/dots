@@ -420,4 +420,117 @@ TestCase {
                    + "diff.html go through render.rs's allowlist");
         }
     }
+
+    // -- attachments and the artifact window --------------------------------
+
+    // The composer stages files; the pane passes them on. A composer that
+    // collected attachments nobody forwarded would leave every ask.js test
+    // green while every screenshot went nowhere.
+    function test_staged_attachments_reach_the_send() {
+        const composer = readSource("../../nix/home/quickshell/qml/ask/Composer.qml");
+        const pane = paneSource();
+        const bus = busSource();
+
+        verify(composer.indexOf("signal submitted(string text, var attachments)") !== -1,
+               "the composer must hand its staged list to whoever is listening");
+        verify(composer.indexOf("root.submitted(body, staged)") !== -1,
+               "and pass the list it actually staged");
+        verify(/root\.attachments\s*=\s*\[\]/.test(composer),
+               "submit must clear the staging list, or the next message resends the file");
+
+        verify(pane.indexOf("onSubmitted: (text, attachments) => root.ask(text, attachments)") !== -1,
+               "Ask.qml must forward both halves");
+        verify(pane.indexOf("AskBus.send(root.conversation, text, attachments)") !== -1,
+               "and pass them to the bus");
+        verify(bus.indexOf("staged.map(Ask.attachmentBlock)") !== -1,
+               "which turns each one into a send block");
+    }
+
+    // A message that is nothing but a screenshot must not carry an empty text
+    // block: the model would have to decide what an empty string meant.
+    function test_an_empty_prompt_sends_no_text_block() {
+        const bus = busSource();
+        verify(bus.indexOf("(text === \"\" ? [] : [Ask.textBlock(text)])") !== -1,
+               "the text block is conditional on there being text");
+    }
+
+    // THE CAPTURE WRITES TO RUNTIME, NOT TO THE DATA ROOT. The daemon copies
+    // every attachment into the conversation's own directory when it records
+    // the send, so this side's file is scratch and belongs on the tmpfs that
+    // clears at logout. Writing it under $XDG_DATA_HOME would leave a second,
+    // unowned copy of every screenshot behind forever.
+    function test_the_capture_writes_scratch_and_uses_grim_and_slurp() {
+        const composer = readSource("../../nix/home/quickshell/qml/ask/Composer.qml");
+
+        verify(composer.indexOf("Quickshell.env(\"XDG_RUNTIME_DIR\")") !== -1,
+               "scratch goes under the runtime dir");
+        verify(composer.indexOf("XDG_DATA_HOME") === -1,
+               "and never under the data root, which is the daemon's to write");
+        verify(composer.indexOf("grim -g \"$(slurp)\"") !== -1,
+               "the capture is grim over a slurp selection");
+        verify(composer.indexOf("wl-paste --type image/png") !== -1,
+               "and a paste asks the clipboard for an image");
+        verify(composer.indexOf("set -e;") !== -1,
+               "set -e, so a cancelled slurp leaves no zero-byte png behind");
+    }
+
+    // nix/home/ask.nix has to put those three on PATH, under the same gate as
+    // the daemon. Quickshell's Process inherits the session PATH and hyprshot
+    // keeps its own copies to itself, so without this the buttons fail with
+    // nothing on screen to say why.
+    function test_the_capture_tools_are_installed_with_the_daemon() {
+        const module = readSource("../../nix/home/ask.nix");
+
+        verify(module.indexOf("pkgs.grim") !== -1, "grim must be on PATH");
+        verify(module.indexOf("pkgs.slurp") !== -1, "slurp must be on PATH");
+        verify(module.indexOf("pkgs.wl-clipboard") !== -1, "wl-paste must be on PATH");
+        verify(module.indexOf("dots.ai.claude || dots.ai.codex || dots.ai.ollama") !== -1,
+               "and all of it stays behind the dots.ai gate");
+    }
+
+    // AN ARTIFACT OPENS OVER HTTP, NEVER file://. A file: document has an
+    // opaque origin, so the daemon's CSP could not name 'self', the reload
+    // shim could not fetch, and the window would sit in the same scheme as
+    // every file on this machine. src/artifact/serve.rs carries the argument;
+    // this is the caller that has to honour it.
+    function test_the_artifact_window_opens_a_loopback_url_in_its_own_class() {
+        const bus = busSource();
+
+        verify(bus.indexOf("Ask.artifactUrl(root.state, conversation, artifact)") !== -1,
+               "the url is built from this connection's base, not stored");
+        verify(bus.indexOf("--class=dots-ask-artifact") !== -1,
+               "the class is what the hyprland rule matches");
+        verify(bus.indexOf("`--app=${url}`") !== -1,
+               "--app, so the window has no tab strip or address bar");
+        verify(bus.indexOf("file://") === -1,
+               "never a file url: that is the whole reason the daemon serves over loopback");
+        verify(bus.indexOf("execDetached") !== -1,
+               "detached, because the window outlives a shell rebuild");
+    }
+
+    // And a daemon with no artifact server must produce no url at all, rather
+    // than a link to a port nothing is listening on.
+    function test_no_artifact_server_means_no_window() {
+        const bus = busSource();
+        verify(bus.indexOf("if (url === \"\")") !== -1,
+               "openArtifact must refuse an empty url");
+    }
+
+    // The window rule, in the Lua DSL the file already uses. Without it the
+    // artifact tiles like any other browser window and the pane it is meant to
+    // sit beside gets pushed off its own edge.
+    function test_hyprland_floats_and_pins_the_artifact_window() {
+        const hypr = readSource("../../nix/home/hyprland.nix");
+        // Anchored on the attribute, not the bare name: the comment above the
+        // rule mentions `--class=dots-ask-artifact`, which contains it.
+        const at = hypr.indexOf("name = \"ask-artifact\"");
+
+        verify(at !== -1, "hyprland.nix must carry a rule named ask-artifact");
+
+        const rule = hypr.slice(at, at + 400);
+        verify(rule.indexOf("class = \"^(dots-ask-artifact)$\"") !== -1,
+               "matching the class AskBus passes to the browser");
+        verify(rule.indexOf("float = true") !== -1, "floating");
+        verify(rule.indexOf("pin = true") !== -1, "and pinned beside the pane");
+    }
 }

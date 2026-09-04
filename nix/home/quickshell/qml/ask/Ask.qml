@@ -190,14 +190,14 @@ Scope {
     // Sends a prompt, minting a thread first when there is none. Typing into
     // an empty pane and pressing Enter is the shortest path to a first answer,
     // and making the user press New first would only be ceremony.
-    function ask(text: string): void {
+    function ask(text: string, attachments: var): void {
         if (root.conversation === "")
             root.startThread();
 
         if (root.conversation === "")
             return;
 
-        AskBus.send(root.conversation, text);
+        AskBus.send(root.conversation, text, attachments);
     }
 
     IpcHandler {
@@ -365,7 +365,7 @@ Scope {
                         model: root.model
                         busy: root.busy
 
-                        onSubmitted: text => root.ask(text)
+                        onSubmitted: (text, attachments) => root.ask(text, attachments)
                         onInterrupted: AskBus.interrupt(root.conversation)
 
                         // A real backend swap starts a new thread rather than

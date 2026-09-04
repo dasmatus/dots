@@ -162,11 +162,45 @@ Singleton {
         return id;
     }
 
-    // Sends a prompt and echoes it into the thread, because no daemon event
-    // carries a user message back. ask.js's pushUserRow says what that costs.
-    function send(conversation: string, text: string): void {
-        root.sendFrame(Ask.sendFrame(conversation, [Ask.textBlock(text)]));
-        root.state = Ask.pushUserRow(root.state, conversation, text);
+    // Sends a prompt and echoes it into the thread. ask.js's pushUserRow says
+    // what the echo costs and why it is still here.
+    //
+    // A text block goes first and only when there is text, so a message that
+    // is nothing but a screenshot does not carry an empty string the model has
+    // to interpret. `blocks` is never empty: the composer refuses to submit
+    // with neither.
+    function send(conversation: string, text: string, attachments: var): void {
+        const staged = attachments ?? [];
+        const blocks = (text === "" ? [] : [Ask.textBlock(text)]).concat(staged.map(Ask.attachmentBlock));
+
+        root.sendFrame(Ask.sendFrame(conversation, blocks));
+        root.state = Ask.pushUserRow(root.state, conversation, text, staged);
+    }
+
+    // Opens one artifact in its own browser window.
+    //
+    // A browser and not the pane: Quickshell cannot host QtWebEngine, so HTML
+    // has nowhere to render in here at all. `--app=` gives a window with no
+    // tab strip, address bar or bookmark row, which is what makes it read as
+    // part of the shell rather than as a tab somebody left open, and --class
+    // is what nix/home/hyprland.nix's rule matches to float and pin it.
+    //
+    // An http url and not file://. A file: document has an opaque origin, so
+    // the daemon's Content-Security-Policy could not name 'self' and the
+    // reload shim could not fetch at all; loopback also keeps the window from
+    // ever being pointed at the filesystem. src/artifact/serve.rs carries the
+    // whole argument.
+    //
+    // execDetached because the browser outlives the shell: a rebuild restarts
+    // Quickshell, and an artifact window dying with it would be a surprise.
+    function openArtifact(conversation: string, artifact: string): void {
+        const url = Ask.artifactUrl(root.state, conversation, artifact);
+        if (url === "") {
+            console.warn("ask: no artifact server; the page is on disk but nothing serves it");
+            return;
+        }
+
+        Quickshell.execDetached(["brave", `--app=${url}`, "--class=dots-ask-artifact"]);
     }
 
     function interrupt(conversation: string): void {
