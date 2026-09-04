@@ -258,3 +258,45 @@ async fn a_tool_on_a_server_that_is_not_configured_is_refused_rather_than_run() 
 async fn an_empty_pool_lists_no_tools() {
     assert!(McpPool::empty().list_tools().await.is_empty());
 }
+
+#[tokio::test]
+async fn a_server_that_will_not_start_is_retried_rather_than_cached_away() {
+    // Caching a partial listing turns one slow or crashed startup into a
+    // server whose tools do not exist for the daemon's life. It compounds
+    // with the refuse-before-prompt gate in provider.rs: the person gets a
+    // flat "no configured MCP server exposes that", with no prompt and
+    // nothing to retry, until they restart the daemon.
+    let servers: BTreeMap<String, serde_json::Value> = [(
+        "never-starts".to_owned(),
+        json!({"command": "/nonexistent/mcp-server"}),
+    )]
+    .into_iter()
+    .collect();
+    let pool = McpPool::new(servers_from_value(&servers));
+
+    assert!(
+        pool.list_tools().await.is_empty(),
+        "a server that cannot spawn exposes nothing"
+    );
+    assert!(
+        !pool.tools_cached(),
+        "and the empty result must not be kept, or it never gets tried again"
+    );
+}
+
+#[tokio::test]
+async fn a_listing_every_server_answered_is_cached() {
+    // The other half: without caching, every tool call re-lists every
+    // server. A pool with nothing configured has trivially heard from all of
+    // them, so it caches.
+    let pool = McpPool::empty();
+    assert!(
+        !pool.tools_cached(),
+        "nothing is cached before the first call"
+    );
+    assert!(pool.list_tools().await.is_empty());
+    assert!(
+        pool.tools_cached(),
+        "a complete listing is kept so the next tool call does not re-list"
+    );
+}
