@@ -144,7 +144,7 @@ the whole feature set is testable with no compositor running.
 The resident-scratchpad complex exists only to mask SDL3 and GL startup.
 Layer-shell plus cairo starts in tens of milliseconds, so all of it goes:
 `hyprtile-toggle` with its spawn-if-missing and flock retry, the
-`hyprtile-overlay` window rule in `nix/home/hyprland.nix`,
+`hyprtile-overlay` window rule in `nix/home/desktop/hyprland.nix`,
 `nix/patches/hyprtile-rofi-like-overlay.patch`, the `hyprtile-sync-apps`
 JSON rewrite pass, and the `~/.hyprtile/config.json` seeding activation.
 
@@ -180,10 +180,10 @@ themselves stay where they are, in `/var/lib/dots/settings.nix`.
   quicklinks, the Tokyonight palette and the clipboard user service
 - `flake/packages.nix`, drop `hyprtile`, add `beamenu-view` and `beamenu`
 - `flake/lib.nix`, swap the `isoImage.storeContents` embed
-- `flake/nixos.nix` and `nix/modules/users.nix`, `hyprtilePkg` to `beamenuPkg`
-- `nix/home/hyprland.nix`, drop the window rule and the pre-warm exec,
+- `flake/nixos.nix` and `nix/modules/system/users.nix`, `hyprtilePkg` to `beamenuPkg`
+- `nix/home/desktop/hyprland.nix`, drop the window rule and the pre-warm exec,
   repoint `SUPER+D`, `SUPER+SHIFT+E` and `Print`, add `awww-daemon`
-- `nix/home/keybinds.nix`, cheatsheet wording
+- `nix/home/desktop/keybinds.nix`, cheatsheet wording
 - stale comments in `default.nix`, `eww/default.nix`, `random_wp.nix`,
   `settings-menu.nix` and `wallpaper-tui.nix`
 

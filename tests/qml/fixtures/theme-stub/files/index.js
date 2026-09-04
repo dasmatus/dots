@@ -1,1 +1,1 @@
-../../../../../nix/home/quickshell/qml/files/index.js
+../../../../../nix/home/desktop/quickshell/qml/files/index.js

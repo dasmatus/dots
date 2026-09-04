@@ -10,7 +10,7 @@
 self:
 let
   lib = pkgs.lib;
-  settings = (import ../nix/defaults.nix) // (import ../nix/settings.nix);
+  settings = (import ../nix/system/defaults.nix) // (import ../nix/data/settings.nix);
 in
 {
   dots-installer = self.packages.${system}.dots-installer;
@@ -25,7 +25,7 @@ in
     ]
   );
   # The committed facter.json stub ({}) must leave every detection off,
-  # including the nvidia if-then-else in nix/hosts.nix.
+  # including the nvidia if-then-else in nix/system/hosts.nix.
   facter-stub-eval =
     assert
       self.nixosConfigurations.tokyonight.config.services.xserver.videoDrivers == [
@@ -135,7 +135,7 @@ in
     assert builtins.all twoFa need;
     assert cfg.security.pam.u2f.control == "required";
     pkgs.writeText "fido-2fa-strict-ok" "required+required";
-  # Asserts the in-flake aipage build (nix/aipage.nix) evaluates, the
+  # Asserts the in-flake aipage build (nix/packages/aipage.nix) evaluates, the
   # manifest is parseable at eval time (pure-eval readFile of a fetchGit store
   # path), the gecko addon id is stable, and both targets are MV2. Eval-only
   # — does not build the wasm (too slow for the lint gate); a full `nix build
@@ -152,7 +152,7 @@ in
     assert chMan.manifest_version == 2;
     assert ff.passthru.aipageVersion == ffMan.version;
     pkgs.writeText "aipage-eval-ok" ff.passthru.aipageVersion;
-  # nix/aipage-bun.nix carries one fetchurl per JS dependency, and a
+  # nix/packages/aipage-bun.nix carries one fetchurl per JS dependency, and a
   # bun2nix regeneration once silently blanked two of them to `hash = ""`.
   # `fetchurl` accepts that and normalises it to the all-zero fixed-output
   # hash (`sha256-AAAA...=`), which only fails at realization time, after a
@@ -171,7 +171,7 @@ in
   # filter that only matches `hash == ""`.
   aipage-bun-hashes-eval =
     let
-      raw = import ../nix/aipage-bun.nix {
+      raw = import ../nix/packages/aipage-bun.nix {
         copyPathToStore = x: x;
         fetchFromGitHub = args: args;
         fetchgit = args: args;
@@ -182,10 +182,10 @@ in
       bad = builtins.filter isBad (builtins.attrNames raw);
     in
     assert lib.assertMsg (bad == [ ]) (
-      "nix/aipage-bun.nix has blank or all-zero hash entries: " + builtins.concatStringsSep ", " bad
+      "nix/packages/aipage-bun.nix has blank or all-zero hash entries: " + builtins.concatStringsSep ", " bad
     );
     pkgs.writeText "aipage-bun-hashes-eval-ok" "no-blank-hashes";
-  # Form-factor detection (nix/modules/form-factor.nix) — assert the
+  # Form-factor detection (nix/modules/system/form-factor.nix) — assert the
   # committed facter.json stub ({}) leaves the auto-detection on the
   # "desktop" fallback (no report → no virtualisation, no form_factor),
   # and that synthetic reports steer CPU governor, thermald, PPD, lid
@@ -279,7 +279,7 @@ in
     ) laptop.config.systemd.tmpfiles.rules;
     pkgs.writeText "formfactor-eval-ok" "desktop+laptop+server+vm";
 
-  # nix/palette.json is the single source of truth for the system palette
+  # nix/data/palette.json is the single source of truth for the system palette
   # (see docs/superpowers/specs/2026-08-23-system-palette-single-source-design.md).
   #
   # It used to be asserted against two Rust store srcs as well, because both
@@ -291,7 +291,7 @@ in
   # QML's default colours, which is a bad way to find out.
   palette-eval =
     let
-      palette = builtins.fromJSON (builtins.readFile ../nix/palette.json);
+      palette = builtins.fromJSON (builtins.readFile ../nix/data/palette.json);
       theme = builtins.readFile "${self.packages.${system}.quickshell-config}/Theme.qml";
       carries = value: builtins.match ".*${value}.*" theme != null;
     in
@@ -308,10 +308,10 @@ in
     assert carries palette.fonts.ui;
     pkgs.writeText "palette-eval-ok" palette.accentFallback;
 
-  # nix/modules/agentmem.nix, guarded against the three ways it has already
+  # nix/modules/services/agentmem.nix, guarded against the three ways it has already
   # broken at activation. Each of those reached a rebuild because parsing a
   # module is not evaluating it, and `nix flake check` cannot run on a bare
-  # checkout here (nix/settings.nix is a symlink into /var/lib/dots), so on a
+  # checkout here (nix/data/settings.nix is a symlink into /var/lib/dots), so on a
   # workstation nothing forced these paths until switch time. In CI, where the
   # settings stub exists, this is the gate that fires first.
   agentmem-eval =
@@ -335,7 +335,7 @@ in
       # the sequence rather than in any line.
       sqlNames = lib.sort (a: b: a < b) (
         builtins.filter (lib.hasSuffix ".sql") (
-          builtins.attrNames (builtins.readDir ../nix/modules/agentmem/migrations)
+          builtins.attrNames (builtins.readDir ../nix/modules/services/agentmem/migrations)
         )
       );
       prefixes = map (f: builtins.substring 0 4 f) sqlNames;
@@ -407,7 +407,7 @@ in
       deliberate = [ "checkLinkTargets" ];
 
       # A comment naming exit is not a call to it, and the one in
-      # nix/home/claude-desktop.nix explaining this rule is exactly that.
+      # nix/home/ai/claude-desktop.nix explaining this rule is exactly that.
       isComment = line: builtins.match "[[:space:]]*#.*" line != null;
 
       # `exit` as a word: opening the line or following a shell operator, and

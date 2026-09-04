@@ -4,7 +4,7 @@
 // reachable through crumbmenu.js alone.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/crumbmenu.js" as CrumbMenu
+import "../../nix/home/desktop/quickshell/qml/files/crumbmenu.js" as CrumbMenu
 
 TestCase {
     name: "FilesCrumbMenu"

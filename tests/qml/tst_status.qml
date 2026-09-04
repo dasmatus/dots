@@ -14,7 +14,7 @@
 // fractional GiB values cannot offer without redoing the division here too.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/launcher/status.js" as StatusMath
+import "../../nix/home/desktop/quickshell/qml/launcher/status.js" as StatusMath
 
 TestCase {
     name: "Status"

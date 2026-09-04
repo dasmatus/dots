@@ -30,7 +30,7 @@ TestCase {
     // Slices out applyAccent()'s own body, so a call site sitting anywhere
     // ELSE in the file (a comment, a dead helper) cannot satisfy this test.
     function applyAccentBody() {
-        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const picker = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Picker.qml");
         const start = picker.indexOf("function applyAccent(");
         verify(start !== -1, "Picker.qml must define applyAccent(triple)");
         const end = picker.indexOf("\n    }", start);
@@ -48,7 +48,7 @@ TestCase {
     }
 
     function test_picker_instantiates_every_tint_target() {
-        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const picker = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Picker.qml");
 
         verify(picker.indexOf("Icons {") !== -1, "Picker.qml must instantiate Icons");
         verify(picker.indexOf("Borders {") !== -1, "Picker.qml must instantiate Borders");
@@ -57,12 +57,12 @@ TestCase {
     }
 
     function test_border_target_calls_the_ported_writer() {
-        const src = readSource("../../nix/home/quickshell/qml/wallpaper/Borders.qml");
+        const src = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Borders.qml");
         verify(src.indexOf("Tint.hyprlandBorderCommands(") !== -1, "Borders.qml must call the ported hyprlandBorderCommands, not hand-roll hyprctl argv");
     }
 
     function test_gtk_target_calls_the_ported_writer() {
-        const src = readSource("../../nix/home/quickshell/qml/wallpaper/Gtk.qml");
+        const src = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Gtk.qml");
         verify(src.indexOf("Tint.gtkCss(") !== -1, "Gtk.qml must call the ported gtkCss, not hand-roll the stylesheet");
     }
 
@@ -76,7 +76,7 @@ TestCase {
     // still has to reach the icon-theme writer, and that writer still has
     // to replace the file with mv rather than a bare redirect.
     function test_gtk_write_reaches_the_icon_theme_settings_ini() {
-        const src = readSource("../../nix/home/quickshell/qml/wallpaper/Gtk.qml");
+        const src = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Gtk.qml");
 
         const start = src.indexOf("function write(");
         verify(start !== -1, "Gtk.qml must define write(accent, accentDark, accentLight)");
@@ -91,7 +91,7 @@ TestCase {
     }
 
     function test_kvantum_target_calls_the_ported_writer() {
-        const src = readSource("../../nix/home/quickshell/qml/wallpaper/Kvantum.qml");
+        const src = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Kvantum.qml");
         verify(src.indexOf("Tint.recolorKvantumText(") !== -1, "Kvantum.qml must call the ported recolorKvantumText, not hand-roll the regex");
     }
 }

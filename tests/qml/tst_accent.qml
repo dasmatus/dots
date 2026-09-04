@@ -35,7 +35,7 @@
 // port could get past the fixture-based tests above.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/wallpaper/accent.js" as Accent
+import "../../nix/home/desktop/quickshell/qml/wallpaper/accent.js" as Accent
 
 TestCase {
     name: "Accent"

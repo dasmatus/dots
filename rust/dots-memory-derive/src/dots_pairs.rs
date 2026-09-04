@@ -30,7 +30,7 @@ struct Declared {
 }
 
 /// Direct `options.dots.<path> = ...` declarations in `text`, skipping
-/// comment lines so a prose mention (`nix/home/claude.nix` explains its
+/// comment lines so a prose mention (`nix/home/ai/claude.nix` explains its
 /// own gate this way) is never mistaken for the real declaration.
 fn direct_declarations(text: &str, rel: &str) -> Vec<Declared> {
     let re = Regex::new(r"^\s*options\.dots\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\s*=").unwrap();

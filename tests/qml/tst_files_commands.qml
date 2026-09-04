@@ -8,7 +8,7 @@
 // something.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/commands.js" as Commands
+import "../../nix/home/desktop/quickshell/qml/files/commands.js" as Commands
 
 TestCase {
     name: "FilesCommands"

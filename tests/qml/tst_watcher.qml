@@ -7,7 +7,7 @@
 // with no live compositor, FileView or Process anywhere near the test.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/monitors/watch.js" as Watch
+import "../../nix/home/desktop/quickshell/qml/monitors/watch.js" as Watch
 import "sourcescan.js" as SourceScan
 
 TestCase {
@@ -192,12 +192,12 @@ TestCase {
     }
 
     function test_watcher_never_reads_the_nonexistent_adapter_root() {
-        const watcher = readSource("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readSource("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         verify(watcher.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading a bare root off it is silently always undefined");
     }
 
     function test_watcher_declares_a_property_for_each_adapter_to_populate() {
-        const watcher = readSource("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readSource("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         const blocks = jsonAdapterBlocks(watcher);
 
         compare(blocks.length, 2, "rulesFile and overridesFile must each declare their own JsonAdapter { ... }");
@@ -216,7 +216,7 @@ TestCase {
     // assertion that would have caught the original defect, so it is the
     // one guarding against its return.
     function test_watcher_rewraps_the_adapter_reads_into_the_shape_planFor_expects() {
-        const watcher = readSource("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readSource("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         verify(watcher.indexOf("({ rules: rulesFile.adapter.rules })") !== -1, "root.rules must rewrap rulesFile.adapter.rules as { rules: [...] } — planFor() reads rules.rules, not a bare array");
         verify(watcher.indexOf("({ entries: overridesFile.adapter.entries })") !== -1, "root.overrides must rewrap overridesFile.adapter.entries as { entries: [...] } — applyOverrides() reads overrides.entries, not a bare array");
     }
@@ -270,7 +270,7 @@ TestCase {
     // back silently — qmllint has no opinion on which of watch.js's two
     // functions gets called — so it is pinned here instead.
     function test_watcher_stdout_handler_uses_the_guarded_reader() {
-        const watcher = readCode("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readCode("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         verify(watcher.indexOf("Watch.attemptCommandsForState(") !== -1, "the stdout handler must call watch.js's guarded reader — calling the throwing commandsForState directly is the original bug, an uncaught SyntaxError from a `hyprctl monitors -j` read that raced Hyprland's socket coming up");
         verify(watcher.indexOf("Watch.commandsForState(this.text") === -1, "the stdout handler must not call the throwing commandsForState directly");
     }
@@ -280,7 +280,7 @@ TestCase {
     // silent no-op wearing the shape of a fix. Both properties are pinned
     // together because neither alone is the thing this task asked for.
     function test_watcher_retry_budget_is_a_small_finite_number() {
-        const watcher = readCode("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readCode("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         const match = watcher.match(/readonly property int maxRetries:\s*(\d+)/);
         verify(match !== null, "maxRetries must be a literal integer bound, not computed or absent");
         const bound = parseInt(match[1], 10);
@@ -288,7 +288,7 @@ TestCase {
     }
 
     function test_watcher_gives_up_with_a_log_line_once_the_budget_is_spent() {
-        const watcher = readCode("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readCode("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         const body = SourceScan.blockAfter(watcher, "function handleRead(result): void {");
         verify(body !== "", "handleRead must exist and be brace-matched");
         verify(body.indexOf("retriesLeft <= 0") !== -1, "handleRead must check the retry budget before retrying again");
@@ -308,7 +308,7 @@ TestCase {
     // stubbed hyprctl on PATH: reads succeeded and zero `hyprctl eval` calls
     // were issued, with the suite still fully green.
     function test_watcher_applies_the_layout_on_a_successful_read() {
-        const watcher = readCode("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readCode("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         const body = SourceScan.blockAfter(watcher, "function handleRead(result): void {");
         verify(body !== "", "handleRead must exist and be brace-matched");
 
@@ -325,7 +325,7 @@ TestCase {
     // timer that logged instead of reading again, would pass every check
     // above and still never re-apply the layout.
     function test_watcher_retry_timer_restarts_the_read() {
-        const watcher = readCode("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readCode("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         verify(watcher.indexOf("onTriggered: root.startRead()") !== -1, "retryTimer must call startRead() when it fires");
     }
 
@@ -337,7 +337,7 @@ TestCase {
     // `qs ipc call monitors apply` — silently refuse to retry a read that
     // itself raced the same way, for the rest of the session.
     function test_watcher_apply_gives_every_external_trigger_a_fresh_retry_budget() {
-        const watcher = readCode("../../nix/home/quickshell/qml/monitors/Watcher.qml");
+        const watcher = readCode("../../nix/home/desktop/quickshell/qml/monitors/Watcher.qml");
         const marker = "function apply(): void {";
         const start = nthIndexOf(watcher, marker, 2);
         verify(start !== -1, "root's own apply() (distinct from the IpcHandler's forwarding method of the same name) must exist");

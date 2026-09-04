@@ -73,11 +73,11 @@ Part A actions) — no new Rust. Inventory from the 2026-08-23 sweep:
 | | Restart Mail bridge | exec `systemctl --user restart protonmail-bridge` |
 
 Placement: `wallpaper` in `nix/home/wallpaper-tui.nix`, `monitors` in
-`nix/home/hyprmon.nix`, `net` in `nix/home/proton.nix` or `waybar.nix`
+`nix/home/hyprmon.nix`, `net` in `nix/home/proton/proton.nix` or `waybar.nix`
 sibling, `dots` in `nix/home/beamenu.nix` — each module declares its own
 plugin next to the tool it ships, the way `settings-menu.nix` already does.
 Gate each on the respective module being enabled. Update
-`nix/home/keybinds.nix` cheat-sheet text if wording changes.
+`nix/home/desktop/keybinds.nix` cheat-sheet text if wording changes.
 
 In scope but already done: `beamenu-record`, screenshots, and system
 commands live in the System provider; `settings` and `calc` are plugins.
@@ -101,7 +101,7 @@ introspection and a name-ownership check for free (`busctl --user`,
 the stale-socket-file problem entirely — name ownership dies with the
 process. zbus is pure Rust, so it adds no C dependency and no
 `buildInputs`, the same reasoning already recorded for the AT-SPI bridge
-at `nix/home/computer-use-linux-pkg.nix:6-7`. beamenu uses
+at `nix/home/ai/computer-use-linux-pkg.nix:6-7`. beamenu uses
 `cargoLock.lockFile`, so the new dependency costs a lock regeneration and
 no hash update.
 

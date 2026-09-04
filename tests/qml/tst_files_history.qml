@@ -5,7 +5,7 @@
 // here rather than left to the two callers in Files.qml.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/history.js" as History
+import "../../nix/home/desktop/quickshell/qml/files/history.js" as History
 
 TestCase {
     name: "FilesHistory"

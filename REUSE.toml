@@ -42,7 +42,7 @@ SPDX-License-Identifier = "LicenseRef-wallhaven-unknown"
 [[annotations]]
 path = [
   "flake.lock",
-  "nix/facter.json",
+  "nix/data/facter.json",
   "rust/*/Cargo.lock",
 ]
 precedence = "override"

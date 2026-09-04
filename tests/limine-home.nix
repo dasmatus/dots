@@ -1,4 +1,4 @@
-# Regression guard for nix/modules/limine-install.nix's hazard-1 fix ("fix:
+# Regression guard for nix/modules/system/limine-install.nix's hazard-1 fix ("fix:
 # run the real mktemp when limine-install needs a home"): a NixOS VM test,
 # not an eval-only check, because the property under test is runtime bash
 # behaviour — does mktemp actually get invoked, does $HOME actually get
@@ -10,15 +10,15 @@
 # neither of which is something to pin a regression test on.
 #
 # Deliberately does NOT go through flake/nixos.nix's mkTokyonight /
-# nixosConfigurations.tokyonight: both pull in nix/hosts.nix, which reads
-# nix/facter.json — a symlink into /var/lib/dots that a bare checkout
+# nixosConfigurations.tokyonight: both pull in nix/system/hosts.nix, which reads
+# nix/data/facter.json — a symlink into /var/lib/dots that a bare checkout
 # without that machine's install answers cannot read (see
 # tests/session-units.nix's comment for the identical wall). This test
-# imports nix/modules/limine-install.nix directly into a minimal machine
+# imports nix/modules/system/limine-install.nix directly into a minimal machine
 # instead, so it evaluates and builds from a bare checkout with no
 # machine-specific state at all.
 #
-# nix/modules/limine-install.nix factors the hazard-1 conditional out of
+# nix/modules/system/limine-install.nix factors the hazard-1 conditional out of
 # installBootLoader's text into `ensureOwnedHome`, and exposes a standalone
 # runner over it as `config.system.build.limineEnsureOwnedHomeProbe` — the
 # exact bash this test runs, not a hand-copied twin that could drift from
@@ -32,7 +32,7 @@ pkgs.testers.runNixOSTest {
   nodes.machine =
     { config, pkgs, ... }:
     {
-      imports = [ ../nix/modules/limine-install.nix ];
+      imports = [ ../nix/modules/system/limine-install.nix ];
       boot.loader.limine.enable = true;
 
       # A real second account — the "installer runs as one user against a

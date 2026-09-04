@@ -33,15 +33,15 @@ established for this tree.
 ### Task 1: The second pane
 
 **Files:**
-- Modify: `nix/home/quickshell/qml/files/Pane.qml`
-- Modify: `nix/home/quickshell/qml/files/Files.qml`
+- Modify: `nix/home/desktop/quickshell/qml/files/Pane.qml`
+- Modify: `nix/home/desktop/quickshell/qml/files/Files.qml`
 
 **Produces:** `Pane.active` (required, parent-owned), `Pane.selected`,
 `signal focusRequested()`. `Files.leftPath`/`rightPath`/`activeSide` and
 `setActivePath(path)`, which `Devices.requestOpen` and `openPath` now both
 call instead of writing a single `path`.
 
-- [ ] **1** Replace `nix/home/quickshell/qml/files/Pane.qml` in full:
+- [ ] **1** Replace `nix/home/desktop/quickshell/qml/files/Pane.qml` in full:
 
 ```qml
 // One directory's listing. `ls -1Ap --group-directories-first` runs as
@@ -176,7 +176,7 @@ Rectangle {
 }
 ```
 
-- [ ] **2** Replace `nix/home/quickshell/qml/files/Files.qml` in full:
+- [ ] **2** Replace `nix/home/desktop/quickshell/qml/files/Files.qml` in full:
 
 ```qml
 // The file manager's outer shell, now two Panes: leftPath/rightPath persist
@@ -310,7 +310,7 @@ Scope {
       right; clicking the right pane moves the border there; navigating one
       side leaves the other's path unchanged
 
-- [ ] **5** `git add nix/home/quickshell/qml/files/Pane.qml nix/home/quickshell/qml/files/Files.qml`
+- [ ] **5** `git add nix/home/desktop/quickshell/qml/files/Pane.qml nix/home/desktop/quickshell/qml/files/Files.qml`
       `git commit -m "feat: add a second pane to the file manager"`
 
 ---
@@ -318,9 +318,9 @@ Scope {
 ### Task 2: Copy and move between panes
 
 **Files:**
-- Create: `nix/home/quickshell/qml/files/operations.js`
+- Create: `nix/home/desktop/quickshell/qml/files/operations.js`
 - Create: `tests/qml/tst_files_operations.qml`
-- Modify: `nix/home/quickshell/qml/files/Files.qml`
+- Modify: `nix/home/desktop/quickshell/qml/files/Files.qml`
 
 **Produces:** `operations.js` exporting `copyArgv`, `moveArgv`,
 `renameArgv`, `mkdirArgv`, `trashArgv`. A toolbar with "Copy →" and
@@ -336,7 +336,7 @@ pane's current directory.
 // that could otherwise be parsed as a flag.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/operations.js" as Operations
+import "../../nix/home/desktop/quickshell/qml/files/operations.js" as Operations
 
 TestCase {
     name: "FilesOperations"
@@ -376,7 +376,7 @@ TestCase {
 - [ ] **2** Run QtTest
       Expected: FAIL, "files/operations.js: no such file"
 
-- [ ] **3** Write `nix/home/quickshell/qml/files/operations.js`:
+- [ ] **3** Write `nix/home/desktop/quickshell/qml/files/operations.js`:
 
 ```js
 // Argv builders for the write operations Files.qml's toolbar drives. Every
@@ -506,14 +506,14 @@ import "operations.js" as Operations
 
 - [ ] **10** `rm -rf /tmp/probe-copy`
 
-- [ ] **11** `git add nix/home/quickshell/qml/files/operations.js nix/home/quickshell/qml/files/Files.qml tests/qml/tst_files_operations.qml`
+- [ ] **11** `git add nix/home/desktop/quickshell/qml/files/operations.js nix/home/desktop/quickshell/qml/files/Files.qml tests/qml/tst_files_operations.qml`
       `git commit -m "feat: copy and move between panes"`
 
 ---
 
 ### Task 3: Rename
 
-**Files:** Modify `nix/home/quickshell/qml/files/Files.qml`.
+**Files:** Modify `nix/home/desktop/quickshell/qml/files/Files.qml`.
 **Produces:** an inline rename prompt, reused by Task 4's mkdir prompt.
 
 - [ ] **1** Add properties and functions:
@@ -587,14 +587,14 @@ import "operations.js" as Operations
 
 - [ ] **5** `rm -f /tmp/probe-renamed.txt`
 
-- [ ] **6** `git add nix/home/quickshell/qml/files/Files.qml`
+- [ ] **6** `git add nix/home/desktop/quickshell/qml/files/Files.qml`
       `git commit -m "feat: rename entries in place"`
 
 ---
 
 ### Task 4: New folder
 
-**Files:** Modify `nix/home/quickshell/qml/files/Files.qml`.
+**Files:** Modify `nix/home/desktop/quickshell/qml/files/Files.qml`.
 **Produces:** a "New Folder" toolbar button reusing Task 3's prompt.
 
 - [ ] **1** Add:
@@ -639,7 +639,7 @@ import "operations.js" as Operations
 
 - [ ] **6** `rmdir /tmp/probe-mkdir`
 
-- [ ] **7** `git add nix/home/quickshell/qml/files/Files.qml`
+- [ ] **7** `git add nix/home/desktop/quickshell/qml/files/Files.qml`
       `git commit -m "feat: create folders from the file manager"`
 
 ---
@@ -647,8 +647,8 @@ import "operations.js" as Operations
 ### Task 5: Trash
 
 **Files:**
-- Modify: `nix/home/quickshell/qml/files/Files.qml`
-- Modify: `nix/home/quickshell/default.nix:172-186`
+- Modify: `nix/home/desktop/quickshell/qml/files/Files.qml`
+- Modify: `nix/home/desktop/quickshell/default.nix:172-186`
 
 **Produces:** a "Trash" toolbar button; `gio` on `PATH` via `pkgs.glib`,
 which nothing in this shell configuration pulled in before this task.
@@ -680,7 +680,7 @@ which nothing in this shell configuration pulled in before this task.
                 }
 ```
 
-- [ ] **3** In `nix/home/quickshell/default.nix`, add `pkgs.glib` to
+- [ ] **3** In `nix/home/desktop/quickshell/default.nix`, add `pkgs.glib` to
       `home.packages` (`:172-186`), next to `pkgs.awww`:
 
 ```nix
@@ -708,5 +708,5 @@ which nothing in this shell configuration pulled in before this task.
 
 - [ ] **7** `rm -f ~/.local/share/Trash/files/probe-trash.txt`
 
-- [ ] **8** `git add nix/home/quickshell/qml/files/Files.qml nix/home/quickshell/default.nix`
+- [ ] **8** `git add nix/home/desktop/quickshell/qml/files/Files.qml nix/home/desktop/quickshell/default.nix`
       `git commit -m "feat: trash entries with gio"`

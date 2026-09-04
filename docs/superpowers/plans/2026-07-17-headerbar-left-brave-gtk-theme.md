@@ -4,7 +4,7 @@
 
 **Goal:** Move window header buttons to the left edge and make Brave's chrome follow the Tokyonight-Dark GTK theme (the palette Alacritty already uses).
 
-**Architecture:** Two independent Home Manager edits in the existing NixOS+HM flake: one dconf key in `nix/home/default.nix`, and one idempotent `home.activation` entry in `nix/home/brave.nix` that patches Brave's per-profile `Preferences` JSON (`extensions.theme.system_theme = 1`, `ui::SystemTheme::kGtk`) — no policy or HM option exists for this pref.
+**Architecture:** Two independent Home Manager edits in the existing NixOS+HM flake: one dconf key in `nix/home/default.nix`, and one idempotent `home.activation` entry in `nix/home/apps/brave.nix` that patches Brave's per-profile `Preferences` JSON (`extensions.theme.system_theme = 1`, `ui::SystemTheme::kGtk`) — no policy or HM option exists for this pref.
 
 **Tech Stack:** Nix flakes, Home Manager (`dconf.settings`, `home.activation`, `lib.hm.dag`), jq.
 
@@ -12,7 +12,7 @@
 
 - Spec: `docs/superpowers/specs/2026-07-17-headerbar-left-brave-gtk-theme-design.md` (approved).
 - **Do NOT `git commit` the nix files.** The index carries the user's unrelated in-flight changeset (`flake.nix`, `flake.lock`, `nix/home/*`, staged `core.*` dumps); committing these paths would sweep their working-tree state in. Leave committing to the user.
-- Do NOT touch `nix/facter.json` / `nix/settings.nix` except via the Task 3 stub dance (they're `skip-worktree`-parked machine answers; see memory `machine-answers-skip-worktree`).
+- Do NOT touch `nix/data/facter.json` / `nix/data/settings.nix` except via the Task 3 stub dance (they're `skip-worktree`-parked machine answers; see memory `machine-answers-skip-worktree`).
 - Comments in this repo: `#` prose explaining the *why*, in the style of the surrounding files.
 - Nix-only change: the cargo half of `just nix-lint` is out of scope (Rust untouched; `just`/`cargo` not on PATH here — invoke `nix flake check --no-build` directly).
 
@@ -52,12 +52,12 @@ nix eval '.#nixosConfigurations.tokyonight.config.home-manager.users.matus.dconf
   --apply 's: s."org/gnome/desktop/wm/preferences".button-layout'
 ```
 Expected: `"close,minimize,maximize:appmenu"`
-(If the username differs, check `nix eval --impure --expr '(import ./nix/settings.nix).username'`.)
+(If the username differs, check `nix eval --impure --expr '(import ./nix/data/settings.nix).username'`.)
 
 ### Task 2: Brave GTK-follow activation script
 
 **Files:**
-- Modify: `nix/home/brave.nix` (module args + new `home.activation` entry; keep the existing header comment and `programs.brave` block byte-identical)
+- Modify: `nix/home/apps/brave.nix` (module args + new `home.activation` entry; keep the existing header comment and `programs.brave` block byte-identical)
 
 **Interfaces:**
 - Consumes: nothing from Task 1 (independent).
@@ -102,22 +102,22 @@ literal `${…}` leftovers.
 
 - [ ] **Step 1: Format only the touched files**
 
-Run: `nix fmt -- nix/home/default.nix nix/home/brave.nix`
+Run: `nix fmt -- nix/home/default.nix nix/home/apps/brave.nix`
 Expected: exit 0; `git diff --stat` shows no unrelated files reformatted.
 
 - [ ] **Step 2: `nix flake check --no-build` with the stub dance**
 
 ```bash
-git update-index --no-skip-worktree nix/facter.json nix/settings.nix
-git restore --source=HEAD -- nix/facter.json nix/settings.nix
+git update-index --no-skip-worktree nix/data/facter.json nix/data/settings.nix
+git restore --source=HEAD -- nix/data/facter.json nix/data/settings.nix
 nix flake check --no-build; status=$?
-cp /var/lib/dots/facter.json nix/facter.json
-cp /var/lib/dots/settings.nix nix/settings.nix
-git update-index --skip-worktree nix/facter.json nix/settings.nix
+cp /var/lib/dots/facter.json nix/data/facter.json
+cp /var/lib/dots/settings.nix nix/data/settings.nix
+git update-index --skip-worktree nix/data/facter.json nix/data/settings.nix
 exit $status
 ```
 Expected: check passes; afterwards `git status --short` shows neither
-`nix/facter.json` nor `nix/settings.nix`. (`ls /var/lib/dots/` first to
+`nix/data/facter.json` nor `nix/data/settings.nix`. (`ls /var/lib/dots/` first to
 confirm the pristine copy filenames.)
 
 - [ ] **Step 3: No commit** — report the diff to the user instead (see Global Constraints).

@@ -8,7 +8,7 @@
 // before it is added to icons.js.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/icons.js" as Icons
+import "../../nix/home/desktop/quickshell/qml/files/icons.js" as Icons
 
 TestCase {
     name: "FilesIcons"

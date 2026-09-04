@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Scope:** replace `boot.loader.systemd-boot` with `boot.loader.limine` in
-`nix/modules/boot.nix` (declarative, no installer Rust changes), update
+`nix/modules/system/boot.nix` (declarative, no installer Rust changes), update
 `nix/README.md`, and add a `limine-install-boot` NixOS test to `tests/default.nix`
 that runs the installer plan in a VM and boots the installed system through
 Limine, asserting the TPM2-unlocked LUKS root comes up.
@@ -14,7 +14,7 @@ Stop `nixos-install` from aborting on the installed system's boot chain.
 `/etc/machine-id` with `open("/etc/machine-id").readlines()[0]`, catching only
 `ENOENT`. Under this system's impermanence setup — tmpfs `/` (wiped each boot),
 `system.etc.overlay.mutable = false` (immutable `/etc`), and `/etc/machine-id`
-intentionally **not** persisted (`nix/modules/impermanence.nix`) — the install
+intentionally **not** persisted (`nix/modules/system/impermanence.nix`) — the install
 chroot has an empty/placeholder machine-id, so the builder raises an uncaught
 `IndexError` (or older `bootctl` fails "Failed to get machine-id") and
 `nixos-install` aborts. Limine's installer (`limine-install.py`) has **zero**
@@ -28,7 +28,7 @@ positive reason to switch, not just a workaround.
   `system.build.installBootLoader` to a wrapper around `limine-install.py`,
   which `nixos-install` invokes automatically — so the installer Rust code
   (`rust/installer-tui/src/install.rs`) needs no change.
-- **ESP is already correct.** `nix/disko.nix` carves a 2 G vfat ESP at `/boot`
+- **ESP is already correct.** `nix/system/disko.nix` carves a 2 G vfat ESP at `/boot`
   (`umask=0077`) on the first disk as a raw GPT partition ("boot loaders can't
   read LVM"). NixOS's default `boot.loader.efi.efiSysMountPoint` is `/boot`, so
   it matches with no extra config. Limine places its files under `/boot/limine/`
@@ -79,7 +79,7 @@ positive reason to switch, not just a workaround.
 
 ## Design
 
-### 1. `nix/modules/boot.nix` — the declarative switch
+### 1. `nix/modules/system/boot.nix` — the declarative switch
 
 Replace the `boot.loader.systemd-boot` block with `boot.loader.limine`,
 preserving the current hardening and generation limit. Everything else in the
@@ -162,10 +162,10 @@ TPM2 enroll).
   - Boot to multi-user, then run `install.rs::plan()` via `succeed()`:
     1. `umask 077; head -c 64 /dev/urandom > /tmp/dots-luks-pass`
     2. `disko --mode destroy,format,mount --yes-wipe-all-disks --arg disks
-       '["/dev/vda"]' --argstr swapSize 1G /etc/dots/nix/disko.nix`
+       '["/dev/vda"]' --argstr swapSize 1G /etc/dots/nix/system/disko.nix`
     3. Stage flake: `rm -rf /tmp/dots-flake && mkdir -p /tmp/dots-flake && cp
        -rTL /etc/dots /tmp/dots-flake && chmod -R u+w /tmp/dots-flake`
-    4. Write `/tmp/dots-flake/nix/settings.nix` (test answers:
+    4. Write `/tmp/dots-flake/nix/data/settings.nix` (test answers:
        `disks = ["/dev/vda"]`, `swapSize = 1`, `hostname = "test"`,
        `username = "test"`) and `/tmp/dots-flake/nix/secrets.nix` (the existing
        `testHash` yescrypt hash of "test") — into the staged flake, matching
@@ -238,7 +238,7 @@ TPM2 enroll).
 
 ## Files touched
 
-- `nix/modules/boot.nix` — the switch + rewritten header comment.
+- `nix/modules/system/boot.nix` — the switch + rewritten header comment.
 - `nix/README.md` — boot-chain, machine-id rationale, PCR-7 note,
   concept-mapping row.
 - `tests/default.nix` — add `limine-install-boot`.
@@ -252,4 +252,4 @@ TPM2 enroll).
 - No change to `rust/installer-tui/` (the installer plan is unchanged —
   `nixos-install` invokes the Limine `installBootLoader` hook automatically, and
   `systemd-cryptenroll` is bootloader-independent).
-- No change to `nix/disko.nix` (the ESP is already a raw vfat partition).
+- No change to `nix/system/disko.nix` (the ESP is already a raw vfat partition).

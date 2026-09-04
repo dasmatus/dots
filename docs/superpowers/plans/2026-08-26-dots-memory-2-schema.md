@@ -28,9 +28,9 @@ the tables; a second migration adds the only functions allowed to touch them.
 
 ---
 ### Task 1: Migrations, tables, privilege boundary, supersession
-**Files:** create `nix/modules/agentmem/migrations/0001_schema.sql`
+**Files:** create `nix/modules/services/agentmem/migrations/0001_schema.sql`
 and `tests/agentmem/{generated_columns,privilege_boundary,
-supersession_race}.sql`; modify `nix/modules/agentmem.nix`.
+supersession_race}.sql`; modify `nix/modules/services/agentmem.nix`.
 **Produces:** role `agentmem_mcp`; the nine spec section 5 tables
 (`session.summary` a plain column); `entity.slug`, `fact.content_hash`,
 `fact.body_tsv` all `STORED`; `fact_live_claim_uk`; `relation.origin`
@@ -56,7 +56,7 @@ supersession_race}.sql`; modify `nix/modules/agentmem.nix`.
 - [ ] **4** `git commit -m "feat: add agentmem schema and privilege boundary"`
 
 ### Task 2: The five API functions
-**Files:** create `nix/modules/agentmem/migrations/0002_functions.sql`,
+**Files:** create `nix/modules/services/agentmem/migrations/0002_functions.sql`,
 `tests/agentmem/ingest_gates.sql`.
 **Produces:** `ingest_fact`, `cite_fact`, `digest`, `search`,
 `subgraph` per spec section 4's signatures, `EXECUTE` granted only to

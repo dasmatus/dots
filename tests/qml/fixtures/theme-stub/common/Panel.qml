@@ -1,1 +1,1 @@
-../../../../../nix/home/quickshell/qml/common/Panel.qml
+../../../../../nix/home/desktop/quickshell/qml/common/Panel.qml

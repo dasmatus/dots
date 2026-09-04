@@ -15,9 +15,9 @@
 // "Invalid state" instead of returning file contents.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/installer/config.js" as Config
-import "../../nix/home/quickshell/qml/installer/disks.js" as Disks
-import "../../nix/home/quickshell/qml/installer/plan.js" as Plan
+import "../../nix/home/desktop/quickshell/qml/installer/config.js" as Config
+import "../../nix/home/desktop/quickshell/qml/installer/disks.js" as Disks
+import "../../nix/home/desktop/quickshell/qml/installer/plan.js" as Plan
 
 TestCase {
     name: "Installer"

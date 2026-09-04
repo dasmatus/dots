@@ -34,7 +34,7 @@ TestCase {
     }
 
     function launcherSource() {
-        return readSource("../../nix/home/quickshell/qml/launcher/Launcher.qml");
+        return readSource("../../nix/home/desktop/quickshell/qml/launcher/Launcher.qml");
     }
 
     function test_pills_are_computed_from_the_pure_function() {

@@ -4,7 +4,7 @@
 
 **Goal:** Replace `boot.loader.systemd-boot` with `boot.loader.limine` on the installed `tokyonight` system so `nixos-install` stops aborting on `/etc/machine-id` under impermanence, and prove the full Limine + TPM2 PCR-7 unlock chain end-to-end in a VM test.
 
-**Architecture:** Declarative switch in `nix/modules/boot.nix` only (the installer Rust code is unchanged — `nixos-install` invokes the Limine `installBootLoader` hook automatically, and `systemd-cryptenroll` is bootloader-independent). Limine installs to the firmware's removable `\EFI\BOOT\BOOTX64.EFI` path (`canTouchEfiVariables = false`) so it never runs `efibootmgr` (immune to nixpkgs #493017). A new two-node NixOS test (`limine-install-boot`) runs the installer's `plan()` in a VM and boots the installed disk via Limine, asserting the TPM2-unlocked LUKS root comes up.
+**Architecture:** Declarative switch in `nix/modules/system/boot.nix` only (the installer Rust code is unchanged — `nixos-install` invokes the Limine `installBootLoader` hook automatically, and `systemd-cryptenroll` is bootloader-independent). Limine installs to the firmware's removable `\EFI\BOOT\BOOTX64.EFI` path (`canTouchEfiVariables = false`) so it never runs `efibootmgr` (immune to nixpkgs #493017). A new two-node NixOS test (`limine-install-boot`) runs the installer's `plan()` in a VM and boots the installed disk via Limine, asserting the TPM2-unlocked LUKS root comes up.
 
 **Tech Stack:** NixOS flakes, `boot.loader.limine` (pinned nixos-unstable), `pkgs.testers.runNixOSTest`, OVMFFull + swtpm, disko LVM-on-LUKS, systemd initrd.
 
@@ -21,7 +21,7 @@
 
 ## File Structure
 
-- **`nix/modules/boot.nix`** — the bootloader switch + rewritten header comment. Single responsibility: the boot chain.
+- **`nix/modules/system/boot.nix`** — the bootloader switch + rewritten header comment. Single responsibility: the boot chain.
 - **`nix/README.md`** — boot-chain docs + concept-mapping row. Documentation only.
 - **`flake/nixos.nix`** — refactor to expose `mkTokyonight = settings: nixosSystem{…}` so the test can build the closure with test settings; `tokyonight = mkTokyonight settings` is behavior-preserving.
 - **`flake.nix`** — pass `mkTokyonight` + the flake source into `tests/`; strip `mkTokyonight` from `nixosConfigurations`.
@@ -29,14 +29,14 @@
 - **`tests/README.md`** — checks-table row + "How it works" bullet.
 - **`.forgejo/workflows/ci.yml`** — add `limine-install-boot` to the `vm-boot` matrix.
 
-No changes to `rust/installer-tui/`, `nix/disko.nix`, `flake/checks.nix`, or `flake/apps.nix`.
+No changes to `rust/installer-tui/`, `nix/system/disko.nix`, `flake/checks.nix`, or `flake/apps.nix`.
 
 ---
 
 ### Task 1: Switch `boot.nix` from systemd-boot to Limine
 
 **Files:**
-- Modify: `nix/modules/boot.nix:1-4` (header comment) and `nix/modules/boot.nix:28-33` (loader block)
+- Modify: `nix/modules/system/boot.nix:1-4` (header comment) and `nix/modules/system/boot.nix:28-33` (loader block)
 
 **Interfaces:**
 - Consumes: `settings.plymouthTheme`, `settings.zswapCompressor`, `settings.bootKernelParams` (unchanged).
@@ -44,7 +44,7 @@ No changes to `rust/installer-tui/`, `nix/disko.nix`, `flake/checks.nix`, or `fl
 
 - [ ] **Step 1: Rewrite the header comment**
 
-Replace `nix/modules/boot.nix:1-4`:
+Replace `nix/modules/system/boot.nix:1-4`:
 
 ```nix
 # Boot chain: Limine + systemd initrd (TPM2 auto-unlock of the disko LUKS
@@ -57,7 +57,7 @@ Replace `nix/modules/boot.nix:1-4`:
 
 - [ ] **Step 2: Replace the loader block**
 
-Replace `nix/modules/boot.nix:28-33` (the `loader.systemd-boot` + `loader.efi.canTouchEfiVariables` block):
+Replace `nix/modules/system/boot.nix:28-33` (the `loader.systemd-boot` + `loader.efi.canTouchEfiVariables` block):
 
 ```nix
     loader.limine = {
@@ -92,7 +92,7 @@ Expected: PASS — the full tokyonight closure builds with `boot.loader.limine` 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add nix/modules/boot.nix
+git add nix/modules/system/boot.nix
 git commit -m "feat(nixos): switch installed-system bootloader to Limine
 
 Replace boot.loader.systemd-boot with boot.loader.limine. Limine sidesteps
@@ -211,20 +211,20 @@ let
         inputs.disko.nixosModules.disko
         inputs.home-manager.nixosModules.home-manager
         inputs.impermanence.nixosModules.impermanence
-        (import ../nix/disko.nix { inherit (s) disks swapSize; })
-        ../nix/modules/core.nix
-        ../nix/modules/impermanence.nix
-        ../nix/modules/boot.nix
-        ../nix/modules/network.nix
-        ../nix/modules/searxng.nix
-        ../nix/modules/virtualisation.nix
-        ../nix/modules/users.nix
-        ../nix/modules/hardening.nix
-        ../nix/modules/maintenance.nix
-        ../nix/modules/desktop.nix
-        ../nix/modules/form-factor.nix
-        ../nix/modules/steam.nix
-        ../nix/hosts.nix
+        (import ../nix/system/disko.nix { inherit (s) disks swapSize; })
+        ../nix/modules/system/core.nix
+        ../nix/modules/system/impermanence.nix
+        ../nix/modules/system/boot.nix
+        ../nix/modules/system/network.nix
+        ../nix/modules/services/searxng.nix
+        ../nix/modules/system/virtualisation.nix
+        ../nix/modules/system/users.nix
+        ../nix/modules/system/hardening.nix
+        ../nix/modules/services/maintenance.nix
+        ../nix/modules/desktop/desktop.nix
+        ../nix/modules/system/form-factor.nix
+        ../nix/modules/desktop/steam.nix
+        ../nix/system/hosts.nix
       ];
     };
 in
@@ -325,7 +325,7 @@ In the `let` of `tests/default.nix` (after the existing `testHash` binding, befo
   # the closure can be pre-built. The committed settings.nix has /dev/nvme0n1 +
   # 32G swap, which changes the toplevel — see docs/superpowers/specs/
   # 2026-07-28-limine-bootloader-design.md §3 (closure-feasibility note).
-  testSettings = (import ../nix/defaults.nix) // {
+  testSettings = (import ../nix/system/defaults.nix) // {
     username = "test";
     hostname = "test";
     disks = [ "/dev/vda" ];
@@ -445,7 +445,7 @@ After the `userbornRebootLogin` binding and before the final `in { … }`, add:
               installer.succeed(
                   "disko --mode destroy,format,mount --yes-wipe-all-disks"
                   " --arg disks '[\"/dev/vda\"]' --argstr swapSize 1G"
-                  " /etc/dots/nix/disko.nix"
+                  " /etc/dots/nix/system/disko.nix"
               )
               # 3. Stage a writable flake copy for nixos-install.
               installer.succeed(
@@ -456,7 +456,7 @@ After the `userbornRebootLogin` binding and before the final `in { … }`, add:
               # 4. Write the install answers + password hashes into the staged
               #    flake (settings.nix must match testSettings so nixos-install
               #    substitutes the pre-built testToplevel).
-              installer.succeed("cat > /tmp/dots-flake/nix/settings.nix <<'EOF'\n"
+              installer.succeed("cat > /tmp/dots-flake/nix/data/settings.nix <<'EOF'\n"
                 + '{\n  username = "test";\n  hostname = "test";\n'
                 + '  disks = [ "/dev/vda" ];\n  swapSize = "1G";\n'
                 + '  gitName = "Test User";\n  gitEmail = "test@example.com";\n}\n'

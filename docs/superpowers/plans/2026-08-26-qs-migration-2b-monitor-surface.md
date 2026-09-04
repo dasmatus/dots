@@ -48,7 +48,7 @@ deleted safely, so do not start before it is green.
 
 ### Task 2: The arrange surface
 **Files:** create `qml/monitors/Arrange.qml`; modify `qml/shell.qml`,
-`nix/home/keybinds.nix`.
+`nix/home/desktop/keybinds.nix`.
 **Produces** a canvas of draggable monitor rectangles writing
 `overrides.json`, replacing `tui.rs`'s `hyprmon override`.
 
@@ -65,7 +65,7 @@ deleted safely, so do not start before it is green.
 ### Task 3: Delete the crate
 **Files:** delete `rust/hyprmon/`, `nix/home/hyprmon.nix`; modify
 `flake/packages.nix:47-63`, `flake/apps.nix:123`, `flake/nixos.nix:28`,
-`nix/home/default.nix:38`, `nix/home/settings-menu.nix`.
+`nix/home/default.nix:38`, `nix/home/apps/settings-menu.nix`.
 
 - [ ] **1** Re-run 2a's parity test Expected: PASS. If it fails, stop
 - [ ] **2** `git rm -r rust/hyprmon nix/home/hyprmon.nix` and strip every

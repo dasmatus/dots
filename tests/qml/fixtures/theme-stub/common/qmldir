@@ -1,5 +1,5 @@
 # Every component here must be listed, not only the singleton — the same
-# rule the shipped nix/home/quickshell/qml/common/qmldir records having been
+# rule the shipped nix/home/desktop/quickshell/qml/common/qmldir records having been
 # bitten by. Without the file the engine resolves `pragma Singleton` on
 # Tokens only after a first pass where every Tokens reference reads
 # undefined, which is noisy rather than wrong.

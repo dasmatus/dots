@@ -65,25 +65,25 @@ TestCase {
         return [
             {
                 tag: "Arrange",
-                path: "../../nix/home/quickshell/qml/monitors/Arrange.qml",
+                path: "../../nix/home/desktop/quickshell/qml/monitors/Arrange.qml",
                 down: "root.moveSelection(1)",
                 up: "root.moveSelection(-1)"
             },
             {
                 tag: "Picker",
-                path: "../../nix/home/quickshell/qml/wallpaper/Picker.qml",
+                path: "../../nix/home/desktop/quickshell/qml/wallpaper/Picker.qml",
                 down: "root.moveCursor(root.columnsPerRow())",
                 up: "root.moveCursor(-root.columnsPerRow())"
             },
             {
                 tag: "Cheatsheet",
-                path: "../../nix/home/quickshell/qml/cheatsheet/Cheatsheet.qml",
+                path: "../../nix/home/desktop/quickshell/qml/cheatsheet/Cheatsheet.qml",
                 down: "root.scrollBy(root.scrollStep)",
                 up: "root.scrollBy(-root.scrollStep)"
             },
             {
                 tag: "Settings",
-                path: "../../nix/home/quickshell/qml/settings/Settings.qml",
+                path: "../../nix/home/desktop/quickshell/qml/settings/Settings.qml",
                 down: "root.moveSelection(1)",
                 up: "root.moveSelection(-1)"
             }
@@ -124,7 +124,7 @@ TestCase {
     }
 
     function test_settings_footer_hint_advertises_jk() {
-        const src = readCode("../../nix/home/quickshell/qml/settings/Settings.qml");
+        const src = readCode("../../nix/home/desktop/quickshell/qml/settings/Settings.qml");
         verify(src.indexOf("\"↑↓/jk\"") !== -1, "Settings' footer hint must advertise the jk alias like the other three surfaces");
     }
 
@@ -136,7 +136,7 @@ TestCase {
     // stolen as a move." Arrange has five real text fields and the working
     // j/k alias at once, so the claim never held.
     function test_settings_no_longer_claims_jk_is_unsafe() {
-        const src = readSource("../../nix/home/quickshell/qml/settings/Settings.qml");
+        const src = readSource("../../nix/home/desktop/quickshell/qml/settings/Settings.qml");
         verify(src.indexOf("Arrows only") === -1, "the false 'arrows only, real text fields' justification must be removed");
     }
 }

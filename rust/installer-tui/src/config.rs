@@ -1,4 +1,4 @@
-//! Install answers + validation + rendering of nix/settings.nix.
+//! Install answers + validation + rendering of nix/data/settings.nix.
 
 #[derive(Debug, Clone, Default)]
 pub struct InstallConfig {
@@ -7,9 +7,9 @@ pub struct InstallConfig {
     pub disks: Vec<String>,
     pub hostname: String,
     pub username: String,
-    /// Git identity consumed by nix/home/git.nix via dots.gitName.
+    /// Git identity consumed by nix/home/shell/git.nix via dots.gitName.
     pub git_name: String,
-    /// Git identity consumed by nix/home/git.nix via dots.gitEmail.
+    /// Git identity consumed by nix/home/shell/git.nix via dots.gitEmail.
     pub git_email: String,
     pub user_password: String,
     pub swap_size_gib: u64,
@@ -22,7 +22,7 @@ pub struct InstallConfig {
 }
 
 impl InstallConfig {
-    /// Render the nix/settings.nix the flake consumes on the target.
+    /// Render the nix/data/settings.nix the flake consumes on the target.
     #[must_use]
     pub fn settings_nix(&self) -> String {
         let disks = self

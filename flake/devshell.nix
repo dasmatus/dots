@@ -5,7 +5,7 @@
 # is not needed here (the old Tauri dev shell carried it).
 #
 # The interactive shell is fish (not mkShell's default bash), loading a
-# reproducible rebuild of the host's fish config (nix/home/fish.nix) so the
+# reproducible rebuild of the host's fish config (nix/home/shell/fish.nix) so the
 # dev shell feels like the machine: cat/ls/cd aliases, fish_greeting +
 # fastfetch, zoxide (cd = z), starship prompt, and the claude-dev helper.
 # Dropped from the host config on purpose:

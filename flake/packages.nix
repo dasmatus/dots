@@ -8,14 +8,14 @@
 }:
 self: {
   # Claude Desktop for Linux (beta) — repackaged from Anthropic's .deb, which
-  # is the only distribution channel upstream offers. See nix/claude-desktop.nix.
-  claude-desktop = pkgsClaude.callPackage ../nix/claude-desktop.nix { };
+  # is the only distribution channel upstream offers. See nix/packages/claude-desktop.nix.
+  claude-desktop = pkgsClaude.callPackage ../nix/packages/claude-desktop.nix { };
   # Betterbird, a Thunderbird fork, for its StatusNotifierItem tray icon.
   # nixpkgs dropped its own betterbird for want of a maintainer, but upstream
   # still ships a linux-x86_64 release tarball every ESR cycle, so this
   # repackages that the way nixpkgs' own thunderbird-bin repackages Mozilla's.
-  # See nix/betterbird.nix.
-  betterbird = pkgs.callPackage ../nix/betterbird.nix { };
+  # See nix/packages/betterbird.nix.
+  betterbird = pkgs.callPackage ../nix/packages/betterbird.nix { };
   dots-installer = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-installer";
     version = "0.1.0";
@@ -68,22 +68,22 @@ self: {
     meta.mainProgram = "dots-memory-derive";
   };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
-  # nix/palette.json. nix/home/quickshell/default.nix builds the same thing
+  # nix/data/palette.json. nix/home/desktop/quickshell/default.nix builds the same thing
   # with the real state directory; this one exists so `nix run .#nix-lint` has
   # something to point qmllint at, and so a broken palette fails the flake
   # rather than the next login. The stateHome here only reaches a FileView
   # path string, so a placeholder is enough to lint against.
-  quickshell-config = import ../nix/home/quickshell/tree.nix {
+  quickshell-config = import ../nix/home/desktop/quickshell/tree.nix {
     inherit pkgs;
     stateHome = "/var/empty/.local/state";
     cacheHome = "/var/empty/.cache";
     # The real cheatsheet, not an empty stub: linting a tree whose data files
     # are all empty would not exercise the delegates that read them.
-    keybinds = import ../nix/home/keybinds.nix;
+    keybinds = import ../nix/home/desktop/keybinds.nix;
   };
 
   # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned fetchGit
-  # source — see nix/aipage.nix. Consumed by the LibreWolf and Brave home
+  # source — see nix/packages/aipage.nix. Consumed by the LibreWolf and Brave home
   # modules via specialArgs, and embedded in both ISOs so the installer
   # substitutes them from the ISO store (offline-capable).
   aipage-firefox = aipagePackages.firefox;
@@ -126,6 +126,6 @@ self: {
 
   # Exposed so `nix run .#nix-lint` can force the primer generator to run and
   # trip its build-time asserts, not because anyone installs this directly.
-  # See nix/dots-skills.nix.
-  dots-skills-primer = (pkgs.callPackage ../nix/dots-skills.nix { }).primer;
+  # See nix/packages/dots-skills.nix.
+  dots-skills-primer = (pkgs.callPackage ../nix/packages/dots-skills.nix { }).primer;
 }

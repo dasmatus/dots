@@ -25,15 +25,15 @@ derived rows inside one transaction, stamped with the commit it read.
 ---
 
 ### Task 1: Swap a scope's derived edges atomically
-**Files:** create `nix/modules/agentmem/migrations/0003_derived.sql`;
-modify `nix/modules/agentmem.nix` (migration list).
+**Files:** create `nix/modules/services/agentmem/migrations/0003_derived.sql`;
+modify `nix/modules/services/agentmem.nix` (migration list).
 **Produces:** `agentmem.rebuild_derived(p_scope text, p_mermaid text,
 p_sha text) RETURNS int`, returning the row count it wrote.
 
 - [ ] **1** Write `0003_derived.sql`: `DELETE FROM agentmem.relation`
       for the scope `WHERE origin = 'derived'`, then `INSERT ... SELECT`
       from `agentmem.mermaid_edges(p_mermaid)`, stamping `src_sha`
-- [ ] **2** Add the file to the migration list in `nix/modules/agentmem.nix`
+- [ ] **2** Add the file to the migration list in `nix/modules/services/agentmem.nix`
 - [ ] **3** On a throwaway cluster, call it twice with the same Mermaid
       `Expected:` identical row count both times, no duplicates
 - [ ] **4** Call it with an edge removed

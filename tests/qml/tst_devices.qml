@@ -11,7 +11,7 @@
 // these two.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/services/devices.js" as Devices
+import "../../nix/home/desktop/quickshell/qml/services/devices.js" as Devices
 
 TestCase {
     name: "Devices"

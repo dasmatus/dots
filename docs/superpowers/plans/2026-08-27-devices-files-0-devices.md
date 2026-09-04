@@ -47,7 +47,7 @@ instantiates it explicitly, because reading it is what constructs it.
 
 **Files:**
 - Create: `tests/qml/fixtures/lsblk-devices.json`
-- Create: `nix/home/quickshell/qml/services/devices.js`
+- Create: `nix/home/desktop/quickshell/qml/services/devices.js`
 - Create: `tests/qml/tst_devices.qml`
 
 **Produces:** `devices.js` exporting `parseDevices(text)`,
@@ -77,7 +77,7 @@ reads it straight off the record instead of resolving it a second way.
 // already sets it on the qmltestrunner invocation, see tst_installer.qml).
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/services/devices.js" as Devices
+import "../../nix/home/desktop/quickshell/qml/services/devices.js" as Devices
 
 TestCase {
     name: "Devices"
@@ -178,7 +178,7 @@ TestCase {
 - [ ] **3** Run QtTest (`flake/apps.nix:118`'s qmltestrunner line)
       Expected: FAIL, "services/devices.js: no such file"
 
-- [ ] **4** Write `nix/home/quickshell/qml/services/devices.js`:
+- [ ] **4** Write `nix/home/desktop/quickshell/qml/services/devices.js`:
 
 ```js
 // Pure classification over an `lsblk -J -b` snapshot: which block devices
@@ -371,7 +371,7 @@ function ejectPlan(devices, diskPath) {
 - [ ] **6** `nix run .#nix-lint`
       Expected: green
 
-- [ ] **7** `git add tests/qml/fixtures/lsblk-devices.json nix/home/quickshell/qml/services/devices.js tests/qml/tst_devices.qml`
+- [ ] **7** `git add tests/qml/fixtures/lsblk-devices.json nix/home/desktop/quickshell/qml/services/devices.js tests/qml/tst_devices.qml`
       `git commit -m "feat: classify block devices for automount"`
 
 ---
@@ -379,10 +379,10 @@ function ejectPlan(devices, diskPath) {
 ### Task 2: `Devices.qml`, the singleton, wired live through the bar pill
 
 **Files:**
-- Create: `nix/home/quickshell/qml/services/qmldir`
-- Create: `nix/home/quickshell/qml/services/Devices.qml`
-- Create: `nix/home/quickshell/qml/bar/Drives.qml`
-- Modify: `nix/home/quickshell/qml/bar/Bar.qml`
+- Create: `nix/home/desktop/quickshell/qml/services/qmldir`
+- Create: `nix/home/desktop/quickshell/qml/services/Devices.qml`
+- Create: `nix/home/desktop/quickshell/qml/bar/Drives.qml`
+- Modify: `nix/home/desktop/quickshell/qml/bar/Bar.qml`
 
 **Produces:** `Devices.devices` (readonly, `devices.js`'s `parseDevices()`
 shape narrowed to `mountPoint !== null`: `{name, path, diskPath, label,
@@ -392,13 +392,13 @@ path)`. `bar/Drives.qml` is what forces the singleton alive at shell
 startup and is this task's only way to prove any of it runs, since nothing
 else in the tree reads `Devices` yet.
 
-- [ ] **1** Write `nix/home/quickshell/qml/services/qmldir`:
+- [ ] **1** Write `nix/home/desktop/quickshell/qml/services/qmldir`:
 
 ```
 singleton Devices 1.0 Devices.qml
 ```
 
-- [ ] **2** Write `nix/home/quickshell/qml/services/Devices.qml`:
+- [ ] **2** Write `nix/home/desktop/quickshell/qml/services/Devices.qml`:
 
 ```qml
 // The devices service: watches udev for block-device hotplug, automounts
@@ -595,7 +595,7 @@ again": the unmounted device is still present in the next scan under the
 same path, so it stays in `attempted` and is not silently re-mounted out
 from under whoever unmounted it on purpose.
 
-- [ ] **3** Write `nix/home/quickshell/qml/bar/Drives.qml`:
+- [ ] **3** Write `nix/home/desktop/quickshell/qml/bar/Drives.qml`:
 
 ```qml
 // The removable-media pill: a live count of currently-mounted devices,
@@ -632,7 +632,7 @@ Pill {
 }
 ```
 
-- [ ] **4** In `nix/home/quickshell/qml/bar/Bar.qml`, add `Drives {}` to the
+- [ ] **4** In `nix/home/desktop/quickshell/qml/bar/Bar.qml`, add `Drives {}` to the
       right-side `Row`, between `Network {}` and `Battery {}`
 
 - [ ] **5** `nix build .#quickshell-config && cat result/services/qmldir`
@@ -654,14 +654,14 @@ Pill {
       Expected: exits 0, proof the `devices` IPC target is registered,
       which only happens because step 7 already forced the singleton alive
 
-- [ ] **9** `git add nix/home/quickshell/qml/services/qmldir nix/home/quickshell/qml/services/Devices.qml nix/home/quickshell/qml/bar/Drives.qml nix/home/quickshell/qml/bar/Bar.qml`
+- [ ] **9** `git add nix/home/desktop/quickshell/qml/services/qmldir nix/home/desktop/quickshell/qml/services/Devices.qml nix/home/desktop/quickshell/qml/bar/Drives.qml nix/home/desktop/quickshell/qml/bar/Bar.qml`
       `git commit -m "feat: automount hotplugged block devices"`
 
 ---
 
 ### Task 3: The mount toast
 
-**Files:** Modify `nix/home/quickshell/qml/services/Devices.qml`.
+**Files:** Modify `nix/home/desktop/quickshell/qml/services/Devices.qml`.
 **Produces:** a `notify-send` toast the moment a device transitions from
 absent-or-unmounted to mounted.
 
@@ -712,7 +712,7 @@ to close.
       on screen, rendered by `qml/notifications/Notifications.qml` (`notify-send` talks to the same `org.freedesktop.Notifications` name that
       server already owns)
 
-- [ ] **4** `git add nix/home/quickshell/qml/services/Devices.qml`
+- [ ] **4** `git add nix/home/desktop/quickshell/qml/services/Devices.qml`
       `git commit -m "feat: toast when a device automounts"`
 
 ---
@@ -720,8 +720,8 @@ to close.
 ### Task 4: Launcher device rows
 
 **Files:**
-- Modify: `nix/home/quickshell/qml/launcher/Providers.qml`
-- Modify: `nix/home/quickshell/qml/launcher/Launcher.qml`
+- Modify: `nix/home/desktop/quickshell/qml/launcher/Providers.qml`
+- Modify: `nix/home/desktop/quickshell/qml/launcher/Launcher.qml`
 
 **Produces:** `Providers.deviceRows(text)`, spliced into the launcher's
 ambient result set.
@@ -773,5 +773,5 @@ import "../services"
       Plan 1's `Files.qml` connects to it), that is the expected,
       forward-compatible state this task leaves behind, not a bug
 
-- [ ] **6** `git add nix/home/quickshell/qml/launcher/Providers.qml nix/home/quickshell/qml/launcher/Launcher.qml`
+- [ ] **6** `git add nix/home/desktop/quickshell/qml/launcher/Providers.qml nix/home/desktop/quickshell/qml/launcher/Launcher.qml`
       `git commit -m "feat: surface mounted devices in the launcher"`

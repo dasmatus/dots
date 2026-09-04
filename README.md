@@ -34,10 +34,10 @@ recovery key, and reboots.
 
 ## Native packages, no Flatpak
 
-Every GUI app is a native nixpkgs package in `nix/home/pkgs.nix`. The repo used
+Every GUI app is a native nixpkgs package in `nix/home/base/pkgs.nix`. The repo used
 to rebuild `/var/lib/flatpak` from a pinned list through `nix/modules/flatpak.nix`,
 wiping anything installed imperatively on every activation. That module and the
-declarative-flatpak input are both gone. The header of `nix/home/pkgs.nix` lists
+declarative-flatpak input are both gone. The header of `nix/home/base/pkgs.nix` lists
 what each app became and what got dropped on the way.
 
 Three things worth knowing:
@@ -53,31 +53,31 @@ Three things worth knowing:
 
 ## Home-manager highlights
 
-- **nixvim** (`nix/home/nixvim.nix`). A from-scratch port of the old lazy.nvim
+- **nixvim** (`nix/home/apps/nixvim.nix`). A from-scratch port of the old lazy.nvim
   config. LSP servers come from nixpkgs, so there is no Mason. Treesitter,
   rainbow-delimiters, bufferline, Tokyonight theme.
-- **Wayland-only Hyprland session**. `nix/home/hyprland.nix` is the compositor;
+- **Wayland-only Hyprland session**. `nix/home/desktop/hyprland.nix` is the compositor;
   everything drawn on top of it is one [Quickshell](https://quickshell.org)
-  config in `nix/home/quickshell/`. The bar, the notification daemon, the
+  config in `nix/home/desktop/quickshell/`. The bar, the notification daemon, the
   volume and brightness OSD, the launcher on SUPER+Space, the keybind
   cheatsheet on SUPER+/ and the settings form on SUPER+comma are QML in a
-  single process, reading one palette out of `nix/palette.json`. That replaces
+  single process, reading one palette out of `nix/data/palette.json`. That replaces
   a waybar bar, a dunst daemon, an eww window, a mostly-retired rofi and a Rust
   launcher wrapping a ten-patch fork of bemenu's C renderer, which between them
   had five theme paths and five ways of being told what colour to be.
   `services.hypridle`, `programs.hyprlock` and `services.gammastep` replace the
   old swayidle/swaylock/redshift exec-once lines. No X11 session is left
   anywhere.
-- **LibreWolf** (`nix/home/librewolf.nix`). Runs natively through
+- **LibreWolf** (`nix/home/apps/librewolf.nix`). Runs natively through
   `programs.librewolf`, Home Manager's firefox-module wrapper, which owns
   `~/.librewolf`. The module writes the upstream arkenfox base plus personal
   overrides into `user.js`, stacked on top of the hardened defaults LibreWolf
   already ships.
-- **haumea `~/Dokumente` skeleton** (`nix/home/dokumente.nix` and
-  `nix/home/dokumente/`). The directory tree under `dokumente/` *is* the data.
+- **haumea `~/Dokumente` skeleton** (`nix/home/base/dokumente.nix` and
+  `nix/home/base/dokumente/`). The directory tree under `dokumente/` *is* the data.
   haumea loads it, and home-manager activation `mkdir -p`s every leaf into
   `~/Dokumente` on login, idempotently.
-- **Wallpaper picker and rotation** (`nix/home/quickshell/qml/wallpaper/`). The
+- **Wallpaper picker and rotation** (`nix/home/desktop/quickshell/qml/wallpaper/`). The
   shell itself: SUPER+W opens a thumbnail grid over `Wallpapers/`, and
   `Rotation.qml` picks a random file from the same tree on an hourly timer
   (and once at shell startup, so a fresh login is never blank). Either
@@ -105,15 +105,15 @@ See [`tests/README.md`](tests/README.md) for how the NixOS VM tests work.
 | Path | What |
 |------|------|
 | `flake.nix` | Inputs, `nixosConfigurations`, `packages.dots-installer`, formatter |
-| `nix/settings.nix` | Install-time parameters (username, hostname, disk, swap) |
-| `nix/disko.nix` | Single source of truth for the disk layout |
-| `nix/hosts.nix` | facter-driven hardware config (NVIDIA via if-then-else on the report) |
-| `nix/facter.json` | Committed stub (`{}`); the installer writes the real report on the target |
+| `nix/data/settings.nix` | Install-time parameters (username, hostname, disk, swap) |
+| `nix/system/disko.nix` | Single source of truth for the disk layout |
+| `nix/system/hosts.nix` | facter-driven hardware config (NVIDIA via if-then-else on the report) |
+| `nix/data/facter.json` | Committed stub (`{}`); the installer writes the real report on the target |
 | `nix/modules/` | System configuration split by concern (boot, core, desktop, dots, form-factor, hardening, impermanence, limine-install, maintenance, network, searxng, steam, users, virtualisation) |
 | `nix/home/` | home-manager profile (nixvim, Hyprland session, LibreWolf, Dokumente skeleton, wallpaper service) |
-| `nix/iso.nix` | The LiveISO: embeds the flake at `/etc/dots`, auto-launches `dots-installer` on tty1 |
+| `nix/system/iso.nix` | The LiveISO: embeds the flake at `/etc/dots`, auto-launches `dots-installer` on tty1 |
 | `rust/installer-tui/` | The Rust/ratatui installer source |
-| `nix/home/quickshell/` | The Quickshell config: bar, notifications, OSD, launcher, cheatsheet, settings |
+| `nix/home/desktop/quickshell/` | The Quickshell config: bar, notifications, OSD, launcher, cheatsheet, settings |
 | `Wallpapers/` | Five themed sets (light · storm · night · metis · misc) × three styles (abstract · minimal · os) |
 
 [`nix/README.md`](nix/README.md) has the module-by-module design notes, including

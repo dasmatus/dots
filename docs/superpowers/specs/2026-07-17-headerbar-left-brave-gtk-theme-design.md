@@ -38,7 +38,7 @@ Add to the existing `dconf.settings` block:
 macOS traffic-light order on the left, matching the GTK theme's macos tweak.
 Applies to GNOME Shell, GTK CSD headerbars, and Brave's caption buttons.
 
-### 2. Brave GTK-follow (`nix/home/brave.nix`)
+### 2. Brave GTK-follow (`nix/home/apps/brave.nix`)
 
 `home.activation.braveGtkTheme` (DAG: after `writeBoundary`):
 

@@ -27,13 +27,13 @@ secrets/*
 # stay tracked as generic stubs so the flake evals green — gitignore can't
 # hide tracked files, so local copies are parked via
 # `git update-index --skip-worktree`; these entries document the intent.
-nix/facter.json
-nix/settings.nix
+nix/data/facter.json
+nix/data/settings.nix
 .claude/
 # Install-time password hashes written by the installer TUI into the
 # STAGED_FLAKE only (rust/installer-tui/src/install.rs). Never committed — a
 # hash is offline-crackable. The file is NOT stashed to /var/lib/dots, so the
-# dots-clone service (nix/home/dots-repo.nix) never restores it into the user's
+# dots-clone service (nix/home/base/dots-repo.nix) never restores it into the user's
 # git clone; it exists only for the install-time `nixos-install` eval so userborn
 # can create the accounts with these hashes on first boot.
 nix/secrets.nix

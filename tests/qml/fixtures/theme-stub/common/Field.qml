@@ -1,1 +1,1 @@
-../../../../../nix/home/quickshell/qml/common/Field.qml
+../../../../../nix/home/desktop/quickshell/qml/common/Field.qml

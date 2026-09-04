@@ -21,39 +21,39 @@
 }:
 {
   imports = [
-    ./kitty.nix
-    ./zellij.nix
-    ./fastfetch.nix
-    ./fish.nix
-    ./claude.nix
-    ./codex.nix
-    ./computer-use-linux.nix
-    ./edupage-mcp.nix
-    ./nixvim.nix
-    ./dokumente.nix
-    ./dots-repo.nix
-    ./brave.nix
-    ./junction.nix
-    ./hyprland.nix
-    ./session
-    ./quickshell
-    ./claude-desktop.nix
-    ./librewolf.nix
-    ./settings-menu.nix
-    ./git.nix
-    ./bitwarden.nix
-    ./proton.nix
-    ./proton-drive.nix
-    ./proton-calendar.nix
-    ./proton-setup.nix
-    ./pkgs.nix
-    ./zed.nix
+    ./apps/kitty.nix
+    ./shell/zellij.nix
+    ./shell/fastfetch.nix
+    ./shell/fish.nix
+    ./ai/claude.nix
+    ./ai/codex.nix
+    ./ai/computer-use-linux.nix
+    ./ai/edupage-mcp.nix
+    ./apps/nixvim.nix
+    ./base/dokumente.nix
+    ./base/dots-repo.nix
+    ./apps/brave.nix
+    ./apps/junction.nix
+    ./desktop/hyprland.nix
+    ./desktop/session
+    ./desktop/quickshell
+    ./ai/claude-desktop.nix
+    ./apps/librewolf.nix
+    ./apps/settings-menu.nix
+    ./shell/git.nix
+    ./apps/bitwarden.nix
+    ./proton/proton.nix
+    ./proton/proton-drive.nix
+    ./proton/proton-calendar.nix
+    ./proton/proton-setup.nix
+    ./base/pkgs.nix
+    ./apps/zed.nix
   ];
   home.stateVersion = "26.05";
   programs.home-manager.enable = true;
 
   # computer-use-linux MCP server + CLI, registered into every harness
-  # present here (Claude Code + Codex). See nix/home/computer-use-linux.nix.
+  # present here (Claude Code + Codex). See nix/home/ai/computer-use-linux.nix.
   # Gated on at least one harness being enabled: the module's whole purpose is
   # to register an MCP server into a harness, so with both dots.ai.claude and
   # dots.ai.codex off it has nothing to serve and would only install a dead
@@ -92,7 +92,7 @@
 
     # The gtk3/gtk4 modules would otherwise manage these two as read-only
     # symlinks into the store, same as gtk-3.0/bookmarks above. Quickshell's
-    # own Gtk.qml (nix/home/quickshell/qml/wallpaper/Gtk.qml) needs to edit
+    # own Gtk.qml (nix/home/desktop/quickshell/qml/wallpaper/Gtk.qml) needs to edit
     # gtk-icon-theme-name in place at wallpaper-pick time, and a write
     # through that symlink fails outright (EROFS) rather than reaching
     # anything — see that file's own header for the write(2)-level reason.

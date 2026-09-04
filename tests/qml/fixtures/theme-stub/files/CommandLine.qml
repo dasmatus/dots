@@ -1,1 +1,1 @@
-../../../../../nix/home/quickshell/qml/files/CommandLine.qml
+../../../../../nix/home/desktop/quickshell/qml/files/CommandLine.qml

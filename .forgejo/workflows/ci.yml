@@ -43,7 +43,7 @@ jobs:
     runs-on: codeberg-medium
     steps:
       - uses: actions/checkout@v4
-      # nix/settings.nix is a tracked symlink to /var/lib/dots/settings.nix
+      # nix/data/settings.nix is a tracked symlink to /var/lib/dots/settings.nix
       # (cb4fe5e), written by the first-login dots-clone service on an
       # installed target. A bare CI checkout has no such target, so pure
       # eval dies importing it ("access to absolute path ... is forbidden
@@ -52,10 +52,10 @@ jobs:
       # the pre-cb4fe5e committed file used to carry, so this stays a real
       # in-tree file for the run — same fix `--impure` gives locally on an
       # installed machine, without weakening the pure-eval check here.
-      - name: Materialize nix/settings.nix defaults for a bare checkout
+      - name: Materialize nix/data/settings.nix defaults for a bare checkout
         run: |
-          rm -f nix/settings.nix
-          cat > nix/settings.nix <<'EOF'
+          rm -f nix/data/settings.nix
+          cat > nix/data/settings.nix <<'EOF'
           {
             username = "ci";
             hostname = "tokyonight";

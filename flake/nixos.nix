@@ -1,5 +1,5 @@
 # nixosConfigurations — the installed `tokyonight` system + the two LiveISO
-# closures (lean + full). Hardware is not baked into variants: nix/hosts.nix
+# closures (lean + full). Hardware is not baked into variants: nix/system/hosts.nix
 # reads the nixos-facter report the installer generates on the target.
 {
   inputs,
@@ -33,23 +33,23 @@ let
         inputs.disko.nixosModules.disko
         inputs.home-manager.nixosModules.home-manager
         inputs.impermanence.nixosModules.impermanence
-        (import ../nix/disko.nix { inherit (s) disks swapSize; })
+        (import ../nix/system/disko.nix { inherit (s) disks swapSize; })
         ../nix/modules/dots.nix
-        ../nix/modules/core.nix
-        ../nix/modules/impermanence.nix
-        ../nix/modules/boot.nix
-        ../nix/modules/limine-install.nix
-        ../nix/modules/network.nix
-        ../nix/modules/searxng.nix
-        ../nix/modules/agentmem.nix
-        ../nix/modules/virtualisation.nix
-        ../nix/modules/users.nix
-        ../nix/modules/hardening.nix
-        ../nix/modules/maintenance.nix
-        ../nix/modules/desktop.nix
-        ../nix/modules/form-factor.nix
-        ../nix/modules/steam.nix
-        ../nix/hosts.nix
+        ../nix/modules/system/core.nix
+        ../nix/modules/system/impermanence.nix
+        ../nix/modules/system/boot.nix
+        ../nix/modules/system/limine-install.nix
+        ../nix/modules/system/network.nix
+        ../nix/modules/services/searxng.nix
+        ../nix/modules/services/agentmem.nix
+        ../nix/modules/system/virtualisation.nix
+        ../nix/modules/system/users.nix
+        ../nix/modules/system/hardening.nix
+        ../nix/modules/services/maintenance.nix
+        ../nix/modules/desktop/desktop.nix
+        ../nix/modules/system/form-factor.nix
+        ../nix/modules/desktop/steam.nix
+        ../nix/system/hosts.nix
       ];
     };
 in

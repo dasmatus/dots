@@ -26,7 +26,7 @@
 - **Modify** `nix/home/wallpaper-tui.py` — awww backend, chafa preview rendering + `Preview` widget, `cache_previews` + CLI flags. (Single file; all wallpaper logic co-located per existing convention.)
 - **Modify** `nix/home/wallpaper-tui.nix` — `pkgs.chafa` on PATH; `transitionType`/`transitionDuration`/`cacheInterval` options; systemd user service+timer; description text `swaybg`→`awww`.
 - **Modify** `nix/home/default.nix` — `pkgs.swaybg`→`pkgs.awww`; comment.
-- **Modify** `nix/home/hyprland.nix` — add `awww-daemon` to `hyprland.start` exec-once, before `wallpaper-tui --restore`.
+- **Modify** `nix/home/desktop/hyprland.nix` — add `awww-daemon` to `hyprland.start` exec-once, before `wallpaper-tui --restore`.
 - **Modify** `nix/home/random_wp.nix` — error-message string `swaybg/gsettings`→`awww/gsettings`.
 - **Create** `tests/wallpaper_tui/test_awww_backend.py` — pure helpers for the awww backend.
 - **Create** `tests/wallpaper_tui/test_preview.py` — `ansi_to_textual` parser + `cache_previews`.
@@ -41,7 +41,7 @@
 - Modify: `nix/home/wallpaper-tui.py` (replace `apply_wallpaper`, add helpers near it, ~lines 137-158)
 - Modify: `nix/home/wallpaper-tui.nix` (options + `declarativeConfig`, ~lines 29-120)
 - Modify: `nix/home/default.nix` (~lines 71-74)
-- Modify: `nix/home/hyprland.nix` (~lines 71-81)
+- Modify: `nix/home/desktop/hyprland.nix` (~lines 71-81)
 - Modify: `nix/home/random_wp.nix` (~line 67)
 - Test: `tests/wallpaper_tui/test_awww_backend.py`
 
@@ -339,7 +339,7 @@ with:
 
 - [ ] **Step 7: Start `awww-daemon` at hyprland.start**
 
-In `nix/home/hyprland.nix`, add `awww-daemon` to the `hyprland.start` function **before** `wallpaper-tui --restore`:
+In `nix/home/desktop/hyprland.nix`, add `awww-daemon` to the `hyprland.start` function **before** `wallpaper-tui --restore`:
 
 ```nix
           (lua ''
@@ -367,7 +367,7 @@ Expected: flake eval passes (no `swww` rename warning now that we use `awww`).
 - [ ] **Step 10: Commit**
 
 ```bash
-git add nix/home/wallpaper-tui.py nix/home/wallpaper-tui.nix nix/home/default.nix nix/home/hyprland.nix nix/home/random_wp.nix tests/wallpaper_tui/test_awww_backend.py
+git add nix/home/wallpaper-tui.py nix/home/wallpaper-tui.nix nix/home/default.nix nix/home/desktop/hyprland.nix nix/home/random_wp.nix tests/wallpaper_tui/test_awww_backend.py
 git commit -m "feat(wallpaper): replace swaybg with awww for animated transitions"
 ```
 
@@ -879,7 +879,7 @@ git commit -m "feat(wallpaper-tui): systemd user preview-cache service"
 - Create: `scripts/zellij-subagent.sh`
 
 **Interfaces:**
-- Consumes: a running zellij session (the user's `main` session, `attach_to_session = true` in `nix/home/zellij.nix`); the `claude` CLI on PATH.
+- Consumes: a running zellij session (the user's `main` session, `attach_to_session = true` in `nix/home/shell/zellij.nix`); the `claude` CLI on PATH.
 - Produces: one zellij tab `subagents` with one pane per task; each pane runs `claude -p "<prompt>"` writing JSON to `/tmp/zellij-subagents/<n>.json` and a `<n>.done` sentinel when finished.
 
 - [ ] **Step 1: Create the helper script**

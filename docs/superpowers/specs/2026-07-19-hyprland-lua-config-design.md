@@ -1,7 +1,7 @@
 # Hyprland config → Home Manager Lua DSL
 
 **Date:** 2026-07-19
-**Scope:** single-file edit of `nix/home/hyprland.nix` — the
+**Scope:** single-file edit of `nix/home/desktop/hyprland.nix` — the
 `wayland.windowManager.hyprland.settings` block plus its header comment. No
 Rust, no new files, no other modules touched.
 
