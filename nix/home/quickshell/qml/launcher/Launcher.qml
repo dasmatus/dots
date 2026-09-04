@@ -78,6 +78,36 @@ Scope {
     // preview" test, just no longer scoped to files alone.
     readonly property string previewPath: root.results[root.selected]?.path ?? ""
 
+    // One entry per app in the visible list that has desktop actions — the
+    // capsules that used to sit on the rows themselves, gathered into the pill
+    // bar. Each carries the name its capsule needs (a count alone, several
+    // rows away from the app it counts, reads as a number about nothing) and
+    // the index that opens it.
+    //
+    // Built from `results`, the list actually on screen, for the same reason
+    // pillsFor takes its counts from `unfilteredResults`: a capsule promising
+    // rows the list does not have is a control that cannot keep its word.
+    //
+    // Empty while drilled. The list is then one app's own actions, which carry
+    // no actionCount of their own, so this would come out empty anyway — but
+    // saying so is what keeps a later provider that does put actionCount on an
+    // action row from growing a second bar of capsules underneath the pill
+    // that already stands for the drill itself.
+    readonly property var actionPills: {
+        if (root.drill)
+            return [];
+
+        const pills = [];
+
+        for (let i = 0; i < root.results.length; i++) {
+            const row = root.results[i];
+            if ((row.actionCount ?? 0) > 0)
+                pills.push({ label: row.title, count: row.actionCount, index: i });
+        }
+
+        return pills;
+    }
+
     readonly property var focusedScreen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? null
 
     // Every provider's rows for the current query, concatenated in registry
@@ -108,9 +138,17 @@ Scope {
         if (text.startsWith("e "))
             return providers.emojiRows(text.slice(2).trim());
 
+        // Files are prefixed like the rest of them now, rather than mixed
+        // into the ambient list. Typing three characters of anything used to
+        // be enough to put a directory listing next to the applications, on a
+        // query that was almost never about a file — and the provider that
+        // answered it is the one provider that costs a process to ask.
+        if (text.startsWith("f "))
+            return providers.fileRows(text.slice(2).trim());
+
         const needle = text.trim();
 
-        return providers.applicationRows(needle).concat(providers.appActionRows(needle)).concat(providers.systemRows(needle)).concat(providers.keyboardRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle)).concat(providers.fileRows(needle)).concat(providers.deviceRows(needle)).concat(providers.statusRows(needle));
+        return providers.applicationRows(needle).concat(providers.appActionRows(needle)).concat(providers.systemRows(needle)).concat(providers.keyboardRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle)).concat(providers.deviceRows(needle)).concat(providers.statusRows(needle));
     }
 
     // Rows are computed fresh per keystroke. The result sets here are small
@@ -134,7 +172,7 @@ Scope {
     readonly property var unfilteredResults: {
         const text = root.query;
 
-        if (text.startsWith("=") || text.startsWith("?") || text.startsWith("w ") || text.startsWith("c ") || text.startsWith("e "))
+        if (text.startsWith("=") || text.startsWith("?") || text.startsWith("w ") || text.startsWith("c ") || text.startsWith("e ") || text.startsWith("f "))
             return root.ambientRows;
 
         const needle = text.trim().toLowerCase();
@@ -373,7 +411,7 @@ Scope {
             // of it: the list keeps the width it has without a preview, so
             // arrowing onto a file does not reflow the rows you were reading.
             width: Math.round(parent.width * Theme.launcherWidthFactor) + (root.previewPath === "" ? 0 : Theme.launcherPreviewWidth)
-            height: Theme.launcherSearchHeight + pillRow.height + (pillRow.height > 0 ? 6 : 0) + list.height + (list.height > 0 ? 8 : 0)
+            height: Theme.launcherSearchHeight + pillScroll.height + (pillScroll.height > 0 ? 6 : 0) + list.height + (list.height > 0 ? 8 : 0)
 
             padding: 4
 
@@ -436,7 +474,17 @@ Scope {
                             // the results binding, because kicking off a process
                             // inside a binding makes the binding a side effect and
                             // re-runs it whenever anything else it touches changes.
-                            providers.fileQuery = input.text.startsWith("=") || input.text.startsWith("?") ? "" : input.text.trim();
+                            //
+                            // Only the "f " prefix feeds it now. Every other
+                            // query used to spawn fd as soon as it reached
+                            // three characters, so typing an app's name paid
+                            // for a filesystem search nobody asked for and
+                            // then showed the results next to the app — the
+                            // provider's own rule about not costing a process
+                            // per keystroke, finally applied to whether the
+                            // search should happen at all rather than only to
+                            // how often.
+                            providers.fileQuery = input.text.startsWith("f ") ? input.text.slice(2).trim() : "";
                         }
 
                         Keys.onDownPressed: root.move(1)
@@ -512,61 +560,160 @@ Scope {
                     // Tab/Shift+Tab cycle it from the keyboard, and each Pill's
                     // own MouseArea (see common/Pill.qml) lets the pointer
                     // drive it too.
-                    RowLayout {
-                        id: pillRow
+                    //
+                    // Not every capsule in here is a filter. The drill-in
+                    // capsules after the Repeater used to sit one per app row,
+                    // which put the launcher's only non-filter controls in the
+                    // one place the eye is reading names — so the bar now
+                    // carries every control acting on the list and the list
+                    // carries only the list.
+                    //
+                    // A Flow rather than the RowLayout this was: one capsule
+                    // per app with actions is a count the query decides, not a
+                    // fixed one, and a single line would push the provider
+                    // pills off their own left edge to make room. Wrapping
+                    // spends height instead of width, which by then is already
+                    // spoken for.
+                    //
+                    // Inside a Flickable, because height is not free either.
+                    // An empty query matches every installed app, and enough
+                    // of them carry desktop actions that an unbounded bar
+                    // would push the list it is meant to be labelling off the
+                    // bottom of the panel. The viewport caps what the bar may
+                    // take (Theme.launcherPillRows) and the rest is scrolled
+                    // to — the same Flickable idiom PreviewPane and Cheatsheet
+                    // already use for content they cannot size.
+                    Flickable {
+                        id: pillScroll
 
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
-                        Layout.preferredHeight: root.pills.length > 0 ? Theme.barHeight - 8 : 0
+                        // Shrinks to the content while it fits, so a two-pill
+                        // bar does not reserve three rows of empty panel, and
+                        // stops growing at the cap once it does not.
+                        Layout.preferredHeight: pillScroll.visible ? Math.min(pillRow.implicitHeight, Theme.launcherPillRows * (Theme.barHeight - 8) + (Theme.launcherPillRows - 1) * pillRow.spacing) : 0
 
-                        visible: root.pills.length > 0
-                        spacing: 6
+                        visible: root.pills.length > 0 || root.actionPills.length > 0
 
-                        Repeater {
-                            model: root.pills
+                        contentWidth: width
+                        contentHeight: pillRow.implicitHeight
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
 
-                            delegate: Pill {
-                                id: pillDelegate
+                        Flow {
+                            id: pillRow
 
-                                required property var modelData
+                            width: pillScroll.width
+                            spacing: 6
 
-                                // The drill pill is always the active one:
-                                // it is not a filter you can toggle off and
-                                // leave the bar, it IS the drilled state.
-                                readonly property bool active: root.drill !== null || root.selectedPill === pillDelegate.modelData.id
+                            Repeater {
+                                model: root.pills
 
-                                interactive: true
-                                color: pillDelegate.active ? Theme.accent : Theme.bgDark
+                                delegate: Pill {
+                                    id: pillDelegate
 
-                                // Clicking the active pill clears it, so the
-                                // pill bar is also its own "All" toggle and
-                                // needs no separate All pill taking up space
-                                // when nothing is filtered yet. Clicking the
-                                // drill pill is the same gesture one level up:
-                                // it leaves the app's action list.
-                                onClicked: {
-                                    if (root.drill) {
-                                        root.drillOut();
-                                        return;
+                                    required property var modelData
+
+                                    // The drill pill is always the active one:
+                                    // it is not a filter you can toggle off and
+                                    // leave the bar, it IS the drilled state.
+                                    readonly property bool active: root.drill !== null || root.selectedPill === pillDelegate.modelData.id
+
+                                    interactive: true
+                                    color: pillDelegate.active ? Theme.accent : Theme.bgDark
+
+                                    // Clicking the active pill clears it, so the
+                                    // pill bar is also its own "All" toggle and
+                                    // needs no separate All pill taking up space
+                                    // when nothing is filtered yet. Clicking the
+                                    // drill pill is the same gesture one level up:
+                                    // it leaves the app's action list.
+                                    onClicked: {
+                                        if (root.drill) {
+                                            root.drillOut();
+                                            return;
+                                        }
+
+                                        root.selectedPill = pillDelegate.active ? "" : pillDelegate.modelData.id;
                                     }
 
-                                    root.selectedPill = pillDelegate.active ? "" : pillDelegate.modelData.id;
-                                }
+                                    Text {
+                                        text: `${pillDelegate.modelData.label} ${pillDelegate.modelData.count}`
+                                        color: pillDelegate.active ? Theme.bg : Theme.fg
 
-                                Text {
-                                    text: `${pillDelegate.modelData.label} ${pillDelegate.modelData.count}`
-                                    color: pillDelegate.active ? Theme.bg : Theme.fg
-
-                                    font.family: Theme.fontUi
-                                    font.pointSize: 9
-                                    font.bold: true
+                                        font.family: Theme.fontUi
+                                        font.pointSize: 9
+                                        font.bold: true
+                                    }
                                 }
                             }
-                        }
 
-                        Item {
-                            Layout.fillWidth: true
+                            // The way into each app's desktop actions, beside the
+                            // provider pills because that is what drilling in is
+                            // — a filter that happens to be scoped to one app
+                            // instead of one provider. Built from the same shared
+                            // capsule for the same reason.
+                            //
+                            // Deliberately a second Repeater rather than more
+                            // entries in root.pills. cyclePill walks that list, so
+                            // folding these in would put Tab on capsules that
+                            // filter nothing, and pillsFor's contract — one pill
+                            // per provider — would stop being true of the thing it
+                            // builds.
+                            Repeater {
+                                model: root.actionPills
+
+                                delegate: Pill {
+                                    id: actionDelegate
+
+                                    required property var modelData
+
+                                    interactive: true
+
+                                    // Highlighted first, then drilled: drillInto
+                                    // reads root.selected to remember where to
+                                    // come back to, and these capsules can open an
+                                    // app the keyboard never visited. Without the
+                                    // assignment, drilling out of the fourth app's
+                                    // actions would land on whatever row the first
+                                    // was.
+                                    onClicked: {
+                                        root.selected = actionDelegate.modelData.index;
+                                        root.drillInto(root.results[actionDelegate.modelData.index]);
+                                    }
+
+                                    Text {
+                                        // Named, then counted, then pluralised.
+                                        // The row's copy of this could say "1
+                                        // actions" and be forgiven, sitting
+                                        // against the app it was counting; a
+                                        // capsule that names its own subject has
+                                        // to get the agreement right.
+                                        text: `${actionDelegate.modelData.label} · ${actionDelegate.modelData.count} action${actionDelegate.modelData.count === 1 ? "" : "s"}`
+
+                                        // Capped rather than left to size itself.
+                                        // One long .desktop name is enough to
+                                        // claim a whole line of the bar on its
+                                        // own, which costs every capsule behind it
+                                        // a row of height.
+                                        width: Math.min(implicitWidth, Math.round(pillRow.width * Theme.launcherActionPillMaxFactor))
+                                        elide: Text.ElideRight
+
+                                        // Theme.fg, where the row's copy of this
+                                        // used Theme.dim: there it sat against a
+                                        // row it could afford to stay quieter
+                                        // than, and here its neighbours are the
+                                        // bold provider pills. Kept on fontMono,
+                                        // which is what tells the eye it counts
+                                        // something rather than naming a provider.
+                                        color: Theme.fg
+
+                                        font.family: Theme.fontMono
+                                        font.pointSize: 9
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -595,20 +742,11 @@ Scope {
                             subtitle: modelData.subtitle ?? ""
                             icon: modelData.icon ?? ""
                             accessory: modelData.accessory ?? ""
-                            actionCount: modelData.actionCount ?? 0
                             current: index === root.selected
 
                             onActivated: {
                                 root.selected = index;
                                 root.activate();
-                            }
-
-                            // Highlighted first: drillInto reads root.selected
-                            // to remember where to come back to, and a click
-                            // can land on a row the keyboard never visited.
-                            onDrillRequested: {
-                                root.selected = index;
-                                root.drillInto(modelData);
                             }
                         }
                     }

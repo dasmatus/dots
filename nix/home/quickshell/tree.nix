@@ -182,6 +182,19 @@ let
         readonly property int launcherRadius: ${toString palette.beamenu.radius};
         readonly property int launcherPreviewWidth: ${toString palette.beamenu.previewWidth};
 
+        // How much of the pill bar the drill capsule's label may claim before
+        // it elides. A fraction rather than a pixel width because the bar is
+        // itself a fraction of the screen (launcherWidthFactor above), so a
+        // constant would mean something different on every monitor.
+        readonly property real launcherActionPillMaxFactor: ${toString palette.beamenu.actionPillMaxFactor};
+
+        // How many wrapped lines of pills the bar shows before the rest of
+        // them have to be scrolled to. A line count rather than a pixel
+        // height: what the bar must not do is grow until it owns the panel,
+        // and "three rows of pills" is the shape of that rule, not any
+        // particular number of pixels.
+        readonly property int launcherPillRows: ${toString palette.beamenu.pillRows};
+
         // File-manager geometry. Its own block rather than reused launcher
         // metrics: the two disagree on every one of them, and a shared
         // constant that both callers immediately override is the magic
