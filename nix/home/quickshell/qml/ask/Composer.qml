@@ -164,6 +164,7 @@ Rectangle {
 
             visible: root.picked !== null && (root.picked.detail ?? "") !== ""
             text: root.picked ? (root.picked.detail ?? "") : ""
+            textFormat: Text.PlainText
             color: Theme.muted
 
             font.family: Theme.fontUi

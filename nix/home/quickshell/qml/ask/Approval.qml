@@ -51,6 +51,7 @@ Rectangle {
             Layout.fillWidth: true
 
             text: root.request ? `${root.request.displayName ?? root.request.name} wants to run` : ""
+            textFormat: Text.PlainText
             color: Theme.yellow
 
             font.family: Theme.fontUi
@@ -64,6 +65,7 @@ Rectangle {
             Layout.fillWidth: true
 
             text: root.request ? (root.request.description ?? JSON.stringify(root.request.input ?? {})) : ""
+            textFormat: Text.PlainText
             color: Theme.fgDark
 
             font.family: Theme.fontMono

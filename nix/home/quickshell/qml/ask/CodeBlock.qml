@@ -49,6 +49,7 @@ Rectangle {
             Layout.fillWidth: true
 
             text: root.language === "" ? "code" : root.language
+            textFormat: Text.PlainText
             color: Theme.muted
 
             font.family: Theme.fontMono

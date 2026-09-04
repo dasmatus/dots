@@ -336,6 +336,7 @@ Scope {
                             anchors.margins: Theme.askGutter
 
                             text: AskBus.notice !== null ? `${AskBus.notice.kind}: ${AskBus.notice.message}` : "waiting for the dots-ask daemon"
+                            textFormat: Text.PlainText
                             color: Theme.orange
 
                             font.family: Theme.fontUi

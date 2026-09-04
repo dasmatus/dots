@@ -94,6 +94,7 @@ Item {
 
                 Text {
                     text: root.row ? (root.row.displayName ?? root.row.name) : ""
+                    textFormat: Text.PlainText
                     color: Theme.fg
 
                     font.family: Theme.fontUi
@@ -105,6 +106,7 @@ Item {
                     Layout.fillWidth: true
 
                     text: root.row ? (root.row.summary ?? "") : ""
+                    textFormat: Text.PlainText
                     color: Theme.muted
 
                     font.family: Theme.fontMono
@@ -147,6 +149,7 @@ Item {
 
             visible: root.expanded && root.row !== null && root.row.input !== null
             text: root.row && root.row.input !== null ? JSON.stringify(root.row.input, null, 2) : ""
+            textFormat: Text.PlainText
             color: Theme.fgDark
 
             font.family: Theme.fontMono
@@ -171,6 +174,7 @@ Item {
 
             visible: root.expanded && root.row !== null && root.row.result !== null
             text: root.row && root.row.result ? root.row.result.content + (root.row.result.truncated ? "\n[truncated]" : "") : ""
+            textFormat: Text.PlainText
             color: root.tone === "error" ? Theme.red : Theme.fgDark
 
             font.family: Theme.fontMono

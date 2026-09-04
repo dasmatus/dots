@@ -62,6 +62,7 @@ Rectangle {
                 Layout.fillWidth: true
 
                 text: root.path
+                textFormat: Text.PlainText
                 color: Theme.fgDark
 
                 font.family: Theme.fontMono

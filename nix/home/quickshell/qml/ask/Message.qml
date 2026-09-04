@@ -78,6 +78,7 @@ Loader {
                 anchors.margins: Theme.askGutter
 
                 text: root.row.text
+                textFormat: Text.PlainText
                 color: Theme.fg
 
                 font.family: Theme.fontUi
@@ -222,6 +223,7 @@ Loader {
                 anchors.margins: Theme.askGutter
 
                 text: root.row.title ?? "Plan"
+                textFormat: Text.PlainText
                 color: Theme.cyan
 
                 font.family: Theme.fontUi
@@ -288,6 +290,7 @@ Loader {
                 anchors.margins: Theme.askGutter
 
                 text: `${root.row.errorKind}: ${root.row.message}`
+                textFormat: Text.PlainText
                 color: Theme.red
 
                 font.family: Theme.fontUi

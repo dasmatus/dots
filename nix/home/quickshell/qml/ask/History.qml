@@ -99,6 +99,7 @@ ColumnLayout {
                 anchors.rightMargin: 4
 
                 text: entry.modelData.title ?? "Untitled"
+                textFormat: Text.PlainText
                 color: entry.active ? Theme.fg : Theme.fgDark
 
                 font.family: Theme.fontUi
@@ -117,6 +118,7 @@ ColumnLayout {
                 anchors.rightMargin: 8
 
                 text: `${entry.modelData.backend} · ${entry.modelData.turns} turns`
+                textFormat: Text.PlainText
                 color: Theme.muted
 
                 font.family: Theme.fontUi

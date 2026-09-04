@@ -315,4 +315,109 @@ TestCase {
         verify(shell.indexOf('import "ask"') !== -1, "shell.qml must import the ask directory");
         verify(/\bAsk\s*\{\s*\}/.test(shell), "and instantiate the pane alongside the other single-instance surfaces");
     }
+
+    // -- the escaping boundary ---------------------------------------------
+    //
+    // WHERE render.rs's ALLOWLIST STOPS. Phase 2 built a tag allowlist so
+    // that `code_block.html` and `diff.html` are safe to hand to
+    // Text.RichText. Those two fields are the whole of its scope. Every OTHER
+    // model-derived string on this protocol reaches the pane unescaped:
+    // `text_delta.text`, `tool_result.content`, `plan.title`,
+    // `plan.markdown`, `tool_call.name`, `tool_call.summary`,
+    // `tool_call.input`, `permission_request.description`, `diff.path`,
+    // `code_block.language`, `error.message` and a thread title the model
+    // named.
+    //
+    // A `Text` with no `textFormat` is `Text.AutoText`, which calls
+    // Qt::mightBeRichText() and parses anything that looks like markup AS
+    // markup. Qt then resolves `<img src>` through QQuickPixmap for `http:`
+    // and `file:`, and there is no property that turns that off. So a tool
+    // result carrying `<img src="http://…/?leak">` would be a request off
+    // this machine, drawn by a pane that never decided to allow one.
+    //
+    // Every binding below therefore names PlainText explicitly. AutoText is
+    // never the right answer for a string this daemon did not build itself,
+    // and "it happens not to contain a tag today" is not a property of a
+    // string the model chooses.
+    //
+    // ARTIFACTS DO NOT INHERIT THIS, and that is the point of phase 5's
+    // security work rather than a footnote. An artifact is model-written HTML
+    // opened in a real Chromium, where script runs and `fetch` works. Nothing
+    // above helps there. Its containment is the CSP that
+    // rust/ask-daemon/src/artifact/serve.rs puts on every response, and it is
+    // a separate argument with separate tests.
+    function test_every_model_derived_string_is_drawn_as_plain_text() {
+        // file, then the bindings in it that carry model output. A binding is
+        // named by the source substring that identifies it, and the check is
+        // that a `textFormat: Text.PlainText` follows it before the block
+        // ends.
+        const guarded = [
+            ["../../nix/home/quickshell/qml/ask/ToolCall.qml", [
+                "root.row.displayName ?? root.row.name",
+                "root.row.summary ?? \"\"",
+                "JSON.stringify(root.row.input, null, 2)",
+                "root.row.result.content"
+            ]],
+            ["../../nix/home/quickshell/qml/ask/Approval.qml", [
+                "root.request.displayName ?? root.request.name",
+                "root.request.description ??"
+            ]],
+            ["../../nix/home/quickshell/qml/ask/Message.qml", [
+                "text: root.row.title ??",
+                "${root.row.errorKind}: ${root.row.message}"
+            ]],
+            ["../../nix/home/quickshell/qml/ask/History.qml", [
+                "entry.modelData.title ??"
+            ]],
+            ["../../nix/home/quickshell/qml/ask/DiffView.qml", [
+                "text: root.path"
+            ]],
+            ["../../nix/home/quickshell/qml/ask/CodeBlock.qml", [
+                "root.language === \"\" ? \"code\" : root.language"
+            ]],
+            ["../../nix/home/quickshell/qml/ask/Ask.qml", [
+                "${AskBus.notice.kind}: ${AskBus.notice.message}"
+            ]]
+        ];
+
+        for (const [path, bindings] of guarded) {
+            const source = readSource(path);
+            for (const binding of bindings) {
+                const at = source.indexOf(binding);
+                verify(at !== -1, path + " no longer contains " + binding);
+
+                // The next 200 characters cover the rest of the property
+                // block; a textFormat further away than that belongs to a
+                // different element.
+                const after = source.slice(at, at + 200);
+                verify(after.indexOf("textFormat: Text.PlainText") !== -1,
+                       path + ": " + binding + " must be drawn as PlainText, "
+                       + "because Text.AutoText parses model output as markup");
+            }
+        }
+    }
+
+    // The two fields render.rs DOES escape are the two allowed to be rich,
+    // and only while the daemon actually populated them. `html` is null until
+    // a backend renders one, and falling back to the raw source under
+    // RichText would draw exactly the markup the allowlist exists to strip.
+    function test_only_the_two_rendered_fields_reach_rich_text() {
+        const code = readSource("../../nix/home/quickshell/qml/ask/CodeBlock.qml");
+        const diff = readSource("../../nix/home/quickshell/qml/ask/DiffView.qml");
+
+        verify(code.indexOf("textFormat: root.highlighted ? Text.RichText : Text.PlainText") !== -1,
+               "CodeBlock must fall back to PlainText when html is null");
+        verify(diff.indexOf("textFormat: root.rendered ? Text.RichText : Text.PlainText") !== -1,
+               "DiffView must fall back to PlainText when html is null");
+
+        // And nothing else in the pane may reach for RichText at all.
+        const others = ["Message.qml", "ToolCall.qml", "Approval.qml", "History.qml",
+                        "Composer.qml", "Thread.qml", "Ask.qml"];
+        for (const name of others) {
+            const source = readSource("../../nix/home/quickshell/qml/ask/" + name);
+            verify(source.indexOf("Text.RichText") === -1,
+                   name + " must not use RichText: only code_block.html and "
+                   + "diff.html go through render.rs's allowlist");
+        }
+    }
 }
