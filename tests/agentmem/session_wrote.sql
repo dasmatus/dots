@@ -1,5 +1,5 @@
 -- Proves agentmem.session_wrote (0007_session_wrote.sql), the predicate
--- the Stop hook in nix/home/claude.nix asks before nudging:
+-- the Stop hook in nix/home/ai/claude.nix asks before nudging:
 --   1. a session nobody has written for is false;
 --   2. a session that ingested a fact is true;
 --   3. a sibling session in the same scope stays false, so the answer

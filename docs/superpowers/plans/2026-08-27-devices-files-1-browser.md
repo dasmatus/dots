@@ -38,11 +38,11 @@ rows already call.
 ### Task 1: `files.js`, `Pane.qml`, `Files.qml`, one window, one pane
 
 **Files:**
-- Create: `nix/home/quickshell/qml/files/files.js`
+- Create: `nix/home/desktop/quickshell/qml/files/files.js`
 - Create: `tests/qml/tst_files.qml`
-- Create: `nix/home/quickshell/qml/files/Pane.qml`
-- Create: `nix/home/quickshell/qml/files/Files.qml`
-- Modify: `nix/home/quickshell/qml/shell.qml`
+- Create: `nix/home/desktop/quickshell/qml/files/Pane.qml`
+- Create: `nix/home/desktop/quickshell/qml/files/Files.qml`
+- Modify: `nix/home/desktop/quickshell/qml/shell.qml`
 
 **Produces:** `files.js` exporting `parseListing(text)`, `join(dir, name)`,
 `parentOf(path)`. `Pane`'s `path` property and `navigate(string path)`
@@ -59,7 +59,7 @@ opening something the moment this task lands.
 // no compositor.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/files.js" as Files
+import "../../nix/home/desktop/quickshell/qml/files/files.js" as Files
 
 TestCase {
     name: "Files"
@@ -94,7 +94,7 @@ TestCase {
 - [ ] **2** Run QtTest
       Expected: FAIL, "files/files.js: no such file"
 
-- [ ] **3** Write `nix/home/quickshell/qml/files/files.js`:
+- [ ] **3** Write `nix/home/desktop/quickshell/qml/files/files.js`:
 
 ```js
 // Pure directory-listing helpers for Pane.qml. Split out so
@@ -128,7 +128,7 @@ function parentOf(path) {
 - [ ] **4** Run QtTest again
       Expected: PASS, 4/4
 
-- [ ] **5** Write `nix/home/quickshell/qml/files/Pane.qml`:
+- [ ] **5** Write `nix/home/desktop/quickshell/qml/files/Pane.qml`:
 
 ```qml
 // One directory's listing. `ls -1Ap --group-directories-first` runs as
@@ -242,7 +242,7 @@ Item {
 }
 ```
 
-- [ ] **6** Write `nix/home/quickshell/qml/files/Files.qml`:
+- [ ] **6** Write `nix/home/desktop/quickshell/qml/files/Files.qml`:
 
 ```qml
 // The file manager's outer shell: one FloatingWindow around one Pane. The
@@ -341,14 +341,14 @@ Scope {
       `Devices.requestOpen()` call, dormant until now, working for the
       first time
 
-- [ ] **11** `git add nix/home/quickshell/qml/files/files.js nix/home/quickshell/qml/files/Pane.qml nix/home/quickshell/qml/files/Files.qml nix/home/quickshell/qml/shell.qml tests/qml/tst_files.qml`
+- [ ] **11** `git add nix/home/desktop/quickshell/qml/files/files.js nix/home/desktop/quickshell/qml/files/Pane.qml nix/home/desktop/quickshell/qml/files/Files.qml nix/home/desktop/quickshell/qml/shell.qml tests/qml/tst_files.qml`
       `git commit -m "feat: add a single-pane file manager"`
 
 ---
 
 ### Task 2: `openPath`, the proven argument-taking IPC call
 
-**Files:** Modify `nix/home/quickshell/qml/files/Files.qml`.
+**Files:** Modify `nix/home/desktop/quickshell/qml/files/Files.qml`.
 **Produces:** `openPath(path: string)` on the `files` IPC target.
 
 - [ ] **1** Add to the `IpcHandler` block:
@@ -373,7 +373,7 @@ Scope {
 
 - [ ] **4** `rm -rf /tmp/probe-openpath`
 
-- [ ] **5** `git add nix/home/quickshell/qml/files/Files.qml`
+- [ ] **5** `git add nix/home/desktop/quickshell/qml/files/Files.qml`
       `git commit -m "feat: add files openPath to the files IPC target"`
 
 ---
@@ -381,13 +381,13 @@ Scope {
 ### Task 3: Sidebar, devices, Home, and eject
 
 **Files:**
-- Create: `nix/home/quickshell/qml/files/Sidebar.qml`
-- Modify: `nix/home/quickshell/qml/files/Files.qml`
+- Create: `nix/home/desktop/quickshell/qml/files/Sidebar.qml`
+- Modify: `nix/home/desktop/quickshell/qml/files/Files.qml`
 
 **Produces:** a device list down the left of the window, click-to-navigate,
 one eject control per row.
 
-- [ ] **1** Write `nix/home/quickshell/qml/files/Sidebar.qml`:
+- [ ] **1** Write `nix/home/desktop/quickshell/qml/files/Sidebar.qml`:
 
 ```qml
 // Home plus every currently-mounted device. Navigation reuses
@@ -498,7 +498,7 @@ ColumnLayout {
       shell restart, proving `eject()` didn't leave the watcher in a state
       that only recovers on reload
 
-- [ ] **7** `git add nix/home/quickshell/qml/files/Sidebar.qml nix/home/quickshell/qml/files/Files.qml`
+- [ ] **7** `git add nix/home/desktop/quickshell/qml/files/Sidebar.qml nix/home/desktop/quickshell/qml/files/Files.qml`
       `git commit -m "feat: list and eject devices from the file manager sidebar"`
 
 ---
@@ -506,13 +506,13 @@ ColumnLayout {
 ### Task 4: Repair the dead nautilus keybind and cheatsheet entry
 
 **Files:**
-- Modify: `nix/home/hyprland.nix:412-419`
-- Modify: `nix/home/keybinds.nix:26-27`
+- Modify: `nix/home/desktop/hyprland.nix:412-419`
+- Modify: `nix/home/desktop/keybinds.nix:26-27`
 
 **Produces:** SUPER+SHIFT+F opens the shell's own file manager; the
 cheatsheet stops naming software that was never installed.
 
-- [ ] **1** In `nix/home/hyprland.nix`, replace:
+- [ ] **1** In `nix/home/desktop/hyprland.nix`, replace:
 
 ```nix
         # Nautilus directly (GNOME Files, services.gnome.core-apps). The
@@ -539,7 +539,7 @@ cheatsheet stops naming software that was never installed.
         }
 ```
 
-- [ ] **2** In `nix/home/keybinds.nix`, change line 27 from
+- [ ] **2** In `nix/home/desktop/keybinds.nix`, change line 27 from
       `desc = "File manager (Nautilus)";` to `desc = "File manager";`
 
 - [ ] **3** `grep -rn nautilus nix/home/`
@@ -558,14 +558,14 @@ cheatsheet stops naming software that was never installed.
       Expected: the file manager opens; SUPER+/ shows "File manager" with
       no mention of Nautilus
 
-- [ ] **7** `git add nix/home/hyprland.nix nix/home/keybinds.nix`
+- [ ] **7** `git add nix/home/desktop/hyprland.nix nix/home/desktop/keybinds.nix`
       `git commit -m "fix: point SUPER+SHIFT+F at the shell's own file manager"`
 
 ---
 
 ### Task 5: Launcher, spawn row and the directory-hit fix
 
-**Files:** Modify `nix/home/quickshell/qml/launcher/Providers.qml`.
+**Files:** Modify `nix/home/desktop/quickshell/qml/launcher/Providers.qml`.
 **Produces:** an "Open File Manager" launcher row; `fileRows()`'s directory
 branch stops calling `xdg-open`.
 
@@ -611,5 +611,5 @@ branch stops calling `xdg-open`.
       Expected: activating it still runs `xdg-open` on the file, unchanged
       from before this task
 
-- [ ] **7** `git add nix/home/quickshell/qml/launcher/Providers.qml`
+- [ ] **7** `git add nix/home/desktop/quickshell/qml/launcher/Providers.qml`
       `git commit -m "feat: open directory hits and add a file manager launcher row"`

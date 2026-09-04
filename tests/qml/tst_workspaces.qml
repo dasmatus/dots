@@ -6,7 +6,7 @@
 // pushes the clock off the bar.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/bar/workspaces.js" as Workspaces
+import "../../nix/home/desktop/quickshell/qml/bar/workspaces.js" as Workspaces
 
 TestCase {
     name: "Workspaces"

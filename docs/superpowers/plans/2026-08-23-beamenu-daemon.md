@@ -41,7 +41,7 @@ Home Manager systemd user units.
   then `cargo test`.
 - Exactly one new crate dependency: `zbus`. It is pure Rust, so it adds no
   `buildInputs` — the same reasoning already recorded at
-  `nix/home/computer-use-linux-pkg.nix:6-7`. beamenu is packaged with
+  `nix/home/ai/computer-use-linux-pkg.nix:6-7`. beamenu is packaged with
   `cargoLock.lockFile` (`flake/packages.nix:118`), so a regenerated
   `rust/beamenu/Cargo.lock` is the whole packaging change; there is no
   `cargoHash` to update. Do not add tokio: use zbus's blocking API.

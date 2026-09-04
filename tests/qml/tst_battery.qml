@@ -10,7 +10,7 @@
 // /org/freedesktop/UPower/devices/DisplayDevice, not invented ones.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/bar/battery.js" as Battery
+import "../../nix/home/desktop/quickshell/qml/bar/battery.js" as Battery
 
 TestCase {
     name: "Battery"

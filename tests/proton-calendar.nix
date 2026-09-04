@@ -2,14 +2,14 @@
 # Eval-only, in the style of tests/session-units.nix: no VM, no activation,
 # just a standalone `home-manager.lib.homeManagerConfiguration` read back
 # through `.config` and checked with asserts. Same reason as that file for not
-# using `nixosConfigurations.tokyonight`: nix/settings.nix and nix/facter.json
+# using `nixosConfigurations.tokyonight`: nix/data/settings.nix and nix/data/facter.json
 # are symlinks into /var/lib/dots and facter.json is mode 0600 root-owned, so
-# anything routed through nix/hosts.nix dies on permissions whatever
+# anything routed through nix/system/hosts.nix dies on permissions whatever
 # `--impure` is passed.
 #
-# What this exists to catch is the profile path. nix/home/proton.nix runs
+# What this exists to catch is the profile path. nix/home/proton/proton.nix runs
 # Betterbird rather than Thunderbird (for its tray icon), and the calendar in
-# nix/home/proton-calendar.nix is delivered as prefs written into the mail
+# nix/home/proton/proton-calendar.nix is delivered as prefs written into the mail
 # client's profile. Those two facts are only compatible because
 # home-manager's thunderbird module hardcodes
 # `thunderbirdConfigPath = if isDarwin then "Library/Thunderbird" else ".thunderbird"`,
@@ -26,7 +26,7 @@
 let
   hm = inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
-    # nix/home/proton.nix reads exactly these two, for the mail account's
+    # nix/home/proton/proton.nix reads exactly these two, for the mail account's
     # address and display name. Fake values: what matters here is that the
     # module takes them from `dots` at all rather than from a literal.
     extraSpecialArgs = {
@@ -34,12 +34,12 @@ let
         gitEmail = "ada@example.com";
         gitName = "Ada Lovelace";
       };
-      # nix/home/proton.nix takes the mail client as a module argument rather
+      # nix/home/proton/proton.nix takes the mail client as a module argument rather
       # than off pkgs, because nixpkgs has no betterbird and this repo keeps
       # its own packages out of an overlay (flake/nixos.nix threads them
       # through specialArgs instead). Built here the same way flake/packages.nix
       # builds it, so this test exercises the real derivation.
-      betterbird = pkgs.callPackage ../nix/betterbird.nix { };
+      betterbird = pkgs.callPackage ../nix/packages/betterbird.nix { };
     };
     modules = [
       {
@@ -52,8 +52,8 @@ let
         # has nothing to do with calendars.
         nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "proton-vpn" ];
       }
-      ../nix/home/proton.nix
-      ../nix/home/proton-calendar.nix
+      ../nix/home/proton/proton.nix
+      ../nix/home/proton/proton-calendar.nix
     ];
   };
   cfg = hm.config;
@@ -100,11 +100,11 @@ assert lib.assertMsg profileAtExpectedPath ''
   Generated user.js path(s): ${if profileFiles == [ ] then "(none)" else profileFilesMsg}.
   home-manager's thunderbird module used to hardcode ".thunderbird" regardless
   of `package`; if it now derives the directory from the package, Betterbird's
-  profile has moved and nix/home/proton-calendar.nix writes its calendar prefs
+  profile has moved and nix/home/proton/proton-calendar.nix writes its calendar prefs
   somewhere the client never reads.'';
 assert lib.assertMsg hasCalendarUri ''
   tests/proton-calendar.nix: the generated user.js has no calendar registered
-  at file://${icsPath}, which is the path nix/home/proton-calendar.nix's
+  at file://${icsPath}, which is the path nix/home/proton/proton-calendar.nix's
   exporter writes. A registry entry and an exporter that disagree about the
   filename leave an empty calendar and no error anywhere.'';
 assert lib.assertMsg hasReadOnly ''
@@ -121,7 +121,7 @@ assert lib.assertMsg (hasExporterService && hasExporterTimer) ''
 assert lib.assertMsg addressFromDots ''
   tests/proton-calendar.nix: accounts.email.accounts.proton does not take its
   address and realName from `dots`. This repo is public, and an address
-  written into nix/home/proton.nix as a literal is in the clone history for
+  written into nix/home/proton/proton.nix as a literal is in the clone history for
   good.'';
 pkgs.writeText "proton-calendar-ok" ''
   profile-path-unmoved

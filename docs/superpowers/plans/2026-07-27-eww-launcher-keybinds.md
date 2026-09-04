@@ -23,8 +23,8 @@
 - **Create** `nix/home/eww/scripts/list-apps.sh` — enumerate `.desktop` entries, filter by query, emit JSON for eww.
 - **Create** `nix/home/eww/scripts/launcher.sh` — toggle, search, select, launch, reset.
 - **Create** `nix/home/eww/scripts/keybinds.sh` — first-boot sentinel + on-demand toggle.
-- **Modify** `nix/home/keybinds.nix` — stop generating the rofi dmenu script; generate `~/.config/eww/keybinds.yuck` with the keybind list as a JSON `defvar`, and update comments.
-- **Modify** `nix/home/hyprland.nix` — change `SUPER + D` to open the eww launcher; change the first-login exec and `SUPER + /` exec to the new eww keybinds script; bind `Escape` to close any open eww window.
+- **Modify** `nix/home/desktop/keybinds.nix` — stop generating the rofi dmenu script; generate `~/.config/eww/keybinds.yuck` with the keybind list as a JSON `defvar`, and update comments.
+- **Modify** `nix/home/desktop/hyprland.nix` — change `SUPER + D` to open the eww launcher; change the first-login exec and `SUPER + /` exec to the new eww keybinds script; bind `Escape` to close any open eww window.
 - **Modify** `nix/home/default.nix` — import `nix/home/eww`.
 - **Modify** `nix/home/rofi/default.nix` — update comments to clarify rofi is now used only for files/power-menu.
 - **Modify** `nix/home/rofi/tokyonight.rasi` — update header comment to drop the "drun" claim.
@@ -63,8 +63,8 @@
 - [ ] **Task 3:** Create `nix/home/eww/scripts/list-apps.sh` for dynamic app enumeration.
 - [ ] **Task 4:** Create `nix/home/eww/scripts/launcher.sh` with toggle/search/launch/reset.
 - [ ] **Task 5:** Create `nix/home/eww/scripts/keybinds.sh` with sentinel and toggle logic.
-- [ ] **Task 6:** Rewrite `nix/home/keybinds.nix` to emit `~/.config/eww/keybinds.yuck` instead of the rofi script.
-- [ ] **Task 7:** Update `nix/home/hyprland.nix` binds and first-login exec for eww.
+- [ ] **Task 6:** Rewrite `nix/home/desktop/keybinds.nix` to emit `~/.config/eww/keybinds.yuck` instead of the rofi script.
+- [ ] **Task 7:** Update `nix/home/desktop/hyprland.nix` binds and first-login exec for eww.
 - [ ] **Task 8:** Add `nix/home/eww` import in `nix/home/default.nix`.
 - [ ] **Task 9:** Update rofi comments to reflect its narrowed role.
 - [ ] **Task 10:** Run `nix run .#nix-lint` (flake eval + fmt/clippy/test) to validate.

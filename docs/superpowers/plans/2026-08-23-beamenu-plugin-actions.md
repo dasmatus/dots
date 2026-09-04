@@ -29,7 +29,7 @@ module that owns each tool.
   `export BMV=$(nix build /home/matus/Dokumente/codeberg/personal/dots#beamenu-view --no-link --print-out-paths --impure)`
   then prefix cargo commands with
   `PKG_CONFIG_PATH="$BMV/lib/pkgconfig" LD_LIBRARY_PATH="$BMV/lib"`.
-- All nix eval/build commands need `--impure` (nix/settings.nix is an absolute
+- All nix eval/build commands need `--impure` (nix/data/settings.nix is an absolute
   symlink) and new files must be `git add`ed first (flake filesets copy
   tracked files only).
 - Never touch `rust/wallpaper-tui/tests/tint.rs` (unrelated uncommitted user
@@ -666,7 +666,7 @@ git commit -m "feat(nix): hyprmon monitors plugin for beamenu"
 ### Task 7: dots vault-keys command (bitwarden)
 
 **Files:**
-- Modify: `nix/home/bitwarden.nix` (in the same config block that puts
+- Modify: `nix/home/apps/bitwarden.nix` (in the same config block that puts
   `dots-keys` into `home.packages`, `bitwarden.nix:119`)
 
 **Interfaces:**
@@ -694,7 +694,7 @@ present.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add nix/home/bitwarden.nix
+git add nix/home/apps/bitwarden.nix
 git commit -m "feat(nix): vault-keys bootstrap reachable from beamenu"
 ```
 
@@ -703,7 +703,7 @@ git commit -m "feat(nix): vault-keys bootstrap reachable from beamenu"
 ### Task 8: net plugin commands (proton + waybar modules)
 
 **Files:**
-- Modify: `nix/home/proton.nix` (VPN + bridge commands, beside its
+- Modify: `nix/home/proton/proton.nix` (VPN + bridge commands, beside its
   `protonvpn-app.service` config)
 - Modify: `nix/home/waybar.nix` (NetworkManager commands, beside the pill
   scripts they mirror)
@@ -787,7 +787,7 @@ commands after merge.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add nix/home/proton.nix nix/home/waybar.nix
+git add nix/home/proton/proton.nix nix/home/waybar.nix
 git commit -m "feat(nix): network and proton commands for beamenu"
 ```
 
@@ -796,7 +796,7 @@ git commit -m "feat(nix): network and proton commands for beamenu"
 ### Task 9: sweep — full gates and cheatsheet wording
 
 **Files:**
-- Possibly modify: `nix/home/keybinds.nix:22` (only if wording needs it)
+- Possibly modify: `nix/home/desktop/keybinds.nix:22` (only if wording needs it)
 
 - [ ] **Step 1:** Run the full per-crate gate for all three beamenu crates
 (fmt --check, clippy `-D warnings`, test; `BMV` prefix for `rust/beamenu`) and
@@ -806,11 +806,11 @@ the eval-check from Task 4. All green.
 `nix build .#abstracttui`, record that as the known pre-existing failure and
 rely on Step 1.
 
-- [ ] **Step 3:** Read `nix/home/keybinds.nix:22`. The entry already reads
+- [ ] **Step 3:** Read `nix/home/desktop/keybinds.nix:22`. The entry already reads
 "Launcher (beamenu) — apps, settings, system, plugins"; it still covers the
 new plugins, so change nothing unless a mismatch is found. If changed, commit:
 
 ```bash
-git add nix/home/keybinds.nix
+git add nix/home/desktop/keybinds.nix
 git commit -m "docs(nix): refresh launcher cheatsheet entry"
 ```

@@ -15,11 +15,11 @@ let
     inherit system;
     overlays = [ inputs.bun2nix.overlays.default ];
   };
-  aipagePackages = pkgsBun.callPackage ../nix/aipage.nix {
+  aipagePackages = pkgsBun.callPackage ../nix/packages/aipage.nix {
     rustPlatform = pkgsBun.rustPlatform;
   };
   # nixpkgs that permits exactly one unfree package, for the Claude desktop
-  # app. nix/modules/core.nix's allowUnfreePredicate governs the NixOS `pkgs`
+  # app. nix/modules/system/core.nix's allowUnfreePredicate governs the NixOS `pkgs`
   # only; `packages.${system}` is built from the plain legacyPackages above,
   # which has no config, so `nix build .#claude-desktop` would be refused
   # without this. Kept separate from `pkgs` for the same reason pkgsBun is:
@@ -32,8 +32,8 @@ let
   # boot knobs, network backend); the installer TUI rewrites only the four
   # install answers (username/hostname/disk/swapSize) into settings.nix on the
   # target, so it is merged *under* settings.nix to survive an install.
-  # See nix/defaults.nix.
-  settings = (import ../nix/defaults.nix) // (import ../nix/settings.nix);
+  # See nix/system/defaults.nix.
+  settings = (import ../nix/system/defaults.nix) // (import ../nix/data/settings.nix);
 
   mkIso =
     embedSystem:
@@ -44,8 +44,8 @@ let
         dotsSelf = inputs.self;
       };
       modules = [
-        ../nix/iso.nix
-        ../nix/modules/network.nix
+        ../nix/system/iso.nix
+        ../nix/modules/system/network.nix
         {
           # System closures alone don't make nixos-install offline-capable:
           # evaluating the flake also needs the locked input sources.

@@ -5,7 +5,7 @@
 // can be checked by hand instead of racing Date.now().
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/launcher/rank.js" as Rank
+import "../../nix/home/desktop/quickshell/qml/launcher/rank.js" as Rank
 
 TestCase {
     name: "Rank"

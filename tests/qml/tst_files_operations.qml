@@ -12,7 +12,7 @@
 // before this file.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/operations.js" as Operations
+import "../../nix/home/desktop/quickshell/qml/files/operations.js" as Operations
 
 TestCase {
     name: "FilesOperations"

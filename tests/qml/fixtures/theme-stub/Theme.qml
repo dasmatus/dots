@@ -1,4 +1,4 @@
-// Stands in for the generated nix/home/quickshell/qml/Theme.qml (a
+// Stands in for the generated nix/home/desktop/quickshell/qml/Theme.qml (a
 // Quickshell Singleton pulling in the native plugin, which qmltestrunner
 // cannot load — see tests/README.md) so tests can instantiate the real,
 // unmodified common/ components directly: Chrome.qml and Panel.qml for
@@ -51,7 +51,7 @@ QtObject {
     readonly property int chromeStripWidth: 3
 
     // The raised-surface token task 5's contrast fix-round added to
-    // nix/palette.json: a fill for a band that needs to read as lifted off
+    // nix/data/palette.json: a fill for a band that needs to read as lifted off
     // its darker neighbour by roughly the same margin the deleted
     // Theme.border lines once gave for free.
     readonly property color raised: "#3d4463"

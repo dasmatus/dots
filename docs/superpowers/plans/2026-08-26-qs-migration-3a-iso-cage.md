@@ -27,8 +27,8 @@ Mesa/llvmpipe, OVMF, swtpm.
 ---
 
 ### Task 1: Put cage on the ISO
-**Files:** modify `nix/iso.nix:63-100` (the `dots-installer` unit),
-`nix/iso.nix:32-46` (`environment.systemPackages`).
+**Files:** modify `nix/system/iso.nix:63-100` (the `dots-installer` unit),
+`nix/system/iso.nix:32-46` (`environment.systemPackages`).
 
 - [ ] **1** Add `pkgs.cage`, `pkgs.quickshell` and `pkgs.mesa` to the ISO's
       package list

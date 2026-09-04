@@ -54,7 +54,7 @@ at `bin/dots-memory-mcp`; `SessionStart`/`Stop` hooks naming
 - [ ] **3** `git commit -m "docs: add the memory skill"`
 
 ### Task 3: Wire the hook handler and the plugin derivation
-**Files:** modify `nix/home/claude.nix` (new `let`-bindings before
+**Files:** modify `nix/home/ai/claude.nix` (new `let`-bindings before
 `programs.claude-code`; `plugins.dots-memory =` inside it).
 **Produces:** `dotsMemoryHook`, a `writeShellApplication`
 (`runtimeInputs = [ pkgs.postgresql_18 ]`) dispatching `$1`:
@@ -67,9 +67,9 @@ any `psql` failure exits 0 with empty stdout. `dotsMemoryPlugin`, a
 binary and the hook into `$out/bin`, asserting `$out/.claude-plugin`
 and `$out/.mcp.json` survived the copy; `plugins.dots-memory`.
 
-- [ ] **1** Add `dotsMemoryHook` to `nix/home/claude.nix`
+- [ ] **1** Add `dotsMemoryHook` to `nix/home/ai/claude.nix`
 - [ ] **2** Add `dotsMemoryPlugin` and `plugins.dots-memory =` to
-      `nix/home/claude.nix`, with the survival assertions
+      `nix/home/ai/claude.nix`, with the survival assertions
 - [ ] **3** `nix run .#nix-lint`
       Expected: green, no skill/plugin name-collision assertion
 - [ ] **4** `home-manager switch`; fresh session, `/plugin details

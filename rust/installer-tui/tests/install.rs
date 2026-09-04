@@ -117,7 +117,7 @@ fn plan_stages_flake_before_detecting_hardware_before_install() {
     let Action::Command { args, .. } = &steps[facter].action else {
         unreachable!()
     };
-    assert_eq!(args.join(" "), format!("-o {STAGED_FLAKE}/nix/facter.json"));
+    assert_eq!(args.join(" "), format!("-o {STAGED_FLAKE}/nix/data/facter.json"));
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn plan_writes_settings_nix_into_staged_flake() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let found = steps.iter().any(|s| match &s.action {
         Action::WriteFile { path, contents, .. } => {
-            path == &format!("{STAGED_FLAKE}/nix/settings.nix") && contents.contains("myhost")
+            path == &format!("{STAGED_FLAKE}/nix/data/settings.nix") && contents.contains("myhost")
         }
         _ => false,
     });
@@ -178,7 +178,7 @@ fn plan_writes_ai_toggles_into_settings_nix() {
     let steps = plan(&cfg, "/etc/dots", "/mnt");
     let found = steps.iter().any(|s| match &s.action {
         Action::WriteFile { path, contents, .. } => {
-            path == &format!("{STAGED_FLAKE}/nix/settings.nix")
+            path == &format!("{STAGED_FLAKE}/nix/data/settings.nix")
                 && contents.contains("aiClaude = true;")
                 && contents.contains("aiCodex = false;")
                 && contents.contains("aiOllama = true;")
@@ -210,16 +210,16 @@ fn plan_stashes_exactly_settings_and_facter_to_var_lib_dots() {
     // Copies may be issued as a single cp of both files or as two separate
     // cps; either way both answers must end up under the persist path.
     assert!(
-        script.contains(&format!("cp {STAGED_FLAKE}/nix/facter.json"))
+        script.contains(&format!("cp {STAGED_FLAKE}/nix/data/facter.json"))
             || script.contains(&format!(
-                "cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json"
+                "cp {STAGED_FLAKE}/nix/data/settings.nix {STAGED_FLAKE}/nix/data/facter.json"
             )),
         "{script}"
     );
     assert!(
-        script.contains(&format!("cp {STAGED_FLAKE}/nix/settings.nix"))
+        script.contains(&format!("cp {STAGED_FLAKE}/nix/data/settings.nix"))
             || script.contains(&format!(
-                "cp {STAGED_FLAKE}/nix/settings.nix {STAGED_FLAKE}/nix/facter.json"
+                "cp {STAGED_FLAKE}/nix/data/settings.nix {STAGED_FLAKE}/nix/data/facter.json"
             )),
         "{script}"
     );
@@ -374,7 +374,7 @@ fn plan_writes_secrets_before_install_and_never_stashes_them() {
     );
 
     // The load-bearing git-leak guard: secrets.nix must never reach
-    // /var/lib/dots, or dots-clone (nix/home/dots-repo.nix) would restore it
+    // /var/lib/dots, or dots-clone (nix/home/base/dots-repo.nix) would restore it
     // into the user's git clone and a yescrypt hash would be committable.
     // No command in the plan may reference secrets.nix at all — the stash cp
     // lists only settings.nix + facter.json, and WriteSecrets writes into the

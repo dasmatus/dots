@@ -16,7 +16,7 @@ key kept as fallbacks.
 
 ## Background (verified on the live system)
 
-- Running OS: NixOS 26.11, booted from the exact `nix/disko.nix` layout —
+- Running OS: NixOS 26.11, booted from the exact `nix/system/disko.nix` layout —
   `cryptroot` LUKS2 on `/dev/nvme0n1p3` (by-partlabel `disk-main-root`), btrfs
   subvols `@root`/`@home`/`@snapshots`/`@builds`, ESP `/boot`, random-key swap.
 - Secure Boot is **ON** (efivar `SecureBoot-…` == 1). PCR 7 is therefore
@@ -27,7 +27,7 @@ key kept as fallbacks.
 - TPM2 present: `/dev/tpm0`, `/dev/tpmrm0`, `tpm_version_major = 2`;
   `tpm2-tools` and `systemd-cryptenroll` are in the system profile
   (`/run/current-system/sw/bin/`); `security.tpm2.enable = true` is set in
-  `nix/modules/boot.nix`.
+  `nix/modules/system/boot.nix`.
 - The running initrd's `/etc/crypttab` already contains:
   ```
   cryptroot /dev/disk/by-partlabel/disk-main-root - tpm2-device=auto,discard

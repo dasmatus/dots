@@ -31,7 +31,7 @@ const RESERVED_WORDS: &[&str] = &[
 /// Slugify `input` into `[A-Za-z0-9_]+`: never empty, never leading with
 /// a digit, never a bare reserved word. `/` and `.` fold in with every
 /// other non-identifier character, so a repo-relative path such as
-/// `nix/modules/searxng.nix` becomes one flat id.
+/// `nix/modules/services/searxng.nix` becomes one flat id.
 #[must_use]
 pub fn slug(input: &str) -> String {
     let mut out: String = input

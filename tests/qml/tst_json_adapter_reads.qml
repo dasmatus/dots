@@ -69,7 +69,7 @@ TestCase {
     }
 
     function test_providers_never_reads_the_nonexistent_adapter_root() {
-        const providers = readSource("../../nix/home/quickshell/qml/launcher/Providers.qml");
+        const providers = readSource("../../nix/home/desktop/quickshell/qml/launcher/Providers.qml");
         verify(providers.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading a bare root off it is silently always undefined");
     }
 
@@ -89,7 +89,7 @@ TestCase {
     // and whatever a later file needs are all correct, and only the presence
     // of a declaration is the contract.
     function test_providers_declares_a_property_on_every_adapter() {
-        const providers = readSource("../../nix/home/quickshell/qml/launcher/Providers.qml");
+        const providers = readSource("../../nix/home/desktop/quickshell/qml/launcher/Providers.qml");
         const blocks = jsonAdapterBlocks(providers);
         const expected = providers.split("adapter: JsonAdapter").length - 1;
 
@@ -101,12 +101,12 @@ TestCase {
     }
 
     function test_cheatsheet_never_reads_the_nonexistent_adapter_root() {
-        const cheatsheet = readSource("../../nix/home/quickshell/qml/cheatsheet/Cheatsheet.qml");
+        const cheatsheet = readSource("../../nix/home/desktop/quickshell/qml/cheatsheet/Cheatsheet.qml");
         verify(cheatsheet.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading a bare root off it is silently always undefined");
     }
 
     function test_cheatsheet_declares_a_property_for_the_adapter_to_populate() {
-        const cheatsheet = readSource("../../nix/home/quickshell/qml/cheatsheet/Cheatsheet.qml");
+        const cheatsheet = readSource("../../nix/home/desktop/quickshell/qml/cheatsheet/Cheatsheet.qml");
         const blocks = jsonAdapterBlocks(cheatsheet);
 
         compare(blocks.length, 1, "keybindsFile must declare exactly one JsonAdapter { ... }");
@@ -120,12 +120,12 @@ TestCase {
     // around it, so it lands in the generated Theme.qml unchanged — verified
     // separately by building .#quickshell-config and reading that file back.
     function test_tree_nix_never_reads_the_nonexistent_adapter_root() {
-        const tree = readSource("../../nix/home/quickshell/tree.nix");
+        const tree = readSource("../../nix/home/desktop/quickshell/tree.nix");
         verify(tree.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading a bare root off it is silently always undefined");
     }
 
     function test_tree_nix_declares_a_property_for_the_adapter_to_populate() {
-        const tree = readSource("../../nix/home/quickshell/tree.nix");
+        const tree = readSource("../../nix/home/desktop/quickshell/tree.nix");
         const blocks = jsonAdapterBlocks(tree);
 
         compare(blocks.length, 1, "tintState must declare exactly one JsonAdapter { ... }");

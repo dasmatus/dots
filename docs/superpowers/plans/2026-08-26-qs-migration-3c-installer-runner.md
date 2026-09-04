@@ -68,7 +68,7 @@ Task 1. **Produces** `run(actions)` emitting the `Event` shape.
 - [ ] **5** `git commit -m "install a machine from the shell"`
 
 ### Task 4: Delete the crate
-**Files:** delete `rust/installer-tui/`; modify `nix/iso.nix:32-46`,
+**Files:** delete `rust/installer-tui/`; modify `nix/system/iso.nix:32-46`,
 `flake/packages.nix`, `flake/apps.nix:118`, `flake/devshell.nix`.
 
 - [ ] **1** `git rm -r rust/installer-tui`, drop the `dots-installer`

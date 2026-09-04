@@ -14,7 +14,7 @@
 - reflex-vty pinned to **1.2.0.0** via `fetchFromGitHub` + `callCabal2nix` override (deps satisfied: reflex 0.9.4.0, vty 6.4). Fallback to nixpkgs 0.6.2.1 only if the override is unbuildnable — then degrade `Canvas`→direct vty `Image`, `Test.Snapshot`→custom vty-span reader.
 - Salvaged modules are copied from `stash@{0}` (`git show stash@{0}:haskell/abstracttui/src/<path>` to read; recreate under `haskell/abstracttui/src/`). They are pure (no IO, no terminal, no Reflex) — keep them that way.
 - Tests in `tests/` dirs, never inline (CLAUDE.md). No `Co-Authored-By`/`Assisted-By` tags in commits (CLAUDE.md). No self-promotion / session-link doxxing in GitLab or commits.
-- `cargo fmt`/`clippy` do not apply (Haskell). Use `fourmolu` (re-enabled in `nix/home/nixvim.nix`) for formatting; `cabal test` for tests.
+- `cargo fmt`/`clippy` do not apply (Haskell). Use `fourmolu` (re-enabled in `nix/home/apps/nixvim.nix`) for formatting; `cabal test` for tests.
 - The Rust apps stay in place during this plan (cutover is Plan 6). Do not delete them.
 - This plan produces working, testable software on its own: `nix build .#abstracttui` succeeds and `cabal test` (4 smoke tests) passes.
 
@@ -648,7 +648,7 @@ Port `testPaintText`, `testCaptureRoundTrip`, `testFullRedrawContract`, `testSho
 
 **Files:**
 - Modify: `flake/apps.nix` (add `nix run .#abstracttui-test`? or fold `cabal test` into `nix-lint`) — at minimum, make `nix build .#abstracttui` and the devShell part of the standard surface
-- Modify: `nix/home/pkgs.nix` or wherever devShell tools are listed (hls/fourmolu already in nixvim; add `cabal-install` to the haskell devShell if not present)
+- Modify: `nix/home/base/pkgs.nix` or wherever devShell tools are listed (hls/fourmolu already in nixvim; add `cabal-install` to the haskell devShell if not present)
 
 **Interfaces:**
 - Produces: `nix run .#nix-lint` now also runs `cabal test` for `abstracttui`; `nix develop .#haskell` works.

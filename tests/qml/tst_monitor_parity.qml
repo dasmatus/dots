@@ -21,7 +21,7 @@
 // below throws "Invalid state" instead of returning file contents.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/monitors/plan.js" as Plan
+import "../../nix/home/desktop/quickshell/qml/monitors/plan.js" as Plan
 
 TestCase {
     name: "MonitorParity"

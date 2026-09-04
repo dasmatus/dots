@@ -4,7 +4,7 @@
 // — no PanelWindow, MouseArea or live query anywhere near this test.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/launcher/pills.js" as Pills
+import "../../nix/home/desktop/quickshell/qml/launcher/pills.js" as Pills
 
 TestCase {
     name: "Pills"

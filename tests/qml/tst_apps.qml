@@ -7,7 +7,7 @@
 // than the filename.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/launcher/apps.js" as AppsLogic
+import "../../nix/home/desktop/quickshell/qml/launcher/apps.js" as AppsLogic
 
 TestCase {
     name: "Apps"

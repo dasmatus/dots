@@ -1,1 +1,1 @@
-../../../../../nix/home/quickshell/qml/common/EdgeStrip.qml
+../../../../../nix/home/desktop/quickshell/qml/common/EdgeStrip.qml

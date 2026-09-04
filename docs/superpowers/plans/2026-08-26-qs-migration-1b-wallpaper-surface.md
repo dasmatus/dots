@@ -40,7 +40,7 @@ crate can be deleted safely, so do not start before it is green.
 
 ### Task 2: The picker and the awww calls
 **Files:** create `qml/wallpaper/Picker.qml`; modify `qml/shell.qml`,
-`nix/home/quickshell/tree.nix`, `nix/home/keybinds.nix`.
+`nix/home/desktop/quickshell/tree.nix`, `nix/home/desktop/keybinds.nix`.
 **Produces** a thumbnail grid and `apply(path, output, mode)`.
 
 - [ ] **1** Build the grid over `Wallpapers/`, capped at 320x200

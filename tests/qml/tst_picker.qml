@@ -4,7 +4,7 @@
 // the same constraint on the tint targets).
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/wallpaper/picker.js" as PickerLogic
+import "../../nix/home/desktop/quickshell/qml/wallpaper/picker.js" as PickerLogic
 
 TestCase {
     name: "Picker"
@@ -302,12 +302,12 @@ TestCase {
     }
 
     function test_picker_never_reads_the_nonexistent_adapter_root() {
-        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const picker = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Picker.qml");
         verify(picker.indexOf(".adapter.root") === -1, "JsonAdapter has no `root` property on this Quickshell build — reading .adapter.root is silently always undefined");
     }
 
     function test_picker_declares_a_property_for_the_adapter_to_populate() {
-        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const picker = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Picker.qml");
         verify(picker.indexOf("property var outputs") !== -1, "JsonAdapter only populates a property declared on the adapter instance itself — a bare JsonAdapter {} has nothing for the parsed JSON to land on");
     }
 
@@ -315,7 +315,7 @@ TestCase {
     // mention anywhere ELSE in the file (this comment included, if it
     // said the word directly) cannot satisfy this test.
     function recordOutputStateBody() {
-        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const picker = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Picker.qml");
         const start = picker.indexOf("function recordOutputState(");
         verify(start !== -1, "Picker.qml must define recordOutputState(entry)");
         const end = picker.indexOf("\n    }", start);
@@ -344,14 +344,14 @@ TestCase {
     // fresh install, so the deadlock returns even with the gate itself
     // fixed.
     function test_picker_flushes_on_both_loaded_and_loadFailed() {
-        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const picker = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Picker.qml");
         verify(picker.indexOf("onLoadFailed:") !== -1, "a missing outputs.json resolves through loadFailed, never loaded — the flush must be wired to both");
     }
 
     // Slices out flushPendingOutputRecords()'s own body, the same way
     // recordOutputStateBody() does above.
     function flushPendingOutputRecordsBody() {
-        const picker = readSource("../../nix/home/quickshell/qml/wallpaper/Picker.qml");
+        const picker = readSource("../../nix/home/desktop/quickshell/qml/wallpaper/Picker.qml");
         const start = picker.indexOf("function flushPendingOutputRecords(");
         verify(start !== -1, "Picker.qml must define flushPendingOutputRecords()");
         const end = picker.indexOf("\n    }", start);

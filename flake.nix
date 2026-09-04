@@ -14,7 +14,7 @@
     };
 
     # Ephemeral-root persistence (tmpfs `/` + bind-mounts from a persistent
-    # /persist subvol). Wired in nix/modules/impermanence.nix so /var/lib/nixos
+    # /persist subvol). Wired in nix/modules/system/impermanence.nix so /var/lib/nixos
     # (userborn creds) and Wi-Fi profiles survive the root being wiped each
     # boot.
     impermanence = {
@@ -32,13 +32,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # rycee's pre-packaged Firefox addons (Nix-pinned XPIs for the LibreWolf
-    # profile in nix/home/librewolf.nix) — the subflake, not the whole NUR.
+    # profile in nix/home/apps/librewolf.nix) — the subflake, not the whole NUR.
     firefox-addons = {
       url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # bun2nix vendors aipage's bun.lock JS deps (postcss/tailwind/autoprefixer)
-    # for the in-flake aipage build (nix/aipage.nix). Overlay applied to a
+    # for the in-flake aipage build (nix/packages/aipage.nix). Overlay applied to a
     # dedicated pkgs instance (pkgsBun) so the system closure's pkgs stays
     # overlay-free.
     bun2nix = {
@@ -47,7 +47,7 @@
     };
     # Millennium (SteamClientHomebrew/Millennium) is a theme/plugin loader for
     # the Steam desktop client. Only the `millennium` library package is
-    # consumed: nix/modules/steam.nix calls upstream's `packages/nix/steam.nix`
+    # consumed: nix/modules/desktop/steam.nix calls upstream's `packages/nix/steam.nix`
     # against THIS repo's `pkgs.steam`, so the client and the whole FHS
     # closure stay on this repo's nixpkgs, and upstream's `overlays.default` /
     # `millennium-steam` package go unused. Same no-global-overlays reasoning
@@ -63,11 +63,11 @@
     # The cost: a second nixpkgs evaluation while Steam is on, and no binary
     # cache for the millennium library, so it compiles locally whenever
     # upstream cuts a release. The input tracks `main`; the nightly
-    # `nix flake update` in nix/modules/maintenance.nix picks the bump up, and
+    # `nix flake update` in nix/modules/services/maintenance.nix picks the bump up, and
     # `operation = "boot"` absorbs the compile before the next reboot.
     millennium.url = "github:SteamClientHomebrew/Millennium?dir=packages/nix";
     # Hyprland is NOT a flake input: the system compositor comes from nixpkgs
-    # (programs.hyprland in nix/modules/desktop.nix uses the module's default
+    # (programs.hyprland in nix/modules/desktop/desktop.nix uses the module's default
     # `package = pkgs.hyprland`). nixpkgs' Hyprland is built by Hydra and lives
     # on cache.nixos.org (indefinite retention), so the prebuilt is always
     # substituted. A pinned Hyprland flake input was tried instead (for
@@ -77,11 +77,11 @@
     # after release; v0.55.0's prebuilt was gone), and `inputs.nixpkgs.follows`
     # on that input additionally defeated the cache by changing input hashes.
     # Net: the flake-input route built the compositor from source on every
-    # rebuild. See nix/modules/desktop.nix for the full rationale.
+    # rebuild. See nix/modules/desktop/desktop.nix for the full rationale.
     # AIPage (codeberg.org/dasmatus/aipage) is NOT a flake input: its built
     # dist-* dirs are gitignored in the sibling repo and its flake only
     # exposes an impure `apps.build`, so no flake input can reach a built
-    # artifact. Instead nix/aipage.nix fetchgit-pins `main` at a hash-
+    # artifact. Instead nix/packages/aipage.nix fetchgit-pins `main` at a hash-
     # determined fixed-output derivation and builds the dists inside this
     # flake; nix/home/{brave,librewolf}.nix consume the resulting
     # packages.aipage-{chrome,firefox} (threaded via specialArgs). A

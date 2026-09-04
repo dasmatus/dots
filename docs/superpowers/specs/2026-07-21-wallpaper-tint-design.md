@@ -129,7 +129,7 @@ random path stays fast.
   `gtk.gtk3.extraCss = ''@import url("file://${config.xdg.stateHome}/wallpaper-tui/tint/gtk3.css");''`
   and the analogous `gtk.gtk4.extraCss`. (HM appends `extraCss` after the theme
   `@import`, so the override wins.)
-- **`nix/home/hyprland.nix`**: three rofi binds change from `-theme tokyonight`
+- **`nix/home/desktop/hyprland.nix`**: three rofi binds change from `-theme tokyonight`
   to `-theme ${xdg.stateHome}/wallpaper-tui/tint/rofi.rasi`; add
   `exec-once` `wallpaper-tui --restore` if not already present.
 - **`nix/home/random_wp.nix`**: replace the swaybg tail with

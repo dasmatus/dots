@@ -4,7 +4,7 @@
 // component.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/monitors/arrange.js" as ArrangeLogic
+import "../../nix/home/desktop/quickshell/qml/monitors/arrange.js" as ArrangeLogic
 
 TestCase {
     name: "Arrange"
@@ -451,7 +451,7 @@ TestCase {
     // PanelWindow, exactly what this file's own header says to avoid).
     function readArrangeSource() {
         const xhr = new XMLHttpRequest();
-        xhr.open("GET", Qt.resolvedUrl("../../nix/home/quickshell/qml/monitors/Arrange.qml"), false);
+        xhr.open("GET", Qt.resolvedUrl("../../nix/home/desktop/quickshell/qml/monitors/Arrange.qml"), false);
         xhr.send();
         compare(xhr.status, 200, "Arrange.qml must be readable (needs QML_XHR_ALLOW_FILE_READ=1)");
         return xhr.responseText;

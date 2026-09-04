@@ -205,7 +205,7 @@ to `~/.claude/skills/` for global use.
 - **`nix/home/random_wp.nix`**: no change (already routes through
   `wallpaper-tui --output '*' <path>`; the error message string `swaybg/gsettings`
   → `awww/gsettings`).
-- **`nix/home/hyprland.nix`**: add `awww-daemon` to the `hyprland.start`
+- **`nix/home/desktop/hyprland.nix`**: add `awww-daemon` to the `hyprland.start`
   exec-once block, before `wallpaper-tui --restore`.
 
 ## Testing (`tests/wallpaper_tui/`, pytest, pure functions)

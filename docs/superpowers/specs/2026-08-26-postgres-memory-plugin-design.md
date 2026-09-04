@@ -1,7 +1,7 @@
 # Postgres-backed memory plugin: design
 
 **Goal:** Replace Claude Code's built-in memory, switched off at
-`nix/home/claude.nix:262`, with a first-party plugin whose store is a local
+`nix/home/ai/claude.nix:262`, with a first-party plugin whose store is a local
 PostgreSQL instance, whose graph ingest path is a Rust extension, and whose
 every write is a visible tool call.
 
@@ -45,7 +45,7 @@ Every claim below was run on this machine, not recalled.
 | pgrx | `cargo-pgrx` 0.18.1, `pkgs.buildPgrxExtension` at `all-packages.nix:4097`. `pg_search`, `pg_graphql`, `pgx_ulid` all `broken = false` on `postgresql18Packages`; `pg_graphql` resolves to a real derivation. pg18 needs no fallback to 17. |
 | Keyword recall | Built-in FTS works with no extension. `pg_trgm` 1.6, `unaccent` 1.1, `btree_gin` 1.3 ship in the base package. |
 | Slovak text search | No configuration exists. 30 stemmers, none Slovak or Czech. Fall back to `simple` plus `unaccent` plus trigrams. |
-| Embeddings | Unavailable. `aiOllama = false` in `nix/settings.nix:10`, no binary, `/var/lib/ollama` empty, nothing on 11434, no model pulled. |
+| Embeddings | Unavailable. `aiOllama = false` in `nix/data/settings.nix:10`, no binary, `/var/lib/ollama` empty, nothing on 11434, no model pulled. |
 | Hooks that reach the model | Plain stdout on three events only: `SessionStart`, `UserPromptSubmit`, `UserPromptExpansion`. `hookSpecificOutput.additionalContext` on eleven, including `Stop`. `SessionEnd`, `PreCompact` and `PostCompact` have no variant and fail schema validation. |
 | Mermaid token cost | Same 15-entity, 25-relation graph: outline 410, table 594, Mermaid 597, minified JSON 854, pretty JSON 1206. Structure-only Mermaid, no observations: 367. |
 | Mermaid parsers | None. `mermaid.parse()` returns `{diagramType}` and nothing else. `@mermaid-js/parser` v1.2.0 has no flowchart grammar. |
@@ -58,9 +58,9 @@ Every claim below was run on this machine, not recalled.
 | `rust/pg-agentmem/` | pgrx extension: Mermaid parser, `norm_hash_v1`, slugifier, renderer. |
 | `rust/dots-memory-mcp/` | Stateless stdio MCP server over `tokio-postgres`. |
 | `plugins/dots-memory/` | `.claude-plugin/plugin.json`, `.mcp.json`, `hooks/hooks.json`, `skills/memory/SKILL.md`. |
-| `nix/modules/agentmem.nix` | Pinned `postgresql_18`, extension, peer auth, backups. |
-| `nix/modules/impermanence.nix` | One added entry, `/var/lib/postgresql`. |
-| `nix/home/claude.nix` | Plugin derivation plus `plugins.dots-memory`. |
+| `nix/modules/services/agentmem.nix` | Pinned `postgresql_18`, extension, peer auth, backups. |
+| `nix/modules/system/impermanence.nix` | One added entry, `/var/lib/postgresql`. |
+| `nix/home/ai/claude.nix` | Plugin derivation plus `plugins.dots-memory`. |
 | `flake/nixos.nix` | The new module added to the literal `modules` list. |
 | `tests/` | Parser tests and a VM test. Never inline. |
 
@@ -269,11 +269,11 @@ edges_to_mermaid(src text[], verb text[], dst text[]) RETURNS text
 
 | Constraint | Consequence |
 |---|---|
-| `/` is tmpfs, wiped each boot (`nix/modules/impermanence.nix:24-31`) | `/var/lib/postgresql` must be persisted, the parent and not the versioned subdirectory. Without it, `preStart` re-initdbs a blank cluster every boot with no error. |
+| `/` is tmpfs, wiped each boot (`nix/modules/system/impermanence.nix:24-31`) | `/var/lib/postgresql` must be persisted, the parent and not the versioned subdirectory. Without it, `preStart` re-initdbs a blank cluster every boot with no error. |
 | No `system.stateVersion` anywhere; `maintenance.nix:40-53` autoupgrades daily | `services.postgresql.package` is pinned explicitly. Unpinned, a channel gaining `postgresql_19` moves `psqlSchema` and `dataDir` under a live cluster. |
 | `nix.gc` weekly with `--delete-older-than 0d` (`maintenance.nix:26-30`) | No rollback net. `services.postgresqlBackup` ships in v1, relocated off its `/var/backup/postgresql` default, which is also on the tmpfs. |
-| `nix/hosts.nix:55-72` | Never `DynamicUser`. It relocates StateDirectory to `/var/lib/private`; the rename over an impermanence bind mount fails `EBUSY` and aborts `nixos-rebuild` at status 4. ollama paid for this already. |
-| `nix/hosts.nix:74-90` | Never `ReadWritePaths` for a directory needing creation. It is a namespace directive; systemd neither creates nor chowns, and it fails `226/NAMESPACE` on a tmpfs root. |
+| `nix/system/hosts.nix:55-72` | Never `DynamicUser`. It relocates StateDirectory to `/var/lib/private`; the rename over an impermanence bind mount fails `EBUSY` and aborts `nixos-rebuild` at status 4. ollama paid for this already. |
+| `nix/system/hosts.nix:74-90` | Never `ReadWritePaths` for a directory needing creation. It is a namespace directive; systemd neither creates nor chowns, and it fails `226/NAMESPACE` on a tmpfs root. |
 | No secrets manager in the repo | Peer auth over the unix socket. `ensureDBOwnership` forces the database name to equal the role name, so the database is `matus` and `claude_memory` becomes the schema. `initialScript` is `types.path` and lands world-readable in the store. |
 | firewalld with `DefaultZone = "drop"` | `enableTCPIP` stays false. `true` sets `listen_addresses = "*"`, every interface, not localhost. |
 | `~/.claude/settings.json` is a 0444 store symlink | Hook registration is declarative only. The plugin's bundled `hooks/` merges with the existing settings hook; neither overrides the other. |
@@ -299,7 +299,7 @@ checkable rather than arguable.
 - **Embeddings.** Enabling them costs a `settings.nix` edit, a rebuild, CPU
   inference on a gfx90c that ROCm does not target, a cold-start stall on every
   recall, a permanent dimension commitment, and a fix for the latent bug at
-  `nix/hosts.nix:71,85` that materialises a broken unitless `ollama.service`
+  `nix/system/hosts.nix:71,85` that materialises a broken unitless `ollama.service`
   even while the toggle is off. `tsvector` plus `pg_trgm` is verified working
   and needs none of it.
 - **Raw transcripts.** The JSONL already exists under `~/.claude/projects/`

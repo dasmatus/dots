@@ -20,15 +20,15 @@ let
   '';
 
   # The shell's QML tree, linted below. Built rather than read from
-  # nix/home/quickshell/qml because Theme.qml is generated from
-  # nix/palette.json and only exists in the built tree.
+  # nix/home/desktop/quickshell/qml because Theme.qml is generated from
+  # nix/data/palette.json and only exists in the built tree.
   quickshellConfig = self.packages.${pkgs.stdenv.hostPlatform.system}.quickshell-config;
 
   # Build a LiveISO closure into result-iso. Plain (unsigned) — Secure Boot
   # was removed; the ISO boots through plain OVMF / firmware defaults. The
   # installed system uses systemd-boot + TPM2 auto-unlock (no UKI signing).
   #
-  # --impure: nix/settings.nix is a tracked symlink to
+  # --impure: nix/data/settings.nix is a tracked symlink to
   # /var/lib/dots/settings.nix, an absolute path outside the flake that pure
   # eval refuses to follow. Only the nix-eval CI job works around this — it
   # materializes an in-tree stub before any nix call runs there, and that
@@ -36,17 +36,17 @@ let
   # at all, so it needs --impure here instead.
   #
   # Cost: what --impure actually buys here is narrower than "the ISO now
-  # sees real machine settings". The ISO's own module set (nix/iso.nix +
-  # nix/modules/network.nix + the inline storeContents module below) only
-  # forces wifiBackend and reversePathFilter out of nix/settings.nix, both
-  # from nix/defaults.nix — the machine-identity keys (username, hostname,
+  # sees real machine settings". The ISO's own module set (nix/system/iso.nix +
+  # nix/modules/system/network.nix + the inline storeContents module below) only
+  # forces wifiBackend and reversePathFilter out of nix/data/settings.nix, both
+  # from nix/system/defaults.nix — the machine-identity keys (username, hostname,
   # disks, swapSize, gitName, gitEmail, the ai* flags) belong to dots.nix,
   # core.nix, maintenance.nix and flake/checks.nix, none of which the ISO
   # imports. --impure mostly just buys eval permission to read the file at
   # all; the parsed values it forces go unused.
   #
   # The store path still differs from CI's, but not because of those
-  # values: nix/iso.nix:42 embeds the flake source itself
+  # values: nix/system/iso.nix:42 embeds the flake source itself
   # (environment.etc."dots".source = dotsSelf), and CI's stub swaps the
   # tracked symlink for a regular file, which changes the git tree hash
   # that source builds from. Editing /var/lib/dots/settings.nix locally
@@ -57,12 +57,12 @@ let
   #
   # iso-full has a second, separate blocker --impure does not touch: it
   # embeds nixosConfigurations.tokyonight.config.system.build.toplevel
-  # (flake/lib.nix), which reaches nix/hosts.nix's
+  # (flake/lib.nix), which reaches nix/system/hosts.nix's
   # hardware.facter.reportPath = ./facter.json. That symlink is itself
   # world-readable, but its target (/var/lib/dots/facter.json) is 0600
   # root, so reading it fails on file permissions regardless of --impure
   # — a permissions problem, not a purity one. Fixing it is out of scope,
-  # same as the brief already rules out touching nix/facter.json.
+  # same as the brief already rules out touching nix/data/facter.json.
   mkIsoApp =
     {
       name,
@@ -122,7 +122,7 @@ in
 
       # qmllint over the shell's QML, before the flake eval because it is the
       # cheaper gate and because `nix flake check` cannot run on a bare
-      # checkout at all: nix/settings.nix is a symlink into /var/lib/dots,
+      # checkout at all: nix/data/settings.nix is a symlink into /var/lib/dots,
       # which pure eval refuses and CI works around by materialising a stub.
       # Ordering it second would mean the QML is never linted locally.
       #
@@ -270,13 +270,13 @@ in
   # Boot the ISO under OVMF + TPM2 (NixOS VM test). Pass args via
   # `nix run .#nix-smoke -- …`.
   #
-  # --impure: same nix/settings.nix symlink pure eval refuses to follow, see
+  # --impure: same nix/data/settings.nix symlink pure eval refuses to follow, see
   # mkIsoApp above. This is exactly the check the scheduled vm-boot CI job
   # runs — ci.yml:235 does `nix build -L ".#checks.x86_64-linux.${{
   # matrix.check }}"`, matrixed over iso-boot and limine-install-boot —
   # and that job has no settings.nix stub, unlike nix-eval. So vm-boot
   # runs iso-boot pure right now and dies at eval on the settings.nix path
-  # through nix/modules/network.nix. That's a separate, pre-existing gap
+  # through nix/modules/system/network.nix. That's a separate, pre-existing gap
   # in ci.yml, not something this fix touches.
   nix-smoke = mkShellApp "nix-smoke" {
     text = ''
@@ -288,7 +288,7 @@ in
   # Debug the ISO boot test in the driver's interactive Python REPL
   # (.#checks.x86_64-linux.iso-boot.driverInteractive).
   #
-  # --impure: same nix/settings.nix symlink pure eval refuses to follow, see
+  # --impure: same nix/data/settings.nix symlink pure eval refuses to follow, see
   # mkIsoApp above.
   nix-smoke-interactive = mkShellApp "nix-smoke-interactive" {
     text = ''

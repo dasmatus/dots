@@ -30,11 +30,11 @@ TestCase {
     }
 
     function launcherSource() {
-        return readSource("../../nix/home/quickshell/qml/launcher/Launcher.qml");
+        return readSource("../../nix/home/desktop/quickshell/qml/launcher/Launcher.qml");
     }
 
     function providersSource() {
-        return readSource("../../nix/home/quickshell/qml/launcher/Providers.qml");
+        return readSource("../../nix/home/desktop/quickshell/qml/launcher/Providers.qml");
     }
 
     // The whole point of the change: the display list is ordered by rank.js
@@ -121,7 +121,7 @@ TestCase {
     }
 
     function resultRowSource() {
-        return readSource("../../nix/home/quickshell/qml/launcher/ResultRow.qml");
+        return readSource("../../nix/home/desktop/quickshell/qml/launcher/ResultRow.qml");
     }
 
     // The pointer half of drilling in, after the capsule moved off the rows
@@ -367,7 +367,7 @@ TestCase {
         const providers = providersSource();
         verify(providers.indexOf("seed") === -1, "Providers must not carry any seeding path — ranking is earned by launching things, never granted");
 
-        const rank = readSource("../../nix/home/quickshell/qml/launcher/rank.js");
+        const rank = readSource("../../nix/home/desktop/quickshell/qml/launcher/rank.js");
         verify(rank.indexOf("seedRecords") === -1, "rank.js must not expose a seeding helper");
         verify(rank.indexOf("librewolf") === -1 && rank.indexOf("brave") === -1, "no application may be named in the ranking logic");
     }

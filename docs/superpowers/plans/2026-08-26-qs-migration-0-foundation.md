@@ -12,7 +12,7 @@ desktop; a new `installer.qml` is the LiveISO root, so cage never loads
 **Spec:** `docs/superpowers/specs/2026-08-26-quickshell-tui-migration-design.md`
 
 ## Global Constraints
-- The palette lives at `nix/palette.json` after Task 1. Nothing reads
+- The palette lives at `nix/data/palette.json` after Task 1. Nothing reads
   `rust/palette.json` again.
 - `installer.qml` must not import `Quickshell.Hyprland` at any depth.
 - qmllint runs `--max-warnings 0`; a warning is a failure.
@@ -21,11 +21,11 @@ desktop; a new `installer.qml` is the LiveISO root, so cage never loads
 ---
 
 ### Task 1: Relocate the palette out of `rust/`
-**Files:** move `rust/palette.json` -> `nix/palette.json`; modify
-`nix/home/quickshell/tree.nix:29`, `flake/checks.nix:261`.
-**Produces:** `nix/palette.json`, byte-identical content and schema.
+**Files:** move `rust/palette.json` -> `nix/data/palette.json`; modify
+`nix/home/desktop/quickshell/tree.nix:29`, `flake/checks.nix:261`.
+**Produces:** `nix/data/palette.json`, byte-identical content and schema.
 
-- [ ] **1** `git mv rust/palette.json nix/palette.json`
+- [ ] **1** `git mv rust/palette.json nix/data/palette.json`
 - [ ] **2** Repoint `tree.nix:29` `builtins.readFile` from
       `../../../rust/palette.json` to `../../palette.json`
 - [ ] **3** Repoint `flake/checks.nix:261` the same way
@@ -58,7 +58,7 @@ and `hlsToRgb(h,l,s)`, 0-1 floats in and out, ported verbatim from
 
 ### Task 3: Add the second root
 **Files:** create `qml/installer.qml`; modify
-`nix/home/quickshell/tree.nix` (copy both roots), `flake/apps.nix:103`
+`nix/home/desktop/quickshell/tree.nix` (copy both roots), `flake/apps.nix:103`
 (qmllint over both).
 **Produces:** `installer.qml`, a `ShellRoot` drawing one `Panel` reading
 "installer". Real screens arrive in plan 3.

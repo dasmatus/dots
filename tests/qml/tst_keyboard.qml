@@ -9,7 +9,7 @@
 // exercise.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/launcher/keyboard.js" as KeyboardMath
+import "../../nix/home/desktop/quickshell/qml/launcher/keyboard.js" as KeyboardMath
 
 TestCase {
     name: "Keyboard"

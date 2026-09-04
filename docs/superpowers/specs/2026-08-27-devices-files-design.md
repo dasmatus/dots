@@ -3,7 +3,7 @@
 ## Why
 
 Plugging a USB stick in today does nothing. `services.udisks2.enable = true`
-(`nix/modules/desktop.nix:67`) runs the daemon that *can* mount it, but
+(`nix/modules/desktop/desktop.nix:67`) runs the daemon that *can* mount it, but
 nothing ever asks it to. No udiskie, no udev rule, no systemd automount
 unit. The drive sits at `/dev/sda1` with `mountpoint: null` until someone
 opens a terminal and runs `udisksctl mount -b` by hand.
@@ -11,10 +11,10 @@ opens a terminal and runs `udisksctl mount -b` by hand.
 Opening it once mounted is worse than nothing, because it looks wired up and
 isn't. Three surfaces all point at a file manager that was never installed:
 
-- `nix/home/hyprland.nix:414-419` binds SUPER+SHIFT+F to
+- `nix/home/desktop/hyprland.nix:414-419` binds SUPER+SHIFT+F to
   `hl.dsp.exec_cmd("nautilus")`. `services.gnome.core-apps` is not enabled
   anywhere in this tree, so the bind silently fails.
-- `nix/home/keybinds.nix:26-27` advertises the same bind in the SUPER+/
+- `nix/home/desktop/keybinds.nix:26-27` advertises the same bind in the SUPER+/
   cheatsheet as "File manager (Nautilus)", so the shell's own help screen
   documents a dead key.
 - `qml/launcher/Providers.qml`'s `fileRows()` sends every directory hit
@@ -69,7 +69,7 @@ assumed: a plain `udisksctl mount -b` from this session's shell prompts for
 nothing.
 
 **`boot.supportedFilesystems.ntfs = true` stays the only filesystem opt-in
-this needs.** It is already set at `nix/modules/desktop.nix:67`'s
+this needs.** It is already set at `nix/modules/desktop/desktop.nix:67`'s
 neighbourhood for other reasons. exFAT and vFAT need nothing added, both
 are already in `/proc/filesystems` on this kernel, and udisks2 mounts both
 through the in-tree kernel driver with no fsck step, unlike NTFS's
@@ -160,7 +160,7 @@ with no write operations yet.
 
 ## Architecture
 
-    nix/home/quickshell/qml/
+    nix/home/desktop/quickshell/qml/
     ├── services/
     │   ├── qmldir              hand-written, singleton Devices 1.0 Devices.qml
     │   ├── Devices.qml         udev watch → lsblk → automount → devices[]
@@ -271,9 +271,9 @@ with a directory story that isn't the same call failing a second way.
 No signal is needed, since ejecting is an immediate action rather than
 something another surface needs to react to.
 
-The dead ends from the Why section get closed here, not before: `hl.dsp.exec_cmd("nautilus")` at `nix/home/hyprland.nix:414-419` becomes
+The dead ends from the Why section get closed here, not before: `hl.dsp.exec_cmd("nautilus")` at `nix/home/desktop/hyprland.nix:414-419` becomes
 `hl.dsp.exec_cmd("qs ipc call files toggle")`, and
-`nix/home/keybinds.nix:26-27`'s cheatsheet copy stops naming software that
+`nix/home/desktop/keybinds.nix:26-27`'s cheatsheet copy stops naming software that
 was never installed. `Providers.qml`'s `systemCommands` gains an "Open File
 Manager" row, and `fileRows()`'s directory branch stops calling `xdg-open`
 in favour of `Devices.requestOpen(path)`.
@@ -290,7 +290,7 @@ own element, the same discipline `preview.js`'s `previewCommand()` already
 enforces and `tests/qml/tst_preview.qml` already tests for that file. Copy
 and move act between the two panes' current directories; rename and mkdir
 prompt inline in the active pane; trash calls `gio trash --`, which needs
-`pkgs.glib` added to `nix/home/quickshell/default.nix`'s existing
+`pkgs.glib` added to `nix/home/desktop/quickshell/default.nix`'s existing
 `home.packages` list (`:172-186`). `gio` is not on this machine's `PATH`
 today, unlike `udisksctl`, `udevadm`, `busctl` and `notify-send`, which
 already are.

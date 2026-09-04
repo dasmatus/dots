@@ -46,11 +46,11 @@ TestCase {
     }
 
     function filesSource() {
-        return readSource("../../nix/home/quickshell/qml/files/Files.qml");
+        return readSource("../../nix/home/desktop/quickshell/qml/files/Files.qml");
     }
 
     function commandLineSource() {
-        return readSource("../../nix/home/quickshell/qml/files/CommandLine.qml");
+        return readSource("../../nix/home/desktop/quickshell/qml/files/CommandLine.qml");
     }
 
     // The whole of the reopen fix. Without it the window opens exactly once

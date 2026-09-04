@@ -8,7 +8,7 @@
 // written against that format, so a line is type, size, mtime, name.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/files.js" as Files
+import "../../nix/home/desktop/quickshell/qml/files/files.js" as Files
 
 TestCase {
     name: "Files"

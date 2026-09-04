@@ -8,7 +8,7 @@
 // $HOME-relative output back into entries that know where they live.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/index.js" as Index
+import "../../nix/home/desktop/quickshell/qml/files/index.js" as Index
 
 TestCase {
     name: "FilesIndex"

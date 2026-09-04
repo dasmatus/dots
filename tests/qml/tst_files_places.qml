@@ -7,7 +7,7 @@
 // not exist.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/places.js" as Places
+import "../../nix/home/desktop/quickshell/qml/files/places.js" as Places
 
 TestCase {
     name: "FilesPlaces"

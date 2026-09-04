@@ -1,6 +1,6 @@
 // RGB <-> HLS conversion.
 //
-// #7aa2f7 is the palette's accentFallback (nix/palette.json), so the round
+// #7aa2f7 is the palette's accentFallback (nix/data/palette.json), so the round
 // trip case is the actual colour Theme.qml falls back to, not an arbitrary
 // one. Pure red is colorsys's own textbook case: maximal saturation, mid
 // lightness, hue at the wheel's origin.
@@ -14,7 +14,7 @@
 // hls.js itself, so a bug shared by both ports would still be caught.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/common/hls.js" as Hls
+import "../../nix/home/desktop/quickshell/qml/common/hls.js" as Hls
 
 TestCase {
     name: "Hls"

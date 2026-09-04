@@ -1,12 +1,12 @@
 # Installer-managed configuration as typed NixOS options.
 #
-# flake/lib.nix builds `settings = (import ../nix/defaults.nix) //
-# (import ../nix/settings.nix)` and passes it to every nixosSystem as
-# specialArgs: nix/defaults.nix holds the non-install-time defaults and the
+# flake/lib.nix builds `settings = (import ../nix/system/defaults.nix) //
+# (import ../nix/data/settings.nix)` and passes it to every nixosSystem as
+# specialArgs: nix/system/defaults.nix holds the non-install-time defaults and the
 # installer TUI (rust/installer-tui) rewrites the install answers into
-# nix/settings.nix on the target. Consumers used to read the flat `settings.*`
+# nix/data/settings.nix on the target. Consumers used to read the flat `settings.*`
 # attrset directly — which worked but left every key untyped/undocumented and
-# the AI + ollama + path knobs hardcoded in nix/hosts.nix etc.
+# the AI + ollama + path knobs hardcoded in nix/system/hosts.nix etc.
 #
 # This module bridges that flat attrset to typed `dots.*` options so consumers
 # read `config.dots.*` instead of hardcoding `settings.*` keys. Every bridge
@@ -17,9 +17,9 @@
 # knobs (timezone, locale, desktop, boot, network) stay as `settings.*` reads
 # — they are NOT installer-managed, so they don't get dots options.
 #
-# `config.dots` is also handed to Home Manager (nix/modules/users.nix
+# `config.dots` is also handed to Home Manager (nix/modules/system/users.nix
 # extraSpecialArgs) so the HM-side AI gating (nix/home/{claude,codex}.nix) and
-# the dots-clone symlinks (nix/home/dots-repo.nix) read the same typed values.
+# the dots-clone symlinks (nix/home/base/dots-repo.nix) read the same typed values.
 {
   lib,
   settings,
@@ -60,15 +60,15 @@ in
     ai = {
       claude = mkOption {
         type = types.bool;
-        description = "Enable Claude Code Home Manager config (nix/home/claude.nix).";
+        description = "Enable Claude Code Home Manager config (nix/home/ai/claude.nix).";
       };
       codex = mkOption {
         type = types.bool;
-        description = "Enable Codex CLI Home Manager config (nix/home/codex.nix).";
+        description = "Enable Codex CLI Home Manager config (nix/home/ai/codex.nix).";
       };
       ollama = mkOption {
         type = types.bool;
-        description = "Enable the system + Home Manager ollama services (nix/hosts.nix, nix/home/codex.nix).";
+        description = "Enable the system + Home Manager ollama services (nix/system/hosts.nix, nix/home/ai/codex.nix).";
       };
       ollamaModels = mkOption {
         type = types.listOf types.str;
@@ -94,7 +94,7 @@ in
           Canonical install-answer stash. impermanence.nix bind-mounts
           /persist over this; the installer stashes settings.nix + facter.json
           here (rust/installer-tui/src/install.rs), and the first-login
-          dots-clone service symlinks nix/settings.nix + nix/facter.json at
+          dots-clone service symlinks nix/data/settings.nix + nix/data/facter.json at
           it. Override together with the impermanence entry AND the installer
           stash path (rust/installer-tui/src/install.rs hardcodes
           /mnt/persist/var/lib/dots) — the default is the only coherent value.

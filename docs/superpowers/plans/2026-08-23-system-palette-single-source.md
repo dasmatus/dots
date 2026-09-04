@@ -17,7 +17,7 @@
 - No inline `#[cfg(test)]` tests — Rust tests go in each crate's `tests/` directory only.
 - Comments: `//!` top-level and `///` per-symbol only; inline `//` only for genuine subtlety.
 - `git add` every new/changed file BEFORE any `nix build`/`nix eval` — flake builds copy only git-tracked files (silently missing otherwise).
-- Every `nix` eval/build command needs `--impure` (`nix/settings.nix` is a symlink to `/var/lib/dots/settings.nix`); the "Git tree … is dirty" warning is normal.
+- Every `nix` eval/build command needs `--impure` (`nix/data/settings.nix` is a symlink to `/var/lib/dots/settings.nix`); the "Git tree … is dirty" warning is normal.
 - `rustfmt` is not on ambient PATH: format with `nix shell nixpkgs#rustfmt -c cargo fmt --all` inside each crate dir.
 - Local `cargo test` for `rust/beamenu` needs `PKG_CONFIG_PATH` pointing at a built `beamenu-view`; for `rust/beamenu-canvas` run under `nix-shell -p pkg-config gtk4 webkitgtk_6_0 gtk4-layer-shell` (both forms are expected to work but were NOT executed while planning — confirm before relying on them).
 - `nix run .#nix-lint` and `nix flake check` die at the pre-existing broken `abstracttui` reference — gate with the explicit per-check/per-package builds given in Task 5 instead.
@@ -734,7 +734,7 @@ regression gate on the indirection."
 - Test: `flake/checks.nix` (append `beamenu-config-eval` after `palette-eval` from Task 1)
 
 **Interfaces:**
-- Consumes: `rust/palette.json`; `settings.username` (already bound at `flake/checks.nix:13`); `self.nixosConfigurations.tokyonight.config.home-manager.users.<username>` (home-manager is a NixOS module, `nix/modules/users.nix:102-131`).
+- Consumes: `rust/palette.json`; `settings.username` (already bound at `flake/checks.nix:13`); `self.nixosConfigurations.tokyonight.config.home-manager.users.<username>` (home-manager is a NixOS module, `nix/modules/system/users.nix:102-131`).
 - Produces: `config.json` whose `theme` gains a nested `canvas` object with exactly the ten `CanvasTheme` serde field names (`font_ui, font_mono, bg, panel_gradient_start, panel_gradient_end, border, border_strong, text, muted, accent`) — the high-severity bug fix (`theme.canvas` was read at `rust/beamenu-canvas/src/config.rs:19` but never written); `theme.selected_background`/`theme.heading`/`theme.canvas.accent` all derive from `cfg.accent`; `checks.${system}.beamenu-config-eval`.
 
 - [ ] **Step 1: Write the failing round-trip check** — append to `flake/checks.nix` after `palette-eval`:

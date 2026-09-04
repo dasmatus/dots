@@ -102,6 +102,6 @@ node, so the same selectors work as `#custom-vpn.connected` etc.
 ## Out of scope
 
 - No declarative WireGuard / secrets (intentionally absent — see
-  `nix/home/proton.nix` header; the GUI app owns the tunnel).
+  `nix/home/proton/proton.nix` header; the GUI app owns the tunnel).
 - No tray-icon replacement for the Proton VPN appindicator.
 - No click-to-connect for VPN beyond launching the GUI.

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Migrate `nix/home/hyprland.nix`'s `wayland.windowManager.hyprland.settings` from the classic hyprlang format to Hyprland's Lua DSL, keeping the config declarative in Nix (HM auto-converts the `settings` attrset to `hl.*(...)` calls when `configType = "lua"`).
+**Goal:** Migrate `nix/home/desktop/hyprland.nix`'s `wayland.windowManager.hyprland.settings` from the classic hyprlang format to Hyprland's Lua DSL, keeping the config declarative in Nix (HM auto-converts the `settings` attrset to `hl.*(...)` calls when `configType = "lua"`).
 
 **Architecture:** Single-file edit. Flip `configType` to `"lua"` and re-shape the `settings` attrset so HM's generic lua walker (`home-manager`'s `modules/services/window-managers/hyprland/lib.nix` `renderSettings`) emits valid `hl.*` Lua: `_var` for the `mod` local, `config = { … }` for the hyprlang sections, `curve`/`animation` for animations, `on` for `exec-once`, `env` as `_args` pairs, and every bind as an `_args` attrset of `mkLuaInline` key-expr + dispatcher (+ optional `{repeating/mouse/locked}` flag table). The `services.hypridle`, `programs.hyprlock`, `services.gammastep`, and `xdg.portal` blocks are separate HM modules with no lua form — untouched.
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Single file:** only `nix/home/hyprland.nix` is modified. No new files, no Rust, no `tests/` changes.
+- **Single file:** only `nix/home/desktop/hyprland.nix` is modified. No new files, no Rust, no `tests/` changes.
 - **`configType = "lua"` kept explicit** (not dropped to rely on the `stateVersion=26.05` default).
 - **`SUPER+SHIFT+S` double-bind resolved:** drop the `SUPER+SHIFT+S → exec flameshot gui` entry; keep `SUPER+SHIFT+S → movetoworkspace special:magic` and `SUPER+S → togglespecialworkspace magic`. `Print` keeps flameshot.
 - **No behavior change beyond the above:** flag semantics preserved — `binde`→`{repeating=true}` (NOT locked), `bindm`→`{mouse=true}`, plain `bind`→no opts, mute/micmute keys stay plain (no lock, no repeat).
@@ -19,7 +19,7 @@
 
 ## File Structure
 
-- **Modify:** `nix/home/hyprland.nix`
+- **Modify:** `nix/home/desktop/hyprland.nix`
   - Header comment (lines 1–27): update the `configType` rationale paragraph (lines 23–27) to document the lua migration.
   - Function header (line 28): `{ pkgs, ... }:` → `{ pkgs, lib, ... }:` + insert `let lua = lib.generators.mkLuaInline; in`.
   - `wayland.windowManager.hyprland` block (lines 30–216): replace `configType` value and the entire `settings = { … };` attrset with the lua-shaped attrset.
@@ -32,7 +32,7 @@ No other files. No tests directory (Nix HM configs have no unit-test harness; ve
 ### Task 1: Rewrite the hyprland settings block to the Lua DSL
 
 **Files:**
-- Modify: `nix/home/hyprland.nix` (header comment lines 1–27, function header line 28, `wayland.windowManager.hyprland` block lines 30–216)
+- Modify: `nix/home/desktop/hyprland.nix` (header comment lines 1–27, function header line 28, `wayland.windowManager.hyprland` block lines 30–216)
 
 **Interfaces:**
 - Consumes: `lib.generators.mkLuaInline` (nixpkgs stdlib), `pkgs.waytrogen` (already used in the file).
@@ -49,11 +49,11 @@ No other files. No tests directory (Nix HM configs have no unit-test harness; ve
 
 Replace the paragraph at lines 23–27 (the `configType` pin justification) with a lua-migration rationale. Keep lines 1–22 (the X11→Wayland deviation history) verbatim.
 
-In `nix/home/hyprland.nix`, find this exact block:
+In `nix/home/desktop/hyprland.nix`, find this exact block:
 
 ```nix
 # wayland.windowManager.hyprland.package is set to null because
-# programs.hyprland.enable (nix/modules/desktop.nix) already installs
+# programs.hyprland.enable (nix/modules/desktop/desktop.nix) already installs
 # Hyprland system-wide; configType is pinned to "hyprlang" because Home
 # Manager 26.05 defaults new configs to the Lua DSL, and this port keeps
 # the classic hyprland.conf format instead.
@@ -63,7 +63,7 @@ Replace with:
 
 ```nix
 # wayland.windowManager.hyprland.package is set to null because
-# programs.hyprland.enable (nix/modules/desktop.nix) already installs
+# programs.hyprland.enable (nix/modules/desktop/desktop.nix) already installs
 # Hyprland system-wide. configType is "lua": Home Manager 26.05 defaults
 # new configs to the Lua DSL and this module uses it. `settings` is a Nix
 # attrset that HM walks into hl.<key>(...) calls (lib.nix renderSettings):
@@ -76,7 +76,7 @@ Replace with:
 
 - [ ] **Step 2: Change the function header to bring in `lib` and add the `lua` alias**
 
-In `nix/home/hyprland.nix`, find:
+In `nix/home/desktop/hyprland.nix`, find:
 
 ```nix
 { pkgs, ... }:
@@ -95,7 +95,7 @@ let lua = lib.generators.mkLuaInline; in
 
 - [ ] **Step 3: Replace `configType` and the entire `settings = { … };` attrset**
 
-In `nix/home/hyprland.nix`, the block from `configType = "hyprlang";` (line 34) through the closing `};` of `settings` (line 215) — i.e. everything inside `wayland.windowManager.hyprland = { … }` except `systemd.enable`, `enable`, and `package` — is replaced. Find this exact start:
+In `nix/home/desktop/hyprland.nix`, the block from `configType = "hyprlang";` (line 34) through the closing `};` of `settings` (line 215) — i.e. everything inside `wayland.windowManager.hyprland = { … }` except `systemd.enable`, `enable`, and `package` — is replaced. Find this exact start:
 
 ```nix
     configType = "hyprlang";
@@ -388,7 +388,7 @@ Sanity-check the bind count: the generated lua should contain exactly **66** `hl
 - [ ] **Step 6: Commit**
 
 ```bash
-git add nix/home/hyprland.nix
+git add nix/home/desktop/hyprland.nix
 git commit -m "feat(hyprland): migrate config to HM Lua DSL"
 ```
 

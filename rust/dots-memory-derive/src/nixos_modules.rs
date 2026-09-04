@@ -12,8 +12,8 @@ use crate::util::block_between;
 const ANCHOR: &str = "flake_nixos_nix";
 
 /// One line inside the `modules = [ ... ];` list, if it is a bare path
-/// literal like `../nix/modules/searxng.nix` rather than an `inputs.*`
-/// reference or a function call like `(import ../nix/disko.nix { ... })`.
+/// literal like `../nix/modules/services/searxng.nix` rather than an `inputs.*`
+/// reference or a function call like `(import ../nix/system/disko.nix { ... })`.
 fn parse_module_line(line: &str) -> Option<&str> {
     let line = line.trim();
     let is_bare_path = line.starts_with("../")
@@ -40,7 +40,7 @@ pub fn extract(repo_root: &Path) -> Result<Vec<Edge>, String> {
         .lines()
         .filter_map(parse_module_line)
         .map(|raw| {
-            // `../nix/modules/searxng.nix`, relative to `flake/` -- one
+            // `../nix/modules/services/searxng.nix`, relative to `flake/` -- one
             // `../` strips straight to the repo-root-relative path since
             // `flake/` sits directly under the root.
             let rel = raw.strip_prefix("../").unwrap_or(raw);

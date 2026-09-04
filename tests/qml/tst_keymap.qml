@@ -2,7 +2,7 @@
 // layout-name shortener, and the `hyprctl devices -j` seed read.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/bar/keymap.js" as Keymap
+import "../../nix/home/desktop/quickshell/qml/bar/keymap.js" as Keymap
 
 TestCase {
     name: "Keymap"

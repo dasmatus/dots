@@ -6,7 +6,7 @@
 // have failed the same way in cargo test.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/monitors/plan.js" as Plan
+import "../../nix/home/desktop/quickshell/qml/monitors/plan.js" as Plan
 
 TestCase {
     name: "Monitors"

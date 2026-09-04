@@ -16,7 +16,7 @@
 // source instead of re-derived.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/wallpaper/tint.js" as Tint
+import "../../nix/home/desktop/quickshell/qml/wallpaper/tint.js" as Tint
 
 TestCase {
     name: "Tint"

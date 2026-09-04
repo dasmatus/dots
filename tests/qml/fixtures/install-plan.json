@@ -24,7 +24,7 @@
         "--argstr",
         "swapSize",
         "16G",
-        "/etc/dots/nix/disko.nix"
+        "/etc/dots/nix/system/disko.nix"
       ],
       "capture": "Stream",
       "kind": "Command",
@@ -37,7 +37,7 @@
     "action": {
       "args": [
         "-c",
-        "rm -rf /tmp/dots-flake /tmp/dots-flake.new && mkdir -p /tmp/dots-flake.new && cp -a /etc/dots/. /tmp/dots-flake.new/ && find /tmp/dots-flake.new -type l -exec sh -c 'for link do tgt=$(readlink -f \"$link\" 2>/dev/null || true); if [ -n \"$tgt\" ] && [ -e \"$tgt\" ]; then rm -f \"$link\" && cp -a \"$tgt\" \"$link\"; else rm -f \"$link\"; fi; done' sh {} + && chmod -R u+w /tmp/dots-flake.new && ln -sfn /var/lib/dots/settings.nix /tmp/dots-flake.new/nix/settings.nix && mv /tmp/dots-flake.new /tmp/dots-flake"
+        "rm -rf /tmp/dots-flake /tmp/dots-flake.new && mkdir -p /tmp/dots-flake.new && cp -a /etc/dots/. /tmp/dots-flake.new/ && find /tmp/dots-flake.new -type l -exec sh -c 'for link do tgt=$(readlink -f \"$link\" 2>/dev/null || true); if [ -n \"$tgt\" ] && [ -e \"$tgt\" ]; then rm -f \"$link\" && cp -a \"$tgt\" \"$link\"; else rm -f \"$link\"; fi; done' sh {} + && chmod -R u+w /tmp/dots-flake.new && ln -sfn /var/lib/dots/settings.nix /tmp/dots-flake.new/nix/data/settings.nix && mv /tmp/dots-flake.new /tmp/dots-flake"
       ],
       "capture": "Stream",
       "kind": "Command",
@@ -50,7 +50,7 @@
     "action": {
       "args": [
         "-o",
-        "/tmp/dots-flake/nix/facter.json"
+        "/tmp/dots-flake/nix/data/facter.json"
       ],
       "capture": "Stream",
       "kind": "Command",
@@ -64,7 +64,7 @@
       "contents": "{\n  username = \"alice\";\n  hostname = \"myhost\";\n  disks = [ \"/dev/vda\" \"/dev/vdb\" ];\n  swapSize = \"16G\";\n  gitName = \"Alice Q\";\n  gitEmail = \"alice@example.org\";\n  aiClaude = true;\n  aiCodex = true;\n  aiOllama = true;\n}\n",
       "kind": "WriteFile",
       "mode": 420,
-      "path": "/tmp/dots-flake/nix/settings.nix"
+      "path": "/tmp/dots-flake/nix/data/settings.nix"
     },
     "title": "Write install answers (settings.nix)"
   },
@@ -80,7 +80,7 @@
     "action": {
       "args": [
         "-c",
-        "mkdir -p /mnt/persist/var/lib/dots/nix && cp /tmp/dots-flake/nix/facter.json /mnt/persist/var/lib/dots/ && cp /tmp/dots-flake/nix/settings.nix /mnt/persist/var/lib/dots/"
+        "mkdir -p /mnt/persist/var/lib/dots/nix && cp /tmp/dots-flake/nix/data/facter.json /mnt/persist/var/lib/dots/ && cp /tmp/dots-flake/nix/data/settings.nix /mnt/persist/var/lib/dots/"
       ],
       "capture": "Stream",
       "kind": "Command",

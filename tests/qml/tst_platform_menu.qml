@@ -30,7 +30,7 @@ import "sourcescan.js" as SourceScan
 TestCase {
     name: "PlatformMenu"
 
-    readonly property string shellPath: "../../nix/home/quickshell/qml/shell.qml"
+    readonly property string shellPath: "../../nix/home/desktop/quickshell/qml/shell.qml"
     readonly property string pragmaLine: "//@ pragma UseQApplication"
 
     // The shipped QML reaches Quickshell.Io and a compositor, neither of which
@@ -56,7 +56,7 @@ TestCase {
         return [
             {
                 tag: "Tray right click",
-                path: "../../nix/home/quickshell/qml/bar/Tray.qml",
+                path: "../../nix/home/desktop/quickshell/qml/bar/Tray.qml",
                 call: ".display("
             }
         ];

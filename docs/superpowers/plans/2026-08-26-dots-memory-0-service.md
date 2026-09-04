@@ -11,7 +11,7 @@ extension, no plugin. Gated on the flag the plugin will later gate on.
 **Spec:** `docs/superpowers/specs/2026-08-26-postgres-memory-plugin-design.md`
 
 ## Global Constraints
-- Gate: `lib.mkIf config.dots.ai.claude` (`nix/home/claude.nix:122`).
+- Gate: `lib.mkIf config.dots.ai.claude` (`nix/home/ai/claude.nix:122`).
 - `package = pkgs.postgresql_18;` (18.4), never `mkDefault`, since
   `maintenance.nix` autoupgrades the channel daily.
 - `enableTCPIP` stays false. Peer auth only. No password anywhere.
@@ -25,7 +25,7 @@ extension, no plugin. Gated on the flag the plugin will later gate on.
 
 ---
 ### Task 1: Write the cluster module
-**Files:** create `nix/modules/agentmem.nix`.
+**Files:** create `nix/modules/services/agentmem.nix`.
 **Produces:** `services.postgresql` (enable; package `pkgs.postgresql_18`;
 `ensureDatabases = [ settings.username ]`; `ensureUsers = [ { name =
 settings.username; ensureDBOwnership = true; } ]`; `enableTCPIP = false`)
@@ -33,23 +33,23 @@ and `services.postgresqlBackup` (enable; `location =
 "/var/lib/postgresql/backup"`, a subdir of the persisted parent, no
 second impermanence entry needed; `startAt = "daily"`), one `lib.mkIf`.
 
-- [ ] **1** Write `nix/modules/agentmem.nix` per Produces above,
-      imitating `nix/modules/searxng.nix`'s comment style
-- [ ] **2** `git add nix/modules/agentmem.nix && nix-instantiate --parse
-      nix/modules/agentmem.nix` Expected: staged, exit 0
+- [ ] **1** Write `nix/modules/services/agentmem.nix` per Produces above,
+      imitating `nix/modules/services/searxng.nix`'s comment style
+- [ ] **2** `git add nix/modules/services/agentmem.nix && nix-instantiate --parse
+      nix/modules/services/agentmem.nix` Expected: staged, exit 0
 - [ ] **3** `git commit -m "feat: add the agentmem postgres cluster module"`
 
 ### Task 2: Wire the module in and persist its data
-**Files:** modify `flake/nixos.nix:43`, `nix/modules/impermanence.nix:51`.
+**Files:** modify `flake/nixos.nix:43`, `nix/modules/system/impermanence.nix:51`.
 **Produces:** `config.services.postgresql` reachable through
 `nixosConfigurations.tokyonight`; a persisted `/var/lib/postgresql`.
 
-- [ ] **1** In `flake/nixos.nix`, add `../nix/modules/agentmem.nix` as
-      new line 44, directly after `../nix/modules/searxng.nix`
+- [ ] **1** In `flake/nixos.nix`, add `../nix/modules/services/agentmem.nix` as
+      new line 44, directly after `../nix/modules/services/searxng.nix`
 - [ ] **2** In `impermanence.nix`, after `/var/lib/ollama` (line 51),
       add `{ directory = "/var/lib/postgresql"; user = "postgres";
       group = "postgres"; mode = "0750"; }`
-- [ ] **3** `git add flake/nixos.nix nix/modules/impermanence.nix`
+- [ ] **3** `git add flake/nixos.nix nix/modules/system/impermanence.nix`
       Expected: both staged before the eval below
 - [ ] **4** `T=.#nixosConfigurations.tokyonight.config.services.postgresql`
       then `nix eval $T.package.version && nix eval $T.enableTCPIP`
@@ -63,7 +63,7 @@ second impermanence entry needed; `startAt = "daily"`), one `lib.mkIf`.
 **Produces:** `checks.x86_64-linux.agentmem-postgres`.
 
 - [ ] **1** Add a `runNixOSTest` node importing
-      `../nix/modules/impermanence.nix`, with `services.postgresql` and
+      `../nix/modules/system/impermanence.nix`, with `services.postgresql` and
       `services.postgresqlBackup` set as in `agentmem.nix` (role/db
       `"test"`) plus `users.users.test.isNormalUser = true;`
 - [ ] **2** Script: `wait_for_unit("postgresql.service")`, then

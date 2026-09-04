@@ -1,4 +1,4 @@
-// Pins the Proton setup page (nix/home/quickshell/qml/settings/Proton.qml)
+// Pins the Proton setup page (nix/home/desktop/quickshell/qml/settings/Proton.qml)
 // and the page switching it needs from Settings.qml.
 //
 // Read as text rather than instantiated: both files reach Quickshell.Io,
@@ -8,7 +8,7 @@
 // stand in for the code implementing it.
 //
 // The assertion that earns this file is the last one. Proton.qml writes three
-// lines to proton-setup's stdin and nix/home/proton-setup.nix reads three
+// lines to proton-setup's stdin and nix/home/proton/proton-setup.nix reads three
 // lines back, and nothing but agreement between two files in different
 // languages keeps them in the same order. Swap two lines on either side and
 // the password is sent as the username: no parse error, no crash, just a
@@ -21,9 +21,9 @@ import "sourcescan.js" as SourceScan
 TestCase {
     name: "Proton"
 
-    readonly property string protonQml: "../../nix/home/quickshell/qml/settings/Proton.qml"
-    readonly property string settingsQml: "../../nix/home/quickshell/qml/settings/Settings.qml"
-    readonly property string setupNix: "../../nix/home/proton-setup.nix"
+    readonly property string protonQml: "../../nix/home/desktop/quickshell/qml/settings/Proton.qml"
+    readonly property string settingsQml: "../../nix/home/desktop/quickshell/qml/settings/Settings.qml"
+    readonly property string setupNix: "../../nix/home/proton/proton-setup.nix"
 
     function readSource(relPath) {
         const xhr = new XMLHttpRequest();
@@ -109,7 +109,7 @@ TestCase {
             reads.push(m[1]);
             m = re.exec(setup);
         }
-        compare(reads, ["email", "password", "totp"], "nix/home/proton-setup.nix must read email, password, then TOTP, in the order Proton.qml sends them");
+        compare(reads, ["email", "password", "totp"], "nix/home/proton/proton-setup.nix must read email, password, then TOTP, in the order Proton.qml sends them");
     }
 
     // A spent code and a used password have no reason to stay in memory for

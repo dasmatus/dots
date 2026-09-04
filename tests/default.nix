@@ -24,14 +24,14 @@ let
   sessionUnitsTest = import ./session-units.nix { inherit pkgs lib inputs; };
 
   # proton-calendar — eval-only for the same reason as sessionUnitsTest, and
-  # guarding the one seam nothing else covers: nix/home/proton.nix runs
-  # Betterbird while nix/home/proton-calendar.nix delivers the calendar as
+  # guarding the one seam nothing else covers: nix/home/proton/proton.nix runs
+  # Betterbird while nix/home/proton/proton-calendar.nix delivers the calendar as
   # prefs in the mail profile, which only works while home-manager keeps that
   # profile at ~/.thunderbird. See tests/proton-calendar.nix.
   protonCalendarTest = import ./proton-calendar.nix { inherit pkgs lib inputs; };
 
   # limine-install-home — a lightweight runNixOSTest (no disko, no
-  # nixos-install, no facter.json wall) pinning nix/modules/limine-install.nix's
+  # nixos-install, no facter.json wall) pinning nix/modules/system/limine-install.nix's
   # hazard-1 HOME-provisioning fix under three HOME conditions. See
   # tests/limine-home.nix for what it guards and why it needs a VM rather
   # than an eval-only check.
@@ -48,7 +48,7 @@ let
   # 32G swap, which changes the disko-generated swapDevices/disk entries and
   # therefore the toplevel — see docs/superpowers/specs/
   # 2026-07-28-limine-bootloader-design.md (closure-feasibility note).
-  testSettings = (import ../nix/defaults.nix) // {
+  testSettings = (import ../nix/system/defaults.nix) // {
     username = "test";
     hostname = "test";
     disks = [ "/dev/vda" ];
@@ -65,7 +65,7 @@ let
   testTokyonight = mkTokyonight testSettings;
   testToplevel = testTokyonight.config.system.build.toplevel;
   # limine-install.nix's ensureOwnedHome fix exposes this standalone probe
-  # (nix/modules/limine-install.nix, "exposed only for tests/limine-home.nix")
+  # (nix/modules/system/limine-install.nix, "exposed only for tests/limine-home.nix")
   # so its $HOME-recovery branch can be inspected without invoking the real
   # upstream Limine installer. limineInstallBootTest below runs it right after
   # nixos-install, through the same nixos-enter chroot nixos-install itself
@@ -98,7 +98,7 @@ let
     lib.unique (builtins.concatMap walk (builtins.attrValues inputs));
 
   # The aipage source FOD — the one eval-time realization the flake forces that
-  # is NOT a flake input and NOT in the toplevel's runtime closure. nix/aipage.nix
+  # is NOT a flake input and NOT in the toplevel's runtime closure. nix/packages/aipage.nix
   # pins aipage via `pkgs.fetchgit` (aipageSrc, a hash-determined fixed-output
   # DERIVATION), and evaluating `packages.aipage-firefox` forces aipageSrc's
   # OUTPUT to be valid in the store: `aipageVersion = readFile
@@ -114,7 +114,7 @@ let
   # the host-built aipageSrc and the guest-evaluated aipageSrc are the SAME
   # store path — so registering it is enough; the rest of the aipage closure
   # (aipage-firefox etc.) substitutes bit-identically from the host store.
-  # Exposed via the aipage packages' `passthru.aipageSrc` (nix/aipage.nix).
+  # Exposed via the aipage packages' `passthru.aipageSrc` (nix/packages/aipage.nix).
   aipageSrc = dotsFlake.packages.${pkgs.system}.aipage-firefox.aipageSrc;
 
   # Full install+boot oracle for the Limine switch: runs the installer's plan()
@@ -189,7 +189,7 @@ let
         # real ISO and, via `boot.supportedFilesystems`, is what makes NixOS's
         # own filesystem-task modules (tasks/filesystems/btrfs.nix, lvm.nix's
         # services.lvm.enable default, …) pull in btrfs-progs/lvm2/dosfstools/
-        # e2fsprogs — the same generic installer toolkit `nix/iso.nix:35`
+        # e2fsprogs — the same generic installer toolkit `nix/system/iso.nix:35`
         # gets from `installation-cd-minimal.nix`. Importing it here is what
         # lets the disko CLI below resolve its own independently-evaluated
         # derivation (a different pkgs instantiation than this node's, see
@@ -255,12 +255,12 @@ let
             # offline: the test-settings toplevel, the flake input sources,
             # and the $HOME probe (system.build.limineEnsureOwnedHomeProbe)
             # the testScript runs after nixos-install to observe hazard 1
-            # (nix/modules/limine-install.nix) on the real install path.
+            # (nix/modules/system/limine-install.nix) on the real install path.
             # profiles/base.nix above gives this node the same *runtime*
             # PATH packages disko's script needs (parted, lvm2, …), but not
             # the *build-time* tool disko's cryptsetup-wrapping step needs to
             # realise that script in the first place: pkgs.makeBinaryWrapper
-            # (nix/iso.nix stages the same derivation, with the full
+            # (nix/system/iso.nix stages the same derivation, with the full
             # reasoning — its own build environment is the ordinary
             # cc-having stdenv, and nothing else here pulls it in, so its
             # absence sends disko's in-VM `nix build` all the way through a
@@ -312,7 +312,7 @@ let
       with subtest("disko partition + format + mount on /dev/vda (the disko CLI, same as install.rs::plan())"):
           # The literal command install.rs's plan() runs — `disko --mode
           # destroy,format,mount --yes-wipe-all-disks --arg disks [...]
-          # --argstr swapSize <swap> {flake_src}/nix/disko.nix`
+          # --argstr swapSize <swap> {flake_src}/nix/system/disko.nix`
           # (rust/installer-tui/src/install.rs) — against /etc/dots, the
           # read-only flake mount, exactly as a real install does; nixos-install
           # stages its own writable copy separately, below. disks/swapSize
@@ -323,7 +323,7 @@ let
           # config.system.build.destroyFormatMount (built through this node's
           # own, module-system-computed pkgs) — a different derivation whose
           # `nix build` this node must resolve on its own. profiles/base.nix
-          # above (imported the way nix/iso.nix:35 pulls in
+          # above (imported the way nix/system/iso.nix:35 pulls in
           # installation-cd-minimal.nix, minus the overlay it can't take
           # here) gives this node its own, properly built copy of every
           # package that build needs — parted/gptfdisk/cryptsetup directly,
@@ -339,7 +339,7 @@ let
           installer.succeed(
               "disko --mode destroy,format,mount --yes-wipe-all-disks"
               " --arg disks '[ \"/dev/vda\" ]' --argstr swapSize 1G"
-              " /etc/dots/nix/disko.nix >&2"
+              " /etc/dots/nix/system/disko.nix >&2"
           )
 
       with subtest("Stage a writable flake copy + write test settings.nix"):
@@ -361,8 +361,8 @@ let
           }
           """
           s_b64 = base64.b64encode(settings_nix.encode()).decode()
-          installer.succeed(f"printf '%s' {s_b64} | base64 -d > /tmp/dots-flake/nix/settings.nix")
-          installer.succeed("cat /tmp/dots-flake/nix/settings.nix >&2")
+          installer.succeed(f"printf '%s' {s_b64} | base64 -d > /tmp/dots-flake/nix/data/settings.nix")
+          installer.succeed("cat /tmp/dots-flake/nix/data/settings.nix >&2")
 
       with subtest("nixos-install completes — Limine sidesteps the machine-id abort"):
           # Replicate the impermanence condition that broke systemd-boot: an
@@ -384,7 +384,7 @@ let
           # `nixos-enter --root "$mountPoint" -c '... switch-to-configuration
           # boot'` (nixpkgs' nixos-install.sh) — a plain `chroot` with no HOME
           # handling of its own, so whatever ensureOwnedHome
-          # (nix/modules/limine-install.nix) saw is whatever that same
+          # (nix/modules/system/limine-install.nix) saw is whatever that same
           # invocation shape inherits. Run the exposed probe (testHomeProbe =
           # system.build.limineEnsureOwnedHomeProbe, "exposed only for
           # tests/limine-home.nix") through an identical nixos-enter chroot,
@@ -464,7 +464,7 @@ let
     # backdoor-based helpers (wait_for_unit, succeed, shutdown) are off
     # limits. installer.qml (Quickshell) emits DOTS_UI_READY on the serial
     # console from Component.onCompleted, once cage has actually mapped its
-    # window on tty1 — nix/iso.nix's unit no longer emits any marker itself.
+    # window on tty1 — nix/system/iso.nix's unit no longer emits any marker itself.
     testScript = ''
       machine.start()
       machine.wait_for_console_text("DOTS_UI_READY", timeout=6600)
@@ -554,10 +554,10 @@ let
     '';
   };
 
-  # Proves the agentmem cluster (nix/modules/agentmem.nix) is reachable over
+  # Proves the agentmem cluster (nix/modules/services/agentmem.nix) is reachable over
   # its unix socket by peer auth, survives an impermanence-style reboot, and
   # that the backup dump it produces actually restores — against a real
-  # import of nix/modules/impermanence.nix, not a hand-rolled bind mount, so
+  # import of nix/modules/system/impermanence.nix, not a hand-rolled bind mount, so
   # a change to the persistence machinery breaks this test first. Role/db
   # "test" stands in for the installer-collected username; agentmem.nix's
   # own dots.ai.claude gate is not exercised here (that is an eval-level
@@ -571,7 +571,7 @@ let
       {
         imports = [
           inputs.impermanence.nixosModules.impermanence
-          ../nix/modules/impermanence.nix
+          ../nix/modules/system/impermanence.nix
         ];
         # impermanence.nix reads config.dots.paths.stateDir for one of its
         # (unrelated, here-irrelevant) persisted directories — stub it

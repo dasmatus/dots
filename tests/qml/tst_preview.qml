@@ -9,7 +9,7 @@
 // legal filename and fd will happily hand one over.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/launcher/preview.js" as Preview
+import "../../nix/home/desktop/quickshell/qml/launcher/preview.js" as Preview
 
 TestCase {
     name: "Preview"

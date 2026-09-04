@@ -43,7 +43,7 @@ pub enum Action {
     /// (plaintext piped via stdin, never argv — no /proc leak) and write
     /// `nix/secrets.nix` into the staged flake. `nixos-install` then evaluates
     /// the flake with the hash present so userborn creates the account with
-    /// it on first boot (nix/modules/users.nix reads this file via
+    /// it on first boot (nix/modules/system/users.nix reads this file via
     /// `builtins.pathExists` and sets `initialHashedPassword`). The file is
     /// install-time-only: it is NOT stashed to /var/lib/dots, so the
     /// dots-clone Home Manager service never restores it into the user's git
@@ -63,7 +63,7 @@ pub struct Step {
 }
 
 pub const LUKS_PASSFILE: &str = "/tmp/dots-luks-pass";
-/// The root logical volume in the `tokyonightvg` VG (see nix/disko.nix):
+/// The root logical volume in the `tokyonightvg` VG (see nix/system/disko.nix):
 /// disko puts LUKS on this LV, so TPM2/recovery enrollment targets it
 /// instead of a GPT partition by-partlabel.
 pub const LUKS_DEVICE: &str = "/dev/tokyonightvg/root";
@@ -99,7 +99,7 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
 /// installs from there, then stashes the two machine-specific answer files
 /// at `{mnt}/persist/var/lib/dots` (facter.json at the top level,
 /// settings.nix under `nix/`) — on the persistent /persist subvol, since the
-/// root is a tmpfs wiped each boot (nix/modules/impermanence.nix) and
+/// root is a tmpfs wiped each boot (nix/modules/system/impermanence.nix) and
 /// nixos-impermanence bind-mounts /persist/var/lib/dots → /var/lib/dots so
 /// the first-login `dots-clone` user service can pick them up. The repo
 /// itself is never copied onto the target — `mnt` is only the installation
@@ -150,7 +150,7 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                     "--argstr",
                     "swapSize",
                     &swap,
-                    &format!("{flake_src}/nix/disko.nix"),
+                    &format!("{flake_src}/nix/system/disko.nix"),
                 ],
                 None,
                 Capture::Stream,
@@ -163,7 +163,7 @@ title: "Stage flake for install".into(),
             // inside the flake source that nixos-install later evaluates.
             //
             // /etc/dots is a nix-store tree with absolute dangling symlinks
-            // (nix/settings.nix → /var/lib/dots/settings.nix).  cp -L fails
+            // (nix/data/settings.nix → /var/lib/dots/settings.nix).  cp -L fails
             // with "cannot stat"; cp -P leaves RO store symlinks that chmod
             // cannot rewrite.  Copy with -a, materialise links whose targets
             // exist, drop the rest, recreate the intentional settings.nix
@@ -188,7 +188,7 @@ for link do \
 done\
 ' sh {{}} + \
 && chmod -R u+w {STAGED_FLAKE}.new \
-&& ln -sfn /var/lib/dots/settings.nix {STAGED_FLAKE}.new/nix/settings.nix \
+&& ln -sfn /var/lib/dots/settings.nix {STAGED_FLAKE}.new/nix/data/settings.nix \
 && mv {STAGED_FLAKE}.new {STAGED_FLAKE}"
                     ),
                 ],
@@ -200,7 +200,7 @@ done\
             title: "Detect hardware (nixos-facter)".into(),
             action: cmd(
                 "nixos-facter",
-                &["-o", &format!("{STAGED_FLAKE}/nix/facter.json")],
+                &["-o", &format!("{STAGED_FLAKE}/nix/data/facter.json")],
                 None,
                 Capture::Stream,
             ),
@@ -208,7 +208,7 @@ done\
         Step {
             title: "Write install answers (settings.nix)".into(),
             action: Action::WriteFile {
-                path: format!("{STAGED_FLAKE}/nix/settings.nix"),
+                path: format!("{STAGED_FLAKE}/nix/data/settings.nix"),
                 contents: cfg.settings_nix(),
                 mode: 0o644,
             },
@@ -234,8 +234,8 @@ done\
                     "-c",
                     &format!(
                         "mkdir -p {mnt}/persist/var/lib/dots/nix \
-                         && cp {STAGED_FLAKE}/nix/facter.json {mnt}/persist/var/lib/dots/ \
-                         && cp {STAGED_FLAKE}/nix/settings.nix {mnt}/persist/var/lib/dots/"
+                         && cp {STAGED_FLAKE}/nix/data/facter.json {mnt}/persist/var/lib/dots/ \
+                         && cp {STAGED_FLAKE}/nix/data/settings.nix {mnt}/persist/var/lib/dots/"
                     ),
                 ],
                 None,

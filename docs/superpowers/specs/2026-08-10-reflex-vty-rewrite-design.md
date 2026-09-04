@@ -210,7 +210,7 @@ Env gates preserved verbatim: `DOTS_INSTALLER_DRY_RUN`, `DOTS_TUI_IDLE_MS`,
   cabal packages (`abstracttui`, `hyprmon`, `installer-tui`, `wallpaper-tui`)
   via `callCabal2nix`. GHC from nixpkgs (9.10.x/9.12.x).
 - `devShell`: `ghc`, `cabal-install`, `haskell-language-server`, `fourmolu`
-  (hls + fourmolu just re-enabled in `nix/home/nixvim.nix`).
+  (hls + fourmolu just re-enabled in `nix/home/apps/nixvim.nix`).
 - `nix run .#<app>` (`flake/apps.nix`) repoints from the Rust crates to the
   Haskell executables.
 - GitLab CI: add a Haskell build + `cabal test` lane; extend `nix run .#nix-lint`

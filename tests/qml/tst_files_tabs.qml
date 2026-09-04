@@ -7,7 +7,7 @@
 // away by someone who has not hit the bug.
 import QtQuick
 import QtTest
-import "../../nix/home/quickshell/qml/files/tabs.js" as Tabs
+import "../../nix/home/desktop/quickshell/qml/files/tabs.js" as Tabs
 
 TestCase {
     name: "FilesTabs"
