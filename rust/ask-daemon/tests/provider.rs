@@ -28,6 +28,7 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -57,12 +58,10 @@ const TOOLS: &str = include_str!("fixtures/ollama-tools-ndjson.txt");
 const PATIENCE: Duration = Duration::from_secs(20);
 
 // -- the fake provider -----------------------------------------------------
-
 /// A provider that answers from a script and remembers what it was asked.
 ///
-/// One connection per request, `Content-Length` framed, HTTP/1.1. `reqwest`
-/// speaks 1.1 to an `http://` origin unless told otherwise, so no TLS and no
-/// h2 negotiation are involved.
+/// One connection per request, HTTP/1.1. `reqwest` speaks 1.1 to an `http://`
+/// origin unless told otherwise, so no TLS and no h2 negotiation are involved.
 struct FakeProvider {
     addr: SocketAddr,
     /// The JSON body of each request, in the order they arrived.
@@ -70,41 +69,84 @@ struct FakeProvider {
 }
 
 impl FakeProvider {
-    /// Serve `script` in order, one entry per request.
+    /// Serve `script` in order, one entry per request, closing each response.
     ///
     /// A request past the end of the script gets the last entry again, so a
     /// test that only cares about the first two rounds does not have to
     /// predict how many the loop will make.
     async fn start(script: Vec<String>) -> Self {
+        Self::spawn(script, false).await
+    }
+
+    /// Serve `script`, then hold each response open forever.
+    ///
+    /// This is what makes an interrupt deterministic. `stream_once` selects
+    /// over the byte stream and the command inbox, and `select!` polls ready
+    /// branches in a random order, so a test that queues an interrupt against
+    /// a response that closes is racing: if the stream branch wins for the
+    /// one or two polls a small fixture needs, the loop finishes before the
+    /// inbox is ever read. Holding the response open leaves the stream branch
+    /// pending after the scripted bytes, so the inbox branch is the only one
+    /// that can make progress and the interrupt is taken every time.
+    ///
+    /// The response is chunked and the terminating zero-length chunk is never
+    /// written, which is how the connection stays open without lying about a
+    /// `Content-Length`.
+    async fn start_held(script: Vec<String>) -> Self {
+        Self::spawn(script, true).await
+    }
+
+    async fn spawn(script: Vec<String>, hold: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("a loopback port is available");
         let addr = listener.local_addr().expect("the socket has an address");
         let seen = Arc::new(Mutex::new(Vec::new()));
         let recorder = Arc::clone(&seen);
+        let script = Arc::new(script);
 
         tokio::spawn(async move {
-            let mut answered = 0_usize;
-            while let Ok((mut stream, _)) = listener.accept().await {
-                let Some(body) = read_request(&mut stream).await else {
-                    continue;
-                };
-                if let Ok(mut seen) = recorder.lock() {
-                    seen.push(body);
-                }
-                let reply = script
-                    .get(answered)
-                    .or_else(|| script.last())
-                    .cloned()
-                    .unwrap_or_default();
-                answered += 1;
-                let head = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    reply.len()
-                );
-                let _ = stream.write_all(head.as_bytes()).await;
-                let _ = stream.write_all(reply.as_bytes()).await;
-                let _ = stream.shutdown().await;
+            let answered = Arc::new(AtomicUsize::new(0));
+            while let Ok((stream, _)) = listener.accept().await {
+                // One task per connection, so a held response cannot stop the
+                // next request from being accepted.
+                let recorder = Arc::clone(&recorder);
+                let script = Arc::clone(&script);
+                let answered = Arc::clone(&answered);
+                tokio::spawn(async move {
+                    let mut stream = stream;
+                    let Some(body) = read_request(&mut stream).await else {
+                        return;
+                    };
+                    if let Ok(mut seen) = recorder.lock() {
+                        seen.push(body);
+                    }
+                    let round = answered.fetch_add(1, Ordering::SeqCst);
+                    let reply = script
+                        .get(round)
+                        .or_else(|| script.last())
+                        .cloned()
+                        .unwrap_or_default();
+
+                    if hold {
+                        let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n";
+                        let _ = stream.write_all(head.as_bytes()).await;
+                        let chunk = format!("{:x}\r\n{reply}\r\n", reply.len());
+                        let _ = stream.write_all(chunk.as_bytes()).await;
+                        let _ = stream.flush().await;
+                        // No terminating chunk: the body never ends, so the
+                        // client's stream stays pending here.
+                        std::future::pending::<()>().await;
+                    } else {
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            reply.len()
+                        );
+                        let _ = stream.write_all(head.as_bytes()).await;
+                        let _ = stream.write_all(reply.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                    }
+                });
             }
         });
 
@@ -651,7 +693,7 @@ async fn a_provider_that_answers_with_an_error_status_ends_the_turn() {
 
 #[tokio::test]
 async fn an_interrupt_stops_the_turn_and_raises_no_error() {
-    let provider = FakeProvider::start(vec![PROSE.to_owned()]).await;
+    let provider = FakeProvider::start_held(vec![PROSE.to_owned()]).await;
     let mut harness = Harness::new();
     harness.session.push_user(&[text_block("hello")]);
     let request = ask_daemon::backend::ollama::request(&provider.url(), "ornith:9b", Vec::new());
@@ -853,4 +895,122 @@ fn the_openai_request_asks_for_the_usage_it_would_otherwise_never_get() {
         .map(|(name, _)| name.as_str())
         .collect();
     assert!(headers.contains(&"authorization"), "{headers:?}");
+}
+
+// -- orphaned tool calls, which brick the thread --------------------------
+//
+// Both providers require every call the assistant message announces to be
+// answered by a result in the same history. Anthropic rejects a `tool_use`
+// with no following `tool_result`, and OpenAI rejects `tool_calls` not
+// followed by a matching `role:"tool"`. Nothing here prunes the history, so
+// an orphan is not one failed turn: it is every turn from then on.
+//
+// Recording the assistant message is what makes this reachable at all, and
+// the two paths that leave the loop between recording it and running the
+// tools are the ones to guard.
+
+/// The ids of the calls one assistant message announced.
+fn announced_calls(message: &Value) -> Vec<String> {
+    message["tool_calls"]
+        .as_array()
+        .map(|calls| {
+            calls
+                .iter()
+                .filter_map(|call| call["function"]["name"].as_str())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The tool names one history answers, in order.
+fn answered_calls(messages: &[Value]) -> Vec<String> {
+    messages
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .filter_map(|message| message["tool_name"].as_str())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Assert that every call the history announces is also answered by it.
+fn assert_no_orphans(messages: &[Value]) {
+    let announced: Vec<String> = messages.iter().flat_map(announced_calls).collect();
+    let answered = answered_calls(messages);
+    assert_eq!(
+        announced, answered,
+        "every announced call must be answered in the same history, or both \
+         providers reject it and every later turn fails too: {messages:#?}"
+    );
+}
+
+#[tokio::test]
+async fn stopping_a_tool_turn_leaves_no_orphaned_call() {
+    // The stop button. The model asked for a tool, the person pressed stop
+    // before it ran, and the assistant message announcing that call is
+    // already in the history. Leaving it unanswered breaks not just this
+    // turn but every turn after it, which is the worst shape a defect can
+    // take: a normal action permanently bricks the conversation.
+    let provider = FakeProvider::start_held(vec![TOOLS.to_owned()]).await;
+    let mut harness = Harness::with_a_known_tool();
+    harness
+        .session
+        .push_user(&[text_block("search for something")]);
+    let request = ask_daemon::backend::ollama::request(&provider.url(), "ornith:9b", Vec::new());
+
+    harness
+        .commands
+        .send(BackendCommand::Interrupt)
+        .expect("the inbox is open");
+    harness.run(&request).await;
+
+    let history = harness.session.messages();
+    assert_no_orphans(history);
+    assert_eq!(
+        roles(history),
+        vec!["user", "assistant", "tool"],
+        "the abandoned call is answered rather than left hanging: {history:#?}"
+    );
+
+    let answer = history[2]["content"]
+        .as_str()
+        .expect("the synthesized result carries text");
+    assert!(
+        answer.contains("interrupted"),
+        "and says why it never ran, so the model is not left guessing: {answer}"
+    );
+}
+
+#[tokio::test]
+async fn hitting_the_round_cap_leaves_no_orphaned_call() {
+    // The other path out of the loop between recording a call and running
+    // it. A model that asks for a tool every round runs the loop out, and
+    // the last round records its request and then bails.
+    let provider = FakeProvider::start(vec![TOOLS.to_owned()]).await;
+    let mut harness = Harness::with_a_known_tool();
+    harness
+        .turn(&provider, "search for something", PermissionDecision::Allow)
+        .await;
+
+    let history = harness.session.messages();
+    assert_no_orphans(history);
+    assert_eq!(
+        history.last().expect("the history is not empty")["role"],
+        "tool",
+        "the capped turn ends on an answer, not on a request: {history:#?}"
+    );
+
+    let events = harness.drained();
+    let [EventBody::TurnEnd { stop, .. }] = events
+        .iter()
+        .filter(|body| matches!(body, EventBody::TurnEnd { .. }))
+        .collect::<Vec<_>>()[..]
+    else {
+        panic!("expected exactly one turn_end: {events:#?}");
+    };
+    assert_eq!(
+        *stop,
+        StopReason::Error,
+        "running the loop out is a failure the pane should show"
+    );
 }
