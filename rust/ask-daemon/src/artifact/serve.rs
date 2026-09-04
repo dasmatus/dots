@@ -81,7 +81,7 @@ use hyper::header::{HeaderValue, HOST};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
@@ -161,6 +161,11 @@ impl Bound {
                     async move { Ok::<_, Infallible>(answer(&store, &authority, &request)) }
                 });
                 let mut builder = http1::Builder::new();
+                // The timer is not optional. hyper panics on the first request
+                // when a timeout is set without one, and it panics inside the
+                // connection task rather than at bind, so the daemon comes up
+                // healthy and every artifact fetch resets instead.
+                builder.timer(TokioTimer::new());
                 builder.header_read_timeout(HEADER_TIMEOUT);
                 if let Err(err) = builder
                     .serve_connection(TokioIo::new(stream), service)

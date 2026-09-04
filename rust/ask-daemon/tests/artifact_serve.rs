@@ -13,13 +13,14 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::{Request, Response, StatusCode};
 use uuid::Uuid;
 
-use ask_daemon::artifact::serve::{answer, clean_segments, inject, CSP};
+use ask_daemon::artifact::serve::{answer, bind, clean_segments, inject, CSP};
 use ask_daemon::artifact::ArtifactStore;
 
 /// The authority every request in this file claims, and the one the server is
@@ -435,4 +436,84 @@ fn a_page_with_no_body_tag_still_gets_the_shim() {
         "the shim goes inside the body: {document}"
     );
     assert!(document.contains("<script nonce=\"abc\">"));
+}
+
+// -- over a real socket ----------------------------------------------------
+
+// Everything above drives `answer` directly, which is the right shape for the
+// hostile-path cases but leaves the connection loop untested. That gap was not
+// theoretical: `header_read_timeout` without a `Timer` makes hyper panic on
+// the FIRST request, inside the connection task, so the daemon starts
+// healthy, logs nothing at bind, and every artifact fetch resets. A live check
+// found it and this test is what would have.
+//
+// It speaks HTTP/1.1 by hand over the loopback port rather than pulling in a
+// client. One request, one response, `Connection: close`: enough to prove the
+// connection is served rather than reset.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bound_server_answers_a_real_request_rather_than_resetting() {
+    use std::io::{Read, Write};
+
+    let scratch = Scratch::new();
+    let store = Arc::new(scratch.store());
+    let conversation = Uuid::new_v4();
+    let written = store
+        .write(conversation, "<html><body>live</body></html>")
+        .expect("the page writes");
+
+    let bound = bind(Arc::clone(&store)).expect("loopback binds");
+    let authority = bound
+        .base()
+        .strip_prefix("http://")
+        .expect("the base is an http url")
+        .to_owned();
+    let serving = tokio::spawn(bound.serve());
+
+    let raw = tokio::task::spawn_blocking(move || {
+        let mut socket = std::net::TcpStream::connect(&authority).expect("the port accepts");
+        let request = format!(
+            "GET /{conversation}/{} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n",
+            written.artifact
+        );
+        socket
+            .write_all(request.as_bytes())
+            .expect("the request goes out");
+        let mut answer = Vec::new();
+        socket
+            .read_to_end(&mut answer)
+            .expect("the server answers rather than resetting");
+        String::from_utf8_lossy(&answer).into_owned()
+    })
+    .await
+    .expect("the blocking client finishes");
+    serving.abort();
+
+    assert!(raw.starts_with("HTTP/1.1 200 OK"), "{raw}");
+    assert!(raw.contains("<body>live"), "the page itself: {raw}");
+    assert!(
+        raw.contains("content-security-policy: default-src 'none'"),
+        "the containment rides a real response too: {raw}"
+    );
+    assert!(raw.contains("location.reload()"), "and so does the shim");
+}
+
+// The listener is on 127.0.0.1 and on no interface another machine can reach,
+// and on a port the kernel picked rather than one anything could name in
+// advance.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_server_binds_loopback_on_a_port_the_kernel_picked() {
+    let scratch = Scratch::new();
+    let bound = bind(Arc::new(scratch.store())).expect("loopback binds");
+    let base = bound.base().to_owned();
+
+    assert!(base.starts_with("http://127.0.0.1:"), "{base}");
+    let port: u16 = base
+        .rsplit(':')
+        .next()
+        .and_then(|port| port.parse().ok())
+        .expect("the base ends in a port");
+    assert_ne!(port, 0, "the kernel handed out a real port");
+
+    let other = bind(Arc::new(scratch.store())).expect("a second loopback binds");
+    assert_ne!(base, other.base(), "two runs do not share a port");
 }
