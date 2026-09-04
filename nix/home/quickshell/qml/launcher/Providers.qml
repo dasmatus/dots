@@ -20,6 +20,7 @@ import "apps.js" as AppsLogic
 import "rank.js" as Rank
 import "preview.js" as PreviewMath
 import "status.js" as StatusMath
+import "keyboard.js" as KeyboardMath
 import "../services"
 import "../services/devices.js" as DevicesMath
 
@@ -307,6 +308,58 @@ QtObject {
         return rows;
     }
 
+    // The same desktop actions applicationRows nests onto each app row,
+    // flattened out here under their own provider id so rank.js can score
+    // them and pills.js can count them — nested under actionRows: above,
+    // they were reachable only by drilling into the parent app first
+    // (Right-arrow), and typing an action's own name, "compose" for
+    // Mastodon's "Compose new post", found nothing.
+    //
+    // DesktopAction carries only id, name, icon, execString and command —
+    // no keywords or genericName the way DesktopEntry has — so the match
+    // is against the action's own name and its parent app's name, the
+    // closest a query has to go on. Concatenated after applicationRows in
+    // Launcher.qml's ambientRows, never before: that ordering is what
+    // keeps an action's original index above its own app's when rank.js's
+    // final tiebreak is what two equally-scored rows fall to.
+    function appActionRows(text: string): var {
+        const rows = [];
+
+        for (const entry of DesktopEntries.applications.values) {
+            if (entry.noDisplay)
+                continue;
+
+            // Same guard applicationRows applies to the app row itself: a
+            // PWA's own entry is hidden from the empty-query default screen,
+            // and an Actions= group on that same entry is not a back door
+            // around it — the action's subtitle is the hidden app's own
+            // name, so it would be exactly the noise that guard exists to
+            // keep out. A non-empty query still reaches it either way.
+            if (text === "" && AppsLogic.isWebApp(entry.execString))
+                continue;
+
+            const icon = entry.icon ? Quickshell.iconPath(entry.icon, true) : "";
+
+            for (const action of entry.actions) {
+                if (!root.matches(`${action.name} ${entry.name}`, text))
+                    continue;
+
+                rows.push({
+                    title: action.name,
+                    subtitle: entry.name,
+                    icon: icon,
+                    accessory: "action",
+                    provider: "actions",
+                    key: AppsLogic.actionKey(entry.id, action.id),
+                    parentKey: AppsLogic.appKey(entry.id),
+                    run: () => action.execute()
+                });
+            }
+        }
+
+        return rows;
+    }
+
     function systemRows(text: string): var {
         const rows = [];
 
@@ -329,6 +382,19 @@ QtObject {
         }
 
         return rows;
+    }
+
+    // One row per layout configured on input:kb_layout, or none at all —
+    // see keyboard.js's own header for the two hyprctl shapes this leans on
+    // and why a single-layout config gets no rows at all. "all" rather than
+    // a specific device name from `hyprctl devices -j`: a laptop with a
+    // built-in keyboard plugged into an external one has more than one
+    // keyboard device, and switching only one would leave them disagreeing
+    // about which layout is active until the next switch — enumerating
+    // devices at all buys nothing switchLayoutArgv needs and is one more
+    // JSON shape that could go stale.
+    function keyboardRows(text: string): var {
+        return KeyboardMath.keyboardRows(text, root.configuredKeyboardLayouts, "all", (argv) => Quickshell.execDetached(argv));
     }
 
     function windowRows(text: string): var {
@@ -767,6 +833,24 @@ QtObject {
 
         stderr: StdioCollector {
             onStreamFinished: root.diskStderrText = this.text
+        }
+    }
+
+    // The layout codes configured on input:kb_layout, parsed once at
+    // startup rather than on a timer the way diskProbe above is: unlike
+    // free space, this only ever changes when Hyprland's own config is
+    // edited and reloaded, which already requires restarting this shell
+    // process to pick up everything else Nix generates into it (Theme.qml
+    // among it), so a fixed startup read costs nothing a restart was not
+    // already going to pay for.
+    property var configuredKeyboardLayouts: []
+
+    property var keyboardLayoutProbe: Process {
+        running: true
+        command: ["hyprctl", "getoption", "input:kb_layout", "-j"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.configuredKeyboardLayouts = KeyboardMath.parseConfiguredLayouts(this.text)
         }
     }
 }

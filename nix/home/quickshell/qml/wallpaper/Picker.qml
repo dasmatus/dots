@@ -783,8 +783,12 @@ Scope {
 
                     radius: 6
                     color: Theme.bgDark
-                    border.width: cell.index === root.selected ? 2 : 0
-                    border.color: Theme.accent
+
+                    EdgeStrip {
+                        edge: "top"
+                        active: cell.index === root.selected
+                        thickness: 2
+                    }
 
                     // Capped at 320x200 (sourceSize, not the cell's own
                     // display size): the old preview cache's own bound,

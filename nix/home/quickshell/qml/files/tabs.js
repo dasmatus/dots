@@ -49,6 +49,16 @@ function clampIndex(index, length) {
     return Math.max(0, Math.min(index, length - 1));
 }
 
+// gt/gT's arithmetic: step by one and wrap at either end. A count of zero
+// or one has nowhere to move, so both stay put rather than divide by zero
+// or feed % a negative modulus that only looks wrong on the second lap.
+function cycleIndex(current, count, step) {
+    if (count <= 0)
+        return 0;
+
+    return ((current + step) % count + count) % count;
+}
+
 // The basename, since a tab has room for one path component and the full
 // path already sits in the pane header below it. Root has no basename to
 // take, so it keeps its slash.

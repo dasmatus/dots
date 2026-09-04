@@ -7,6 +7,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import ".."
+import "../common"
 import "disks.js" as Disks
 
 Frame {
@@ -83,8 +84,11 @@ Frame {
                     height: 48
                     radius: 6
                     color: index === root.selected ? Theme.selection : "transparent"
-                    border.width: index === root.selected ? 1 : 0
-                    border.color: Theme.accent
+
+                    EdgeStrip {
+                        edge: "left"
+                        active: row.index === root.selected
+                    }
 
                     Row {
                         anchors.fill: parent

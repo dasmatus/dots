@@ -1,6 +1,6 @@
 // A single-line entry field, styled after Settings.qml's text row (the same
-// Theme.bgDark fill and Theme.border outline) so no popup surface grows its
-// own second text-field look. Started as the installer's alone; monitors'
+// Theme.bgDark fill) so no popup surface grows its own second text-field
+// look. Started as the installer's alone; monitors'
 // Arrange.qml reuses it too, which is why it lives in common/ rather than
 // installer/.
 //
@@ -25,8 +25,11 @@ Rectangle {
     implicitHeight: 44
     radius: 6
     color: Theme.bgDark
-    border.width: 1
-    border.color: input.activeFocus ? Theme.accent : Theme.border
+
+    EdgeStrip {
+        edge: "left"
+        active: input.activeFocus
+    }
 
     function focusInput() {
         input.forceActiveFocus();

@@ -88,13 +88,6 @@ Rectangle {
         root.submitted(input.text);
     }
 
-    Rectangle {
-        anchors.top: parent.top
-        width: parent.width
-        height: 1
-        color: Theme.border
-    }
-
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -128,8 +121,8 @@ Rectangle {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: Theme.filesPadding
-                    anchors.rightMargin: Theme.filesPadding
+                    anchors.leftMargin: Theme.filesRowInset
+                    anchors.rightMargin: Theme.filesRowInset
                     spacing: 0
 
                     Text {
@@ -190,7 +183,7 @@ Rectangle {
             Text {
                 text: {
                     if (root.confirming)
-                        return "\u{F0A79}";
+                        return Commands.TRASH;
 
                     return root.mode === "search" ? "/" : ":";
                 }

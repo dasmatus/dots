@@ -165,6 +165,12 @@ let
         readonly property int barIconSize: ${toString palette.bar.iconSize};
         readonly property int barTitleMaxWidth: ${toString palette.bar.titleMaxWidth};
 
+        // How many app icons a single crowded workspace draws before the
+        // rest fold into a "+n" badge — see Workspaces.qml's own use of it
+        // for why an unbounded row would be able to push the clock off the
+        // bar.
+        readonly property int barWorkspaceIconCap: ${toString palette.bar.workspaceIconCap};
+
         // Launcher geometry, still read from the palette's `beamenu` block.
         // The values outlive the program they were named for, so the key is
         // renamed when that crate goes rather than duplicated now.
@@ -193,6 +199,25 @@ let
         readonly property int filesSizeColumn: ${toString palette.files.sizeColumn};
         readonly property int filesTimeColumn: ${toString palette.files.timeColumn};
         readonly property int filesCommandHeight: ${toString palette.files.commandHeight};
+        readonly property int filesRowInset: ${toString palette.files.rowInset};
+        readonly property int filesHoverPad: ${toString palette.files.hoverPad};
+        readonly property int filesHoverPadWide: ${toString palette.files.hoverPadWide};
+        readonly property int filesMenuWidth: ${toString palette.files.menuWidth};
+
+        // How many entries a crumb's dropdown shows before it cuts off and
+        // reports the rest as a count instead — see files/crumbmenu.js's own
+        // comment for why a directory like /nix/store forces a cap at all.
+        // 15 is chosen against filesRowHeight: 15 entries plus the fixed
+        // open-this-folder row and, when the cap bites, the one-line
+        // remainder trailer come to 17 rows, or ~530px including padding,
+        // comfortably inside this file manager's own 700px window with
+        // headroom left for PopupShell's flip-above-the-anchor case.
+        readonly property int filesCrumbMenuCap: ${toString palette.files.crumbMenuCap};
+
+        // Accent edge-strip geometry, its own top-level palette block since
+        // it belongs to no single component the way the file manager's
+        // metrics do.
+        readonly property int chromeStripWidth: ${toString palette.chrome.stripWidth};
 
         // Alpha suffixes are applied at the seam by each consumer, so they stay
         // strings here rather than being folded into the colours above.

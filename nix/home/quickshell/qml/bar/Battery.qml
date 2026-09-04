@@ -31,21 +31,27 @@ Pill {
 
     visible: root.device?.isLaptopBattery ?? false
 
-    color: {
-        const name = BatteryMath.colorName(root.percent, root.charging);
+    // Empty when the battery is healthy and discharging; see battery.js.
+    readonly property string colourName: BatteryMath.colorName(root.percent, root.charging)
 
-        if (name === "red")
+    color: {
+        if (root.colourName === "red")
             return Theme.red;
 
-        if (name === "yellow")
+        if (root.colourName === "yellow")
             return Theme.yellow;
 
-        return Theme.green;
+        if (root.colourName === "green")
+            return Theme.green;
+
+        return Theme.bgDark;
     }
 
     Text {
         text: `${root.icon} ${root.percent}%`
-        color: Theme.bg
+
+        // Dark text reads on a bright fill, light text on the neutral one.
+        color: root.colourName === "" ? Theme.fg : Theme.bg
 
         font.family: Theme.fontUi
         font.pixelSize: Theme.barFontSize

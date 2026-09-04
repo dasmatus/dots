@@ -24,6 +24,12 @@ function rampIndex(percent, length) {
 
 // waybar's states block: critical at 15, warning at 30, and charging overrides
 // both because a charging battery at 8% is not an emergency.
+//
+// A healthy battery that is merely discharging names no colour at all. Every
+// pill in the bar sits on one neutral fill at rest and lights up only when it
+// has something to say, so "fine" is the absence of a colour rather than a
+// green one. Charging keeps green: it is a state you put the machine into and
+// want confirmed, which is the same reason it still overrides the thresholds.
 function colorName(percent, charging) {
     if (charging)
         return "green";
@@ -34,5 +40,5 @@ function colorName(percent, charging) {
     if (percent <= 30)
         return "yellow";
 
-    return "green";
+    return "";
 }

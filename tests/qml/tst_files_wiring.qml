@@ -98,6 +98,24 @@ TestCase {
         verify(declaration.indexOf('focus: root.promptMode === ""') !== -1, "catcher's focus must be bound to the closed state, not taken imperatively");
     }
 
+    // The keys themselves cannot be driven here — qmltestrunner cannot
+    // instantiate Files.qml, so nothing can dispatch a real key event at
+    // `catcher` — but the switch that would handle them can still be read
+    // as text, and it pins that t/T/gt/gT route through the same tab
+    // methods Tabs.qml's mouse paths already use rather than duplicating
+    // their logic inline where no test could reach it.
+    function test_the_tab_keys_route_through_the_existing_tab_methods() {
+        const handler = Scan.blockAfter(filesSource(), "Keys.onPressed: (event) => {");
+        verify(handler !== "", "Files.qml must define the catcher's key handler");
+
+        const tKey = Scan.blockAfter(handler, "case Qt.Key_T:");
+        verify(tKey !== "", "the switch must have a case for Qt.Key_T");
+        verify(tKey.indexOf("TabsMath.cycleIndex(") !== -1, "gt/gT must reuse tabs.js's cycleIndex rather than reimplementing the wrap");
+        verify(tKey.indexOf("root.switchTab(") !== -1, "gt/gT must land through switchTab, the same method Tabs.qml's mouse path uses");
+        verify(tKey.indexOf("root.addTab()") !== -1, "a bare t must open a tab through addTab(), the same method the strip's + uses");
+        verify(tKey.indexOf("root.closeTab(") !== -1, "Shift+T must close through closeTab(), the same method the strip's x uses");
+    }
+
     // The other half. These two bindings and the confirm item's are mutually
     // exclusive by construction, which is what makes exactly one of them
     // hold focus in every mode.

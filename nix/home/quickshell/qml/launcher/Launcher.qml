@@ -110,7 +110,7 @@ Scope {
 
         const needle = text.trim();
 
-        return providers.applicationRows(needle).concat(providers.systemRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle)).concat(providers.fileRows(needle)).concat(providers.deviceRows(needle)).concat(providers.statusRows(needle));
+        return providers.applicationRows(needle).concat(providers.appActionRows(needle)).concat(providers.systemRows(needle)).concat(providers.keyboardRows(needle)).concat(providers.quicklinkRows(needle)).concat(providers.snippetRows(needle)).concat(providers.fileRows(needle)).concat(providers.deviceRows(needle)).concat(providers.statusRows(needle));
     }
 
     // Rows are computed fresh per keystroke. The result sets here are small

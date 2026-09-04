@@ -17,6 +17,7 @@ import QtQuick.Layouts
 import "tabs.js" as TabsMath
 import "icons.js" as Icons
 import ".."
+import "../common"
 
 Rectangle {
     id: root
@@ -29,10 +30,23 @@ Rectangle {
     signal added()
 
     implicitHeight: Theme.filesTabHeight
+    // bgDarker computes at only 1.054:1 against PathBar's bg below —
+    // barely a seam, under an inactive tab. Left as-is anyway: every
+    // inactive tab's label and icon default to Theme.muted, which reads at
+    // a healthy 4.320:1 against this bgDarker fill; lifting the strip to
+    // the lighter `raised` token to fix the seam would drop that to
+    // 2.283:1, the same order of regression a sibling task's fix
+    // introduced on Pane.qml's muted columns.
+    //
+    // Directly under the active tab, shade gives no seam at all: the
+    // active tab paints this same PathBar bg, so the two bands measure
+    // 1.000:1 there — identical, not merely faint, whatever the rest of
+    // this file's history claimed about that pairing "reading as
+    // distinct". The 1px Theme.border rule below (1.914:1 against bg)
+    // covers exactly that boundary, full width, which also tidies the
+    // 1.054:1 inactive case above as a side effect.
     color: Theme.bgDarker
 
-    // The strip and the pane area below it are both dark; without this the
-    // seam between them is invisible and the active tab appears to float.
     Rectangle {
         anchors.bottom: parent.bottom
         width: parent.width
@@ -60,26 +74,22 @@ Rectangle {
 
                 color: tab.current ? Theme.bg : "transparent"
 
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: Theme.filesTabIndicator
-                    color: Theme.accent
-                    visible: tab.current
+                EdgeStrip {
+                    edge: "left"
+                    active: tab.current
+                    thickness: Theme.filesTabIndicator
                 }
 
-                Rectangle {
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.topMargin: Theme.filesTabPadding / 2
-                    anchors.bottomMargin: Theme.filesTabPadding / 2
-                    width: 1
-                    color: Theme.border
-                    visible: !tab.current
-                }
-
+                // No divider between inactive tabs: they already share the
+                // strip's own bgDarker fill (transparent above), so a
+                // shade change would need a fourth token invented just for
+                // this seam. What actually keeps two adjacent tabs from
+                // reading as one is geometry, not colour: implicitWidth
+                // above already gives every tab Theme.filesTabPadding on
+                // both sides, so neighbours sit roughly 28px of bare strip
+                // apart before either one's icon or label even starts —
+                // that gap was already doing the separating, the 1px rule
+                // was never the only thing telling two tabs apart.
                 RowLayout {
                     id: tabRow
 
@@ -146,7 +156,7 @@ Rectangle {
                 id: addArea
 
                 anchors.fill: parent
-                anchors.margins: -4
+                anchors.margins: -Theme.filesHoverPad
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.added()

@@ -26,21 +26,24 @@ Rectangle {
     id: root
 
     readonly property string home: Quickshell.env("HOME")
-    property var places: [
-        {
-            label: "Home",
-            path: root.home,
-            glyph: "\u{F02DC}",
-            colour: "accent"
-        }
-    ]
+    // Same shape onLoadFailed below falls back to: Places.placesFor with no
+    // user-dirs.dirs text yields Home alone, so the property starts already
+    // holding what a failed read would set it to anyway.
+    property var places: Places.placesFor("", root.home)
 
     signal requested(string path)
 
+    // This panel's real neighbour, through the RowLayout's margins in
+    // Files.qml, is the window's own Theme.bg, and bgDarker against it
+    // computes to only ~1.05:1 — barely a seam. Left as-is anyway: the
+    // "Places"/"Bookmarks"/"Devices" headers below default to Theme.muted,
+    // which reads at 4.32:1 against this bgDarker fill; lifting the panel
+    // to the lighter `raised` token to fix the window seam would drop that
+    // to 2.28:1, the same order of regression a sibling task's fix
+    // introduced on Pane.qml's muted columns — and these headers, unlike
+    // an inactive tab's label, are on screen every time this panel is.
     color: Theme.bgDarker
     radius: Theme.filesRadius
-    border.width: 1
-    border.color: Theme.border
 
     property var bookmarks: []
 
@@ -79,14 +82,9 @@ Rectangle {
 
         spacing: 2
 
-        Text {
-            Layout.bottomMargin: 4
-
-            text: "Places"
-            color: Theme.muted
-            font.family: Theme.fontUi
-            font.pixelSize: Theme.fontSize
-            font.bold: true
+        SidebarHeader {
+            first: true
+            title: "Places"
         }
 
         Repeater {
@@ -108,7 +106,7 @@ Rectangle {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
+                    anchors.leftMargin: Theme.filesRowInset
                     spacing: 0
 
                     Text {
@@ -140,15 +138,8 @@ Rectangle {
             }
         }
 
-        Text {
-            Layout.topMargin: 10
-            Layout.bottomMargin: 4
-
-            text: "Bookmarks"
-            color: Theme.muted
-            font.family: Theme.fontUi
-            font.pixelSize: Theme.fontSize
-            font.bold: true
+        SidebarHeader {
+            title: "Bookmarks"
             visible: root.bookmarks.length > 0
         }
 
@@ -171,8 +162,8 @@ Rectangle {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: Theme.filesRowInset
+                    anchors.rightMargin: Theme.filesRowInset
                     spacing: 0
 
                     Text {
@@ -204,15 +195,8 @@ Rectangle {
             }
         }
 
-        Text {
-            Layout.topMargin: 10
-            Layout.bottomMargin: 4
-
-            text: "Devices"
-            color: Theme.muted
-            font.family: Theme.fontUi
-            font.pixelSize: Theme.fontSize
-            font.bold: true
+        SidebarHeader {
+            title: "Devices"
             visible: Devices.devices.length > 0
         }
 
@@ -235,8 +219,8 @@ Rectangle {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: Theme.filesRowInset
+                    anchors.rightMargin: Theme.filesRowInset
                     spacing: 0
 
                     Text {
@@ -266,7 +250,7 @@ Rectangle {
                             id: ejectArea
 
                             anchors.fill: parent
-                            anchors.margins: -4
+                            anchors.margins: -Theme.filesHoverPad
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: Devices.eject(entry.modelData.path, entry.modelData.diskPath)

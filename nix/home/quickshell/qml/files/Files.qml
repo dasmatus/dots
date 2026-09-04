@@ -590,6 +590,19 @@ Scope {
                             catcher.pendingG = true;
 
                         return;
+                    // gt/gT reuse the same pair; anywhere else, t opens a
+                    // tab and Shift+T closes the current one.
+                    case Qt.Key_T:
+                        if (wasPendingG) {
+                            const step = (event.modifiers & Qt.ShiftModifier) ? -1 : 1;
+                            root.switchTab(TabsMath.cycleIndex(root.activeTab, root.displayTabs.length, step));
+                        } else if (event.modifiers & Qt.ShiftModifier) {
+                            root.closeTab(root.activeTab);
+                        } else {
+                            root.addTab();
+                        }
+
+                        return;
                     }
 
                     event.accepted = false;
@@ -623,6 +636,7 @@ Scope {
                     onNavigate: (path) => root.setActivePath(path)
                     onBack: root.goBack()
                     onForward: root.goForward()
+                    onBrowse: (path, x, y) => crumbMenu.openFor(path, x, y)
                 }
 
                 RowLayout {
@@ -673,8 +687,8 @@ Scope {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
+                        anchors.leftMargin: Theme.filesRowInset
+                        anchors.rightMargin: Theme.filesRowInset
                         spacing: 8
 
                         Text {
@@ -725,6 +739,18 @@ Scope {
                 showHidden: root.showHidden
 
                 onActivated: (row) => root.runRow(row)
+                onDismissed: catcher.forceActiveFocus()
+            }
+
+            // Mounted on the window for the same reason: a crumb near
+            // either edge would otherwise be unable to open a popup wider
+            // than the space left beside it.
+            CrumbMenu {
+                id: crumbMenu
+
+                showHidden: root.showHidden
+
+                onNavigate: (path) => root.setActivePath(path)
                 onDismissed: catcher.forceActiveFocus()
             }
         }

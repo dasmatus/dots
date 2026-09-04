@@ -47,16 +47,26 @@ Pill {
         return "wired";
     }
 
+    // A working connection is the boring case and stays on the neutral fill,
+    // the same way a healthy battery does. Offline and captive-portal are the
+    // failures worth showing, so they alone light up.
+    readonly property bool warning: !root.device || root.degraded
+
     color: {
         if (!root.device)
             return Theme.red;
 
-        return root.degraded ? Theme.yellow : Theme.cyan;
+        if (root.degraded)
+            return Theme.yellow;
+
+        return Theme.bgDark;
     }
 
     Text {
         text: `${root.icon} ${root.label}`
-        color: Theme.bg
+
+        // Dark text reads on a bright fill, light text on the neutral one.
+        color: root.warning ? Theme.bg : Theme.fg
 
         font.family: Theme.fontUi
         font.pixelSize: Theme.barFontSize

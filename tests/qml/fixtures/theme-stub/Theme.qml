@@ -42,4 +42,29 @@ QtObject {
     readonly property int filesPadding: 10
     readonly property int filesRadius: 10
     readonly property int filesCommandHeight: 40
+    readonly property int filesGutter: 8
+    readonly property int filesRowInset: 8
+    readonly property int filesHoverPad: 4
+    readonly property int filesHoverPadWide: 6
+    readonly property int filesMenuWidth: 220
+    readonly property int filesCrumbMenuCap: 15
+    readonly property int chromeStripWidth: 3
+
+    // The raised-surface token task 5's contrast fix-round added to
+    // nix/palette.json: a fill for a band that needs to read as lifted off
+    // its darker neighbour by roughly the same margin the deleted
+    // Theme.border lines once gave for free.
+    readonly property color raised: "#3d4463"
+
+    // Bar geometry the workspace icon-list would need if a future test ever
+    // instantiates it directly. Not exercised by any test today — the real
+    // component reaches Hyprland and DesktopEntries, both Quickshell
+    // singletons this stub cannot stand in for — but every generated Theme
+    // token gets mirrored here on principle, so a later test that does
+    // reach for one is never blocked on this file catching up first.
+    readonly property int barHeight: 30
+    readonly property int barFontSize: 15
+    readonly property int barPillPadding: 14
+    readonly property int barIconSize: 20
+    readonly property int barWorkspaceIconCap: 4
 }
