@@ -178,7 +178,13 @@ in
         fetchurl = args: args;
       };
       allZeroSha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-      isBad = n: (raw.${n} ? hash) && (builtins.elem raw.${n}.hash [ "" allZeroSha256 ]);
+      isBad =
+        n:
+        (raw.${n} ? hash)
+        && (builtins.elem raw.${n}.hash [
+          ""
+          allZeroSha256
+        ]);
       bad = builtins.filter isBad (builtins.attrNames raw);
     in
     assert lib.assertMsg (bad == [ ]) (
@@ -483,6 +489,138 @@ in
     assert !(lib.hasInfix ''hl.exec_cmd("qs")'' lua);
     # But still reachable from the keybinds, which is a different code path
     # and must not be collateral damage of removing the start line.
-    assert lib.hasInfix "qs ipc call launcher toggle" lua;
+    #
+    # That path has one more hop in it than it used to. nix/home/session
+    # renders every app and action row into a `dots-<name>@.service` template
+    # and binds the key to `systemctl --user start` on an instance of it, so
+    # the client command sits in the unit and the lua names the unit. Checking
+    # the lua for the old inline `qs ipc call launcher toggle` had quietly
+    # stopped describing anything, which is exactly the drift these two lines
+    # are for.
+    assert lib.hasInfix "dots-launcher-toggle@" lua;
+    assert lib.hasInfix "qs ipc call launcher toggle" (
+      toString hm.systemd.user.services."dots-launcher-toggle@".Service.ExecStart
+    );
     pkgs.writeText "shell-service-eval-ok" execStart;
+
+  # The ask daemon's unit, and the gate around it, which are two claims that
+  # have to be checked together.
+  #
+  # SUPER+A is bound unconditionally. nix/home/keybinds.nix is an
+  # argument-free data file, imported by flake/packages.nix with no evaluated
+  # home-manager config and serialised by tree.nix through a strict toJSON, so
+  # the bind cannot read a dots.ai toggle even in principle. That is the right
+  # design, and it puts the whole weight of "does this key do anything" on two
+  # other files: this module, which decides whether a daemon exists, and
+  # Ask.qml, which reads the generated ask/backends.json and returns early on
+  # an empty list. Neither half fails loudly on its own. A missing unit shows
+  # up as a pane that never connects, and a unit that runs with no backends
+  # shows up as nothing at all.
+  #
+  # So both directions are asserted. With an AI toggle on (which is this
+  # machine's own settings.nix: aiClaude and aiOllama are true) the unit is
+  # present, wanted by graphical-session.target and pointed at a store path.
+  # With all three forced off there is no unit, no want symlink and no
+  # dots-ask in the profile.
+  #
+  # nix/home/ask-tools.nix rides the same gate and is checked here rather than
+  # in a second check, because it is the same claim about the same three
+  # toggles and splitting it would let one half drift. Its two helpers are
+  # plain packages and its indexer is a timer, so nothing about them fails
+  # visibly either: a missing dots-ask-index leaves the pane resolving paths
+  # by walking $HOME, which is slow rather than broken, and a timer that was
+  # never installed leaves an index that is only ever as fresh as the last
+  # manual run.
+  ask-service-eval =
+    let
+      sys = self.nixosConfigurations.tokyonight.config;
+      hm = sys.home-manager.users.${sys.dots.username};
+      unit = hm.systemd.user.services.dots-ask;
+      # home-manager normalises ExecStart to a list; toString handles both.
+      execStart = toString unit.Service.ExecStart;
+
+      # mkDefault in nix/modules/dots.nix is what lets a plain definition win
+      # here without mkForce.
+      off = self.nixosConfigurations.tokyonight.extendModules {
+        modules = [
+          {
+            dots.ai.claude = false;
+            dots.ai.codex = false;
+            dots.ai.ollama = false;
+          }
+        ];
+      };
+      offHm = off.config.home-manager.users.${off.config.dots.username};
+
+      # By pname, not by an infix over the store path. "dots-ask" is a prefix
+      # of both helpers, so an infix test cannot tell the daemon from the
+      # indexer, and a bare "ask" matches haskell-language-server, which is
+      # also in this profile.
+      hasPackage = packages: name: builtins.any (p: (p.pname or (p.name or "")) == name) packages;
+    in
+    # The toggles this machine actually ships with, named so a settings.nix
+    # that turns everything off cannot quietly reduce the on-case below to a
+    # second copy of the off-case.
+    assert sys.dots.ai.claude || sys.dots.ai.codex || sys.dots.ai.ollama;
+    assert hm.systemd.user.services ? dots-ask;
+    assert builtins.elem "graphical-session.target" unit.Install.WantedBy;
+    assert builtins.elem "graphical-session.target" unit.Unit.PartOf;
+    # The want symlink and not just the unit, for the reason
+    # shell-service-eval gives: it is generated from Install rather than
+    # written out, and it is the half that pulls the daemon in at login.
+    assert hm.xdg.configFile ? "systemd/user/graphical-session.target.wants/dots-ask.service";
+    assert lib.hasPrefix "/nix/store/" execStart;
+    assert lib.hasInfix "dots-ask" execStart;
+    # Type=exec rather than notify, pinned because nix/home/ask.nix argues the
+    # choice at length and a silent switch to notify would hang the unit in
+    # `activating` until the start timeout with nothing in the journal to say
+    # why. Switching it is fine; switching it without adding the sd_notify
+    # call is what this line stops.
+    assert unit.Service.Type == "exec";
+    # Copied from quickshell.service, this condition would mean no AI pane on
+    # any compositor but Hyprland, for a socket the daemon never reads.
+    assert !(unit.Unit ? ConditionPathExists);
+    # Everything the gate is supposed to install, named one by one. The daemon
+    # is useless without a way to resolve "what is in my nixos config" to a
+    # path, and the offline helper is what still answers when the harness has
+    # no live session, so all four ship together or the pane is half a feature.
+    assert hasPackage hm.home.packages "dots-ask";
+    assert hasPackage hm.home.packages "ask-keyring";
+    assert hasPackage hm.home.packages "dots-ask-index";
+    assert hasPackage hm.home.packages "dots-ask-offline";
+    # The indexer is a oneshot plus a timer, and only the timer carries an
+    # Install section. Asserting the generated want symlink and not just the
+    # timer unit, for the reason the daemon's own want symlink is asserted
+    # above: it is the half that actually schedules anything, and a timer unit
+    # with no want is a file systemd never looks at.
+    assert hm.systemd.user.services ? dots-ask-index;
+    assert hm.systemd.user.services.dots-ask-index.Service.Type == "oneshot";
+    assert hm.systemd.user.timers ? dots-ask-index;
+    assert builtins.elem "timers.target" hm.systemd.user.timers.dots-ask-index.Install.WantedBy;
+    assert hm.xdg.configFile ? "systemd/user/timers.target.wants/dots-ask-index.timer";
+    # Persistent, because a machine that was asleep at the scheduled hour
+    # should catch up rather than wait out a whole day on a stale index.
+    assert hm.systemd.user.timers.dots-ask-index.Timer.Persistent;
+    # And the other direction: no toggle, no daemon, no helpers, no timer.
+    assert !(offHm.systemd.user.services ? dots-ask);
+    assert !(offHm.xdg.configFile ? "systemd/user/graphical-session.target.wants/dots-ask.service");
+    assert !(offHm.systemd.user.services ? dots-ask-index);
+    assert !(offHm.systemd.user.timers ? dots-ask-index);
+    assert !(offHm.xdg.configFile ? "systemd/user/timers.target.wants/dots-ask-index.timer");
+    assert !(hasPackage offHm.home.packages "dots-ask");
+    assert !(hasPackage offHm.home.packages "ask-keyring");
+    assert !(hasPackage offHm.home.packages "dots-ask-index");
+    assert !(hasPackage offHm.home.packages "dots-ask-offline");
+    # The bind survives the gate, because it is the pane that degrades and not
+    # the keymap. Asserting it here rather than trusting the comment in
+    # actions.nix: a future attempt to make the entry conditional would break
+    # both files that import keybinds.nix without config, and this is the
+    # cheaper place to find that out. Both hops, for the reason
+    # shell-service-eval now gives: the key names a template unit and the unit
+    # carries the client command.
+    assert lib.hasInfix "dots-ask-toggle@" offHm.xdg.configFile."hypr/hyprland.lua".text;
+    assert lib.hasInfix "qs ipc call ask toggle" (
+      toString offHm.systemd.user.services."dots-ask-toggle@".Service.ExecStart
+    );
+    pkgs.writeText "ask-service-eval-ok" execStart;
 }

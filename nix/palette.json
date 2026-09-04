@@ -1,11 +1,22 @@
 {
   "colors": {
-    "bg": "#1a1b26", "bgDark": "#1f2335", "bgDarker": "#15161e",
-    "fg": "#c0caf5", "fgDark": "#a9b1d6", "muted": "#737aa2",
-    "border": "#414868", "selection": "#3b4261", "raised": "#3d4463",
-    "blue": "#7aa2f7", "cyan": "#7dcfff", "green": "#9ece6a",
-    "magenta": "#bb9af7", "red": "#f7768e", "yellow": "#e0af68",
-    "orange": "#ff9e64", "dim": "#565f89"
+    "bg": "#1a1b26",
+    "bgDark": "#1f2335",
+    "bgDarker": "#15161e",
+    "fg": "#c0caf5",
+    "fgDark": "#a9b1d6",
+    "muted": "#737aa2",
+    "border": "#414868",
+    "selection": "#3b4261",
+    "raised": "#3d4463",
+    "blue": "#7aa2f7",
+    "cyan": "#7dcfff",
+    "green": "#9ece6a",
+    "magenta": "#bb9af7",
+    "red": "#f7768e",
+    "yellow": "#e0af68",
+    "orange": "#ff9e64",
+    "dim": "#565f89"
   },
   "accentFallback": "#7aa2f7",
   "alpha": { "panel": "f2", "heading": "ee", "opaque": "ff" },
@@ -17,22 +28,46 @@
     "canvasMono": "JetBrains Mono"
   },
   "bar": {
-    "height": 30, "spacing": 4, "fontSize": 15,
-    "pillPadding": 14, "iconSize": 20, "titleMaxWidth": 480,
+    "height": 30,
+    "spacing": 4,
+    "fontSize": 15,
+    "pillPadding": 14,
+    "iconSize": 20,
+    "titleMaxWidth": 480,
     "workspaceIconCap": 4
   },
   "beamenu": {
-    "lines": 9, "widthFactor": 0.5, "iconSize": 24,
-    "lineHeight": 52, "searchHeight": 56, "radius": 16,
+    "lines": 9,
+    "widthFactor": 0.5,
+    "iconSize": 24,
+    "lineHeight": 52,
+    "searchHeight": 56,
+    "radius": 16,
     "previewWidth": 360
   },
   "files": {
-    "tabHeight": 34, "tabPadding": 14, "tabIndicator": 2,
-    "rowHeight": 30, "iconSize": 16, "iconColumn": 26,
-    "sidebarWidth": 200, "gutter": 8, "padding": 10, "radius": 10,
-    "sizeColumn": 84, "timeColumn": 124, "commandHeight": 40,
-    "rowInset": 8, "hoverPad": 4, "hoverPadWide": 6, "menuWidth": 220,
-    "crumbMenuCap": 15
+    "tabHeight": 34,
+    "tabPadding": 14,
+    "tabIndicator": 2,
+    "rowHeight": 30,
+    "iconSize": 16,
+    "iconColumn": 26,
+    "sidebarWidth": 200,
+    "gutter": 8,
+    "padding": 10,
+    "radius": 10,
+    "sizeColumn": 84,
+    "timeColumn": 124,
+    "commandHeight": 40
   },
-  "chrome": { "stripWidth": 3 }
+  "ask": {
+    "width": 560,
+    "padding": 16,
+    "gutter": 10,
+    "radius": 10,
+    "rowSpacing": 12,
+    "historyWidth": 210,
+    "composerHeight": 92,
+    "codeMaxHeight": 340
+  }
 }

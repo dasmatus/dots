@@ -22,8 +22,14 @@
 // notification is a duplicate, not a feature.
 //
 // The launcher, cheatsheet, settings form, wallpaper picker, monitor
-// arrange surface and file manager are single instances too: only one can
-// be open, and it belongs where you are looking.
+// arrange surface, file manager and ask pane are single instances too: only
+// one can be open, and it belongs where you are looking.
+//
+// Ask is instantiated unconditionally and gates itself. It reads
+// ask/backends.json, which tree.nix writes from the dots.ai.{claude,codex,
+// ollama} toggles, and its toggle does nothing at all while that list is
+// empty. A pane that flickers open empty on a machine with no AI installed
+// would be worse than no pane.
 //
 // Rotation has no window of its own; it holds a reference to the one
 // Picker instance so its hourly random pick can drive the same apply() a
@@ -35,6 +41,7 @@
 // monitor can be plugged in at any time, not just while some other surface
 // is open.
 import Quickshell
+import "ask"
 import "bar"
 import "cheatsheet"
 import "files"
@@ -57,6 +64,8 @@ ShellRoot {
     Osd {}
 
     Launcher {}
+
+    Ask {}
 
     Cheatsheet {}
 

@@ -65,6 +65,7 @@ let
     # actions — everything but `lock`, which has no unit at all (see below)
     launcher-toggle = "${qs} ipc call launcher toggle";
     file-manager = "${qs} ipc call files toggle";
+    ask-toggle = "${qs} ipc call ask toggle";
     cheatsheet-toggle = "${qs} ipc call cheatsheet toggle";
     settings-toggle = "${qs} ipc call settings toggle";
     wallpaper-toggle = "${qs} ipc call wallpaper toggle";
