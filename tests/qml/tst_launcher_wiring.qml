@@ -120,19 +120,94 @@ TestCase {
         verify(block.indexOf("root.drillInto(") !== -1, "Right at the end of the query must drill into the highlighted row");
     }
 
-    // The pointer half of the same gesture, and the reason ResultRow's
-    // MouseArea stacking had to change.
-    function test_the_row_capsule_reaches_the_drill() {
-        const resultRow = readSource("../../nix/home/quickshell/qml/launcher/ResultRow.qml");
-        verify(resultRow.indexOf("signal drillRequested") !== -1, "ResultRow must expose a drill signal distinct from activation");
-        verify(resultRow.indexOf("onClicked: root.drillRequested()") !== -1, "the action capsule must raise it");
+    function resultRowSource() {
+        return readSource("../../nix/home/quickshell/qml/launcher/ResultRow.qml");
+    }
+
+    // The pointer half of drilling in, after the capsule moved off the rows
+    // and into the pill bar. What used to be a three-link chain — ResultRow's
+    // `signal drillRequested`, its capsule raising it, and Launcher relaying
+    // through `onDrillRequested` — is now one capsule calling drillInto in the
+    // scope that owns it, so this pins the new place instead of the old one.
+    //
+    // Position is asserted, not just presence: a capsule that reaches
+    // drillInto from anywhere in the file would satisfy a bare indexOf while
+    // sitting back on the row, which is the exact arrangement this change
+    // exists to undo.
+    function test_the_pill_bar_capsule_reaches_the_drill() {
+        const src = launcherSource();
+
+        const barAt = src.indexOf("id: pillRow");
+        const listAt = src.indexOf("ListView {");
+        verify(barAt !== -1, "Launcher must still declare the pill bar as pillRow");
+        verify(listAt !== -1 && listAt > barAt, "the result list must still follow the pill bar");
+
+        const bar = src.slice(barAt, listAt);
+        verify(bar.indexOf("root.actionPills") !== -1, "the drill capsules must live between the search field and the list, built from the actionPills model");
+        verify(bar.indexOf("root.drillInto(") !== -1, "a capsule must reach drillInto directly — there is no per-row signal left to relay through");
+
+        // Next to the provider pills means AFTER them: the capsule is what the
+        // Apps and Actions pills are read alongside, not something that pushes
+        // them rightwards off the bar's left edge.
+        const providerAt = src.indexOf("delegate: Pill {");
+        verify(providerAt !== -1 && providerAt < src.indexOf("root.drillInto(", barAt), "the capsule must be declared after the provider-pill Repeater, so it sits beside the provider pills rather than ahead of them");
+    }
+
+    // The capsule shares the bar with the filter pills but is not one, and
+    // nothing about it may leak into the list Tab walks. pillsFor's contract
+    // is one pill per provider; a drill capsule folded into root.pills would
+    // break that and give Tab a stop that filters nothing.
+    function test_the_capsule_stays_out_of_the_filter_cycle() {
+        const src = launcherSource();
+
+        const cycle = Scan.blockAfter(src, "function cyclePill(delta: int): void {");
+        verify(cycle !== "", "Launcher must define cyclePill");
+        verify(cycle.indexOf("root.pills.map(") !== -1, "Tab must cycle root.pills alone");
+        verify(cycle.indexOf("actionPills") === -1, "the drill capsules must not be reachable by Tab — they are actions, not filters");
+
+        const pillsAt = src.indexOf("readonly property var pills:");
+        const resultsAt = src.indexOf("readonly property var results:");
+        verify(pillsAt !== -1 && resultsAt > pillsAt, "Launcher must define pills and then results");
+        verify(src.slice(pillsAt, resultsAt).indexOf("actionPills") === -1, "the capsules must not be entries in root.pills either, or the provider Repeater would draw them a second time");
+    }
+
+    // The row is a row again: it draws what it is and carries no control of
+    // its own. Asserting the absence, not just the bar's presence, is what
+    // stops the capsule being reintroduced on the row alongside the one in
+    // the bar and quietly leaving two ways to do the same thing.
+    function test_the_row_carries_no_capsule_of_its_own() {
+        const resultRow = resultRowSource();
+
+        verify(resultRow.indexOf("drillRequested") === -1, "the drill signal must be gone from the row, not merely unused");
+        verify(resultRow.indexOf("actionCount") === -1, "the row must no longer take an action count it has nothing to draw with");
+        verify(resultRow.indexOf("Pill") === -1, "the row must instantiate no capsule at all — every one of them is in the bar now");
+    }
+
+    // "All apps' actions", not the highlighted one's: one capsule per app in
+    // the visible list that has any. Built from `results` rather than from the
+    // untruncated ambient list for the reason pillsFor takes its counts from
+    // unfilteredResults — a capsule promising rows the list does not have is a
+    // control that cannot keep its word.
+    function test_every_app_with_actions_gets_a_capsule() {
+        const block = Scan.blockAfter(launcherSource(), "readonly property var actionPills: {");
+        verify(block !== "", "Launcher must define actionPills");
+
+        verify(block.indexOf("root.results") !== -1, "the capsules must be built from the list actually on screen");
+        verify(block.indexOf("actionCount") !== -1, "an app earns a capsule by having actions, so the count is what selects it");
+        verify(block.indexOf("root.drill") !== -1, "a drill must clear the capsules — the bar is then showing one pill that stands for the drill itself");
+    }
+
+    // Kept from the arrangement the capsules left behind. Nothing inside the
+    // row's layout asks for its own clicks today, so this no longer guards a
+    // live case — it guards the next one, and it is cheaper to hold than to
+    // rediscover.
+    function test_the_full_row_mousearea_stays_under_the_layout() {
+        const resultRow = resultRowSource();
 
         const mouseAt = resultRow.indexOf("MouseArea {");
         const layoutAt = resultRow.indexOf("RowLayout {");
         verify(mouseAt !== -1 && layoutAt !== -1, "ResultRow must have both a full-row MouseArea and its RowLayout");
-        verify(mouseAt < layoutAt, "the full-row MouseArea must be declared BEFORE the RowLayout — later siblings win hit-testing in QML, so declaring it last makes the capsule inside the layout unclickable");
-
-        verify(launcherSource().indexOf("onDrillRequested: {") !== -1, "Launcher must wire the row's drill signal, or the capsule is decorative");
+        verify(mouseAt < layoutAt, "the full-row MouseArea must be declared BEFORE the RowLayout — later siblings win hit-testing in QML, so declaring it last would make anything clickable added inside the layout unclickable");
     }
 
     // The actions moved out of the flat list. One push per matching entry is
@@ -187,6 +262,57 @@ TestCase {
         const block = Scan.blockAfter(launcherSource(), "readonly property var ambientRows: {");
         verify(block !== "", "Launcher must define ambientRows");
         verify(block.indexOf("providers.keyboardRows(") !== -1, "the ambient chain must call the keyboard-layout provider, or its rows are unreachable");
+    }
+
+    // Every remaining link in that chain, table-driven, because the two tests
+    // above only cover the two providers that happened to get one. Removing
+    // ONE call from a nine-call concat expression is a one-token edit in the
+    // middle of a very long line, and it has now happened twice: keyboardRows
+    // to a merge, and snippetRows to an edit that meant to pull fileRows out
+    // and took its neighbour with it. Neither surfaced as anything but a
+    // feature quietly not working.
+    function test_every_ambient_provider_is_still_called_data() {
+        return [
+            { tag: "applications", call: "providers.applicationRows(" },
+            { tag: "app actions", call: "providers.appActionRows(" },
+            { tag: "system", call: "providers.systemRows(" },
+            { tag: "keyboard", call: "providers.keyboardRows(" },
+            { tag: "quicklinks", call: "providers.quicklinkRows(" },
+            { tag: "snippets", call: "providers.snippetRows(" },
+            { tag: "devices", call: "providers.deviceRows(" },
+            { tag: "status", call: "providers.statusRows(" }
+        ];
+    }
+
+    function test_every_ambient_provider_is_still_called(row) {
+        const block = Scan.blockAfter(launcherSource(), "readonly property var ambientRows: {");
+        verify(block !== "", "Launcher must define ambientRows");
+        verify(block.indexOf(row.call) !== -1, "the ambient chain must call " + row.call + " — dropping it makes every one of that provider's rows unreachable, with nothing else failing to say so");
+    }
+
+    // The inverse of the two tests above, and the reason it needs one at all:
+    // every other provider's bug is being dropped from the chain, and files'
+    // is being put back into it. Three characters of any query used to reach
+    // fd, so typing an app's name paid for a filesystem search and then showed
+    // it alongside the app. Files answer to a prefix now, like windows,
+    // clipboard and emoji — and a merge that "restored" the concat would be a
+    // green build that silently reinstated both halves of that.
+    function test_files_answer_to_a_prefix_and_stay_out_of_the_ambient_chain() {
+        const src = launcherSource();
+        const block = Scan.blockAfter(src, "readonly property var ambientRows: {");
+        verify(block !== "", "Launcher must define ambientRows");
+
+        verify(block.indexOf('text.startsWith("f ")') !== -1, "files must have a prefix branch of their own, or the provider is unreachable entirely");
+
+        const chainAt = block.indexOf("return providers.applicationRows(");
+        verify(chainAt !== -1, "the ambient concat chain must still exist");
+        verify(block.slice(chainAt).indexOf("providers.fileRows(") === -1, "fileRows must not be concatenated into the ambient chain — a query about an app must not also be a filesystem search");
+
+        verify(src.indexOf('providers.fileQuery = input.text.startsWith("f ")') !== -1, "fd must only be fed by a query that asked for it, not by every query that reached three characters");
+
+        const prefixed = src.indexOf('text.startsWith("=") || text.startsWith("?")');
+        verify(prefixed !== -1, "unfilteredResults must still list the prefixed queries it declines to re-sort");
+        verify(src.slice(prefixed, prefixed + 200).indexOf('text.startsWith("f ")') !== -1, "the files prefix must join that list too, or a single provider's own list gets re-sorted as though it were the ambient one");
     }
 
     // The new provider's own shape: it must earn the same frecency keys the

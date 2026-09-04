@@ -24,7 +24,7 @@
   "beamenu": {
     "lines": 9, "widthFactor": 0.5, "iconSize": 24,
     "lineHeight": 52, "searchHeight": 56, "radius": 16,
-    "previewWidth": 360
+    "previewWidth": 360, "actionPillMaxFactor": 0.34, "pillRows": 3
   },
   "files": {
     "tabHeight": 34, "tabPadding": 14, "tabIndicator": 2,
