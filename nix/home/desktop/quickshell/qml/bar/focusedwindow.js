@@ -1,10 +1,14 @@
 // Pure arithmetic behind FocusedWindow.qml's title elision.
 //
-// Split out of the component so tests/qml can reach it: FocusedWindow.qml is
-// now a Pill, and Pill inherits Rectangle through a chain that ultimately
-// reaches Quickshell's own types, which qmltestrunner cannot instantiate —
-// see tests/README.md and battery.js's own header for the same reasoning.
-// Everything here is arithmetic over numbers, so the test needs no
+// Split out of the component so tests/qml can reach it: FocusedWindow.qml
+// itself calls Quickshell.iconPath, reads DesktopEntries and reaches into a
+// Hyprland monitor object to find its toplevel, none of which qmltestrunner
+// can resolve — the same class of dependency that keeps battery.js and
+// workspaces.js's own arithmetic split out beside their components (see
+// tests/README.md). Pill.qml, which FocusedWindow.qml now wraps, is itself a
+// plain Rectangle and would be instantiable on its own; it is
+// FocusedWindow.qml's own bindings that reach outside what qmltestrunner can
+// load. Everything here is arithmetic over numbers, so the test needs no
 // compositor and no palette.
 .pragma library
 
