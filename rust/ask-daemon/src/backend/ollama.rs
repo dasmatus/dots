@@ -275,7 +275,10 @@ async fn run(
 }
 
 /// The `/api/chat` request, plus how a tool result rejoins the history.
-fn request(url: &str, model: &str, tools: Vec<Value>) -> TurnRequest {
+///
+/// Public so `tests/provider.rs` can drive the real turn loop against a fake
+/// server rather than a re-implementation of this shape.
+pub fn request(url: &str, model: &str, tools: Vec<Value>) -> TurnRequest {
     let model = model.to_owned();
     TurnRequest {
         url: url.to_owned(),
@@ -292,6 +295,32 @@ fn request(url: &str, model: &str, tools: Vec<Value>) -> TurnRequest {
                 }
             }
             body
+        }),
+        // ollama takes the arguments back as an object, the same way it sent
+        // them, rather than as the JSON text the two OpenAI-shaped families
+        // use.
+        record_assistant: Box::new(|text, calls| {
+            if text.is_empty() && calls.is_empty() {
+                return None;
+            }
+            let mut message = json!({"role": "assistant", "content": text});
+            if !calls.is_empty() {
+                if let Some(object) = message.as_object_mut() {
+                    object.insert(
+                        "tool_calls".to_owned(),
+                        calls
+                            .iter()
+                            .map(|call| {
+                                json!({"function": {
+                                    "name": call.name,
+                                    "arguments": call.input(),
+                                }})
+                            })
+                            .collect(),
+                    );
+                }
+            }
+            Some(message)
         }),
         record_result: Box::new(|call, _ok, content| {
             json!({

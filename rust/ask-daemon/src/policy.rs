@@ -2,9 +2,14 @@
 //!
 //! Nothing runs without a decision somebody made, or a rule somebody wrote
 //! down before. [`Policy::decide`] answers one of three things and there is
-//! no fourth: run it, refuse it, or ask. A tool the daemon has never heard
-//! of takes the refuse branch without a prompt, because a prompt for a tool
-//! nobody configured is a prompt whose only correct answer is no.
+//! no fourth: run it, refuse it, or ask.
+//!
+//! What this module does not answer is whether the tool exists. A prompt for
+//! a tool nobody configured is a prompt whose only correct answer is no, so
+//! that refusal happens before a call gets here, in `provider.rs`, which is
+//! the code that knows what the MCP servers expose. Keeping the two apart is
+//! deliberate: an earlier version held both, and its name gate was disabled
+//! by exactly the empty set that should have refused everything.
 //!
 //! ## What a decision is keyed by
 //!
@@ -35,7 +40,7 @@
 //! not a store of what is permitted, and a person pruning old conversations
 //! must not be silently revoking approvals at the same time.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -134,7 +139,6 @@ pub struct Policy {
     path: PathBuf,
     forever: BTreeMap<PolicyKey, PermissionDecision>,
     session: BTreeMap<(Uuid, PolicyKey), PermissionDecision>,
-    known_tools: BTreeSet<String>,
 }
 
 impl Policy {
@@ -174,7 +178,6 @@ impl Policy {
             path,
             forever,
             session: BTreeMap::new(),
-            known_tools: BTreeSet::new(),
         })
     }
 
@@ -184,43 +187,20 @@ impl Policy {
         &self.path
     }
 
-    /// Declare the tools a backend can actually run.
-    ///
-    /// In provider mode this is exactly the set `mcp.rs` discovered, which
-    /// is what section 5 means by "a tool name outside it gets a synthesized
-    /// error result rather than an execution". Calling this with an empty
-    /// set means nothing runs, which is the correct state for a provider
-    /// with no MCP server configured.
-    ///
-    /// The harness does not use it. The `claude` CLI owns its own tool list
-    /// and the daemon never sees a name the CLI did not already accept, so
-    /// [`Policy::decide`] skips the check when no set has been declared.
-    pub fn declare_tools(&mut self, tools: impl IntoIterator<Item = String>) {
-        self.known_tools = tools.into_iter().collect();
-    }
-
-    /// Whether a tool set has been declared, so [`Policy::decide`] gates on
-    /// it.
-    #[must_use]
-    pub fn gates_tool_names(&self) -> bool {
-        !self.known_tools.is_empty()
-    }
-
     /// What to do with one tool call.
     ///
-    /// A tool outside a declared set is [`Verdict::Deny`] and asks nobody.
-    /// Otherwise a `session` rule wins over a `forever` one, because it is
-    /// the more recent thing the person said, and with neither the answer is
+    /// A `session` rule wins over a `forever` one, because it is the more
+    /// recent thing the person said, and with neither the answer is
     /// [`Verdict::Ask`].
+    ///
+    /// Whether the tool exists at all is deliberately not asked here. This
+    /// module knows what a person decided; it does not know what any backend
+    /// can run, and an earlier version that tried to hold both had a name
+    /// gate that an empty set silently disabled. `provider.rs` settles
+    /// existence before it asks this, so a name nothing exposes is refused
+    /// without a prompt and never reaches these rules.
     #[must_use]
     pub fn decide(&self, conversation: Uuid, key: &PolicyKey) -> Verdict {
-        if self.gates_tool_names() && !self.known_tools.contains(&key.tool) {
-            tracing::warn!(
-                tool = key.tool,
-                "refusing a tool no configured MCP server exposes"
-            );
-            return Verdict::Deny;
-        }
         let found = self
             .session
             .get(&(conversation, key.clone()))

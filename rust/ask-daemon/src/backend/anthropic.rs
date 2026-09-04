@@ -50,24 +50,51 @@ pub const KEY_ATTRIBUTE: &str = "anthropic-api-key";
 /// The API version header the Messages API requires.
 const API_VERSION: &str = "2023-06-01";
 
-/// The models the pane offers.
-const MODELS: [&str; 3] = ["claude-opus-4-1", "claude-sonnet-4-5", "claude-haiku-4-5"];
+/// The models the pane offers, most capable first.
+///
+/// Ids come from the model catalogue, not from memory. An id assembled by
+/// pattern rather than read off the list is a 404 at the first send, and a
+/// date suffix appended to a current alias is the usual way to produce one:
+/// these aliases are complete as they stand.
+const MODELS: [&str; 4] = [
+    "claude-fable-5",
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-haiku-4-5",
+];
 
 /// The default when a thread names no model.
-const DEFAULT_MODEL: &str = "claude-sonnet-4-5";
+const DEFAULT_MODEL: &str = "claude-opus-5";
 
 /// How many output tokens one turn may produce.
 const MAX_TOKENS: u64 = 8192;
 
-/// Dollars per million tokens, input then output, per model.
+/// Dollars per million tokens, input then output, keyed by model alias.
 ///
-/// Static because the API reports tokens and never a price, and a table is
-/// the only way to fill `usage.cost_usd` at all. A model that is not here
-/// gets `null`, which the schema allows and which is honest: a wrong number
-/// on a cost display is worse than no number.
-const PRICES: [(&str, f64, f64); 3] = [
-    ("claude-opus-4-1", 15.0, 75.0),
-    ("claude-sonnet-4-5", 3.0, 15.0),
+/// **As of 2026-09-04.** Static because the API reports tokens and never a
+/// price, so a table is the only way to fill `usage.cost_usd` at all, and
+/// unlike the ollama model list there is no endpoint to read it from. It goes
+/// stale on its own and a person has to refresh it against the current
+/// catalogue; the date above is how a reader tells how far it has drifted. A
+/// model that is not here gets `null`, which the schema allows and which is
+/// the honest answer: a wrong number on a cost display is worse than none.
+///
+/// The keys are aliases and the value matched against them is not always one.
+/// Several models also have a dated snapshot id, `claude-haiku-4-5-20251001`
+/// for `claude-haiku-4-5`, and `message_start.message.model` can carry either
+/// form. So [`cost_usd`] matches by prefix rather than exactly, and takes the
+/// longest alias that matches: a point release such as a future
+/// `claude-opus-5-1` would also start with `claude-opus-5`, and first-match
+/// would then bill it at the wrong tier.
+const PRICES: [(&str, f64, f64); 9] = [
+    ("claude-fable-5", 10.0, 50.0),
+    ("claude-mythos-5", 10.0, 50.0),
+    ("claude-opus-5", 5.0, 25.0),
+    ("claude-opus-4-8", 5.0, 25.0),
+    ("claude-opus-4-7", 5.0, 25.0),
+    ("claude-opus-4-6", 5.0, 25.0),
+    ("claude-sonnet-5", 3.0, 15.0),
+    ("claude-sonnet-4-6", 3.0, 15.0),
     ("claude-haiku-4-5", 1.0, 5.0),
 ];
 
@@ -187,7 +214,10 @@ async fn run(
 }
 
 /// The `/v1/messages` request, plus how a tool result rejoins the history.
-fn request(url: &str, key: &str, model: &str, tools: Vec<Value>) -> TurnRequest {
+///
+/// Public so `tests/provider.rs` can drive the real turn loop against a fake
+/// server rather than a re-implementation of this shape.
+pub fn request(url: &str, key: &str, model: &str, tools: Vec<Value>) -> TurnRequest {
     let model = model.to_owned();
     TurnRequest {
         url: url.to_owned(),
@@ -214,6 +244,25 @@ fn request(url: &str, key: &str, model: &str, tools: Vec<Value>) -> TurnRequest 
                 }
             }
             body
+        }),
+        // The Messages API takes the assistant turn back as the same block
+        // list it streamed: a text block, then one tool_use block per call,
+        // each carrying the id the tool_result will name. Without this the
+        // tool_result below is an orphan and the API answers 400.
+        record_assistant: Box::new(|text, calls| {
+            let mut content = Vec::new();
+            if !text.is_empty() {
+                content.push(json!({"type": "text", "text": text}));
+            }
+            for call in calls {
+                content.push(json!({
+                    "type": "tool_use",
+                    "id": call.id,
+                    "name": call.name,
+                    "input": call.input(),
+                }));
+            }
+            (!content.is_empty()).then(|| json!({"role": "assistant", "content": content}))
         }),
         record_result: Box::new(|call, ok, content| {
             json!({
@@ -484,14 +533,34 @@ impl AnthropicDecoder {
     }
 }
 
+/// The model ids the pane offers, most capable first.
+///
+/// Public so `tests/anthropic.rs` can hold this list and [`PRICES`] together:
+/// they are two hand-maintained lists of the same ids, and a model added to
+/// one but not the other shows up only as a silently null cost.
+#[must_use]
+pub fn models() -> &'static [&'static str] {
+    &MODELS
+}
+
 /// What one turn cost, from the static table.
 ///
-/// `None` for a model the table does not know, which the schema allows and
-/// which beats a wrong number on a cost display.
+/// `model` is what the stream reported. That is the alias for most models and
+/// a dated snapshot such as `claude-haiku-4-5-20251001` for the ones that
+/// have one, so the table is matched by prefix rather than exactly. The
+/// longest matching alias wins: a future point release like
+/// `claude-opus-5-1` would also start with `claude-opus-5`, and a first match
+/// would bill it at the wrong tier.
+///
+/// `None` for a model no alias covers, which the schema allows and which
+/// beats a wrong number on a cost display.
 #[must_use]
 pub fn cost_usd(model: Option<&str>, input_tokens: u64, output_tokens: u64) -> Option<f64> {
     let model = model?;
-    let (_, input_price, output_price) = PRICES.iter().find(|(name, _, _)| *name == model)?;
+    let (_, input_price, output_price) = PRICES
+        .iter()
+        .filter(|(alias, _, _)| model.starts_with(alias))
+        .max_by_key(|(alias, _, _)| alias.len())?;
     #[allow(clippy::cast_precision_loss)]
     let cost = (input_tokens as f64).mul_add(
         input_price / 1_000_000.0,

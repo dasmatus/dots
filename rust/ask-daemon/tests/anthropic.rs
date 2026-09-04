@@ -10,7 +10,7 @@
 //! stream as `input_json_delta` fragments that only parse once the last one
 //! lands.
 
-use ask_daemon::backend::anthropic::{cost_usd, AnthropicDecoder};
+use ask_daemon::backend::anthropic::{cost_usd, models, AnthropicDecoder};
 use ask_daemon::backend::provider::ChunkDecoder;
 use ask_daemon::proto::{ErrorKind, EventBody, StopReason};
 
@@ -151,21 +151,67 @@ fn usage_takes_its_input_counts_from_message_start() {
 }
 
 #[test]
+fn a_dated_snapshot_is_priced_by_the_alias_it_belongs_to() {
+    // The value the daemon prices against is message_start.message.model.
+    // Several models carry a dated snapshot id alongside their alias, and
+    // that field can hold either form, so an exact lookup priced nothing on
+    // the turns that returned the dated one. The fixture used to hand-write
+    // an alias, which is the only reason that looked fine.
+    assert!(
+        cost_usd(Some("claude-haiku-4-5-20251001"), 1_000_000, 0).is_some(),
+        "a dated snapshot has to price as the alias it resolves from"
+    );
+    assert_eq!(
+        cost_usd(Some("claude-haiku-4-5-20251001"), 1_000_000, 1_000_000),
+        cost_usd(Some("claude-haiku-4-5"), 1_000_000, 1_000_000),
+        "and price identically to it"
+    );
+}
+
+#[test]
+fn a_point_release_prices_as_the_line_it_belongs_to() {
+    // Nothing in the table collides today, so this is the forward-looking
+    // half: a future `claude-opus-5-1` starts with `claude-opus-5`, and the
+    // longest-match rule is what keeps billing right on the day one ships,
+    // whether the table has gained a row for it or not.
+    let point_release = cost_usd(Some("claude-opus-5-1-20260401"), 1_000_000, 0)
+        .expect("an unknown point release still prices as its line");
+    let line = cost_usd(Some("claude-opus-5"), 1_000_000, 0).expect("so does the line itself");
+    assert!(
+        (point_release - line).abs() < 1e-9,
+        "the longest matching alias wins: {point_release} against {line}"
+    );
+}
+
+#[test]
 fn a_known_model_is_priced_and_an_unknown_one_is_not() {
     // The API reports tokens and never a price, so the table is the only
     // source. A wrong number on a cost display is worse than no number.
-    let priced = cost_usd(Some("claude-sonnet-4-5"), 1_000_000, 1_000_000)
+    let priced = cost_usd(Some("claude-opus-5"), 1_000_000, 1_000_000)
         .expect("a model in the table is priced");
     assert!(
-        (priced - 18.0).abs() < 1e-9,
-        "a million of each at 3 and 15 dollars: {priced}"
+        (priced - 30.0).abs() < 1e-9,
+        "a million of each at 5 and 25 dollars: {priced}"
     );
     assert_eq!(
-        cost_usd(Some("claude-something-nobody-shipped-yet"), 10, 10),
+        cost_usd(Some("gpt-nothing-anthropic-ever-shipped"), 10, 10),
         None,
-        "an unknown model is null rather than a guess"
+        "a model outside the line is null rather than a guess"
     );
     assert_eq!(cost_usd(None, 10, 10), None);
+}
+
+#[test]
+fn every_model_the_pane_offers_can_be_priced() {
+    // The pane's list and the price table are two hand-maintained lists of
+    // the same ids. Adding a model to one and not the other shows up as a
+    // silently null cost, so the suite checks they agree.
+    for model in models() {
+        assert!(
+            cost_usd(Some(model), 1_000, 1_000).is_some(),
+            "the pane offers {model} but the price table has no row for it"
+        );
+    }
 }
 
 #[test]

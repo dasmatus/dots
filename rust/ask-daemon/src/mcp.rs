@@ -120,6 +120,14 @@ pub struct McpTool {
 pub struct McpPool {
     configs: BTreeMap<String, ServerConfig>,
     running: Mutex<BTreeMap<String, Arc<RunningService<RoleClient, ()>>>>,
+    /// The tools every server exposes, listed once.
+    ///
+    /// Every tool call has to find which server owns the name, so without a
+    /// cache each call re-lists every server. A server that gains a tool
+    /// while the daemon runs stays invisible until a restart, which is the
+    /// price: MCP has a `tools/list_changed` notification and this build does
+    /// not subscribe to it.
+    tools: std::sync::Mutex<Option<Vec<McpTool>>>,
 }
 
 impl McpPool {
@@ -129,6 +137,7 @@ impl McpPool {
         Self {
             configs,
             running: Mutex::new(BTreeMap::new()),
+            tools: std::sync::Mutex::new(None),
         }
     }
 
@@ -137,6 +146,22 @@ impl McpPool {
     #[must_use]
     pub fn empty() -> Self {
         Self::new(BTreeMap::new())
+    }
+
+    /// A pool whose tool list is already known, so [`Self::list_tools`]
+    /// starts nothing.
+    ///
+    /// This is how a test gets a pool that offers tools without a server
+    /// behind them, which is enough to drive the approval gate: the gate runs
+    /// before the call does, and the call then fails on the missing server
+    /// rather than on the missing name.
+    #[must_use]
+    pub fn with_tools(configs: BTreeMap<String, ServerConfig>, tools: Vec<McpTool>) -> Self {
+        Self {
+            configs,
+            running: Mutex::new(BTreeMap::new()),
+            tools: std::sync::Mutex::new(Some(tools)),
+        }
     }
 
     /// Read the config files and build a pool over what they name.
@@ -181,10 +206,24 @@ impl McpPool {
     /// backend runs and never at startup. A server that will not start is
     /// logged and skipped: one broken server must not take the other three
     /// down with it.
+    ///
+    /// The result is cached only when every configured server answered. A
+    /// partial listing is returned but not kept, so the next call tries the
+    /// server that failed again. Caching one is what would turn a server that
+    /// happened to be slow to start into a server whose tools do not exist
+    /// for the rest of the daemon's life, and because `provider.rs` refuses a
+    /// tool it cannot locate without prompting, the person would get a flat
+    /// "no configured MCP server exposes that" with nothing to retry.
     pub async fn list_tools(&self) -> Vec<McpTool> {
+        if let Some(cached) = self.cached_tools() {
+            return cached;
+        }
+
         let mut tools = Vec::new();
+        let mut every_server_answered = true;
         for name in self.configs.keys() {
             let Some(service) = self.service(name).await else {
+                every_server_answered = false;
                 continue;
             };
             match service.list_all_tools().await {
@@ -195,11 +234,36 @@ impl McpPool {
                     input_schema: Value::Object((*tool.input_schema).clone()),
                 })),
                 Err(err) => {
+                    every_server_answered = false;
                     tracing::warn!(server = name, error = %err, "listing tools failed");
                 }
             }
         }
+
+        if every_server_answered {
+            if let Ok(mut cache) = self.tools.lock() {
+                *cache = Some(tools.clone());
+            }
+        } else {
+            tracing::warn!("not caching a partial tool listing; the next call retries");
+        }
         tools
+    }
+
+    /// The tool list, if it has already been taken.
+    fn cached_tools(&self) -> Option<Vec<McpTool>> {
+        self.tools.lock().ok().and_then(|cache| cache.clone())
+    }
+
+    /// Whether a full listing has been taken and kept.
+    ///
+    /// The difference between a cached empty list and an uncached one is not
+    /// visible in what [`Self::list_tools`] returns, and it decides whether a
+    /// server that failed to start ever gets tried again, so it is worth
+    /// being able to ask.
+    #[must_use]
+    pub fn tools_cached(&self) -> bool {
+        self.tools.lock().is_ok_and(|cache| cache.is_some())
     }
 
     /// Call one tool and return its result as text.

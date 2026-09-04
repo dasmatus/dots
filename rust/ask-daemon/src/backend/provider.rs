@@ -299,10 +299,30 @@ impl ProviderSession {
             };
             stop = outcome.stop;
             if !outcome.text.is_empty() {
-                summary = outcome.text;
+                summary.clone_from(&outcome.text);
             }
+
+            // The assistant's own turn joins the history before anything
+            // else does, and before any early exit below. A provider is
+            // stateless: everything the model knows about this conversation
+            // is the array the next round posts, so leaving its reply out
+            // makes every follow-up a fresh conversation.
+            //
+            // A round that produced neither text nor a call records nothing,
+            // which is the failed-request case: an empty assistant message is
+            // itself a 400.
+            request.push_assistant(self, &outcome.text, &outcome.tool_calls);
+
+            // Recording the calls is what makes an orphan possible, so every
+            // path that leaves the loop from here without reaching
+            // `run_tools` has to close them out. See `abandon_tools`.
             if self.interrupted {
                 stop = StopReason::Interrupted;
+                self.abandon_tools(
+                    request,
+                    &outcome.tool_calls,
+                    "The person stopped the turn before this tool ran.",
+                );
                 break;
             }
             if outcome.tool_calls.is_empty() || outcome.failed {
@@ -315,8 +335,22 @@ impl ProviderSession {
                     false,
                 );
                 stop = StopReason::Error;
+                self.abandon_tools(
+                    request,
+                    &outcome.tool_calls,
+                    "The turn stopped here: the model asked for tools too many rounds running.",
+                );
                 break;
             }
+            // The third way out, and the only one that does not close its
+            // calls out. It is safe today for two reasons that are both
+            // absences: `run_tools` returns false only when the sink is dead
+            // or the client is gone, which ends the adapter's run loop and
+            // drops this session with its history, and `ensure_backend`
+            // starts a replacement with an empty one because nothing
+            // rehydrates a restarted backend. Wiring `--resume` removes the
+            // second reason, and this line becomes a live orphan with no test
+            // covering it, so close the pending calls here when you do.
             if !self.run_tools(request, outcome.tool_calls, inbox).await {
                 return false;
             }
@@ -424,6 +458,35 @@ impl ProviderSession {
         })
     }
 
+    /// Answer calls the turn recorded but will never run.
+    ///
+    /// Both providers require every call an assistant message announces to be
+    /// answered in the same history: Anthropic rejects a `tool_use` with no
+    /// following `tool_result`, OpenAI rejects `tool_calls` not followed by a
+    /// matching `role:"tool"`. Nothing here prunes the history, so an
+    /// unanswered call is not one failed turn, it is every turn after it. A
+    /// person pressing stop mid-tool-call would otherwise brick the thread.
+    ///
+    /// Synthesizing the results rather than dropping the assistant message is
+    /// what both APIs expect, and it keeps the transcript honest: the model
+    /// asked, and on the next turn it can read that the call was abandoned
+    /// and why, instead of finding no trace of having asked at all.
+    ///
+    /// Nothing is emitted to the pane. These calls never produced a
+    /// `tool_call` event, because that happens in `run_tools`, which is
+    /// exactly the step being skipped, so a `tool_result` event here would
+    /// answer a call the pane never saw.
+    fn abandon_tools(&mut self, request: &TurnRequest, calls: &[PendingToolCall], why: &str) {
+        for call in calls {
+            tracing::debug!(
+                tool = call.name,
+                why,
+                "closing out a call that will not run"
+            );
+            request.push_tool_result(self, call, false, why);
+        }
+    }
+
     /// Approve, refuse and run each tool the model asked for.
     ///
     /// Returns false when the daemon has gone away.
@@ -451,11 +514,15 @@ impl ProviderSession {
             let outcome = match approval {
                 Approval::Gone => return false,
                 Approval::Denied(reason) => Err(reason),
-                Approval::Allowed(edited) => {
+                Approval::Allowed {
+                    server,
+                    tool,
+                    edited,
+                } => {
                     if let Some(edited) = edited {
                         input = edited;
                     }
-                    self.invoke(&call.name, &input).await
+                    self.mcp.call(&server, &tool, &input).await
                 }
             };
 
@@ -479,12 +546,30 @@ impl ProviderSession {
 
     /// Decide whether one tool call may run, asking the client if nothing
     /// already decides it.
+    ///
+    /// Existence is settled before permission, and that order is the point.
+    /// v1 ships no built-in tools, so a name no configured MCP server exposes
+    /// can never execute no matter what anybody answers, and prompting for it
+    /// would ask a person to approve something that cannot happen. Deciding
+    /// it here also means the located server travels with the approval, so
+    /// the call does not list the tools a second time to find it again.
     async fn approve(
         &mut self,
         call: &PendingToolCall,
         input: &Value,
         inbox: &mut mpsc::UnboundedReceiver<BackendCommand>,
     ) -> Approval {
+        let Some((server, tool)) = self.locate(&call.name).await else {
+            tracing::warn!(
+                tool = call.name,
+                "refusing a tool no configured MCP server exposes"
+            );
+            return Approval::Denied(format!(
+                "no configured MCP server exposes a tool named {:?}, and dots-ask ships no built-in tools",
+                call.name
+            ));
+        };
+
         let key = PolicyKey::new(self.backend, &call.name, &self.cwd, input);
         let conversation = self.sink.conversation();
         let verdict = match self.policy.lock() {
@@ -492,10 +577,16 @@ impl ProviderSession {
             Err(poisoned) => poisoned.into_inner().decide(conversation, &key),
         };
         match verdict {
-            Verdict::Allow => return Approval::Allowed(None),
+            Verdict::Allow => {
+                return Approval::Allowed {
+                    server,
+                    tool,
+                    edited: None,
+                }
+            }
             Verdict::Deny => {
                 return Approval::Denied(format!(
-                    "{:?} is not a tool this backend may run",
+                    "a standing rule refuses {:?} with these arguments",
                     call.name
                 ))
             }
@@ -531,7 +622,11 @@ impl ProviderSession {
                     .unwrap_or_else(|| "denied from the ask pane".to_owned()),
             );
         }
-        Approval::Allowed(answer.updated_input)
+        Approval::Allowed {
+            server,
+            tool,
+            edited: answer.updated_input,
+        }
     }
 
     /// Block until the decision for `request` arrives, still serving the
@@ -589,20 +684,11 @@ impl ProviderSession {
         }
     }
 
-    /// Run one MCP tool.
-    ///
-    /// A name no configured server exposes gets a synthesized error rather
-    /// than an execution, which is section 5's rule stated as code.
-    async fn invoke(&self, tool: &str, input: &Value) -> Result<String, String> {
-        let Some((server, name)) = self.locate(tool).await else {
-            return Err(format!(
-                "no configured MCP server exposes a tool named {tool:?}, and dots-ask ships no built-in tools"
-            ));
-        };
-        self.mcp.call(&server, &name, input).await
-    }
-
     /// Which server exposes `tool`, and under what name.
+    ///
+    /// `None` is section 5's rule stated as code: v1 ships no built-in tools,
+    /// so a name that is on no configured server is a name nothing can run.
+    /// [`Self::approve`] turns that into a refusal before it prompts.
     async fn locate(&self, tool: &str) -> Option<(String, String)> {
         self.mcp
             .list_tools()
@@ -615,8 +701,15 @@ impl ProviderSession {
 
 /// What [`ProviderSession::approve`] concluded.
 enum Approval {
-    /// The call may run, with these arguments if the user edited them.
-    Allowed(Option<Value>),
+    /// The call may run, on the server that turned out to expose it.
+    Allowed {
+        /// The MCP server the tool belongs to.
+        server: String,
+        /// Its name on that server, without the qualifying prefix.
+        tool: String,
+        /// Replacement arguments, when the user edited them.
+        edited: Option<Value>,
+    },
     /// The call may not run, and this is what the model is told.
     Denied(String),
     /// The daemon has gone away.
@@ -649,10 +742,14 @@ pub type BuildBody = Box<dyn Fn(&[Value]) -> Value + Send + Sync>;
 /// Turns one tool result into the history entry its provider expects.
 pub type RecordResult = Box<dyn Fn(&PendingToolCall, bool, &str) -> Value + Send + Sync>;
 
+/// Turns what the model just produced into the assistant message its provider
+/// expects, or `None` when it produced nothing worth recording.
+pub type RecordAssistant = Box<dyn Fn(&str, &[PendingToolCall]) -> Option<Value> + Send + Sync>;
+
 /// Everything one provider needs to build and address a request.
 ///
 /// The body is built per round, because each round appends the previous
-/// round's tool results to the history.
+/// round's assistant message and tool results to the history.
 pub struct TurnRequest {
     /// Where to post.
     pub url: String,
@@ -660,6 +757,9 @@ pub struct TurnRequest {
     pub headers: Vec<(String, String)>,
     /// Builds the request body from the history.
     pub build: BuildBody,
+    /// Appends the assistant's own turn to the history, text and tool calls
+    /// together, in the provider's own shape.
+    pub record_assistant: RecordAssistant,
     /// Appends one tool result to the history in the provider's own shape,
     /// which is the one place the three genuinely differ.
     pub record_result: RecordResult,
@@ -670,6 +770,17 @@ impl TurnRequest {
     #[must_use]
     pub fn body(&self, messages: &[Value]) -> Value {
         (self.build)(messages)
+    }
+
+    /// Append what the model just said to the session history.
+    ///
+    /// This is the message without which a provider has no memory of its own
+    /// replies, and without which a `tool_result` is an orphan the Messages
+    /// API answers with a 400.
+    fn push_assistant(&self, session: &mut ProviderSession, text: &str, calls: &[PendingToolCall]) {
+        if let Some(message) = (self.record_assistant)(text, calls) {
+            session.push_message(message);
+        }
     }
 
     /// Append one tool result to the session history.
