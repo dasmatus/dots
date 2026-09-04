@@ -11,33 +11,10 @@
   pkgs,
   lib,
   config,
-  dots,
   ...
 }:
 let
   cfg = config.programs.dots-shell;
-
-  # The ask pane's backend gate, one entry per dots.ai toggle that is on. The
-  # ids match the daemon's own backend ids (docs/superpowers/specs/
-  # 2026-09-03-ask-pane-design.md section 3), because op:"new" carries one of
-  # them straight back over the wire.
-  #
-  # dots.ai.claude covers both harness and provider mode, so it contributes
-  # one row named for the harness: the daemon decides which of the two it can
-  # actually reach and says so in its own `backends` event.
-  askBackends =
-    lib.optional dots.ai.claude {
-      id = "claude-code";
-      label = "Claude Code";
-    }
-    ++ lib.optional dots.ai.codex {
-      id = "codex";
-      label = "Codex";
-    }
-    ++ lib.optional dots.ai.ollama {
-      id = "ollama";
-      label = "Ollama";
-    };
 
   tree = import ./tree.nix {
     inherit pkgs;
@@ -45,7 +22,6 @@ let
     keybinds = import ../keybinds.nix;
     stateHome = config.xdg.stateHome;
     cacheHome = config.xdg.cacheHome;
-    backends = askBackends;
   };
 in
 {

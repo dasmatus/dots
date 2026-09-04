@@ -1,1 +1,0 @@
-../../../../../nix/home/quickshell/qml/ask/DiffView.qml

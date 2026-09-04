@@ -240,7 +240,6 @@ let
       "terminal"
       "launcher-toggle"
       "file-manager"
-      "ask-toggle"
       "notes"
       "editor"
       "cheatsheet-toggle"

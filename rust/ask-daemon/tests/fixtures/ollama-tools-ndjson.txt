@@ -1,2 +1,0 @@
-{"model":"ornith:9b","created_at":"2026-09-03T12:41:00.001Z","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"searxng__web_search","arguments":{"query":"nixos flake check"}}}]},"done":false}
-{"model":"ornith:9b","created_at":"2026-09-03T12:41:00.140Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","total_duration":410000000,"prompt_eval_count":88,"eval_count":19}

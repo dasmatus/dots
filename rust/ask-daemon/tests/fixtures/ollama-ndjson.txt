@@ -1,8 +1,0 @@
-{"model":"ornith:9b","created_at":"2026-09-03T12:40:01.001Z","message":{"role":"assistant","content":"","thinking":"The user wants a short answer. "},"done":false}
-{"model":"ornith:9b","created_at":"2026-09-03T12:40:01.104Z","message":{"role":"assistant","content":"","thinking":"Keep it to one line."},"done":false}
-{"model":"ornith:9b","created_at":"2026-09-03T12:40:01.209Z","message":{"role":"assistant","content":"A "},"done":false}
-{"model":"ornith:9b","created_at":"2026-09-03T12:40:01.311Z","message":{"role":"assistant","content":"unix "},"done":false}
-{"model":"ornith:9b","created_at":"2026-09-03T12:40:01.418Z","message":{"role":"assistant","content":"socket:\n\n```rust\n"},"done":false}
-{"model":"ornith:9b","created_at":"2026-09-03T12:40:01.522Z","message":{"role":"assistant","content":"let s = UnixListener::bind(p)?;\n"},"done":false}
-{"model":"ornith:9b","created_at":"2026-09-03T12:40:01.628Z","message":{"role":"assistant","content":"```\n"},"done":false}
-{"model":"ornith:9b","created_at":"2026-09-03T12:40:01.733Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","total_duration":1732000000,"load_duration":21000000,"prompt_eval_count":31,"prompt_eval_duration":140000000,"eval_count":48,"eval_duration":1570000000}

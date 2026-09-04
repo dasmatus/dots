@@ -25,10 +25,8 @@
     ./zellij.nix
     ./fastfetch.nix
     ./fish.nix
-    ./ask-tools.nix
     ./claude.nix
     ./codex.nix
-    ./ask.nix
     ./computer-use-linux.nix
     ./edupage-mcp.nix
     ./nixvim.nix

@@ -42,7 +42,6 @@ QtObject {
     readonly property int filesPadding: 10
     readonly property int filesRadius: 10
     readonly property int filesCommandHeight: 40
-<<<<<<< HEAD
     readonly property int filesGutter: 8
     readonly property int filesRowInset: 8
     readonly property int filesHoverPad: 4
@@ -68,17 +67,4 @@ QtObject {
     readonly property int barPillPadding: 14
     readonly property int barIconSize: 20
     readonly property int barWorkspaceIconCap: 4
-=======
-
-    // The ask pane's palette and metrics, for DiffView.qml. The ints carry
-    // nix/palette.json's real values rather than arbitrary ones, for the same
-    // reason the file manager's do: the diff card's implicitHeight is built
-    // out of askGutter and capped at askCodeMaxHeight, and a test asserting
-    // that the body is not clipped wants the geometry the shipped surface has.
-    readonly property color fgDark: "#a9b1d6"
-    readonly property color green: "#9ece6a"
-    readonly property int askGutter: 10
-    readonly property int askRadius: 10
-    readonly property int askCodeMaxHeight: 340
->>>>>>> worktree-replicated-weaving-quiche
 }
