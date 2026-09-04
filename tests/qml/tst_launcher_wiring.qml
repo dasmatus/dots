@@ -176,6 +176,19 @@ TestCase {
         verify(appsAt < actionsAt, "appActionRows must be concatenated AFTER applicationRows, not before — that ordering is the whole tiebreak mechanism");
     }
 
+    // The mirror of the test above, for the provider a hand-resolved merge
+    // conflict in this same concat chain could just as easily have dropped:
+    // appActionRows had test_app_actions_reach_the_ambient_chain_after_
+    // applications pinning its presence, keyboardRows had no such test, so
+    // losing it from the chain was (and would again be) a green build with
+    // every layout-switch row silently unreachable outside a query that
+    // happens to match one of keyboard.js's own KEYWORDS by accident.
+    function test_keyboard_rows_reach_the_ambient_chain() {
+        const block = Scan.blockAfter(launcherSource(), "readonly property var ambientRows: {");
+        verify(block !== "", "Launcher must define ambientRows");
+        verify(block.indexOf("providers.keyboardRows(") !== -1, "the ambient chain must call the keyboard-layout provider, or its rows are unreachable");
+    }
+
     // The new provider's own shape: it must earn the same frecency keys the
     // nested actionRows: already use — tst_launcher_wiring.qml:82 pins that
     // activate() forwards parentKey, so a mismatch here would leave that

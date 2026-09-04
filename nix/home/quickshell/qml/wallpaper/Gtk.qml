@@ -98,11 +98,27 @@ Item {
     // [Settings] header first) case where every existing line matches the
     // pattern being dropped: grep's own exit code for "nothing selected"
     // is 1, which set -e would otherwise treat as this whole write failing.
+    //
+    // Ownership split with nix/home/default.nix's own
+    // home.activation.gtkSettingsIniSeed, spelled out because getting it
+    // backwards is what caused the bug this guard fixes: the activation
+    // seed is the only thing allowed to make settings.ini *exist* — it owns
+    // the full rendered content (gtk-theme-name, font settings,
+    // extraConfig, all of it). This script only ever owns the single
+    // gtk-icon-theme-name= line inside a file that already exists. Before
+    // this guard, a missing destination fell into the `else` branch below
+    // and got a from-scratch file containing only `[Settings]` and
+    // gtk-icon-theme-name=, silently discarding every other key — and
+    // because that write leaves a regular file behind, the seed's own
+    // `[ -f "$dst" ]` guard would then see it as already installed and skip
+    // forever, pinning GTK to built-in Adwaita for good. So: no file, no
+    // write, full stop — let the seed run on the next activation instead.
     readonly property string iconThemeScript: `
 set -e
 dst=$1; name=$2
-tmp="$dst.new"
+[ -e "$dst" ] || exit 0
 mkdir -p "$(dirname "$dst")"
+tmp=$(mktemp "$dst.XXXXXX")
 if [ -s "$dst" ]; then
   grep -v '^gtk-icon-theme-name=' "$dst" > "$tmp" || true
 else

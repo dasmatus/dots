@@ -45,13 +45,16 @@ Rectangle {
 
     implicitHeight: Theme.filesRowHeight + Theme.filesPadding
     // Pinned to bg rather than lifted to the lighter `raised` token: below,
-    // Pane fills with Theme.selection, and bg reads at a solid ~1.74:1
+    // Pane fills with Theme.selection, and bg reads at a solid 1.740:1
     // against it — moving this bar any lighter (raised or selection
     // itself) would collapse that seam back toward 1:1 instead. bg also
     // keeps this bar's own breadcrumb trail and nav arrows, both
     // Theme.muted/Theme.dim by default, at a healthy contrast. The seam
-    // against the tab strip above is the one casualty of staying here —
-    // see Tabs.qml's own comment on why that side was not lightened either.
+    // against the tab strip above needed more than a shade pick: the
+    // active tab paints this same bg, so that boundary is a literal
+    // 1.000:1 match rather than a faint step. Tabs.qml draws a 1px
+    // Theme.border rule along its own bottom edge to cover it, rather than
+    // lightening either fill here and disturbing the ratio above.
     color: Theme.bg
 
     RowLayout {

@@ -1,11 +1,17 @@
-// Keyboard layout pill: shows the active XKB layout, shortened to fit.
+// Keyboard layout pill: shows the active XKB layout code, shortened to fit.
 //
 // Hyprland has no property for this anywhere on the Hyprland singleton or
-// on a monitor or workspace — the only live source is `activelayout`, one
+// on a monitor or workspace — the only live signal is `activelayout`, one
 // of the unfiltered lines `Hyprland.rawEvent` forwards off the compositor's
-// own event socket. That signal only fires on a change, so `hyprctl devices
-// -j`, read once at startup, is what keeps the pill from sitting blank
-// until the first switch.
+// own event socket. Its own payload only carries Hyprland's human-readable
+// description of the new layout ("Slovak", "English (US)"), though, not the
+// configured code launcher/keyboard.js's rows switch by ("sk", "us") —
+// truncating the description does not generally land on that code (see
+// keymap.js's activeLayoutCodeFrom), so this pill would disagree with the
+// launcher about what a layout is even called. `activelayout` is used only
+// as a "something changed, re-read `hyprctl devices -j`" trigger instead;
+// that same read also seeds the pill at startup, since the signal only
+// fires on a change and would otherwise leave it blank until the first one.
 //
 // Always neutral: Pill's own default fill and text colour already are
 // Theme.bgDark and Theme.fg, the "at rest" half of the bar's pill scheme
@@ -25,6 +31,14 @@ Pill {
     id: root
 
     property string layout: ""
+    property int layoutCount: 0
+
+    // Matches launcher/keyboard.js's own floor for offering a row: one
+    // configured layout has nothing to switch to, so neither surface gives
+    // the user something to act on. Drives.qml and Battery.qml already
+    // guard their own pills the same way rather than showing one that can
+    // never mean anything.
+    visible: root.layoutCount >= 2
 
     Text {
         text: root.layout !== "" ? root.layout : "--"
@@ -42,18 +56,24 @@ Pill {
             if (event.name !== "activelayout")
                 return;
 
-            root.layout = KeymapLogic.shortenLayout(KeymapLogic.parseActiveLayoutEvent(event.data).layout);
+            probe.running = true;
         }
     }
 
-    // The one-shot seed read. Runs once at load and is never restarted:
-    // every layout change after this point arrives through rawEvent above.
+    // Both the startup seed and every later re-read after an activelayout
+    // event restart this same Process, the way Providers.qml's diskProbe
+    // is restarted from its own Timer.
     Process {
+        id: probe
+
         running: true
         command: ["hyprctl", "devices", "-j"]
 
         stdout: StdioCollector {
-            onStreamFinished: root.layout = KeymapLogic.shortenLayout(KeymapLogic.activeKeymapFrom(this.text))
+            onStreamFinished: {
+                root.layout = KeymapLogic.shortenLayout(KeymapLogic.activeLayoutCodeFrom(this.text));
+                root.layoutCount = KeymapLogic.configuredLayoutCount(this.text);
+            }
         }
     }
 }

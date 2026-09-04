@@ -75,8 +75,13 @@ Pill {
     // appId at all, against the window title.
     function iconFor(toplevel: var): string {
         const appId = toplevel?.wayland?.appId ?? "";
+        const title = toplevel?.title ?? "";
 
-        const entry = (appId !== "" ? DesktopEntries.byId(appId) : null) ?? (appId !== "" ? DesktopEntries.heuristicLookup(appId) : null) ?? DesktopEntries.heuristicLookup(toplevel?.title ?? "");
+        // Both heuristicLookup calls are guarded the same way: a toplevel
+        // with neither an appId nor a title (some layer-shell-adjacent
+        // clients report neither) must not reach it with "", which is not a
+        // real heuristic case and not worth asking DesktopEntries about.
+        const entry = (appId !== "" ? DesktopEntries.byId(appId) : null) ?? (appId !== "" ? DesktopEntries.heuristicLookup(appId) : null) ?? (title !== "" ? DesktopEntries.heuristicLookup(title) : null);
 
         return entry?.icon ? Quickshell.iconPath(entry.icon, true) : "";
     }

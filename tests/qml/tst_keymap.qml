@@ -35,7 +35,13 @@ TestCase {
             { tag: "english variant", name: "English (US)", expected: "EN" },
             { tag: "plain name", name: "Slovak", expected: "SL" },
             { tag: "german", name: "German", expected: "GE" },
-            { tag: "already short", name: "Sk", expected: "SK" }
+            { tag: "already short", name: "Sk", expected: "SK" },
+            // The pill's actual caller now: a bare XKB layout code, not a
+            // human-readable description. No parenthetical to drop, so this
+            // is just an uppercase pass-through for the common two-letter
+            // case.
+            { tag: "layout code", name: "sk", expected: "SK" },
+            { tag: "another layout code", name: "us", expected: "US" }
         ];
     }
 
@@ -78,5 +84,65 @@ TestCase {
     function test_activeKeymapFrom_is_empty_for_unparseable_text() {
         compare(Keymap.activeKeymapFrom(""), "");
         compare(Keymap.activeKeymapFrom("not json"), "");
+    }
+
+    // A real capture shape (`hyprctl devices -j` on a running Hyprland
+    // session): `layout` is the configured code list, `active_layout_index`
+    // says which entry is live. This is the field the launcher's own rows
+    // already switch by, unlike active_keymap's human description above.
+    function test_activeLayoutCodeFrom_indexes_a_multi_layout_list() {
+        const json = JSON.stringify({
+            keyboards: [{ name: "kb", main: true, layout: "us,sk", active_layout_index: 1 }]
+        });
+
+        compare(Keymap.activeLayoutCodeFrom(json), "sk");
+    }
+
+    function test_activeLayoutCodeFrom_prefers_the_keyboard_marked_main() {
+        const json = JSON.stringify({
+            keyboards: [{ name: "virtual-kb", main: false, layout: "us", active_layout_index: 0 }, { name: "real-kb", main: true, layout: "us,sk", active_layout_index: 1 }]
+        });
+
+        compare(Keymap.activeLayoutCodeFrom(json), "sk");
+    }
+
+    function test_activeLayoutCodeFrom_falls_back_to_the_first_keyboard_when_none_is_main() {
+        const json = JSON.stringify({
+            keyboards: [{ name: "kb-a", layout: "de", active_layout_index: 0 }, { name: "kb-b", layout: "fr", active_layout_index: 0 }]
+        });
+
+        compare(Keymap.activeLayoutCodeFrom(json), "de");
+    }
+
+    function test_activeLayoutCodeFrom_is_empty_for_no_keyboards() {
+        compare(Keymap.activeLayoutCodeFrom(JSON.stringify({ keyboards: [] })), "");
+    }
+
+    function test_activeLayoutCodeFrom_is_empty_for_unparseable_text() {
+        compare(Keymap.activeLayoutCodeFrom(""), "");
+        compare(Keymap.activeLayoutCodeFrom("not json"), "");
+    }
+
+    // A read that raced the socket coming up, or an older Hyprland build
+    // that never added the field, must not throw or index out of bounds.
+    function test_activeLayoutCodeFrom_is_empty_for_a_missing_or_out_of_range_index() {
+        const missingIndex = JSON.stringify({ keyboards: [{ main: true, layout: "us,sk" }] });
+        const outOfRange = JSON.stringify({ keyboards: [{ main: true, layout: "us,sk", active_layout_index: 5 }] });
+
+        compare(Keymap.activeLayoutCodeFrom(missingIndex), "");
+        compare(Keymap.activeLayoutCodeFrom(outOfRange), "");
+    }
+
+    function test_configuredLayoutCount_counts_the_active_keyboards_layout_list() {
+        const single = JSON.stringify({ keyboards: [{ main: true, layout: "us", active_layout_index: 0 }] });
+        const multi = JSON.stringify({ keyboards: [{ main: true, layout: "us,sk,de", active_layout_index: 0 }] });
+
+        compare(Keymap.configuredLayoutCount(single), 1);
+        compare(Keymap.configuredLayoutCount(multi), 3);
+    }
+
+    function test_configuredLayoutCount_is_zero_for_no_keyboards_or_bad_json() {
+        compare(Keymap.configuredLayoutCount(JSON.stringify({ keyboards: [] })), 0);
+        compare(Keymap.configuredLayoutCount("not json"), 0);
     }
 }

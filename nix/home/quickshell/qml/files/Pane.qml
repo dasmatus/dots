@@ -181,15 +181,19 @@ Rectangle {
                 width: ListView.view.width
                 height: Theme.filesRowHeight
                 radius: Theme.filesRadius / 2
-                // bgDark (~0.0175 luminance) sits below this pane's own
-                // Theme.selection fill (~0.057), so hovering used to make
-                // a row read as a hole punched in the pane rather than a
-                // row lifted off it. raised is the smallest available step
-                // above selection (~1.03:1) — enough to read as raised
-                // instead of sunken without pushing the size/time columns'
-                // Theme.muted text, already tight at 2.36:1 on the bare
-                // pane, any further than the 2.28:1 it costs here.
-                color: row.current ? Theme.accent : (rowArea.containsMouse ? Theme.raised : "transparent")
+                // raised measures 1.032:1 against this pane's own
+                // Theme.selection fill — close enough to identical that
+                // hovering a row was not visible at all. Theme.bg measures
+                // 1.740:1 against selection instead, which is what this
+                // pane used at the branch base (Theme.bgDark against the
+                // window's own Theme.bg, 1.099:1) before selection replaced
+                // bg as the pane fill; bg reads as a hole punched in the
+                // pane rather than a row lifted off it, but a visible
+                // sunken row beats an invisible raised one. It costs no
+                // text contrast either: the size/time columns' Theme.muted
+                // sits at 2.355:1 on the bare pane and 4.097:1 once
+                // hovered, both above the 2.283:1 raised left it at.
+                color: row.current ? Theme.accent : (rowArea.containsMouse ? Theme.bg : "transparent")
 
                 RowLayout {
                     anchors.fill: parent

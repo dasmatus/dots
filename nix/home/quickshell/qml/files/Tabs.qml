@@ -30,16 +30,29 @@ Rectangle {
     signal added()
 
     implicitHeight: Theme.filesTabHeight
-    // bgDarker computes at only ~1.05:1 against PathBar's bg below —
-    // barely a seam. Left as-is anyway: every inactive tab's label and
-    // icon default to Theme.muted, which reads at a healthy 4.32:1 against
-    // this bgDarker fill; lifting the strip to the lighter `raised` token
-    // to fix the seam would drop that to 2.28:1, the same order of
-    // regression a sibling task's fix introduced on Pane.qml's muted
-    // columns. The strip is not left with no boundary at all, though: the
-    // active tab still gets its own EdgeStrip and its own Theme.bg fill,
-    // which is the pairing that actually needs to read as distinct.
+    // bgDarker computes at only 1.054:1 against PathBar's bg below —
+    // barely a seam, under an inactive tab. Left as-is anyway: every
+    // inactive tab's label and icon default to Theme.muted, which reads at
+    // a healthy 4.320:1 against this bgDarker fill; lifting the strip to
+    // the lighter `raised` token to fix the seam would drop that to
+    // 2.283:1, the same order of regression a sibling task's fix
+    // introduced on Pane.qml's muted columns.
+    //
+    // Directly under the active tab, shade gives no seam at all: the
+    // active tab paints this same PathBar bg, so the two bands measure
+    // 1.000:1 there — identical, not merely faint, whatever the rest of
+    // this file's history claimed about that pairing "reading as
+    // distinct". The 1px Theme.border rule below (1.914:1 against bg)
+    // covers exactly that boundary, full width, which also tidies the
+    // 1.054:1 inactive case above as a side effect.
     color: Theme.bgDarker
+
+    Rectangle {
+        anchors.bottom: parent.bottom
+        width: parent.width
+        height: 1
+        color: Theme.border
+    }
 
     RowLayout {
         anchors.fill: parent
