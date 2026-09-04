@@ -341,10 +341,16 @@ impl Harness {
     /// which is an interrupt *after* the calls are parsed.
     ///
     /// Waiting for an event the decoder only emits once it has read the body
-    /// pins the command to that point. It stays deterministic because the held
-    /// response leaves the stream branch pending afterwards, so the inbox is
-    /// the only branch that can advance the turn; the poll interval decides
-    /// how quickly the command lands, never whether it wins.
+    /// pins the command to that point.
+    ///
+    /// **Pair this only with [`FakeProvider::start_held`].** The determinism
+    /// is the held response's, not this function's: holding leaves the stream
+    /// branch pending forever, so the inbox is the only branch that can
+    /// advance the turn and the poll interval decides how quickly the command
+    /// lands, never whether it wins. Against a closing `FakeProvider::start`
+    /// the stream branch stays ready and `select!` picks between them at
+    /// random, which is exactly the flake this harness was changed to remove.
+    /// Nothing enforces the pairing, so a new test has to hold to it.
     fn send_after(&self, ready: fn(&EventBody) -> bool, command: BackendCommand) {
         let seen = Arc::clone(&self.seen);
         let commands = self.commands.clone();
@@ -940,8 +946,8 @@ fn the_openai_request_asks_for_the_usage_it_would_otherwise_never_get() {
 // the two paths that leave the loop between recording it and running the
 // tools are the ones to guard.
 
-/// The ids of the calls one assistant message announced.
-fn announced_calls(message: &Value) -> Vec<String> {
+/// The tools one ollama assistant message announced, in order.
+fn ollama_announced_calls(message: &Value) -> Vec<String> {
     message["tool_calls"]
         .as_array()
         .map(|calls| {
@@ -954,8 +960,8 @@ fn announced_calls(message: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The tool names one history answers, in order.
-fn answered_calls(messages: &[Value]) -> Vec<String> {
+/// The tools one ollama history answers, in order.
+fn ollama_answered_calls(messages: &[Value]) -> Vec<String> {
     messages
         .iter()
         .filter(|message| message["role"] == "tool")
@@ -964,10 +970,22 @@ fn answered_calls(messages: &[Value]) -> Vec<String> {
         .collect()
 }
 
-/// Assert that every call the history announces is also answered by it.
-fn assert_no_orphans(messages: &[Value]) {
-    let announced: Vec<String> = messages.iter().flat_map(announced_calls).collect();
-    let answered = answered_calls(messages);
+/// Assert that every call an **ollama** history announces is answered in it.
+///
+/// The name says ollama because the shape does. This reads
+/// `tool_calls[].function.name` off the assistant message and pairs it with
+/// `role == "tool"` plus `tool_name`, which is ollama's shape and nobody
+/// else's. Handed an Anthropic history it finds nothing on either side and
+/// passes without checking anything; handed an OpenAI one it fails
+/// spuriously, because there the answer is keyed by `tool_call_id` rather
+/// than by name.
+///
+/// A check for those two needs its own reader. `tests/provider.rs` asserts
+/// their pairing through the shape tests instead, which compare the id an
+/// assistant message carries against the id its result names.
+fn assert_no_orphans_in_ollama_history(messages: &[Value]) {
+    let announced: Vec<String> = messages.iter().flat_map(ollama_announced_calls).collect();
+    let answered = ollama_answered_calls(messages);
     assert_eq!(
         announced, answered,
         "every announced call must be answered in the same history, or both \
@@ -1000,7 +1018,7 @@ async fn stopping_a_tool_turn_leaves_no_orphaned_call() {
     harness.run(&request).await;
 
     let history = harness.session.messages();
-    assert_no_orphans(history);
+    assert_no_orphans_in_ollama_history(history);
     assert_eq!(
         roles(history),
         vec!["user", "assistant", "tool"],
@@ -1028,7 +1046,7 @@ async fn hitting_the_round_cap_leaves_no_orphaned_call() {
         .await;
 
     let history = harness.session.messages();
-    assert_no_orphans(history);
+    assert_no_orphans_in_ollama_history(history);
     assert_eq!(
         history.last().expect("the history is not empty")["role"],
         "tool",

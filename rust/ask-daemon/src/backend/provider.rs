@@ -322,6 +322,15 @@ impl ProviderSession {
                 );
                 break;
             }
+            // The third way out, and the only one that does not close its
+            // calls out. It is safe today for two reasons that are both
+            // absences: `run_tools` returns false only when the sink is dead
+            // or the client is gone, which ends the adapter's run loop and
+            // drops this session with its history, and `ensure_backend`
+            // starts a replacement with an empty one because nothing
+            // rehydrates a restarted backend. Wiring `--resume` removes the
+            // second reason, and this line becomes a live orphan with no test
+            // covering it, so close the pending calls here when you do.
             if !self.run_tools(request, outcome.tool_calls, inbox).await {
                 return false;
             }
