@@ -429,9 +429,23 @@ failure arrives then instead, as a conversation-scoped
   {"kind":"image","mime":"image/png","path":"/run/user/1000/dots-ask/cap-3.png"},
   {"kind":"file","mime":"text/x-rust","path":"/home/matus/.../rpc.rs"}]}
 ```
-Attachments travel as paths, never inline base64. The daemon reads them and
-deletes anything it created under its own runtime directory when the
-conversation closes.
+Attachments travel as paths, never inline base64. The path a client sends is
+where the file is *now*; the path the daemon records is where it will *stay*.
+`attach.rs` copies every non-text block into
+`$XDG_DATA_HOME/dots-ask/attachments/<conversation>/` before the
+`user_message` is written, and the recorded block names the copy.
+
+Three things force that. A `user_message` is persisted, so a replay of the
+thread has to still find the file, and the pane writes its captures to
+`$XDG_RUNTIME_DIR/dots-ask/`, which the tmpfs empties at logout. The harness
+reads attachments off disk and its child runs in the thread's `cwd`, so an
+attachment anywhere else needs an `--add-dir`, and one directory holding
+exactly what was attached to this thread is narrower than whatever directory
+the file was dragged out of. And `op:"delete"` should take a thread's
+attachments with it, which it can only do if it knows where they are.
+
+The daemon creates nothing under its own runtime directory, so it deletes
+nothing there. The scratch the pane writes is the tmpfs's to clear.
 
 ```json
 {"op":"interrupt","conversation":"6f1a..."}
@@ -463,9 +477,9 @@ Every event carries `event`, `seq` and `conversation`. The events split into
 two groups, and that split is what makes the gap-free claim below true.
 
 **Persisted conversation events**: `user_message`, `turn_start`,
-`text_delta`, `thinking_delta`, `code_block`, `tool_call`, `tool_result`,
-`permission_request`, `diff`, `plan`, `usage`, `turn_end`, and the
-conversation-scoped half of `error`. Each takes the next value of one
+`text_delta`, `thinking_delta`, `code_block`, `artifact`, `tool_call`,
+`tool_result`, `permission_request`, `diff`, `plan`, `usage`, `turn_end`,
+and the conversation-scoped half of `error`. Each takes the next value of one
 monotonic `u64` that spans the whole daemon, assigned at emit time and
 written to the store next to the event. That counter has no holes, so
 replay from `resume_seq` is exact and gap-free.
@@ -495,14 +509,15 @@ frame the daemon cannot act on names no thread to file the failure under,
 whether it failed to parse or named something that does not exist.
 
 `turn` names the turn an event belongs to. It is present on `turn_start`,
-`text_delta`, `thinking_delta`, `code_block`, `tool_call`, `plan`, `usage`
-and `turn_end`. It is absent on `tool_result`, `permission_request` and
-`diff`, which correlate through `call` instead, on `error`, which can
-arrive with no turn running, and on `user_message`, which is emitted before
-the turn it causes exists.
+`text_delta`, `thinking_delta`, `code_block`, `artifact`, `tool_call`,
+`plan`, `usage` and `turn_end`. It is absent on `tool_result`,
+`permission_request` and `diff`, which correlate through `call` instead, on
+`error`, which can arrive with no turn running, and on `user_message`, which
+is emitted before the turn it causes exists.
 
 ```json
-{"seq":null,"conversation":null,"event":"ready","protocol":1,"seq_head":4211}
+{"seq":null,"conversation":null,"event":"ready","protocol":1,"seq_head":4211,
+ "artifact_base":"http://127.0.0.1:41234"}
 
 {"seq":4211,"conversation":"6f1a...","event":"user_message",
  "blocks":[{"kind":"text","text":"explain this crate","path":null,"mime":null}],
@@ -521,6 +536,12 @@ the turn it causes exists.
 {"seq":4230,"conversation":"6f1a...","event":"code_block",
  "turn":"c3d0...","block":1,"language":"rust",
  "source":"fn main() {}\n","html":"<pre class=\"code\">...</pre>"}
+
+{"seq":4230,"conversation":"6f1a...","event":"artifact",
+ "turn":"c3d0...","artifact":"9c2b4d1e7a0f4b6c8d3e5f7a1b2c3d4e",
+ "title":"Sales dashboard",
+ "path":"/home/matus/.local/share/dots-ask/artifacts/6f1a.../9c2b....html",
+ "revision":2,"bytes":4821}
 
 {"seq":4231,"conversation":"6f1a...","event":"tool_call",
  "turn":"c3d0...","call":"toolu_0147...","name":"Write","display_name":"Write",
@@ -668,6 +689,11 @@ needs the controller.
 | `code_block.language` | `Option<String>`, null when the fence had no tag |
 | `code_block.source` | `String` |
 | `code_block.html` | `Option<String>`, null until phase 3 populates it |
+| `artifact.artifact` | `String`, 32 lowercase hex, the id the page is served under |
+| `artifact.title` | `Option<String>`, the page's own `<title>`, null when it has none |
+| `artifact.path` | `PathBuf`, where the file is |
+| `artifact.revision` | `u32`, 1 on the first write and one higher on every rewrite |
+| `artifact.bytes` | `u64`, the file's size |
 | `tool_call.call` | `String`, the backend's tool-use id |
 | `tool_call.name` | `String` |
 | `tool_call.display_name` | `Option<String>`, null when the backend sends no label |
@@ -719,6 +745,7 @@ needs the controller.
 | `backends.items[].detail` | `Option<String>`, null when `state` is `ready` |
 | `ready.protocol` | `u32` |
 | `ready.seq_head` | `u64`, the highest persisted seq at connect time |
+| `ready.artifact_base` | `Option<String>`, the loopback base URL for this run, null when the artifact server did not bind. Never persisted: the port is picked fresh on every start, so it rides an ephemeral reply and the `artifact` event carries only the id |
 
 `RateLimit` is the one nested struct worth naming, because it comes straight
 off the harness `rate_limit_event` and nothing else produces it.
@@ -765,6 +792,52 @@ The event set is split across three tables so the cells stay readable.
 | openai-compatible | `usage` on the final chunk, only when the request sets `stream_options.include_usage`; `cost_usd` always `null` | HTTP status plus `error.message` | same | listed when a base URL and key are configured | same |
 | ollama | `prompt_eval_count` and `eval_count` from the final chunk; no cache split, `cost_usd` always `null` | `{"error":"..."}` body, or a refused connection on 11434 | same | listed when `dots.ai.ollama` is on and 11434 answers | same |
 
+
+### Attachments
+
+Every backend gets the same `SendBlock` list, already rewritten to name the
+daemon's own copies, and each one encodes it differently. Section 2 had no
+row for this; phase 5 added one because the four disagree completely and
+getting it wrong is silent, not loud: a provider handed the wrong shape sees
+no image and answers as if none was sent.
+
+| Backend | An image block becomes | Anything else becomes |
+|---|---|---|
+| claude-code | a line of text naming the path, with the thread's attachment directory passed as `--add-dir` | the same |
+| anthropic | `{"type":"image","source":{"type":"base64","media_type":…,"data":…}}` in the content array | a text block naming the path |
+| openai-compatible | `{"type":"image_url","image_url":{"url":"data:<mime>;base64,…"}}` in the content array | a text block naming the path |
+| ollama | a bare base64 string in a sibling `images` array; `content` stays a plain string | a line in `content` naming the path |
+
+**The harness gets paths and the three providers get bytes**, and that split
+is deliberate. The CLI reads files itself, through a `Read` the same
+permission prompt gates as every other one, so inlining base64 into a
+stream-json frame would push the same bytes over a pipe for a file the child
+can already open. A raw provider has no file tool at all, by section 5's
+design, so bytes are the only way it can see an attachment.
+
+**Only `image/png`, `image/jpeg`, `image/gif` and `image/webp` are inlined.**
+Everything else is named as a path even to a provider. The Anthropic API's
+`document` block is PDF-only and nothing in this repo has recorded one, and a
+block a provider rejects turns an attachment into a failed turn, which is
+worse than a mention the model can act on through an MCP tool.
+
+**ollama takes no `data:` prefix and no media type.** Its `/api/chat` message
+carries `images` beside `content` rather than content parts. A message with
+no image carries no `images` key at all, rather than an empty array.
+
+### Artifacts
+
+`artifact` is backend-independent. It is produced by the daemon from any
+`code_block` whose language tag is `html` or `htm`, on all four backends,
+because the fence is the only signal any of them gives that the model meant
+a page rather than a listing. Nothing in a backend's own protocol says
+"artifact".
+
+A harness `Write` of a `.html` file is **not** an artifact. It is a `diff`,
+which is what the schema already has for a file the model changed on disk,
+and treating it as an artifact would mean the daemon serving files out of the
+user's own checkout over loopback. That is a much larger promise than this
+design makes.
 ### What does not map
 
 Some of the schema is honestly unfillable for some backends, and the pane
@@ -821,6 +894,9 @@ touches a contiguous set.
 | `src/policy.rs` | deny by default, the allow-always store, path scoping |
 | `src/secrets.rs` | `secret-tool lookup`, lazy, capped at 10s |
 | `src/render.rs` | pulldown-cmark plus syntect on `default-fancy`, producing `code_block.html` and `diff.html` |
+| `src/attach.rs` | taking an attachment into the thread's own directory under `$XDG_DATA_HOME/dots-ask/attachments/`, and the four per-backend encodings |
+| `src/artifact/mod.rs` | model-written HTML on disk under `$XDG_DATA_HOME/dots-ask/artifacts/`, the per-thread token, the revision, and the containment check |
+| `src/artifact/serve.rs` | the loopback HTTP server, the Content-Security-Policy every response carries, and the reload shim |
 
 Tests live in `rust/ask-daemon/tests/`, never inline, per `CLAUDE.md`:
 `proto.rs` for schema round-trip, `server.rs` for `seq` replay and multiple
@@ -882,12 +958,94 @@ conversation JSONL, which is a transcript, not a permission store. A
 is owned by the user, which is the whole access-control story for the wire
 protocol. `secrets.rs` reads keys through `secret-tool` lazily, with the 10s
 timeout `nix/home/edupage-mcp.nix:160` established, and never writes a key
-into the store, an event or a log line. Model output never reaches a real
-HTML renderer in v1, because nothing in this schema carries HTML the pane
-would trust: `render.rs` produces the small rich-text subset a QML `Text`
-element draws, and Quickshell cannot host QtWebEngine anyway. Phase 5 adds
-artifacts, and it inherits the whole question of where untrusted markup gets
-rendered along with them.
+into the store, an event or a log line. Model output reaches no HTML renderer
+inside the pane: `render.rs` produces the small rich-text subset a QML `Text`
+element draws, and Quickshell cannot host QtWebEngine anyway. Phase 5 added
+artifacts, which render in a browser instead and are covered on their own
+below.
+
+**Artifacts, and why the pane's escaping does not reach them.** Phase 2 built
+a tag allowlist in `render.rs`, and the reason it is enough is narrow: its
+output goes to a QML `Text` element, which runs no script and has no
+navigation. An artifact goes to Chromium. Script runs, `fetch` resolves, a
+`<meta http-equiv="refresh">` navigates, and the page can reach anything the
+browser can. **None of the allowlist's reasoning carries over, and the two
+must not be read as one guard.**
+
+The page itself is hostile input. A model writes it after reading files, tool
+results or web pages, any of which a third party may have written, so what
+comes out is treated as markup an attacker chose and a browser will execute.
+The containment is a header, not a belief about the markup being clean.
+
+*What an artifact may do.* `src/artifact/serve.rs` puts one
+Content-Security-Policy on every response, and each directive is answering
+something.
+
+- **No script of its own.** `script-src` names a nonce minted per response
+  and nothing else. The reload shim carries that nonce because the daemon
+  writes the shim; markup written before the request cannot, and the value
+  differs on every load.
+- **No host but the one that served it.** `default-src 'none'` with
+  `connect-src 'self'` refuses every remote fetch, image, font, stylesheet,
+  frame and worker. `<img src="https://…/?leak">` is the cheapest thing a
+  page can try and it does not resolve.
+- **No navigating away.** This is the one CSP's fetch directives cannot
+  reach: no shipped browser implements `navigate-to`, so `location = …` and a
+  meta refresh would both leave, and a URL the model chose is a channel out.
+  The `sandbox` directive closes it, because a sandboxed document without
+  `allow-top-navigation` cannot navigate itself and without `allow-popups`
+  cannot open a window. `allow-scripts` is there for the shim and
+  `allow-same-origin` so `'self'` keeps meaning the loopback origin.
+- **No framing and no cross-origin read.** `frame-ancestors 'none'` plus
+  `Cross-Origin-Resource-Policy` and `Cross-Origin-Opener-Policy` at
+  `same-origin`.
+- **No form anywhere**, including back to the daemon: `form-action 'none'`.
+
+*What guards the server.* **The port is not a secret and is not treated as
+one.** Every process on this machine can connect to a loopback listener and
+can find one by scanning. Four things do the work instead.
+
+The path is a token, not a filename: a request resolves through a map, so no
+filesystem path is ever built from request bytes and there is no
+concatenation for a `..` to travel through. The token is 122 random bits,
+minted per thread, and only ever sent over the 0600 unix socket. The `Host`
+header must be the loopback authority this run bound, without which a page
+the user is browsing could point its own name at 127.0.0.1, load this port
+under its own origin and read the response, which is DNS rebinding and the
+one attack a loopback server gets for free. And only `GET` and `HEAD` are
+answered, because nothing here writes.
+
+Two more, cheap and kept anyway: a request path carrying `.`, `..`, an empty
+segment or a percent escape is refused on its shape before any lookup, and a
+page whose registered path does not canonicalize inside the artifact root is
+refused rather than served. The second is the one that actually leaks without
+it, since a symlink is a path this process did not choose.
+
+*Why loopback and not `file://`.* A `file:` document has an opaque origin, so
+`'self'` would mean nothing, `fetch` is blocked outright and the reload shim
+could not work at all. Chromium's rules about what one local file may read
+from another also vary with flags that are not this daemon's to set.
+Loopback gives the page a real origin, which is what makes `connect-src
+'self'` and `Cross-Origin-Resource-Policy` say anything, and it keeps the
+browser from ever being pointed at the filesystem.
+
+*What this does not claim.* An artifact still renders arbitrary text and CSS
+in a window that looks like part of the shell, so a page can lie to the
+person reading it. Nothing here prevents that and nothing could: the whole
+point is to show what the model wrote. What is prevented is the page reaching
+off this machine, running code the model chose, or reading anything the
+daemon did not deliberately serve.
+
+**Where the pane's own boundary is, since it is not obvious.** `render.rs`'s
+allowlist covers `code_block.html` and `diff.html` and nothing else. Every
+other model-derived string on this protocol reaches the pane unescaped, and a
+QML `Text` with no `textFormat` is `Text.AutoText`, which parses anything
+resembling markup as markup and then resolves `<img src>` through
+`QQuickPixmap` for `http:` and `file:` with no property to turn it off. So
+every such binding names `Text.PlainText` explicitly, and `code_block.html`
+and `diff.html` are the only two that reach `Text.RichText`, only while the
+daemon actually populated them. `tests/qml/tst_ask_wiring.qml` holds both
+halves.
 
 **What is in the keyring, exactly.** `secrets.rs` and the setup helper have
 to agree on names that neither of them can derive, so they are frozen here
@@ -936,10 +1094,10 @@ field that had to give.
 `rust/ask-daemon/tests/proto.rs` is what keeps it that way. It round-trips
 every frame in both directions, and separately compares the serialized JSON
 against this document's own examples for all eight client ops and all
-sixteen daemon event types. Both coverage lists are hand-written string
+seventeen daemon event types. Both coverage lists are hand-written string
 arrays copied out of this document, so they pin the types the schema has
 today: dropping an example fails the suite. They do not derive themselves
-from the Rust enums, so adding a sixteenth event type passes until somebody
+from the Rust enums, so adding an eighteenth event type passes until somebody
 adds its literal to the list by hand. A phase that adds a type adds its
 literal in the same commit.
 
@@ -959,3 +1117,10 @@ same reason a loosening would be.
 |---|---|---|
 | `user_message` | added, persisted, conversation-scoped | Phase 3 found that the persisted set ran `turn_start` to `turn_end` and carried nothing for the user's own message, so replaying a thread brought back answers with no questions. The pane could have stashed its own echoes, but that is a second transcript diverging from the daemon's JSONL. It carries `blocks` and `sent_ms`, takes a `seq` like every other persisted event so replay stays gap-free, and is emitted when a `send` is accepted, which puts it before the `turn_start` it causes. |
 | section 5, keyring items | Added the `dots-ask` service and its three attribute names. | Phase 4 built the setup helper, so it had to pick names, and phase 2 writes `secrets.rs` against this document rather than against `nix/home/ask.nix`. Recorded here so the two cannot be written independently and disagree. |
+| `artifact` | added, persisted, conversation-scoped | Phase 5 owns HTML, and section 2 said as much: `code_block.html` is a rich-text subset for a QML `Text` and "anything richer than that subset, meaning a real HTML artifact, is out of scope here and has no event in this schema". This is that event. It carries `turn` like the `code_block` it accompanies, takes a `seq` like every other persisted event, and is emitted immediately after the `code_block` rather than instead of it, so a replay brings back the source and the card together. |
+| `ready.artifact_base` | added to an ephemeral reply | The artifact server binds a port the kernel picks, so the URL is different on every daemon start. Writing it into the persisted `artifact` event would put a dead link in a transcript the first time the daemon restarted. It rides `ready` instead, which is per-connection and never stored, and the client joins it to `/<conversation>/<artifact>`. `Option`, because a failed loopback bind is not a reason to refuse to run. |
+| section 2, `send` attachment paths | narrowed in behaviour, not in type | The example still shows a client sending `/run/user/1000/dots-ask/cap-3.png`, and that is still right: it is where the pane's capture lands. What changed is that the daemon no longer keeps that path. It copies the file into `$XDG_DATA_HOME/dots-ask/attachments/<conversation>/` and the persisted `user_message` names the copy, because a persisted path pointing into a tmpfs is a transcript that breaks at the next logout. No field changed type. |
+| section 2, "the daemon deletes anything it created under its own runtime directory" | held, by creating nothing there | Phase 5 is the phase that would have needed it. It does not: the pane writes its own scratch and the daemon copies out of it, so there is nothing of the daemon's under `$XDG_RUNTIME_DIR` to delete. Recorded because a later reader will look for the deletion code and should know why there is none. |
+| section 3, attachments | added, one row per backend | Section 3 had no attachment mapping at all, and the four backends agree on nothing here. Getting it wrong is silent: a provider handed the wrong shape sees no image and answers as though none was sent. |
+| section 5, the artifact threat model | added | Section 5 said phase 5 "inherits the whole question of where untrusted markup gets rendered". The answer is written there now rather than in `serve.rs` alone, because it is a decision about what an artifact is allowed to be rather than an implementation detail. |
+| section 5, the pane's escaping boundary | added | Not a change, a gap. The allowlist's scope was stated in phase 2's own module and nowhere in this document, and ten bindings in the shipped pane were on `Text.AutoText` as a result. Writing the boundary down is what stops the next one. |
