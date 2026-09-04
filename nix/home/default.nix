@@ -109,11 +109,41 @@
   # files the first time either is missing, using the exact rendered
   # content the (now file-disabled, see xdg.configFile above) gtk3/gtk4
   # modules already compute from gtk.theme/gtk.iconTheme. "Missing" covers
-  # both a first-ever switch and the one right after this option changed:
-  # home-manager's own file-linking phase, which runs before this
-  # activation script, already deletes a stale symlink to an older
-  # generation once a path stops being managed, so there is nothing left
-  # here to overwrite by the time this runs.
+  # both a first-ever switch and the one right after this option changed.
+  #
+  # Ordered after home-manager's own "linkGeneration" activation script
+  # (modules/files.nix, cleanOldGen then linkNewGen), not merely after
+  # writeBoundary: entryAfter [ "writeBoundary" ] alone would only make
+  # this a *sibling* of linkGeneration, with no ordering between the two,
+  # since linkGeneration is itself declared as entryAfter [ "writeBoundary" ]
+  # (same file). Home-manager's dag gives siblings no guaranteed order. If
+  # this seed ran first on the switch that turns management off, the old
+  # generation's symlink would still be sitting at $dst3/$dst4 — `[ -f ]`
+  # follows it to the still-existing store target, reads true, and skips
+  # the install — and then linkGeneration's cleanOldGen would delete that
+  # same symlink afterwards because the path stopped being managed,
+  # leaving no settings.ini at all and GTK falling back to built-in
+  # defaults. entryAfter [ "linkGeneration" ] (the same node home-manager's
+  # own onFilesChange uses to run after the link/cleanup phase) guarantees
+  # cleanOldGen has already removed that stale symlink before this runs,
+  # so the guard below sees an honest picture of what's left at the path.
+  #
+  # What the -f guard actually finds there, post-reorder:
+  #   - Nothing (the common case right after this feature lands): a stale
+  #     home-manager symlink existed and cleanOldGen just removed it. -f
+  #     is false, the seed installs the rendered content.
+  #   - A plain regular file: either an earlier seed's output, or Gtk.qml's
+  #     own tint already written (Gtk.qml replaces the destination with mv,
+  #     which leaves a regular file, never a symlink). -f is true, the seed
+  #     is skipped — required, see "seed-once" below, since this is the
+  #     expected steady state after the very first wallpaper pick.
+  #   - A dangling symlink unrelated to home-manager (foreign tool, manual
+  #     edit, target since removed): -f is false because -f follows the
+  #     link and finds nothing at the far end, so the seed runs. `install
+  #     -Dm644` unlinks the dangling entry and creates a real file in its
+  #     place rather than trying to write through the broken link (checked
+  #     against a scratch dangling symlink before relying on it here), so
+  #     no extra rm is needed for this case.
   #
   # Deliberately seed-once, not reasserted on every switch: Gtk.qml owns
   # this file from here on, rewriting gtk-icon-theme-name in place on every
@@ -124,7 +154,7 @@
   # does still reset — dconf has no "someone else owns this file" file-
   # ownership mechanism to hand it off through, and the schema gap that
   # makes it inert on this machine is a separate, already-documented story.
-  home.activation.gtkSettingsIniSeed = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+  home.activation.gtkSettingsIniSeed = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     dst3=${lib.escapeShellArg "${config.xdg.configHome}/gtk-3.0/settings.ini"}
     dst4=${lib.escapeShellArg "${config.xdg.configHome}/gtk-4.0/settings.ini"}
     [ -f "$dst3" ] || run install -Dm644 ${config.xdg.configFile."gtk-3.0/settings.ini".source} "$dst3"
