@@ -51,20 +51,50 @@ TestCase {
     // (never alphabetical: "net" before "nix-daemon" is Capability::ALL's
     // own order, not "kvm" first), each carrying how many catalog apps
     // actually declared it.
-    function test_capability_groups_lists_every_known_capability_in_order() {
-        const groups = Policy.capabilityGroups(null);
-        compare(groups.length, 7);
-        compare(groups.map(g => g.name), ["net", "nix-daemon", "repo-read", "repo-write", "postgres", "settings-ro", "kvm"]);
-        // A `null` catalog is "nothing read yet", same as every other
-        // Policy function here — every count stays zero rather than the
-        // list disappearing outright, since the capability vocabulary
-        // itself never depends on the catalog being loaded.
+    function test_capability_groups_lists_the_vocabulary_the_catalog_supplied() {
+        // The vocabulary arrives in `catalog --json`'s own `capabilities`
+        // array, built by catalog.rs's `capability_vocabulary()` from
+        // policy.rs's `Capability::ALL`. Order is that enum's declaration
+        // order, not alphabetical — "net" before "nix-daemon", never "kvm"
+        // first — and it is preserved rather than re-sorted here.
+        const catalogSet = {
+            version: 1,
+            apps: [],
+            capabilities: [
+                { name: "net", label: "Network", description: "Reach the internet" },
+                { name: "kvm", label: "Hardware virtualisation", description: "Use /dev/kvm" }
+            ]
+        };
+        const groups = Policy.capabilityGroups(catalogSet);
+        compare(groups.map(g => g.name), ["net", "kvm"]);
+        compare(groups[0].label, "Network");
         verify(groups.every(g => g.count === 0));
+    }
+
+    // The anti-drift assertion, and the reason the old version of this test
+    // was deleted rather than adapted.
+    //
+    // It used to call `capabilityGroups(null)` and expect all seven
+    // capabilities back, which only worked because policy.js kept its own
+    // hardcoded name+label table. That table is a second source of truth:
+    // renaming a capability in policy.rs left it stale and nothing failed.
+    // With the table gone, an unread catalog yields nothing — and it must
+    // NOT quietly fall back to a built-in list, because a fallback is the
+    // same drift wearing a different name.
+    function test_an_unread_catalog_yields_no_vocabulary_rather_than_a_fallback() {
+        compare(Policy.capabilityGroups(null).length, 0);
+        compare(Policy.capabilityGroups({}).length, 0);
+        compare(Policy.capabilityGroups({ version: 1, apps: [] }).length, 0);
     }
 
     function test_capability_groups_counts_only_apps_that_declared_it() {
         const catalogSet = {
             version: 1,
+            capabilities: [
+                { name: "net", label: "Network", description: "Reach the internet" },
+                { name: "repo-read", label: "Repository (read)", description: "Read the checkout" },
+                { name: "kvm", label: "Hardware virtualisation", description: "Use /dev/kvm" }
+            ],
             apps: [
                 { appId: "zed", name: "Zed", icon: "zed", tier: "vm", caps: ["net", "repo-read"], paths: [], source: "/nix/store/zed.desktop", state: { net: "allow", "repo-read": "allow" } },
                 { appId: "nix-lint", name: "nix-lint", icon: null, tier: "container", caps: ["net"], paths: [], source: null, state: { net: "ask" } },
@@ -73,7 +103,7 @@ TestCase {
                 // unconfined check would otherwise count it under nothing
                 // anyway (its own caps array is empty), so this fixture
                 // pins the shape rather than the (currently vacuous) count.
-                { appId: "bitwarden", name: "Bitwarden", icon: null, tier: null, caps: [], paths: [], source: null, state: {} }
+                { appId: "bitwarden", name: "Bitwarden", icon: null, tier: null, caps: [], paths: [], source: null, state: {}, reason: "the secret broker other things connect to" }
             ]
         };
         const groups = Policy.capabilityGroups(catalogSet);
@@ -170,7 +200,30 @@ TestCase {
     // comment in policy.js. Pinned here so a future reader who DOES add
     // the field can flip this fixture and watch the assertion start
     // meaning something.
-    function test_unconfined_entries_reason_defaults_to_empty_string() {
+    // The case that matters: an exempt app's reason reaches the row.
+    //
+    // This replaces a test that asserted the reason is ALWAYS the empty
+    // string. That assertion passed, and it was pinning a defect in place —
+    // `CatalogEntry` carried no `reason` field at all, so every exemption
+    // rendered as a bare "Unsandboxed" badge with no explanation, and the
+    // test certified that as correct.
+    function test_unconfined_entries_carry_the_policys_reason() {
+        const catalogSet = {
+            version: 1,
+            apps: [{
+                appId: "bitwarden", name: "Bitwarden", icon: null, tier: null,
+                caps: [], paths: [], source: null, state: {},
+                reason: "the secret broker other things connect to"
+            }]
+        };
+        compare(Policy.unconfinedEntries(catalogSet)[0].reason,
+                "the secret broker other things connect to");
+    }
+
+    // An older binary emits no `reason` field. Degrading to an empty string
+    // is right; inventing text would not be. Kept as the DEGRADE case only,
+    // never as the expected shape of a current catalog.
+    function test_a_missing_reason_degrades_to_empty_rather_than_fabricated() {
         const catalogSet = {
             version: 1,
             apps: [{ appId: "bitwarden", name: "Bitwarden", icon: null, tier: null, caps: [], paths: [], source: null, state: {} }]

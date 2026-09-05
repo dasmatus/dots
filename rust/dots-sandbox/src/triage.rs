@@ -136,6 +136,74 @@ const CREDENTIAL_DIRS: &[&str] = &[
     ".config/rbw",
 ];
 
+/// Device nodes that hand over a sensor or the machine itself, with the
+/// capability each one really is.
+///
+/// A device node is not a file in any useful sense: opening `/dev/input/*`
+/// is a keylogger, `/dev/video*` is the camera, `/dev/mem` is every
+/// process's memory. None of these should ever be proposed as an allow rule
+/// because a program touched one in a log — the sandbox exists to withhold
+/// exactly this, so each is named and blocked rather than left to fall
+/// through as an unremarkable path.
+///
+/// Prefixes, matched in order, so `/dev/input/event3` is covered without
+/// enumerating every event number the kernel happens to have assigned.
+const SENSITIVE_DEVICES: &[(&str, &str)] = &[
+    ("/dev/input", "keyboard and pointer input, i.e. a keylogger"),
+    ("/dev/video", "the camera"),
+    ("/dev/snd", "the microphone and audio capture"),
+    ("/dev/dri/card", "direct GPU access"),
+    (
+        "/dev/hidraw",
+        "raw USB HID devices, including security keys",
+    ),
+    ("/dev/kvm", "hardware virtualisation"),
+    ("/dev/mem", "all of physical memory"),
+    ("/dev/kmem", "kernel memory"),
+    ("/dev/port", "raw I/O ports"),
+    ("/dev/tpm", "the TPM"),
+    ("/dev/tpmrm", "the TPM resource manager"),
+    (
+        "/dev/uinput",
+        "synthetic input injection, i.e. driving the desktop",
+    ),
+    ("/dev/disk", "raw block devices"),
+    ("/dev/sd", "raw block devices"),
+    ("/dev/nvme", "raw block devices"),
+];
+
+/// Files under `/etc` that are routine to read and hold nothing secret.
+///
+/// Deliberately an allowlist rather than a denylist. `/etc` mixes
+/// `resolv.conf` with `shadow`, and a denylist there fails open — a file
+/// nobody thought to list is treated as harmless. This way an unfamiliar
+/// `/etc` path becomes a question rather than an assumption.
+const ROUTINE_ETC: &[&str] = &[
+    "/etc/hosts",
+    "/etc/resolv.conf",
+    "/etc/nsswitch.conf",
+    "/etc/localtime",
+    "/etc/machine-id",
+    "/etc/os-release",
+    "/etc/ssl/certs",
+    "/etc/pki",
+    "/etc/fonts",
+    "/etc/xdg",
+    "/etc/profile",
+    "/etc/zoneinfo",
+];
+
+/// `/etc` paths that are credential or authentication material.
+const SENSITIVE_ETC: &[(&str, &str)] = &[
+    ("/etc/shadow", "hashed account passwords"),
+    ("/etc/gshadow", "hashed group passwords"),
+    ("/etc/sudoers", "the sudo policy"),
+    ("/etc/ssh", "host keys and the SSH configuration"),
+    ("/etc/ssl/private", "private TLS keys"),
+    ("/etc/nixos", "this machine's system configuration"),
+    ("/etc/shadow-", "a hashed-password backup"),
+];
+
 /// Classify one denial. First match wins, and the order is the contract.
 #[must_use]
 pub fn classify(denial: &Denial, ctx: &TriageCtx) -> Classification {
@@ -187,6 +255,16 @@ pub fn classify(denial: &Denial, ctx: &TriageCtx) -> Classification {
         );
     }
 
+    // Device nodes, ahead of the scratch rule so /dev/input is never reached
+    // by whatever waves /dev/null through.
+    if let Some(card) = device_rule(path) {
+        return card;
+    }
+
+    if let Some(card) = etc_rule(path, denial.requested_mask.as_deref()) {
+        return card;
+    }
+
     // Read-only access to the store. Store paths are immutable and
     // world-readable by construction, so nothing there is a secret worth
     // withholding — but a *write* to one is never legitimate and falls
@@ -220,11 +298,98 @@ pub fn classify(denial: &Denial, ctx: &TriageCtx) -> Classification {
         );
     }
 
+    // Every other device node. Named rather than folded into the generic
+    // fallthrough, because "some program opened a device node we have no
+    // entry for" is a more interesting thing for a reader to see than "no
+    // rule matched", and the kernel adds device classes faster than this
+    // table grows.
+    if under(path, "/dev/") {
+        return Classification::heuristic(
+            Verdict::Unclassified,
+            "unrecognised-device",
+            "a device node with no entry in the table; a human decides what it grants",
+        );
+    }
+
     Classification::heuristic(
         Verdict::Unclassified,
         "no-rule",
         "no rule matched; a human decides this one",
     )
+}
+
+/// The `/dev` rules: a named sensor or machine-level node is blocked, and
+/// anything else under `/dev` that is not scratch stays a question.
+///
+/// Returns `None` for a path outside `/dev`, and for the scratch nodes
+/// (`/dev/null` and friends) so the caller's own scratch rule still gets
+/// them — this must sit ahead of that rule to keep `/dev/input` away from
+/// it, and giving it the scratch decision too would put two allowlists in
+/// two places.
+fn device_rule(path: &str) -> Option<Classification> {
+    if let Some((prefix, grants)) = SENSITIVE_DEVICES
+        .iter()
+        .find(|(prefix, _)| path.starts_with(prefix))
+    {
+        return Some(Classification::heuristic(
+            Verdict::Block,
+            "sensitive-device",
+            format!("{path} is {prefix}*, which grants {grants}"),
+        ));
+    }
+    None
+}
+
+/// The `/etc` rules.
+///
+/// Split three ways because `/etc` is not one kind of place: it holds
+/// `resolv.conf` next to `shadow`. Sensitive paths are named and blocked,
+/// a small allowlist of genuinely routine reads is allowed, and everything
+/// else stays unclassified rather than being assumed harmless — a denylist
+/// here would fail open on whatever nobody thought to list.
+fn etc_rule(path: &str, mask: Option<&str>) -> Option<Classification> {
+    if let Some((_, what)) = SENSITIVE_ETC
+        .iter()
+        .find(|(prefix, _)| path.starts_with(prefix))
+    {
+        return Some(Classification::heuristic(
+            Verdict::Block,
+            "sensitive-etc",
+            format!("{path} is {what}"),
+        ));
+    }
+
+    if !under(path, "/etc/") {
+        return None;
+    }
+
+    // A write to /etc reconfigures the machine, however routine the file
+    // looks read-only: /etc/hosts is on the allowlist, and writing it
+    // redirects every name lookup on the system.
+    if !mask_is_read_only(mask) {
+        return Some(Classification::heuristic(
+            Verdict::Block,
+            "etc-write",
+            "writing under /etc reconfigures the system and is never proposed from a log line",
+        ));
+    }
+
+    if ROUTINE_ETC
+        .iter()
+        .any(|allowed| path == *allowed || path.starts_with(&format!("{allowed}/")))
+    {
+        return Some(Classification::heuristic(
+            Verdict::Allow,
+            "routine-etc",
+            "a system configuration file that holds no secret and is read by nearly everything",
+        ));
+    }
+
+    Some(Classification::heuristic(
+        Verdict::Unclassified,
+        "unrecognised-etc",
+        "an /etc path that is neither on the routine allowlist nor known to be sensitive",
+    ))
 }
 
 /// Whether `path` sits under a literal directory prefix.

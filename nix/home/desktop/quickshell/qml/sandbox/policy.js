@@ -68,22 +68,28 @@ function statusLabel(status) {
     }
 }
 
-// rust/dots-sandbox/src/policy.rs's `Capability::ALL`, in that exact
-// declaration order — the fixed capability vocabulary the permissions
-// section's top level now groups by (the task brief's own words: "make
-// permission type buttons that'll lead to apps that requested them"). A
-// human label sits beside each: `Capability::as_str()`'s values ("net",
-// "nix-daemon", …) are argv-shaped, chosen for `spawn_argv` to read back,
-// not sentence-shaped for a button.
-const CAPABILITIES = [
-    { name: "net", label: "Network" },
-    { name: "nix-daemon", label: "Nix daemon" },
-    { name: "repo-read", label: "Repo read" },
-    { name: "repo-write", label: "Repo write" },
-    { name: "postgres", label: "Postgres" },
-    { name: "settings-ro", label: "Settings (read-only)" },
-    { name: "kvm", label: "KVM" }
-];
+// The capability vocabulary comes from `catalog --json`'s own
+// `capabilities` array, built by `catalog.rs`'s `capability_vocabulary()`
+// from `policy.rs`'s `Capability::ALL`. It is deliberately NOT restated
+// here.
+//
+// A label table in this file was the first version, and it is the exact
+// second-source-of-truth problem the ledger flagged: adding or renaming a
+// capability in `policy.rs` left this list stale, the page then showed an
+// old name or silently omitted the capability altogether, and nothing
+// anywhere failed to say so. Reading the vocabulary the binary emits means
+// a new capability appears here the moment it exists, with no edit.
+//
+// An absent array yields an empty list rather than a hardcoded fallback:
+// falling back would reintroduce the same drift under a different name,
+// and this page's whole stance is that it would rather show nothing than
+// show something it cannot source.
+function capabilityVocabulary(catalogSet) {
+    if (!catalogSet || !Array.isArray(catalogSet.capabilities))
+        return [];
+
+    return catalogSet.capabilities;
+}
 
 // `dots-sandbox catalog --json`'s `apps` array, defensively normalized: an
 // absent or malformed array is "nothing to show" rather than a thrown
@@ -123,9 +129,10 @@ function isUnconfined(app) {
 // nothing else).
 function capabilityGroups(catalogSet) {
     const apps = catalogApps(catalogSet);
-    return CAPABILITIES.map(cap => ({
+    return capabilityVocabulary(catalogSet).map(cap => ({
         name: cap.name,
         label: cap.label,
+        description: cap.description ?? "",
         count: apps.filter(app => !isUnconfined(app) && Array.isArray(app.caps) && app.caps.includes(cap.name)).length
     }));
 }
@@ -157,14 +164,17 @@ function appsForCapability(catalogSet, capability) {
 // permissions UI starts lying about what it controls, the same reasoning
 // the old `appEntries`-driven rendering already carried.
 //
-// `reason` reads `app.reason` defensively (`|| ""`) because
-// `CatalogEntry` (rust/dots-sandbox/src/catalog.rs, as of this page's own
-// task) does not actually carry one yet — `ResolvedApp::Unconfined`'s own
-// reason string never reaches `entry_from_policy_only`. Reading it
-// anyway costs nothing today and means this page needs no further change
-// the day that one field is added; until then this row says "Unsandboxed"
-// with no reason text, which is the honest degrade — an empty reason
-// rather than a fabricated one.
+// `reason` is `CatalogEntry.reason` (rust/dots-sandbox/src/catalog.rs),
+// carried from `ResolvedApp::Unconfined`'s own string, so this row can say
+// WHY an app is exempt rather than only that it is. That difference is the
+// whole point of showing the list: "Unsandboxed" alone reads as an
+// oversight, while "the secret broker other things connect to" reads as
+// the deliberate decision it was.
+//
+// Still read defensively (`|| ""`), because `reason` is omitted from the
+// JSON entirely for a sandboxed app and an older binary emits no such
+// field at all. An empty reason is the honest degrade; a fabricated one
+// would not be.
 function unconfinedEntries(catalogSet) {
     return catalogApps(catalogSet)
         .filter(isUnconfined)

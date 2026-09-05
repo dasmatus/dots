@@ -113,11 +113,45 @@ TestCase {
     // Exempt apps must appear, marked unsandboxed, at the permissions
     // section's own top level — an invisible exemption list is how a
     // permissions UI starts lying about what it controls.
+    // The last link in the reason's chain, and only the last link.
+    //
+    // A source scan can prove the page reads `.reason`; it cannot prove a
+    // real reason ever arrives there, and for a while none did — CatalogEntry
+    // had no such field, so this assertion passed against a row that always
+    // rendered blank. The two behavioural tests that close that gap are
+    // catalog.rs's `an_exempt_app_carries_the_policys_reason_for_exempting_it`
+    // (the binary emits it) and tst_sandbox_policy.qml's
+    // `test_unconfined_entries_carry_the_policys_reason` (Policy surfaces it).
+    // Read all three together; this one alone means very little.
     function test_exempt_apps_show_marked_unsandboxed_with_their_reason() {
         const src = securitySource();
         verify(src.indexOf("Policy.unconfinedEntries(root.catalogSet)") !== -1, "unconfined apps must come from Policy.unconfinedEntries");
         verify(src.indexOf('text: "No sandbox"') !== -1, "an exempt app's row must say it is unsandboxed, not just omit the usual controls");
         verify(src.indexOf("unconfinedRow.modelData.reason") !== -1, "an exempt app's row must show the policy's own reason string");
+    }
+
+    // The capability vocabulary must come from the binary, never from a
+    // table in QML.
+    //
+    // policy.js used to carry its own `CAPABILITIES` array of name+label
+    // pairs mirroring policy.rs's `Capability::ALL`. That is a second source
+    // of truth: renaming or adding a capability in Rust left the QML stale,
+    // the page then showed an old name or silently omitted the capability,
+    // and nothing anywhere failed. `catalog --json` now publishes the
+    // vocabulary and policy.js reads it, so this guards the table not
+    // growing back.
+    function test_the_capability_vocabulary_is_not_restated_in_qml() {
+        const policySrc = readSource("../../nix/home/desktop/quickshell/qml/sandbox/policy.js");
+
+        verify(policySrc.indexOf("capabilityVocabulary") !== -1,
+               "policy.js must read the vocabulary the catalog published");
+
+        // The give-away shape: an argv-spelled capability name sitting next
+        // to a human label in the QML itself.
+        for (const name of ["net", "nix-daemon", "repo-read", "repo-write", "postgres", "settings-ro", "kvm"]) {
+            verify(policySrc.indexOf('{ name: "' + name + '", label:') === -1,
+                   "policy.js must not restate a label for '" + name + "' — that table drifts from policy.rs silently");
+        }
     }
 
     // Every capability toggle must be a real three-state control

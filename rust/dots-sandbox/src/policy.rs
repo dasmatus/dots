@@ -134,6 +134,43 @@ impl Capability {
             Capability::Kvm => "kvm",
         }
     }
+
+    /// The name a person reads in the permissions UI.
+    ///
+    /// Lives here, beside the variant, rather than in the QML that renders
+    /// it. A label table in the frontend is a second source of truth: it
+    /// drifts silently when a capability is added or renamed here, and the
+    /// page then shows a stale name, or omits the capability entirely, with
+    /// nothing failing to announce it.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Capability::Net => "Network",
+            Capability::NixDaemon => "Nix daemon",
+            Capability::RepoRead => "Repository (read)",
+            Capability::RepoWrite => "Repository (write)",
+            Capability::Postgres => "PostgreSQL",
+            Capability::SettingsRo => "System settings (read)",
+            Capability::Kvm => "Hardware virtualisation",
+        }
+    }
+
+    /// One line saying what granting this actually hands over.
+    ///
+    /// Phrased as the concrete access rather than the mechanism, because the
+    /// reader is deciding whether an app should have it, not implementing it.
+    #[must_use]
+    pub fn description(self) -> &'static str {
+        match self {
+            Capability::Net => "Reach the internet and services on the local network",
+            Capability::NixDaemon => "Build and install packages through the system Nix daemon",
+            Capability::RepoRead => "Read this dotfiles checkout",
+            Capability::RepoWrite => "Modify files in this dotfiles checkout",
+            Capability::Postgres => "Query the local database over its Unix socket",
+            Capability::SettingsRo => "Read this machine's settings, including its hostname and accounts",
+            Capability::Kvm => "Use /dev/kvm to run a virtual machine",
+        }
+    }
 }
 
 /// One entry of the `paths` array a policy file may attach to an app, as

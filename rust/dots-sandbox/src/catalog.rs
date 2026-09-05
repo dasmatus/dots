@@ -62,6 +62,26 @@ pub struct CatalogEntry {
     pub paths: Vec<CatalogPathEntry>,
     pub source: Option<String>,
     pub state: BTreeMap<String, PolicyState>,
+    /// Why this app is exempt, for the entries the policy marks
+    /// `unconfined`. `None` for a sandboxed app.
+    ///
+    /// Carried through rather than dropped because an "Unsandboxed" badge
+    /// with no explanation reads as an oversight. The policy records a real
+    /// reason for every exemption — bitwarden is the secret broker other
+    /// things connect to, kitty is a terminal and confining it is theatre —
+    /// and that reason is the whole difference between a deliberate
+    /// decision and a gap nobody noticed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// A capability's presentation, so the UI renders names it was given
+/// rather than names it invented.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CapabilityInfo {
+    pub name: String,
+    pub label: String,
+    pub description: String,
 }
 
 /// The full document `catalog --json` prints.
@@ -69,6 +89,29 @@ pub struct CatalogEntry {
 pub struct Catalog {
     pub version: u32,
     pub apps: Vec<CatalogEntry>,
+    /// Every capability this binary knows, with its display name.
+    ///
+    /// Emitted so the permissions page has one source for both the app list
+    /// and the capability vocabulary. Without it the page has to keep its
+    /// own label table, which drifts the moment a capability is added here
+    /// and fails silently when it does.
+    pub capabilities: Vec<CapabilityInfo>,
+}
+
+/// The capability vocabulary, derived from the enum rather than restated.
+///
+/// Iterating `Capability::ALL` is what makes a newly added variant appear
+/// in the UI automatically instead of needing a second edit somewhere else.
+#[must_use]
+pub fn capability_vocabulary() -> Vec<CapabilityInfo> {
+    Capability::ALL
+        .into_iter()
+        .map(|cap| CapabilityInfo {
+            name: cap.as_str().to_string(),
+            label: cap.label().to_string(),
+            description: cap.description().to_string(),
+        })
+        .collect()
 }
 
 /// One desktop entry's sandbox-relevant fields, parsed but not yet
@@ -251,6 +294,7 @@ fn entry_from_discovered(
         paths: discovered.paths.clone(),
         source: Some(source.display().to_string()),
         state: resolved_state(resolved),
+        reason: exemption_reason(resolved),
     }
 }
 
@@ -288,6 +332,21 @@ fn entry_from_policy_only(app_id: &str, resolved: Option<&ResolvedApp>) -> Catal
         paths,
         source: None,
         state: resolved_state(resolved),
+        reason: exemption_reason(resolved),
+    }
+}
+
+/// The policy's stated reason for exempting an app, or `None` when it is
+/// sandboxed.
+///
+/// Split out because both construction sites need it: an exempt app may
+/// perfectly well ship a desktop file, and dropping its reason on that path
+/// only would produce a badge that explains itself in the Settings list but
+/// not in the drill-in.
+fn exemption_reason(resolved: Option<&ResolvedApp>) -> Option<String> {
+    match resolved {
+        Some(ResolvedApp::Unconfined { reason }) => Some(reason.clone()),
+        _ => None,
     }
 }
 
@@ -349,6 +408,7 @@ pub fn build_catalog(desktop_files: &[(PathBuf, String)], policy: &ResolvedPolic
     Catalog {
         version: CATALOG_VERSION,
         apps,
+        capabilities: capability_vocabulary(),
     }
 }
 
