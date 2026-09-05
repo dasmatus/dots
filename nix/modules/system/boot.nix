@@ -38,7 +38,7 @@
       # secureBoot.enable stays false (default) — enabling it would flip PCR 7
       # and break the TPM2 unseal, and Limine Secure Boot is upstream-in-development.
       style.wallpapers = [
-        "${../../Wallpapers/wh/wallhaven-k81776.jpg}"
+        "${../../../Wallpapers/wh/wallhaven-k81776.jpg}"
       ];
     };
     # was true. Makes efiInstallAsRemovable default to true → Limine installs to

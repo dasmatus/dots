@@ -246,6 +246,49 @@ in
       };
       Service = {
         ExecStart = lib.getExe pkgs.quickshell;
+
+        # Every icon this shell draws — the SystemTray items' `.icon`
+        # property, Quickshell.iconPath() in the launcher and elsewhere —
+        # resolves through Qt's QIcon::fromTheme(), whose theme name comes
+        # from the active Qt *platform* theme. nix/home/default.nix's
+        # `qt.platformTheme.name = "qtct"` makes home-manager export
+        # `QT_QPA_PLATFORMTHEME=qt5ct` session-wide, but quickshell is a Qt6
+        # binary and its Qt6 plugin path ships libqt6ct.so, libqgtk3.so and
+        # libqxdgdesktopportal.so — no libqt5ct.so. Confirmed live against
+        # the running process: `tr '\0' '\n' < /proc/$MAINPID/environ` shows
+        # `QT_QPA_PLATFORMTHEME=qt5ct` and no `_QT6` counterpart, so the
+        # platform theme plugin silently fails to load and Qt falls back to
+        # QGenericUnixTheme, whose icon theme is "hicolor" — hence every tray
+        # and launcher icon rendering as its app's own vendor icon instead of
+        # Papirus.
+        #
+        # Measured against a throwaway quickshell instance logging
+        # Quickshell.iconPath(name, true): qt5ct, qt6ct and even an unset
+        # QT_QPA_PLATFORMTHEME all resolve "folder"/"firefox"/
+        # "utilities-terminal" to "" — firefox is the decisive one, since
+        # nothing on this machine installs that icon into hicolor, only
+        # Papirus does. Only `gtk3` resolves all three. libqgtk3.so reads
+        # `gtk-icon-theme-name` out of ~/.config/gtk-3.0/settings.ini, which
+        # qml/wallpaper/Gtk.qml keeps pointed at the current Papirus variant
+        # on every wallpaper pick, so tray, launcher rows, workspaces,
+        # focused window and notifications all land on that same retinted
+        # Papirus.
+        #
+        # This override rides the UNIT's own Environment, never
+        # dots.session.sessionVariables: tests/session-units.nix's check 6
+        # asserts the session stays on `qt5ct`, because a session-wide
+        # `gtk3` bypasses qt6ct and Kvantum for every *other* Qt app and
+        # strands qml/wallpaper/Kvantum.qml's wallpaper-accent retint.
+        # Overriding it only here is safe precisely because quickshell
+        # renders QML and never instantiates a QStyle, so Kvantum has
+        # nothing to say in this one process. No X-Restart-Triggers edit is
+        # needed alongside it: the unit file itself changes, and that is
+        # what sd-switch diffs to decide on a restart. qml/bar/Tray.qml
+        # needs no change to go with this — proton.vpn.app.gtk's IconName is
+        # an absolute path into its own store output, which no icon theme
+        # can reach, and it correctly keeps its vendor icon regardless.
+        Environment = [ "QT_QPA_PLATFORMTHEME=gtk3" ];
+
         Restart = "on-failure";
         RestartSec = 2;
       };

@@ -197,6 +197,35 @@ TestCase {
         verify(block.indexOf("root.drill") !== -1, "a drill must clear the capsules — the bar is then showing one pill that stands for the drill itself");
     }
 
+    // The launcher's other complaint fixed alongside the tray: a drill
+    // capsule ("LibreWolf · 3 actions") used to be text only, even though the
+    // row it replaced carried the app's own icon. Provider pills (Apps,
+    // Actions, System) are deliberately left out of this — the agreed shape
+    // keeps them text-only, so the first `delegate: Pill {` block (theirs)
+    // must show no Image while the action delegate's does.
+    function test_action_capsules_carry_their_apps_icon() {
+        const src = launcherSource();
+
+        const pillsBlock = Scan.blockAfter(src, "readonly property var actionPills: {");
+        verify(pillsBlock !== "", "Launcher must define actionPills");
+        verify(pillsBlock.indexOf("icon:") !== -1, "each capsule's model entry must carry the row's own icon, or the delegate has nothing to show");
+
+        const providerDelegate = Scan.blockAfter(src, "delegate: Pill {");
+        verify(providerDelegate !== "", "the provider pill delegate must exist");
+        verify(providerDelegate.indexOf("Image") === -1, "provider pills (Apps/Actions/System) stay text-only — only the drill capsules gained an icon");
+
+        const actionAt = src.indexOf("id: actionDelegate");
+        const listAt = src.indexOf("ListView {");
+        verify(actionAt !== -1 && listAt !== -1 && listAt > actionAt, "the action-pill delegate must be declared before the result list");
+
+        const actionDelegate = src.slice(actionAt, listAt);
+        verify(actionDelegate.indexOf("Image {") !== -1, "the action-pill delegate must draw an Image for the app's icon");
+        verify(actionDelegate.indexOf("actionDelegate.modelData.icon") !== -1, "the Image must be fed from the model's own icon");
+        verify(actionDelegate.indexOf("sourceSize") !== -1, "the icon must set sourceSize, the crisp-SVG idiom ResultRow and FocusedWindow already use");
+        verify(actionDelegate.indexOf("visible:") !== -1, "the icon must be guarded by visible:, so an app with no resolvable icon degrades to a text-only capsule instead of a blank square");
+        verify(actionDelegate.indexOf("anchors.verticalCenter") !== -1, "the icon and label must be vertically centred — Pill's internal Row manages only the horizontal axis, so an unset icon and label top-align once the icon outgrows the text");
+    }
+
     // Kept from the arrangement the capsules left behind. Nothing inside the
     // row's layout asks for its own clicks today, so this no longer guards a
     // live case — it guards the next one, and it is cheaper to hold than to
