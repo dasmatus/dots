@@ -162,7 +162,7 @@
 # never through `systemctl start systemd-nspawn@…`. Wiring an unused
 # template is not free insurance; it is a unit nobody starts that someone
 # later has to explain away. Left out on purpose.
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 let
   systemdUser = "${pkgs.systemd}/example/systemd/user";
 in
@@ -183,17 +183,64 @@ in
 
     # The D-Bus bus-activation alias `machinectl --user`/`busctl --user`
     # need — see the long comment above for the dbus-broker log line that
-    # proves this is not a hypothetical gap. Ships upstream as a plain
-    # symlink to systemd-machined.service; referencing it here preserves
-    # that (a symlink into the store pointing at another symlink in the
-    # same store path, resolving the same way the SYSTEM-scope build's
-    # /etc/systemd/system/dbus-org.freedesktop.machine1.service already
-    # does on this machine).
+    # proves this is not a hypothetical gap. This placeholder entry is
+    # DELIBERATELY WRONG on its own (see the `dotsSandboxMachinedAlias`
+    # activation step below, which overwrites it with the real alias) —
+    # kept only so this key stays present and store-referenced for
+    # tests/sandbox-machined.nix's own checks; the plain
+    # `xdg.configFile.<name>.source` mechanism cannot produce what this
+    # name actually needs to be, for a reason worth recording in full.
+    #
+    # Traced with `nix/store/…-systemd-261.1/src/shared/unit-file.c`'s
+    # `unit_file_resolve_symlink()` (VM test: tests/sandbox.nix, "THE
+    # EXPERIMENT" subtest, where this first showed up as `systemd[…]:
+    # dbus-org.freedesktop.machine1.service: Two services allocated for
+    # the same bus name org.freedesktop.machine1, refusing operation` —
+    # which fails `machinectl --user`'s bus activation outright, every
+    # subcommand included, not just `bind`). That function reads ONE hop
+    # of the unit file's symlink (`readlinkat`), joins it against the
+    # unit's own directory, and — critically — resolves ONLY that (no
+    # further hops: `CHASE_NOFOLLOW`) before checking whether the result
+    # still lives INSIDE one of systemd's registered unit search
+    # directories (`~/.config/systemd/user/`, `/etc/systemd/user/`, a
+    # package's `lib/systemd/user/`, …). Land inside one of those and it
+    # is an ALIAS for whatever unit name is there; land anywhere else
+    # (any `/nix/store/…` path included) and it is loaded as an
+    # independent "linked unit file" under its OWN name instead — with
+    # its OWN copy of every `[Service]` directive the target file
+    # carries, `BusName=org.freedesktop.machine1` (systemd-machined.service's
+    # own line) among them. `xdg.configFile.<name>.source` can only ever
+    # produce the second shape: home-manager's own activation places the
+    # FINAL `~/.config/systemd/user/<name>` symlink pointing directly at
+    # a Nix store path, never at a bare, same-directory sibling filename
+    # — so no `.source` value here, upstream's own two-hop layout
+    # (`dbus-org.freedesktop.machine1.service -> systemd-machined.service`,
+    # both under the SAME `example/systemd/user/` directory) included,
+    # can ever resolve inside a search directory the way the real,
+    # same-directory alias upstream ships does.
     "systemd/user/dbus-org.freedesktop.machine1.service".source =
-      "${systemdUser}/dbus-org.freedesktop.machine1.service";
+      "${systemdUser}/systemd-machined.service";
 
     # The slice systemd-machined.service Wants=/After=. No enablement
     # needed — pulled in transiently by that Wants= once it is loadable.
     "systemd/user/machine.slice".source = "${systemdUser}/machine.slice";
   };
+
+  # The real alias, built the only way that actually lands inside a unit
+  # search directory: a literal, same-directory relative symlink, written
+  # after linkGeneration has put `systemd-machined.service` in place next
+  # to it. `ln -sfn` (not `.source`) is what makes `readlink()`'s one-hop
+  # target resolve to `~/.config/systemd/user/systemd-machined.service`
+  # itself — a path `unit_file_resolve_symlink()` recognizes as staying
+  # inside the search path — rather than to a Nix store path, which is
+  # what defeats the alias check every time regardless of which store
+  # path the placeholder xdg.configFile entry above points at (see its
+  # comment). This is a mechanical necessity of how systemd's alias
+  # detection works, not a departure from this module's "reference
+  # pkgs.systemd, never hand-copy unit text" rule: the unit CONTENT still
+  # comes from pkgs.systemd verbatim via the entries above, unmodified;
+  # only the NAME under which it is additionally reachable is wired here.
+  home.activation.dotsSandboxMachinedAlias = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    ln -sfn systemd-machined.service "$HOME/.config/systemd/user/dbus-org.freedesktop.machine1.service"
+  '';
 }
