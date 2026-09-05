@@ -37,6 +37,7 @@
 {
   lib,
   stdenv,
+  pkgs,
   fetchurl,
   autoPatchelfHook,
   patchelfUnstable,
@@ -52,7 +53,7 @@
   glib,
   gtk3,
   pango,
-  xorg,
+
 }:
 
 let
@@ -115,7 +116,7 @@ stdenv.mkDerivation {
   # stdenv.cc.cc.lib covers libstdc++.so.6 and libgcc_s.so.1, which the
   # bundled OpenPGP pieces (librnp.so, rnp-cli) want and which no other entry
   # here brings in.
-  buildInputs = [
+  buildInputs = with pkgs; [
     alsa-lib
     atk
     cairo
@@ -127,16 +128,16 @@ stdenv.mkDerivation {
     gtk3
     pango
     stdenv.cc.cc.lib
-    xorg.libX11
-    xorg.libXcomposite
-    xorg.libXcursor
-    xorg.libXdamage
-    xorg.libXext
-    xorg.libXfixes
-    xorg.libXi
-    xorg.libXrandr
-    xorg.libXrender
-    xorg.libxcb
+    libx11
+    libxcomposite
+    libxcursor
+    libxdamage
+    libxext
+    libxfixes
+    libxi
+    libxrandr
+    libxrender
+    libxcb
   ];
 
   # Betterbird inherits Firefox/Thunderbird's "relrhack", which manually

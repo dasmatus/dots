@@ -35,6 +35,7 @@
     "quiet"
     "loglevel=3"
     "mitigations=auto"
+    "zswap.writeback=0"
   ];
 
   # Proton account address, edited from the settings panel (SUPER+comma) and
@@ -106,4 +107,5 @@
   # here by the first-login dots-clone service (nix/home/base/dots-repo.nix), and
   # impermanence.nix bind-mounts /persist over it.
   dotsStateDir = "/var/lib/dots";
+  system.stateVersion = "26.11";
 }

@@ -201,7 +201,7 @@ let
   # (rust/dots-memory-mcp); this derivation only symlinks the built
   # binary in, it does not build it.
   dotsMemoryPlugin = pkgs.runCommand "dots-memory-plugin" { } ''
-    cp -r ${../../plugins/dots-memory} $out
+    cp -r ${../../../plugins/dots-memory} $out
     chmod -R u+w $out
     mkdir -p $out/bin
     ln -s ${inputs.self.packages.x86_64-linux.dots-memory-mcp}/bin/dots-memory-mcp \

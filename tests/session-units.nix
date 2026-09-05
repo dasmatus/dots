@@ -1,9 +1,10 @@
 # The regression guard for the Hyprland/session refactor
 # (nix/home/desktop/session/actions.nix, nix/home/desktop/session/default.nix,
-# nix/home/desktop/hyprland.nix). Eval-only, in the style of `settings-eval` and
+# nix/home/desktop/hyprland.nix), plus — since check 8 arrived —
+# nix/home/desktop/quickshell/default.nix. Eval-only, in the style of `settings-eval` and
 # `facter-stub-eval` in flake/checks.nix: no VM, no activation, just a
 # standalone `home-manager.lib.homeManagerConfiguration` evaluated far enough
-# to read `.config` back out, then seven `assert`s over it.
+# to read `.config` back out, then a battery of `assert`s over it.
 #
 # Built on a standalone home-manager configuration rather than
 # `nixosConfigurations.tokyonight` because the latter cannot evaluate here at
@@ -66,6 +67,19 @@ let
       ../nix/home/desktop/hyprland.nix
       ../nix/home/apps/kitty.nix
       ../nix/home/apps/zed.nix
+      # Joins the module list so check 8 below can see the quickshell unit —
+      # none of the four modules above define it. Its ride-along
+      # dots-files-index unit (files-index.nix, imported by
+      # nix/home/desktop/quickshell/default.nix) falls under check 1's
+      # dots-* ExecStart scan too and passes on its own merits (a
+      # writeShellScript store path). Everything this module and tree.nix
+      # evaluate — quickshell, wl-clipboard, fd, util-linux, udisks2, awww,
+      # glib, papirus-icon-theme, papirus-folders, catppuccin-kvantum,
+      # nix/data/palette.json, ./qml — resolves from the same plain nixpkgs
+      # already in scope here, and pkgs.awww is already forced by
+      # ../nix/home/desktop/session above, so the obsidian-only
+      # allowUnfreePredicate above needs no widening.
+      ../nix/home/desktop/quickshell
     ];
   };
   cfg = hm.config;
@@ -200,6 +214,36 @@ let
       name: unit: "${name} (KillMode = ${unit.Service.KillMode or "control-group"})"
     ) unprotectedScreenshotUnits
   );
+
+  # --- 8. quickshell's icon theme override rides the unit, not the session. -
+  # nix/home/desktop/quickshell/default.nix's own comment explains the
+  # underlying defect at length: the session-wide QT_QPA_PLATFORMTHEME=qt5ct
+  # (asserted by check 6 above) never loads in quickshell's Qt6 process, so
+  # every themed icon it draws — SystemTray items and Quickshell.iconPath()
+  # alike — falls back to hicolor instead of Papirus. The fix is
+  # `QT_QPA_PLATFORMTHEME=gtk3` on the quickshell unit's own
+  # `Service.Environment`, deliberately never on
+  # `dots.session.sessionVariables` — putting it there would win the very
+  # conflict check 6 guards against and strand every other Qt app's Kvantum
+  # retint. `or [ ]` sits on the whole attrpath, not just the leaf, so a
+  # missing quickshell unit reads as an empty list here instead of throwing
+  # before the anti-vacuity guard below gets a chance to name the real
+  # problem; `lib.toList` tolerates systemd's freeform string-or-list
+  # `Environment` shape.
+  #
+  # Here rather than in flake/checks.nix's `shell-service-eval`, which already
+  # holds this very unit (`unit = hm.systemd.user.services.quickshell`) and
+  # already asserts over its ExecStart, Install.WantedBy and
+  # X-Restart-Triggers. That check reaches it through
+  # `self.nixosConfigurations.tokyonight`, and that path cannot evaluate on a
+  # bare checkout at all: nix/data/settings.nix is a tracked symlink into
+  # /var/lib/dots, which pure eval refuses to follow out of the flake, so
+  # `nix flake check` dies there and the assertion only ever fires in CI. This
+  # file's standalone home-manager eval has no such dependency and runs
+  # everywhere, which is where a guard against silently losing Papirus icons
+  # belongs.
+  quickshellUnitPresent = cfg.systemd.user.services ? quickshell;
+  quickshellEnv = lib.toList (cfg.systemd.user.services.quickshell.Service.Environment or [ ]);
 in
 assert lib.assertMsg (relativeExecStarts == { })
   "tests/session-units.nix: dots-* systemd unit(s) with a non-absolute ExecStart: ${relativeExecStartsMsg}. systemd refuses a relative ExecStart, so this unit never runs.";
@@ -231,6 +275,18 @@ assert lib.assertMsg (unprotectedScreenshotUnits == { })
   "tests/session-units.nix: dots-screenshot-* unit(s) without KillMode = \"process\": ${unprotectedScreenshotUnitsMsg}. hyprshot's checkRunning watcher (.hyprshot-wrapped:132-140) exits the instant slurp is gone while grim/wl-copy/notify-send are still writing, and systemd's default KillMode=control-group tears down the whole cgroup with the process it tracked — silent data loss. nix/home/desktop/hyprland.nix is where KillMode = \"process\" belongs.";
 assert lib.assertMsg (screenshotUnits != { })
   "tests/session-units.nix: found no dots-screenshot-* unit(s) at all — check 7 would pass vacuously if the screenshot actions were renamed out from under it.";
+assert lib.assertMsg quickshellUnitPresent
+  "tests/session-units.nix: found no quickshell unit in the harness eval at all — check 8 would pass vacuously if nix/home/desktop/quickshell stopped being imported here or the unit were renamed.";
+assert lib.assertMsg (builtins.elem "QT_QPA_PLATFORMTHEME=gtk3" quickshellEnv) ''
+  tests/session-units.nix: the quickshell unit's Service.Environment is [ ${
+    lib.concatStringsSep " " quickshellEnv
+  } ], missing "QT_QPA_PLATFORMTHEME=gtk3".
+  The session-wide QT_QPA_PLATFORMTHEME=qt5ct (check 6) never loads in
+  quickshell's Qt6 process, so without this override every SystemTray and
+  Quickshell.iconPath() icon falls back to hicolor instead of Papirus. It
+  belongs on this unit's own Environment, never on
+  dots.session.sessionVariables, precisely so check 6's session-wide qt5ct
+  assertion keeps holding for every other Qt app.'';
 pkgs.writeText "session-units-ok" ''
   execstart-absolute
   app-action-templated
@@ -239,4 +295,5 @@ pkgs.writeText "session-units-ok" ''
   session-variables-intact
   qt-platform-theme-unclaimed
   screenshot-units-protected
+  quickshell-icon-theme-on-unit
 ''

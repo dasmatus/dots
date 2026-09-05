@@ -47,6 +47,15 @@
               name = "adw-gtk3-dark";
               package = pkgs.adw-gtk3;
             };
+            iconTheme = {
+              name = "Papirus";
+              package = pkgs.papirus-icon-theme;
+            };
+            settings = {
+              background = {
+                path = "/home/matus/Dokumente/codeberg/personal/dots/Wallpapers/wh/wallhaven-w5dgxr.jpg";
+              };
+            };
           };
           programs.hyprland = {
             enable = true;

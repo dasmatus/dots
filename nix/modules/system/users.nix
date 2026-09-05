@@ -31,7 +31,7 @@ let
   # `initialHashedPassword` (not `hashedPassword`): userborn applies it ONLY at
   # account creation (HashedPassword::Initial), then never overwrites it — so
   # a later `passwd` change survives reboot/rebuild, matching mutableUsers.
-  secretsFile = ../secrets.nix;
+  secretsFile = ../../secrets.nix;
   secrets = if builtins.pathExists secretsFile then import secretsFile else { };
 in
 {

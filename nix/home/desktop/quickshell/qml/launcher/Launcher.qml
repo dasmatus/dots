@@ -81,8 +81,9 @@ Scope {
     // One entry per app in the visible list that has desktop actions — the
     // capsules that used to sit on the rows themselves, gathered into the pill
     // bar. Each carries the name its capsule needs (a count alone, several
-    // rows away from the app it counts, reads as a number about nothing) and
-    // the index that opens it.
+    // rows away from the app it counts, reads as a number about nothing), the
+    // row's own icon so the capsule can carry the app's Papirus glyph beside
+    // its label the way the row it replaced did, and the index that opens it.
     //
     // Built from `results`, the list actually on screen, for the same reason
     // pillsFor takes its counts from `unfilteredResults`: a capsule promising
@@ -102,7 +103,7 @@ Scope {
         for (let i = 0; i < root.results.length; i++) {
             const row = root.results[i];
             if ((row.actionCount ?? 0) > 0)
-                pills.push({ label: row.title, count: row.actionCount, index: i });
+                pills.push({ label: row.title, count: row.actionCount, icon: row.icon ?? "", index: i });
         }
 
         return pills;
@@ -568,43 +569,171 @@ Scope {
                     // carries every control acting on the list and the list
                     // carries only the list.
                     //
-                    // A Flow rather than the RowLayout this was: one capsule
-                    // per app with actions is a count the query decides, not a
-                    // fixed one, and a single line would push the provider
-                    // pills off their own left edge to make room. Wrapping
-                    // spends height instead of width, which by then is already
-                    // spoken for.
-                    //
-                    // Inside a Flickable, because height is not free either.
-                    // An empty query matches every installed app, and enough
-                    // of them carry desktop actions that an unbounded bar
-                    // would push the list it is meant to be labelling off the
-                    // bottom of the panel. The viewport caps what the bar may
-                    // take (Theme.launcherPillRows) and the rest is scrolled
-                    // to — the same Flickable idiom PreviewPane and Cheatsheet
-                    // already use for content they cannot size.
+                    // One horizontally scrolling Row rather than the Flow this
+                    // was: a Flow that wraps spends height to stay unbroken,
+                    // and by the time an empty query has matched enough apps
+                    // with desktop actions to fill several lines of capsules,
+                    // that height comes straight out of the result list below
+                    // it — the panel grew taller not because there was more to
+                    // read but because the labelling strip above the list had
+                    // nowhere sideways left to go. A single row never costs the
+                    // list anything: it is exactly one Pill tall no matter how
+                    // many capsules it holds, and the ones that do not fit are
+                    // reached by scrolling sideways instead. The reading order
+                    // this trades away — wrapped rows read left-to-right, top-
+                    // to-bottom like text — was never load-bearing here: the
+                    // bar already reads left-to-right in the one order that
+                    // matters, the registry order ambientRows guarantees
+                    // (see `pills` above), and that is unchanged by putting
+                    // every capsule on the one line instead of several.
                     Flickable {
                         id: pillScroll
 
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
-                        // Shrinks to the content while it fits, so a two-pill
-                        // bar does not reserve three rows of empty panel, and
-                        // stops growing at the cap once it does not.
-                        Layout.preferredHeight: pillScroll.visible ? Math.min(pillRow.implicitHeight, Theme.launcherPillRows * (Theme.barHeight - 8) + (Theme.launcherPillRows - 1) * pillRow.spacing) : 0
+                        // One Pill tall, always — there is no multi-row cap
+                        // left to shrink toward, so a two-pill bar and a bar
+                        // scrolling past a dozen capsules cost the panel the
+                        // exact same height. The no-pills case is not this
+                        // ternary's to answer: `visible` just below is already
+                        // false by then, and an invisible item is left out of
+                        // the column entirely.
+                        Layout.preferredHeight: pillScroll.visible ? pillRow.implicitHeight : 0
 
                         visible: root.pills.length > 0 || root.actionPills.length > 0
 
-                        contentWidth: width
+                        // pillRow is content-sized now (a Row, not a
+                        // width-bound Flow), so the viewport's contentWidth
+                        // follows it rather than the other way around — see
+                        // the note on pillRow below for why that direction
+                        // matters.
+                        contentWidth: pillRow.implicitWidth
                         contentHeight: pillRow.implicitHeight
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
+                        // Vertical drags/flicks over the bar must never
+                        // rubber-band it — there is nothing above or below to
+                        // reveal — so only the horizontal axis is live.
+                        flickableDirection: Flickable.HorizontalFlick
 
-                        Flow {
+                        // Scrolls `item` into the viewport along the bar's one
+                        // axis. Called from the provider pill delegate's
+                        // onActiveChanged below — Tab/Shift+Tab drive `active`
+                        // through root.selectedPill, and without this a
+                        // keyboard cycle can select a pill the viewport never
+                        // shows, leaving no visible sign the key was heard.
+                        //
+                        // Programmatic contentX is NOT bounded by
+                        // boundsBehavior — StopAtBounds only governs drags and
+                        // flicks — so both branches below are clamped
+                        // explicitly. Without the clamp, an item near either
+                        // end of a short content run could push contentX
+                        // negative or past the scrollable range and leave the
+                        // bar showing blank space instead of the pill it was
+                        // asked to reveal.
+                        /// Moves the bar to `x`, clamped to what there is to scroll.
+                        ///
+                        /// The one place the scrollable range is written down.
+                        /// Three callers move this bar — ensureVisible below, the
+                        /// contentWidth clamp and the wheel handler — and each of
+                        /// them open-coding the same Math.max/Math.min pair is
+                        /// three places for a later change to the range to miss.
+                        function scrollTo(x: real): void {
+                            pillScroll.contentX = Math.max(0, Math.min(x, Math.max(0, pillScroll.contentWidth - pillScroll.width)));
+                        }
+
+                        function ensureVisible(item: Item): void {
+                            if (item.x < pillScroll.contentX)
+                                pillScroll.scrollTo(item.x);
+                            else if (item.x + item.width > pillScroll.contentX + pillScroll.width)
+                                pillScroll.scrollTo(item.x + item.width - pillScroll.width);
+                        }
+
+                        // Parks the bar at its left edge whenever cycling
+                        // returns to All (root.selectedPill === "") — the one
+                        // state that activates no delegate, so ensureVisible
+                        // above never runs for it on its own.
+                        //
+                        // This does NOT cover the ordinary browsing state: the
+                        // TextInput's onTextChanged assigns selectedPill = ""
+                        // on every keystroke, but QML emits no changed signal
+                        // when a property is assigned the value it already
+                        // holds, so a wheel-scrolled contentX would sail
+                        // straight through a query edit untouched. Nothing
+                        // resets it either: the onContentWidthChanged clamp
+                        // below only pulls contentX back inside the new range,
+                        // it never returns a wheel-scrolled bar to its left
+                        // edge. That is deliberate — a bar you scrolled by hand
+                        // keeping its place across a keystroke is the smaller
+                        // surprise of the two.
+                        Connections {
+                            target: root
+
+                            function onSelectedPillChanged() {
+                                if (root.selectedPill === "")
+                                    pillScroll.contentX = 0;
+                            }
+                        }
+
+                        // A rebuilt, shorter pill set — a query that now
+                        // matches fewer providers, or drilling back out to a
+                        // bar with far fewer action capsules than the one
+                        // before it — can leave contentX pointing past the new
+                        // contentWidth. Nothing else re-clamps on that
+                        // specific change, so it is pinned here rather than
+                        // folded into ensureVisible, which only runs when a
+                        // delegate actually activates.
+                        onContentWidthChanged: pillScroll.scrollTo(pillScroll.contentX)
+
+                        // The only path by which a vertical wheel reaches this
+                        // horizontally-scrolling bar. WheelHandler defaults to
+                        // orientation: Qt.Vertical, so it is offered only
+                        // events that carry a vertical delta — a pure
+                        // horizontal delta (a touchpad's own sideways swipe)
+                        // is never delivered to it at all, and needs no
+                        // handling here: Flickable's native HorizontalFlick
+                        // path above already answers a horizontal delta on
+                        // its own. A MouseArea was rejected for this job: it
+                        // would sit on top of every Pill's own MouseArea and
+                        // either swallow their clicks or need
+                        // propagateComposedEvents contortions to avoid it,
+                        // where a pointer handler is delivered before an
+                        // Item's own handling and claims wheel events alone —
+                        // pill clicks stay untouched by construction.
+                        //
+                        // `target: null` says out loud what the default
+                        // `property` already implies, rather than being load
+                        // bearing. Qt's rule is that "if property is not set or
+                        // target is null, WheelHandler will not automatically
+                        // manipulate anything", and `property` does default to
+                        // unset: qtdeclarative's qquickwheelhandler_p_p.h
+                        // declares a bare `QString propertyName;`, alone among
+                        // neighbours (activeTimeout, rotationScale, orientation,
+                        // blocking) that all carry an initialiser. So this
+                        // handler drives nothing by itself and exists only for
+                        // its `wheel` signal — the line is defensive, and an
+                        // earlier draft of this comment claiming it stopped the
+                        // bar visibly rotating was simply wrong.
+                        WheelHandler {
+                            target: null
+
+                            onWheel: (event) => {
+                                pillScroll.scrollTo(pillScroll.contentX - event.angleDelta.y);
+                            }
+                        }
+
+                        Row {
                             id: pillRow
 
-                            width: pillScroll.width
+                            // No width binding, deliberately: a Flow needed
+                            // pillScroll.width to know where to wrap, but a
+                            // Row sizes itself to its children, and pinning it
+                            // to the viewport's width here would fight the
+                            // content-sized contentWidth binding above —
+                            // pillRow.implicitWidth feeding contentWidth while
+                            // pillRow.width itself is clamped to that same
+                            // viewport is a binding loop.
                             spacing: 6
 
                             Repeater {
@@ -622,6 +751,25 @@ Scope {
 
                                     interactive: true
                                     color: pillDelegate.active ? Theme.accent : Theme.bgDark
+
+                                    // Keeps the keyboard-selected (or, while
+                                    // drilled, the sole) pill scrolled into
+                                    // view. Drilling in flips every provider
+                                    // delegate's `active` on before the
+                                    // Repeater above swaps root.pills down to
+                                    // the single drill pill, so this can also
+                                    // fire against geometry about to be torn
+                                    // down, and the fresh drill delegate can
+                                    // be created with `active` already true,
+                                    // before the Row has positioned it. Both
+                                    // land harmlessly: ensureVisible's own
+                                    // clamp pulls contentX into the one-pill
+                                    // bar's tiny range regardless of which
+                                    // geometry it was computed against.
+                                    onActiveChanged: {
+                                        if (pillDelegate.active)
+                                            pillScroll.ensureVisible(pillDelegate);
+                                    }
 
                                     // Clicking the active pill clears it, so the
                                     // pill bar is also its own "All" toggle and
@@ -683,6 +831,39 @@ Scope {
                                         root.drillInto(root.results[actionDelegate.modelData.index]);
                                     }
 
+                                    // The app's own Papirus icon, the same
+                                    // Quickshell.iconPath lookup ResultRow's
+                                    // list rows already resolve — this capsule
+                                    // used to sit ON that row, so it earns the
+                                    // same icon the row it replaced would have
+                                    // shown. Sized to Theme.barIconSize rather
+                                    // than the launcher's own launcherIconSize:
+                                    // this capsule is one of the bar's 22px
+                                    // (Theme.barHeight - 8) Pills, the same
+                                    // shape Tray, FocusedWindow and Workspaces
+                                    // all pair with that token, and the 24px
+                                    // launcher icon would overflow it. Hidden
+                                    // rather than reserving a blank square: an
+                                    // app whose .desktop Icon= resolves to
+                                    // nothing (Quickshell.iconPath returning
+                                    // "") degrades to exactly today's
+                                    // text-only capsule, and a Row skips
+                                    // invisible children entirely so no gap is
+                                    // left where the icon would have been.
+                                    Image {
+                                        anchors.verticalCenter: parent.verticalCenter
+
+                                        width: Theme.barIconSize
+                                        height: Theme.barIconSize
+
+                                        source: actionDelegate.modelData.icon
+                                        visible: actionDelegate.modelData.icon !== ""
+
+                                        sourceSize.width: Theme.barIconSize
+                                        sourceSize.height: Theme.barIconSize
+                                        fillMode: Image.PreserveAspectFit
+                                    }
+
                                     Text {
                                         // Named, then counted, then pluralised.
                                         // The row's copy of this could say "1
@@ -692,12 +873,36 @@ Scope {
                                         // to get the agreement right.
                                         text: `${actionDelegate.modelData.label} · ${actionDelegate.modelData.count} action${actionDelegate.modelData.count === 1 ? "" : "s"}`
 
-                                        // Capped rather than left to size itself.
-                                        // One long .desktop name is enough to
-                                        // claim a whole line of the bar on its
-                                        // own, which costs every capsule behind it
-                                        // a row of height.
-                                        width: Math.min(implicitWidth, Math.round(pillRow.width * Theme.launcherActionPillMaxFactor))
+                                        // Vertically centred against the icon
+                                        // beside it: Pill routes both into its
+                                        // internal `Row { id: layout }`, which
+                                        // manages only the horizontal axis and
+                                        // otherwise leaves children top-aligned
+                                        // — without this the ~13px label would
+                                        // sit flush with the top of the now
+                                        // 20px-tall row instead of beside its
+                                        // icon's middle. Qt 6 forbids
+                                        // left/right/horizontalCenter/fill/
+                                        // centerIn anchors on a positioner's
+                                        // children, but permits top/bottom/
+                                        // verticalCenter, so this is legal and
+                                        // warning-free.
+                                        anchors.verticalCenter: parent.verticalCenter
+
+                                        // Capped against the viewport
+                                        // (pillScroll), not the row (pillRow):
+                                        // pillRow is content-sized now, so its
+                                        // width is downstream of every child's
+                                        // width, and a cap reading pillRow.width
+                                        // to size one of those children would be
+                                        // a binding loop. pillScroll.width is
+                                        // assigned by the ColumnLayout above it,
+                                        // independent of what the row inside it
+                                        // adds up to. One long .desktop name is
+                                        // still enough to claim a large share of
+                                        // the bar on its own, which is what this
+                                        // caps.
+                                        width: Math.min(implicitWidth, Math.round(pillScroll.width * Theme.launcherActionPillMaxFactor))
                                         elide: Text.ElideRight
 
                                         // Theme.fg, where the row's copy of this
