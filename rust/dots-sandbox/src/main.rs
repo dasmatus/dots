@@ -19,6 +19,7 @@ use dots_sandbox::error::PolicyError;
 use dots_sandbox::grants::{self, GrantKind};
 use dots_sandbox::launch;
 use dots_sandbox::policy::{self, PolicyFile};
+use dots_sandbox::report;
 
 const USAGE: &str =
     "usage: dots-sandbox <policy validate|policy dump|run|grant|revoke|list> [OPTIONS...]
@@ -51,7 +52,14 @@ const USAGE: &str =
       path grants have no live revoke; restart the sandbox instead.
 
   list
-      List running sandbox machines (`machinectl --user list`).";
+      List running sandbox machines (`machinectl --user list`).
+
+  report --json
+      Print the privacy/hardware-security dashboard as one JSON document:
+      what recently touched a sensor, and how hard this machine is to
+      attack. Read-only and unprivileged throughout; every external
+      command it consults is optional, and a missing one degrades only
+      its own card.";
 
 fn main() -> ExitCode {
     tracing_subscriber::fmt()
@@ -79,6 +87,7 @@ fn main() -> ExitCode {
         "grant" => grant_command(&rest),
         "revoke" => revoke_command(&rest),
         "list" => list_command(),
+        "report" => report_command(&rest),
         other => usage_failure(&format!("unknown command {other:?}")),
     }
 }
@@ -387,6 +396,26 @@ fn list_command() -> ExitCode {
         }
         Err(err) => {
             eprintln!("dots-sandbox list: {:?}", miette::Report::new(err));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn report_command(args: &[String]) -> ExitCode {
+    // `--json` is the only output this subcommand knows how to produce
+    // today; naming it explicitly (rather than accepting any bare
+    // `report`) leaves room for a future human-readable mode without an
+    // ambiguous default to change later.
+    if args != ["--json"] {
+        return usage_failure("dots-sandbox report: only `--json` is supported");
+    }
+    match serde_json::to_string(&report::collect()) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("dots-sandbox report: failed to serialize the report: {err}");
             ExitCode::FAILURE
         }
     }

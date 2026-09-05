@@ -21,6 +21,11 @@
 //! maps to the polkit action `org.freedesktop.machine1.manage-machines`, which
 //! is `auth_admin_keep` — routing through it would mean an admin password
 //! prompt on every single app launch.
+//!
+//! `report` is the collector for the privacy and hardware-security
+//! dashboard: read-only and unprivileged throughout, it gathers what
+//! recently touched a sensor and how hard this machine is to attack into
+//! one JSON document for a separate QML page to render.
 
 pub mod argv;
 pub mod broker;
@@ -28,3 +33,4 @@ pub mod error;
 pub mod grants;
 pub mod launch;
 pub mod policy;
+pub mod report;

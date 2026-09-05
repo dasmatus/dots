@@ -1,0 +1,5 @@
+{"ts_ms": 1732000099000, "app_id": "firefox", "kind": "capability_request", "capability": "network", "outcome": "allowed_by_policy", "detail": null}
+{"ts_ms": 1731917300000, "app_id": "nix-lint", "kind": "unconfined", "capability": null, "outcome": "unconfined", "detail": "policy declared unconfined: trusted first-party CI tool"}
+{"ts_ms": 1731910100000, "app_id": "cli", "kind": "grant", "capability": null, "outcome": "ok", "detail": "path:/home/user/Downloads -> /home/user/Downloads (rw)"}
+
+this line is not json at all

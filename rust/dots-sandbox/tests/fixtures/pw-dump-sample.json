@@ -1,0 +1,53 @@
+[
+  {
+    "id": 55,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [ "r", "w", "x", "m" ],
+    "info": {
+      "max-input-ports": 0,
+      "max-output-ports": 129,
+      "n-input-ports": 0,
+      "n-output-ports": 2,
+      "state": "suspended",
+      "error": null,
+      "props": {
+        "device.class": "sound",
+        "device.icon_name": "audio-input-microphone",
+        "factory.name": "api.alsa.pcm.source",
+        "media.class": "Audio/Source",
+        "node.description": "Ryzen HD Audio Controller Digital Microphone",
+        "node.name": "alsa_input.pci-0000_04_00.6.HiFi__Mic1__source",
+        "node.nick": "Digital Microphone",
+        "object.id": 55,
+        "object.path": "alsa:acp:Generic_1:1:capture"
+      }
+    }
+  },
+  {
+    "id": 65,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [ "r", "w", "x", "m" ],
+    "info": {
+      "max-input-ports": 0,
+      "max-output-ports": 1,
+      "n-input-ports": 0,
+      "n-output-ports": 1,
+      "state": "suspended",
+      "error": null,
+      "props": {
+        "api.v4l2.path": "/dev/video0",
+        "device.api": "v4l2",
+        "factory.name": "api.v4l2.source",
+        "media.class": "Video/Source",
+        "media.role": "Camera",
+        "node.description": "ACER HD User Facing (V4L2)",
+        "node.name": "v4l2_input.pci-0000_04_00.3-usb-0_3_1.0",
+        "node.nick": "ACER HD User Facing",
+        "object.id": 65,
+        "object.path": "v4l2:/dev/video0"
+      }
+    }
+  }
+]
