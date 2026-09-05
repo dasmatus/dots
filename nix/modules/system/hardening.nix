@@ -45,9 +45,42 @@
   security.virtualisation.flushL1DataCache = "always";
   security.apparmor.killUnconfinedConfinables = true;
   systemd.coredump.enable = false;
+  # AppArmor was enabled here but confining nothing. `packages` is, in
+  # nixpkgs' own words, "List of packages to be added to AppArmor's include
+  # path" — it makes profiles available to `Include` directives and to the
+  # policy cache. It does not load them. Loading is driven by `policies`,
+  # which was empty, so the generated apparmor.service had an
+  # ExecStartPre=aa-teardown, an ExecStop=aa-teardown and no ExecStart at
+  # all: it unloaded profiles at boot and loaded none. `aa-enabled` answered
+  # "Yes" and /sys/kernel/security/apparmor/profiles held zero entries, which
+  # is the worst combination — every surface reported AppArmor as on while
+  # nothing was confined.
+  #
+  # Loading every stock profile is deliberately blunt, and its value on this
+  # system is limited in a way worth stating: these are upstream profiles
+  # written for FHS distributions, attaching to absolute paths like
+  # /usr/bin/brave. NixOS has no such paths, so most will load and match
+  # nothing. That makes this close to risk-free and also close to
+  # protection-free — real confinement here needs profiles written against
+  # Nix store paths, which is a separate piece of work. What this does buy is
+  # honesty: the profile count stops being zero, so the security dashboard
+  # can report what is actually loaded instead of implying protection that
+  # does not exist.
+  #
+  # Only regular files are eligible: the directory also holds abstractions/,
+  # tunables/ and disable/, which are include fragments rather than profiles,
+  # and the module asserts a policy name contains no slash.
   security.apparmor = {
     enable = true;
     packages = [ pkgs.apparmor-profiles ];
+    policies =
+      let
+        profileDir = "${pkgs.apparmor-profiles}/etc/apparmor.d";
+      in
+      lib.mapAttrs (name: _: {
+        path = "${profileDir}/${name}";
+        state = "enforce";
+      }) (lib.filterAttrs (_: kind: kind == "regular") (builtins.readDir profileDir));
   };
   services.firewalld.enable = true;
   services.firewalld.settings.DefaultZone = "drop";

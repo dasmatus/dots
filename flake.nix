@@ -27,6 +27,22 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # Declarative microVMs. The per-app sandbox uses these to confine a package
+    # in a real hardware boundary rather than a namespace, which is what makes
+    # "no app is unsandboxed" achievable: the exemptions the container design
+    # needed (a terminal whose children inherit its confinement, a launcher
+    # whose whole job is exec'ing browsers) stop being exemptions once each app
+    # gets its own kernel.
+    #
+    # It also sidesteps the blocker that killed the nspawn route outright:
+    # unprivileged managed-mode nspawn cannot start on a nixpkgs-built systemd,
+    # because systemd-nsresourced wants a BPF-LSM program compiled out for want
+    # of kernel BTF. A VM asks nsresourced for nothing.
+    microvm = {
+      url = "github:microvm-nix/microvm.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     haumea = {
       url = "github:nix-community/haumea/v0.2.2";
       inputs.nixpkgs.follows = "nixpkgs";
