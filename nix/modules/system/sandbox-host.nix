@@ -12,8 +12,28 @@
 # module is the libvirt/virt-manager desktop stack and exists for an unrelated
 # reason. Adding this module changes nothing by itself — both units below only
 # take effect once someone runs `nixos-rebuild switch`.
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 {
+  # virtiofsd has to be placed in a user namespace with uid 0 mapped, and
+  # doing that needs a delegated subordinate UID/GID range. This host has
+  # neither /etc/subuid nor /etc/subgid, so the mapping is refused and
+  # `systemd-vmspawn` dies with:
+  #
+  #   Failed to enter user namespace for virtiofsd: Operation not permitted
+  #
+  # Confirmed by running virtiofsd directly, outside vmspawn, in each of its
+  # three sandbox modes: `--sandbox=namespace` warns "Couldn't set the
+  # process uid as root: -1" (the same missing-range symptom), `--sandbox=chroot`
+  # refuses outright as root-only, and `--sandbox=none` starts cleanly and
+  # reaches "Waiting for vhost-user socket connection". So virtiofsd itself
+  # runs fine unprivileged — only the namespace placement fails, and only for
+  # want of a range to map.
+  #
+  # This matters beyond the VM tier's root filesystem: every `--bind=` share
+  # is served by virtiofsd, so the repo bind and the live-grant share both
+  # depend on it. Without this, nothing the sandbox does is actually confined.
+  users.users.${config.dots.username}.autoSubUidGidRange = true;
+
   # systemd-nspawn's unprivileged `--user` scope hard-requires
   # systemd-nsresourced: without it, nspawn fails with "Failed to connect to
   # nsresourced: No such file or directory". Both the binary and the unit
