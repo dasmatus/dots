@@ -15,15 +15,27 @@
 //   receives them. If a judgement like "is TPM present AND Secure Boot off"
 //   ever seems tempting here, it belongs in that collector instead; see
 //   this task's own report for what was actually found missing there.
-// - `dots-sandbox catalog --json` (rust/dots-sandbox/src/catalog.rs) lists
-//   every app the defaults catalog knows, each carrying the real Name/Icon
-//   its desktop entry declares (so rows show an app, not a policy key) and
-//   its already-resolved capability state (defaults layered with whatever
-//   ~/.config/dots-sandbox/overrides.json already says — one call is all
-//   this page ever needs for that). Writes still go straight to that same
-//   overrides file via FileView.setText — the identical idiom
-//   monitors/Arrange.qml already uses for its own overrides.json, not a
-//   second `dots-sandbox` CLI subcommand invented for this one write.
+// - `dots-sandbox watch` streams the same document `catalog --json` prints
+//   (rust/dots-sandbox/src/catalog.rs): every app the defaults catalog
+//   knows, each carrying the real Name/Icon its desktop entry declares (so
+//   rows show an app, not a policy key) and its already-resolved capability
+//   state. One complete JSON document per line, pushed on startup and again
+//   whenever the policy changes.
+//
+//   Streamed rather than fetched because the fetch version re-ran the
+//   binary on every read — a process spawn per repaint, and no way to
+//   notice a change without re-running it. `watch` connects to the
+//   org.dots.Sandbox1 daemon once and stays connected. It is a pipe rather
+//   than a D-Bus call because Quickshell 0.3.0 exposes no generic D-Bus
+//   client to QML (`Quickshell.DBusMenu` is the tray-menu protocol, not a
+//   call interface), so this page cannot subscribe to the daemon itself.
+//
+//   Writes still go straight to ~/.config/dots-sandbox/overrides.json via
+//   FileView.setText — the identical idiom monitors/Arrange.qml already
+//   uses for its own overrides.json — for the same reason: QML cannot make
+//   the D-Bus call that would let the daemon do the write. The daemon stats
+//   that file before answering, so a write it did not make is still picked
+//   up rather than served from a stale cache.
 //
 // The permissions list below groups by CAPABILITY first, same as an
 // Android permission manager: a row per capability `policy.rs` knows,
@@ -126,23 +138,48 @@ Item {
         }
     }
 
+    // The permissions model, streamed rather than fetched.
+    //
+    // This used to be `dots-sandbox catalog --json` re-run on every read,
+    // which meant a process spawn per repaint and no way to notice a policy
+    // change without re-running it. `watch` instead connects to the
+    // org.dots.Sandbox1 daemon once and prints a complete catalog on
+    // startup and again on every PolicyChanged, so this page holds ONE
+    // long-lived process for its lifetime and updates when the policy
+    // actually changes.
+    //
+    // Why a pipe and not D-Bus directly: Quickshell 0.3.0 exposes no
+    // generic D-Bus client to QML — `Quickshell.DBusMenu` is the
+    // StatusNotifierItem tray-menu protocol, not a call interface — so this
+    // page cannot subscribe to the daemon itself. Shelling out to `busctl
+    // call` per read would have kept the spawn-per-repaint the daemon
+    // exists to remove, so the direction is inverted: the daemon pushes,
+    // this reads.
+    //
+    // SplitParser, not StdioCollector: the stream never ends, so
+    // `onStreamFinished` would fire only when the daemon died — i.e. never,
+    // in the case that matters. `watch` emits one complete JSON document
+    // per line precisely so a line split is the whole framing.
     Process {
         id: catalogProc
 
-        command: ["dots-sandbox", "catalog", "--json"]
+        command: ["dots-sandbox", "watch"]
 
-        stdout: StdioCollector {
-            onStreamFinished: {
+        stdout: SplitParser {
+            splitMarker: "\n"
+
+            onRead: line => {
                 try {
-                    root.catalogSet = JSON.parse(this.text);
+                    root.catalogSet = JSON.parse(line);
                 } catch (error) {
-                    // A missing binary, a killed process or a malformed
-                    // document all land here the same way: no permissions
-                    // list, not a crashed settings panel — the loading
-                    // message below is what tells the user something is
-                    // wrong, the same honesty rule reportProc's own catch
-                    // above already follows.
-                    root.catalogSet = null;
+                    // A malformed line is skipped, and the last good
+                    // document is KEPT rather than cleared. Blanking the
+                    // page because one line arrived truncated would turn a
+                    // transient glitch into "no app is sandboxed", which is
+                    // the most misleading thing this page can say. A
+                    // missing binary is the different case that leaves
+                    // catalogSet at its initial null, which the loading
+                    // message below reports honestly.
                 }
             }
         }
@@ -191,11 +228,23 @@ Item {
     // The one write this page ever makes: one app, one capability, one new
     // state — Policy.withCapabilityOverride folds it into whatever
     // overrides.json already holds rather than replacing the file outright.
-    // `catalogProc` is re-run afterwards so the permissions list reflects
-    // the MERGED, resolved state the write actually produced, not an
-    // optimistic guess at what `catalog --json` would say. `selectedCapability`
-    // is left untouched, so flipping a segment stays on the same drill-in
-    // list rather than bouncing the user back to the top level.
+    // `selectedCapability` is left untouched, so flipping a segment stays on
+    // the same drill-in list rather than bouncing the user back to the top.
+    //
+    // The write still goes through FileView rather than the daemon's own
+    // SetCapability, because Quickshell exposes no way for QML to make a
+    // D-Bus call. The daemon copes: it stats overrides.json before
+    // answering, so a write it did not make is picked up on the next read
+    // rather than being served from a stale cache. That also covers the
+    // case of a person editing the file by hand, which the policy design
+    // deliberately keeps working.
+    //
+    // Restarting `catalogProc` is what forces that next read. Note this is
+    // a stream, not a one-shot: cycling it drops the daemon connection and
+    // reconnects, which is heavier than the old re-run and happens far less
+    // often — on a write, not on a repaint. A push from the daemon's own
+    // PolicyChanged would be lighter still, but it only fires for writes
+    // the daemon itself performed, and this is not one.
     function setCapability(appId: string, capability: string, state: string): void {
         const merged = Policy.withCapabilityOverride(root.overridesRoot, appId, capability, state);
         overridesFile.setText(JSON.stringify(merged));

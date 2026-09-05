@@ -60,6 +60,33 @@ pub struct Sandbox {
     defaults: PathBuf,
     overrides: PathBuf,
     resolved: Mutex<ResolvedPolicySet>,
+    /// The overrides file's modification time as of the last resolve.
+    ///
+    /// The daemon is not the only writer. The Settings page edits
+    /// `overrides.json` through its own `FileView` (Quickshell exposes no
+    /// D-Bus client to QML, so it cannot call `SetCapability`), and a
+    /// person may edit it by hand — the policy file is deliberately a
+    /// plain user file, and that escape hatch is meant to work. A cache
+    /// that only invalidated on this daemon's own writes would serve stale
+    /// answers to both, which is worse than not caching at all: the page
+    /// would show a state the launcher does not agree with.
+    ///
+    /// Revalidated by stat on read rather than watched with inotify: one
+    /// `stat` per call is far cheaper than the process spawn this replaced,
+    /// needs no watcher thread, and cannot miss an editor that replaces the
+    /// file by rename — which is what most editors do, and what a naive
+    /// watch on the inode would silently stop seeing.
+    overrides_stamp: Mutex<Option<std::time::SystemTime>>,
+}
+
+/// The overrides file's mtime, or `None` when it does not exist.
+///
+/// Absence is a legitimate state — no user overrides yet — and is
+/// deliberately not distinguished from an unreadable stat here: both mean
+/// "the value I last resolved may no longer be right", and re-resolving is
+/// cheap.
+fn stamp_of(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
 }
 
 impl Sandbox {
@@ -73,12 +100,39 @@ impl Sandbox {
     /// answer it gives would otherwise be quietly wrong.
     pub fn new(home: PathBuf, defaults: PathBuf, overrides: PathBuf) -> Result<Self, PolicyError> {
         let resolved = resolve(&home, &defaults, &overrides)?;
+        let stamp = stamp_of(&overrides);
         Ok(Self {
             home,
             defaults,
             overrides,
             resolved: Mutex::new(resolved),
+            overrides_stamp: Mutex::new(stamp),
         })
+    }
+
+    /// Re-resolve if the overrides file changed under us.
+    ///
+    /// A failed reload is logged and the previous resolution kept: a file
+    /// that is mid-write, or that someone has just broken by hand, must not
+    /// blank the permissions page. The next call retries.
+    fn revalidate(&self) {
+        let current = stamp_of(&self.overrides);
+        let mut stamp = self.overrides_stamp.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!("recovering a poisoned stamp lock");
+            poisoned.into_inner()
+        });
+        if *stamp == current {
+            return;
+        }
+        match self.reload() {
+            Ok(()) => {
+                tracing::info!("overrides changed on disk; re-resolved");
+                *stamp = current;
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "overrides changed but did not resolve; keeping the previous policy");
+            }
+        }
     }
 
     /// Re-read and re-resolve, replacing what is held.
@@ -151,6 +205,11 @@ impl Sandbox {
     /// signature would be a second schema to keep in step with the first.
     /// The QML side parses JSON either way.
     fn catalog(&self) -> String {
+        // Cheap stat before answering: the Settings page writes
+        // overrides.json itself and a person may edit it by hand, so a
+        // cache that only invalidated on this daemon's own writes would
+        // hand out a policy the launcher does not agree with.
+        self.revalidate();
         let cat = self.with_resolved(|resolved| catalog::scan(&self.home, resolved));
         serde_json::to_string(&cat).unwrap_or_else(|err| {
             tracing::error!(error = %err, "failed to serialize the catalog");
@@ -207,6 +266,11 @@ impl Sandbox {
 
         write_override(&self.overrides, app_id, capability, parsed).map_err(|err| to_fdo(&err))?;
         self.reload().map_err(|err| to_fdo(&err))?;
+        // Our own write moved the mtime; record it so the next read does
+        // not treat this change as somebody else's and re-resolve again.
+        if let Ok(mut stamp) = self.overrides_stamp.lock() {
+            *stamp = stamp_of(&self.overrides);
+        }
 
         // Emitted after the reload, never before: a client that re-reads on
         // this signal must find the new value already in place, or it will
@@ -260,6 +324,67 @@ fn write_override(
         path: path.to_path_buf(),
         source,
     })
+}
+
+/// Client proxy for [`Sandbox`], used by `dots-sandbox watch`.
+#[zbus::proxy(
+    interface = "org.dots.Sandbox1",
+    default_service = "org.dots.Sandbox1",
+    default_path = "/org/dots/Sandbox1"
+)]
+pub trait SandboxClient {
+    /// The permissions page's model, as JSON.
+    fn catalog(&self) -> zbus::Result<String>;
+
+    /// Fires whenever the resolved policy changes.
+    #[zbus(signal)]
+    fn policy_changed(&self) -> zbus::Result<()>;
+}
+
+/// Stream the catalog: once immediately, then again on every change.
+///
+/// This exists because Quickshell 0.3.0 exposes no generic D-Bus client to
+/// QML — `Quickshell.DBusMenu` is the `StatusNotifierItem` tray protocol, not
+/// a call interface — so the Settings page cannot dial `org.dots.Sandbox1`
+/// itself. Shelling out to `busctl call` per read would keep the
+/// spawn-per-repaint this whole daemon exists to remove, so the direction
+/// is inverted instead: one long-lived process the page reads, pushing a
+/// fresh document whenever the policy actually changes.
+///
+/// Output is newline-delimited JSON, one complete catalog per line, so the
+/// reader needs no framing beyond splitting on newlines. Each line is
+/// self-contained rather than a diff: a diff stream means the reader has to
+/// hold state and can desynchronise, and a catalog is small enough that
+/// resending it costs nothing worth saving.
+///
+/// # Errors
+///
+/// Fails when the session bus cannot be reached at all. Note that the
+/// daemon *not running* is not that case: the bus activates it on the first
+/// call, which is what the `.service` activation file is for.
+pub async fn watch(mut emit: impl FnMut(&str)) -> zbus::Result<()> {
+    use futures_lite::StreamExt as _;
+
+    let connection = connection::Connection::session().await?;
+    let proxy = SandboxClientProxy::new(&connection).await?;
+
+    // Subscribe BEFORE the first read, not after. The other order drops any
+    // change landing between the read and the subscription, and the page
+    // would then show stale state until something else happened to change.
+    let mut changes = proxy.receive_policy_changed().await?;
+
+    emit(&proxy.catalog().await?);
+
+    while changes.next().await.is_some() {
+        match proxy.catalog().await {
+            Ok(document) => emit(&document),
+            // One failed refresh must not end the stream: the daemon may be
+            // restarting, and the page keeps its last good document until
+            // the next change rather than going blank.
+            Err(err) => tracing::warn!(error = %err, "failed to refresh the catalog"),
+        }
+    }
+    Ok(())
 }
 
 /// Claim the bus name and serve until the process is stopped.

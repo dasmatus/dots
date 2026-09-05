@@ -88,8 +88,36 @@ TestCase {
     // that'll lead to apps that requested them"), reading the catalog
     // instead of `policy dump`. ---
 
-    function test_permissions_reads_catalog_json() {
-        verify(securitySource().indexOf('command: ["dots-sandbox", "catalog", "--json"]') !== -1, "the permissions list must be driven by dots-sandbox catalog --json, not policy dump");
+    function test_permissions_streams_the_catalog_from_the_daemon() {
+        const src = securitySource();
+
+        // `watch`, not `catalog --json`. The fetch version re-ran the
+        // binary on every read — a process spawn per repaint, and no way
+        // to notice a policy change without re-running it. `watch` holds
+        // one connection to org.dots.Sandbox1 and is pushed a fresh
+        // document when the policy actually changes.
+        verify(src.indexOf('command: ["dots-sandbox", "watch"]') !== -1,
+               "the permissions list must stream from dots-sandbox watch, not re-run catalog --json per read");
+
+        // SplitParser, not StdioCollector: the stream never ends, so
+        // `onStreamFinished` would fire only when the daemon died — which
+        // is exactly the case where the page must NOT be waiting for it.
+        verify(src.indexOf("stdout: SplitParser") !== -1,
+               "a never-ending stream needs a line parser; StdioCollector waits for an end that does not come");
+    }
+
+    // A malformed line must not blank the page.
+    //
+    // Clearing catalogSet on a truncated line would turn a transient glitch
+    // into "no app is sandboxed", which is the single most misleading thing
+    // this page can say. The last good document is kept instead.
+    function test_a_bad_line_keeps_the_last_good_catalog() {
+        const src = securitySource();
+        const parser = src.slice(src.indexOf("stdout: SplitParser"));
+        const handler = parser.slice(0, parser.indexOf("FileView"));
+
+        verify(handler.indexOf("root.catalogSet = null") === -1,
+               "a malformed line must not clear catalogSet — that renders as 'nothing is sandboxed'");
     }
 
     // The top level: one row per capability, each leading to its own apps

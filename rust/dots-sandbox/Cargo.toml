@@ -41,6 +41,11 @@ libc = "0.2"
 # keeps the closure off a second async runtime this repo has no other use
 # for.
 zbus = "5"
+# `.next()` on zbus's signal stream. zbus re-exports `futures_core` (the
+# `Stream` trait) but not a `StreamExt`, and it already depends on
+# futures-lite itself — so taking it directly adds nothing to the closure
+# and avoids hand-rolling a `poll_fn` around a stream for one call site.
+futures-lite = "2"
 
 
 # The integration tests spawn the compiled binary and send it real signals, so
