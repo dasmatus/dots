@@ -180,6 +180,18 @@ in
   home.packages = [ dotsSandbox ];
 
   xdg.configFile = {
+    # The shipped capability defaults, at the path the crate falls back to
+    # when $DOTS_SANDBOX_DEFAULTS is unset. Packaging them in the repo was
+    # not enough: `dots-sandbox policy dump` failed with "failed to read
+    # policy file ~/.config/dots-sandbox/defaults.json", which is what left
+    # the Settings panel's Global permissions section empty.
+    #
+    # Read-only by construction — it is a store symlink. User overrides go to
+    # the sibling overrides.json, which is a real file the panel writes and
+    # which is absent until something is actually changed. That absence is
+    # normal, and both the crate and the QML treat it as such.
+    "dots-sandbox/defaults.json".source = ../../data/sandbox-policy.json;
+
     # The daemon. No enablement of its own — reached only via the socket
     # (varlink registration) or the D-Bus alias below (bus-name lookup).
     "systemd/user/systemd-machined.service".source = "${systemdUser}/systemd-machined.service";
