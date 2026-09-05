@@ -34,6 +34,16 @@ const NSRESOURCED_SOCKET: &str = "/run/systemd/userdb/io.systemd.NamespaceResour
 ///
 /// Returns the reason it cannot, or `None` when it can.
 fn sandbox_runtime_unavailable() -> Option<String> {
+    // `DOTS_SANDBOX_REQUIRE_RUNTIME=1` suppresses the degradation and attempts
+    // the sandbox regardless, following the same injection convention as
+    // `$DOTS_SANDBOX_DEFAULTS` and friends. It can only ever make confinement
+    // stricter — forcing an attempt that then fails loudly — so unlike
+    // `DOTS_SANDBOX=0` it is not a way to get less isolation, and it is what
+    // lets the audit tests exercise the sandboxed path on a host whose
+    // nsresourced is not yet enabled.
+    if env::var_os("DOTS_SANDBOX_REQUIRE_RUNTIME").is_some_and(|value| value == "1") {
+        return None;
+    }
     if Path::new(NSRESOURCED_SOCKET).exists() {
         return None;
     }

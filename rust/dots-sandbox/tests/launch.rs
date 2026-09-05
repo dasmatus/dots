@@ -152,6 +152,12 @@ fn logs_every_capability_decision_for_the_dashboard() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     set_fixture_env();
+    // This host has no `systemd-nsresourced`, so `launch::run` would normally
+    // degrade to unconfined and never reach the capability decisions this test
+    // is about. Requiring the runtime forces the sandboxed path: the child
+    // still cannot actually start (see the comment below), which is fine —
+    // the decisions are logged before the spawn is attempted.
+    std::env::set_var("DOTS_SANDBOX_REQUIRE_RUNTIME", "1");
     let path = tmp_audit("capability-log");
     let audit = AuditLog::with_path(&path);
     // `dash-app` resolves as `Sandboxed`, so this does reach the real
