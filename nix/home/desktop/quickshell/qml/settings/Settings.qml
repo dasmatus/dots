@@ -33,10 +33,12 @@
 // `fields` array down to its own keys through pages.js's PAGE_FIELDS table
 // (dump's own order interleaves keys from every page, so a page's row order
 // is this shell's presentation choice, not something dump's array can be
-// trusted to match). Security stays the EmptyState stub a later task fills
-// in — see navPages below — and the sidebar itself is unchanged: it was
-// already data-driven off navPages before any of this landed, precisely so
-// that later task adds three rows instead of restructuring this file.
+// trusted to match). Security is a sixth, different shape of page: it owns
+// no dumped field at all, so it is a Loader onto pages/security.qml instead
+// of more rows — see showingSecurityPage below — and the sidebar itself is
+// unchanged: it was already data-driven off navPages before any of this
+// landed, precisely so that a later page only ever adds one nav entry
+// instead of restructuring this file.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -86,10 +88,8 @@ Scope {
     readonly property bool searching: root.query.trim() !== ""
 
     // The 260px sidebar's own model. Six entries because that is the whole
-    // information architecture the source design was imported for. Security
-    // stays a stub for a later task (Security & privacy, Wallpaper and
-    // Displays all land after this one); the other five each have a real
-    // page behind them now.
+    // information architecture the source design was imported for. Every
+    // one of the six now has a real page behind it.
     readonly property var navPages: [
         {
             id: "identity",
@@ -169,6 +169,15 @@ Scope {
     // cursor to walk while it is up.
     readonly property bool showingKeyboardPage: root.activePage === "keyboard" && !root.searching
 
+    // Whether the content column is showing the Security page's own
+    // Loader-built dashboard/permissions surface instead of the rows
+    // grammar. Same shape as showingKeyboardPage, and for the same reason:
+    // Security owns no dumped field either (see pages.js's PAGE_FIELDS —
+    // "security" has no entry, so rowsForPage("security") always answers
+    // []), so there is nothing here for visibleRows, the empty state or the
+    // keyboard cursor to walk while it is up.
+    readonly property bool showingSecurityPage: root.activePage === "security" && !root.searching
+
     // Synthetic rows for the three Claude Code fields that live in
     // ~/.claude/settings.json rather than settings.nix — see
     // fieldDescriptions' entries for these keys for why they render
@@ -211,8 +220,8 @@ Scope {
     // that page owns — Accounts' drill-in to Proton, AI's three read-only
     // Claude rows. "keyboard" and "security" fall through to
     // Pages.fieldsForPage's empty answer: Keyboard renders keybindsFile
-    // directly instead (see showingKeyboardPage above), and Security is
-    // still the EmptyState stub.
+    // directly instead (see showingKeyboardPage above), and Security
+    // renders pages/security.qml instead (see showingSecurityPage above).
     function rowsForPage(pageId) {
         if (pageId === "ai")
             return Pages.fieldsForPage(root.fields, "ai").concat(root.claudeReadonlyRows);
@@ -316,9 +325,6 @@ Scope {
     function emptyMessage(): string {
         if (root.searching)
             return `No settings match "${root.query.trim()}"`;
-
-        if (root.activePage === "security")
-            return "This page has not been built yet — a later task fills it in.";
 
         return "Nothing to show here yet.";
     }
@@ -854,7 +860,7 @@ Scope {
                             ColumnLayout {
                                 Layout.fillWidth: true
 
-                                visible: !root.showingKeyboardPage && root.visibleRows.length > 0
+                                visible: !root.showingKeyboardPage && !root.showingSecurityPage && root.visibleRows.length > 0
                                 spacing: Theme.settingsRowGap
 
                                 Text {
@@ -1064,11 +1070,35 @@ Scope {
                                 }
                             }
 
+                            // Security page: a Loader, not an inline tag —
+                            // settings/pages/security.qml's filename starts
+                            // lowercase on purpose (matching the task
+                            // brief's own path), and a lowercase filename
+                            // cannot be a QML type name, so it is loaded by
+                            // source URL instead of imported. `active`
+                            // ties the component's lifetime to the tab
+                            // itself: leaving the page destroys it, so
+                            // coming back always re-runs `report --json`
+                            // and `policy dump` fresh rather than showing
+                            // whatever this Settings session first read,
+                            // which matters more here than it does for any
+                            // other page — a security dashboard that goes
+                            // stale while the panel sits open is worse than
+                            // one that costs a re-read on every visit.
+                            Loader {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                active: root.showingSecurityPage
+                                visible: active
+                                source: "pages/security.qml"
+                            }
+
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
 
-                                visible: !root.showingKeyboardPage && root.visibleRows.length === 0
+                                visible: !root.showingKeyboardPage && !root.showingSecurityPage && root.visibleRows.length === 0
 
                                 EmptyState {
                                     anchors.centerIn: parent
@@ -1081,7 +1111,7 @@ Scope {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
 
-                                visible: !root.showingKeyboardPage && root.visibleRows.length > 0
+                                visible: !root.showingKeyboardPage && !root.showingSecurityPage && root.visibleRows.length > 0
                             }
                         }
 
