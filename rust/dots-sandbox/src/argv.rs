@@ -157,33 +157,53 @@ fn push_extra_paths(argv: &mut Vec<String>, resolved: &ResolvedPolicy) {
     }
 }
 
-/// Builds a `systemd-nspawn` command line for the `container` tier: the
-/// nix-heavy apps that need `/nix/store` and the nix daemon socket as
-/// ordinary bind mounts.
+/// Builds the command line for the `container` tier: the nix-heavy apps that
+/// need `/nix/store` and the nix daemon socket.
+///
+/// **This tier runs on `systemd-vmspawn`, not `systemd-nspawn`, and the
+/// reason is a hard blocker rather than a preference.** Unprivileged
+/// managed-mode nspawn cannot start on any stock nixpkgs-built NixOS:
+/// `systemd-nsresourced` refuses to hand out a UID range without a BPF-LSM
+/// lockdown program, and that program is compiled out behind
+/// `#if HAVE_VMLINUX_H` because nixpkgs' systemd build has no live kernel BTF
+/// to generate `vmlinux.h` from. Observed in a VM as
+/// `Not setting up BPF subsystem, as functionality has been disabled at
+/// compile time`, then `Failed to allocate user namespace with 64K users:
+/// Operation not supported`. See `tests/sandbox.nix`.
+///
+/// vmspawn never consults nsresourced — a VM needs no UID range — and was
+/// confirmed to spawn unprivileged on this machine, reaching its firmware
+/// step rather than any namespace error. So the tier keeps its capability
+/// profile and changes only the mechanism underneath it.
+///
+/// Known limitation, deliberately not papered over: `nix-daemon` and
+/// `postgres` are Unix sockets shared through virtio-fs. A bind makes the
+/// socket file visible, which is not the same as the protocol working across
+/// a VM boundary — `PostgreSQL` peer authentication reads `SO_PEERCRED` and
+/// will not survive it. Treat those two capabilities on this tier as
+/// unproven until exercised end to end.
 fn container_argv(resolved: &ResolvedPolicy, ctx: &LaunchCtx) -> Vec<String> {
-    let mut argv = vec!["systemd-nspawn".to_string()];
+    let mut argv = vec!["systemd-vmspawn".to_string()];
 
-    argv.push(format!("--directory={}", ctx.container_rootfs.display()));
-    // `--ephemeral`: the base row's "ephemeral root" — every launch starts
-    // from a fresh, disposable snapshot of the OS tree.
-    argv.push("--ephemeral".to_string());
-    // `managed` is the mode systemd-nspawn itself selects by default when
-    // invoked unprivileged (uid 1000, the case this crate's brief already
-    // established for this machine), delegating UID range allocation to
-    // systemd-nsresourced. It is named explicitly here rather than left to
-    // the default so the choice is visible in the emitted argv and does
-    // not silently change if some future invocation runs privileged.
-    argv.push("--private-users=managed".to_string());
+    // Same base as the `vm` tier: KVM insisted on rather than left to `auto`,
+    // so a host without it fails loudly instead of silently emulating; a
+    // direct kernel boot; and an explicit firmware path, because
+    // `--firmware=list` prints nothing here (NixOS ships the descriptor JSONs
+    // inside the qemu package rather than at the `/usr/share/qemu/firmware`
+    // path vmspawn searches).
+    argv.push("--kvm=yes".to_string());
+    argv.push(format!("--linux={}", ctx.vm_kernel.display()));
+    argv.push(format!("--firmware={}", ctx.vm_firmware.display()));
+    argv.push(format!("--image={}", ctx.container_rootfs.display()));
     argv.push(format!("--machine={}", ctx.machine_name));
-    // No journal link: the base row's "no journal link". A sandboxed app's
-    // journal has no reason to appear in the host's.
-    argv.push("--link-journal=no".to_string());
 
-    // `net`: nspawn shares the host network namespace by default: absence
-    // of `--private-network` means "networked". So `deny`/`ask` must add
-    // the isolating flag, and only `allow` may omit it.
-    if state_of(resolved, Capability::Net) != PolicyState::Allow {
-        argv.push("--private-network".to_string());
+    // `net`: vmspawn hands the guest no network device unless asked, so
+    // `allow` is the case that adds a flag — the inverse of nspawn, where
+    // the host network was shared by default and isolation had to be
+    // requested. `--network-tap` needs root; `--network-user-mode` is the
+    // unprivileged option.
+    if state_of(resolved, Capability::Net) == PolicyState::Allow {
+        argv.push("--network-user-mode".to_string());
     }
 
     if state_of(resolved, Capability::NixDaemon) == PolicyState::Allow {

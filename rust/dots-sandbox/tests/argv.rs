@@ -62,11 +62,19 @@ fn container_net_allow_omits_private_network() {
 }
 
 #[test]
-fn container_net_deny_adds_private_network() {
+fn container_net_deny_grants_no_network_device() {
+    // The container tier runs on vmspawn now (nspawn's unprivileged managed
+    // mode cannot start on nixpkgs-built systemd — see `container_argv`), and
+    // the two tools are inverses here. nspawn shared the host network by
+    // default, so isolation meant *adding* `--private-network`. vmspawn hands
+    // the guest no network device at all unless asked, so denial means
+    // *omitting* the flag. Asserting on the old flag would now pass
+    // vacuously — it can never appear — which is why this checks the
+    // grant-side flag is absent instead.
     let argv = spawn_argv(&all_denied(Tier::Container), &ctx());
     assert!(
-        argv.contains(&"--private-network".to_string()),
-        "net: deny must isolate the network, got {argv:?}"
+        !argv.contains(&"--network-user-mode".to_string()),
+        "net: deny must not grant a network device, got {argv:?}"
     );
 }
 
@@ -89,10 +97,20 @@ fn container_nix_daemon_allow_binds_store_and_socket() {
 #[test]
 fn container_nix_daemon_deny_binds_nothing() {
     let argv = spawn_argv(&all_denied(Tier::Container), &ctx());
-    assert!(!argv.iter().any(|a| a.contains("/nix/store")), "{argv:?}");
+    // Assert on the bind flags, not on any argument merely *containing* the
+    // paths. The rootfs handed to `--image=` is itself a store path, so a
+    // substring check for "/nix/store" now matches the tier's own scaffolding
+    // and fails on correct output — the same trap the lockdown prose check
+    // fell into in tests/report.rs.
     assert!(
-        !argv.iter().any(|a| a.contains("daemon-socket")),
-        "{argv:?}"
+        !argv.contains(&"--bind-ro=/nix/store".to_string()),
+        "nix-daemon: deny must not bind the store, got {argv:?}"
+    );
+    assert!(
+        !argv
+            .iter()
+            .any(|a| a.starts_with("--bind=") && a.contains("daemon-socket")),
+        "nix-daemon: deny must not bind the daemon socket, got {argv:?}"
     );
 }
 
@@ -333,6 +351,21 @@ fn container_and_vm_tiers_produce_genuinely_different_command_lines() {
     let vm_argv = spawn_argv(&vm, &ctx());
 
     assert_ne!(container_argv, vm_argv);
-    assert_eq!(container_argv[0], "systemd-nspawn");
+    // Both tiers spawn through vmspawn now — nspawn's unprivileged managed
+    // mode cannot start on nixpkgs-built systemd, so the container tier keeps
+    // its capability profile and changes only the mechanism under it.
+    assert_eq!(container_argv[0], "systemd-vmspawn");
     assert_eq!(vm_argv[0], "systemd-vmspawn");
+    // Sharing a tool must not collapse the tiers into the same launch. The
+    // container tier boots a root image; the vm tier does not. Without this
+    // the assert_ne above could be satisfied by some incidental ordering
+    // difference rather than by the tiers actually meaning different things.
+    assert!(
+        container_argv.iter().any(|a| a.starts_with("--image=")),
+        "the container tier must boot its root image, got {container_argv:?}"
+    );
+    assert!(
+        !vm_argv.iter().any(|a| a.starts_with("--image=")),
+        "the vm tier takes no root image, got {vm_argv:?}"
+    );
 }
