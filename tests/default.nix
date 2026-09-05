@@ -30,6 +30,12 @@ let
   # profile at ~/.thunderbird. See tests/proton-calendar.nix.
   protonCalendarTest = import ./proton-calendar.nix { inherit pkgs lib inputs; };
 
+  # sandbox-machined — eval-only for the same reason as sessionUnitsTest:
+  # proves nix/home/sandbox/machined.nix wires the user-scope machined units
+  # (present, referencing pkgs.systemd, socket-enabled) rather than landing
+  # inert. See tests/sandbox-machined.nix for what it guards.
+  sandboxMachinedTest = import ./sandbox-machined.nix { inherit pkgs lib inputs; };
+
   # limine-install-home — a lightweight runNixOSTest (no disko, no
   # nixos-install, no facter.json wall) pinning nix/modules/system/limine-install.nix's
   # hazard-1 HOME-provisioning fix under three HOME conditions. See
@@ -694,6 +700,7 @@ in
   # Eval-only — no VM, no build. See the comment on sessionUnitsTest above.
   session-units = sessionUnitsTest;
   proton-calendar = protonCalendarTest;
+  sandbox-machined = sandboxMachinedTest;
   iso-boot = isoBootTest;
   userborn-reboot-login = userbornRebootLogin;
   limine-install-home = limineHomeTest;
