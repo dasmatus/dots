@@ -122,6 +122,6 @@ in
       dots = config.dots;
     };
     sharedModules = [ inputs.nixvim.homeModules.nixvim ];
-    users.${config.dots.username} = import ../home;
+    users.${config.dots.username} = import ../../home;
   };
 }
