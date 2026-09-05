@@ -32,7 +32,48 @@
   # This matters beyond the VM tier's root filesystem: every `--bind=` share
   # is served by virtiofsd, so the repo bind and the live-grant share both
   # depend on it. Without this, nothing the sandbox does is actually confined.
-  users.users.${config.dots.username}.autoSubUidGidRange = true;
+  # Written directly rather than through `users.users.<name>.autoSubUidGidRange`,
+  # which is silently a no-op on this system. That option is consumed by
+  # nixpkgs' update-users-groups.pl — the legacy Perl activation script that
+  # rewrites /etc/subuid and /etc/subgid. This host runs userborn instead
+  # (nix/modules/system/users.nix sets services.userborn.enable, and the NixOS
+  # users-groups module blanks the activation script when it is on), and
+  # userborn has no subuid handling whatsoever. Setting the option changed
+  # nothing: /etc/subuid still did not exist after a rebuild, and virtiofsd
+  # still could not be placed in a user namespace.
+  #
+  # 100000 with a 65536-wide range is the same shape the Perl script's own
+  # auto-allocation uses, so nothing here is novel except that it actually
+  # lands on a userborn system.
+  # Derived from the declared user set rather than naming anyone: every normal
+  # user gets a range, and each range is keyed off that user's own uid so two
+  # users can never be handed overlapping subordinate ids. Adding a second user
+  # to this system needs no edit here.
+  environment.etc =
+    let
+      normalUsers = lib.filterAttrs (_: user: user.isNormalUser) config.users.users;
+
+      # 65536 ids per user, the conventional width, starting at 100000 — the
+      # same base and stride the Perl script's own auto-allocation uses.
+      #
+      # Indexed by position in the sorted name list, deliberately not by uid:
+      # `users.users.<name>.uid` is null unless someone sets it explicitly, and
+      # this host does not — userborn assigns uids at runtime, so an arithmetic
+      # expression over uid fails at evaluation time rather than producing a
+      # wrong answer. Sorted names are stable across rebuilds and give every
+      # user a block disjoint from every other's, which is the only property
+      # the range actually has to have.
+      rangeFor =
+        index: name: "${name}:${toString (100000 + index * 65536)}:65536";
+
+      ranges = lib.concatStringsSep "\n" (
+        lib.imap0 rangeFor (lib.sort (a: b: a < b) (lib.attrNames normalUsers))
+      );
+    in
+    {
+      "subuid".text = "${ranges}\n";
+      "subgid".text = "${ranges}\n";
+    };
 
   # systemd-nspawn's unprivileged `--user` scope hard-requires
   # systemd-nsresourced: without it, nspawn fails with "Failed to connect to

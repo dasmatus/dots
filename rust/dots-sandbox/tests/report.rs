@@ -138,10 +138,16 @@ fn an_unreadable_apparmor_profile_count_degrades_instead_of_erroring() {
     // enablement fact it can see and marks the count unavailable.
     let card = parse_apparmor(Some("Yes\n"), Err("permission denied"));
 
+    // Warn, not Ok. This assertion used to demand Ok, and that was wrong in a
+    // way this machine demonstrated: AppArmor was enabled with ZERO profiles
+    // loaded — the LSM active, nothing confined — and the card reported Ok
+    // the entire time, because enablement was all it checked. "I could not
+    // check" must not render the same as "I checked and it is fine".
     assert_eq!(
         card.status,
-        Status::Ok,
-        "AppArmor being enabled is still knowable without the count"
+        Status::Warn,
+        "an unverifiable profile count cannot read as fine: {}",
+        card.detail
     );
     assert!(
         card.rows
@@ -149,6 +155,40 @@ fn an_unreadable_apparmor_profile_count_degrades_instead_of_erroring() {
             .any(|row| row.value.to_lowercase().contains("unavailable")),
         "the count row must say it is unavailable, got rows: {:?}",
         card.rows
+    );
+}
+
+#[test]
+fn apparmor_enabled_with_zero_profiles_is_a_failure_not_an_ok() {
+    // The state this machine was actually in: `security.apparmor.packages`
+    // set (the include path) with no `policies`, so the generated unit tore
+    // profiles down at boot and loaded none. `aa-enabled` answered "Yes" and
+    // the profile list was empty.
+    //
+    // Fail rather than Warn on purpose. Switched on and confining nothing is
+    // worse than switched off, because every surface — this dashboard
+    // included — reports it as protection that exists.
+    let card = parse_apparmor(Some("Yes\n"), Ok(0));
+
+    assert_eq!(
+        card.status,
+        Status::Fail,
+        "zero profiles means nothing is confined: {}",
+        card.detail
+    );
+}
+
+#[test]
+fn apparmor_with_profiles_loaded_says_how_many() {
+    // The counterpart: a real count is what earns Ok, and the number belongs
+    // in the detail so the reader can see the claim rather than trust it.
+    let card = parse_apparmor(Some("Yes\n"), Ok(223));
+
+    assert_eq!(card.status, Status::Ok);
+    assert!(
+        card.detail.contains("223"),
+        "the count is the evidence; show it: {}",
+        card.detail
     );
 }
 

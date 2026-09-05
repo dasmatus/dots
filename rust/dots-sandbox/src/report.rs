@@ -634,19 +634,52 @@ pub fn parse_apparmor(enabled_stdout: Option<&str>, profiles: Result<usize, &str
             rows: Vec::new(),
         };
     }
-    let rows = vec![Row::new(
-        "loaded profiles",
-        match profiles {
-            Ok(count) => count.to_string(),
-            Err(reason) => format!("unavailable ({reason}; requires a privileged read)"),
+    // Enabled is not the same as confining, and this card used to conflate
+    // them. It reported `ok` / "AppArmor is enabled" on a machine where
+    // /sys/kernel/security/apparmor/profiles held ZERO entries — the LSM was
+    // active and nothing whatsoever was confined, and every surface said the
+    // protection was on. The cause was a config that set
+    // `security.apparmor.packages` (the include path) but no `policies`, so
+    // the generated unit tore profiles down at boot and loaded none.
+    //
+    // So enablement alone never earns `ok` here:
+    //
+    // - a known count of zero is a real failure, not a warning: AppArmor is
+    //   switched on and protecting nothing, which is worse than off because it
+    //   reads as protection;
+    // - an unknown count cannot be `ok` either. The profile list needs a
+    //   privileged read this collector will not make, and "I could not check"
+    //   must not render the same as "I checked and it is fine" — that is the
+    //   whole reason `unavailable` exists as a status distinct from `ok`.
+    match profiles {
+        Ok(0) => Card {
+            id: "apparmor",
+            title: "AppArmor",
+            status: Status::Fail,
+            detail: "AppArmor is enabled but has zero profiles loaded, so it is confining nothing"
+                .to_string(),
+            rows: vec![Row::new("loaded profiles", "0")],
         },
-    )];
-    Card {
-        id: "apparmor",
-        title: "AppArmor",
-        status: Status::Ok,
-        detail: "AppArmor is enabled".to_string(),
-        rows,
+        Ok(count) => Card {
+            id: "apparmor",
+            title: "AppArmor",
+            status: Status::Ok,
+            detail: format!("AppArmor is enabled with {count} profile(s) loaded"),
+            rows: vec![Row::new("loaded profiles", count.to_string())],
+        },
+        Err(reason) => Card {
+            id: "apparmor",
+            title: "AppArmor",
+            status: Status::Warn,
+            detail: "AppArmor is enabled, but whether any profiles are loaded could not be \
+                     verified without a privileged read — enabled with nothing loaded confines \
+                     nothing"
+                .to_string(),
+            rows: vec![Row::new(
+                "loaded profiles",
+                format!("unavailable ({reason}; requires a privileged read)"),
+            )],
+        },
     }
 }
 
