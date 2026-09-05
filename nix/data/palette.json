@@ -19,7 +19,7 @@
   "bar": {
     "height": 30, "spacing": 4, "fontSize": 15,
     "pillPadding": 14, "iconSize": 20, "titleMaxWidth": 480,
-    "workspaceIconCap": 4
+    "workspaceIconCap": 4, "pillSpacing": 6
   },
   "beamenu": {
     "lines": 9, "widthFactor": 0.5, "iconSize": 24,
@@ -34,5 +34,14 @@
     "rowInset": 8, "hoverPad": 4, "hoverPadWide": 6, "menuWidth": 220,
     "crumbMenuCap": 15
   },
-  "chrome": { "stripWidth": 3 }
+  "chrome": { "stripWidth": 3 },
+  "settings": {
+    "sidebarWidth": 260, "headerHeight": 64, "searchHeight": 40,
+    "rowHeight": 56, "rowPadding": 16, "rowGap": 2, "groupGap": 32,
+    "controlColumn": 320, "radius": 10,
+    "panelWidthFactor": 0.72, "panelHeightFactor": 0.8,
+    "titleFontSize": 24, "groupFontSize": 11, "rowTitleFontSize": 14,
+    "rowDescFontSize": 11, "navFontSize": 13,
+    "footerHeight": 40, "toggleWidth": 44, "toggleHeight": 24
+  }
 }

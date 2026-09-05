@@ -162,10 +162,24 @@ TestCase {
         verify(src.indexOf("+ 96") === -1, "Arrange.qml must not reintroduce the old hardcoded heading/footer compensation constant");
     }
 
-    function test_settings_height_uses_implicitHeight_not_a_guessed_constant() {
+    // Settings.qml stopped being a Chrome caller when its shell was rebuilt
+    // on the sidebar/header/footer layout (task 4): Chrome's header is one
+    // title Text spanning the whole panel and its footer is one hint line,
+    // both fixed shapes Cheatsheet, Arrange and wallpaper/Picker still
+    // depend on — but the new shell's header is two DIFFERENT-width columns
+    // carrying DIFFERENT content, and its footer carries hints AND a Save
+    // button AND a transient acknowledgement. Composing that as optional
+    // Chrome modes would grow Chrome a settings-shaped special case; this
+    // file's own tests above stay the guard for the three callers that
+    // still fit Chrome's actual shape. Settings.qml's own panel geometry
+    // (Theme.settingsPanelWidthFactor/HeightFactor, not an implicitHeight
+    // formula at all — the palette's own comment on those tokens explains
+    // why: a settings panel sized off its own content would grow or shrink
+    // with how much of the sidebar happens to be built) is covered by
+    // tst_settings_wiring.qml instead.
+    function test_settings_no_longer_wraps_chrome() {
         const src = readCode("../../nix/home/desktop/quickshell/qml/settings/Settings.qml");
-        verify(src.indexOf("panel.implicitHeight") !== -1, "Settings.qml's panel height must be derived from Chrome's implicitHeight");
-        verify(src.indexOf("+ 96") === -1, "Settings.qml must not reintroduce the old hardcoded heading/footer compensation constant");
+        verify(src.indexOf("Chrome {") === -1, "Settings.qml must build its own shell on Panel directly, not silently return to wrapping Chrome");
     }
 
     function test_cheatsheet_height_uses_implicitHeight_not_a_guessed_constant() {

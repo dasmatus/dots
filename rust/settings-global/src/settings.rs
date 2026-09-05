@@ -126,6 +126,16 @@ impl Settings {
         }
     }
 
+    /// Bare decimal integer value, or `None` if missing or not one — a
+    /// float (`"5.0"`), a suffixed literal, or trailing garbage all read
+    /// back as `None` rather than being truncated or coerced. Callers that
+    /// want a placeholder for the missing/invalid case (as `value_json`
+    /// does for every other field type) use `.unwrap_or_default()`.
+    #[must_use]
+    pub fn get_int(&self, key: &str) -> Option<i64> {
+        self.get_raw(key)?.parse().ok()
+    }
+
     /// Set `key` to a quoted, escaped string (appends if missing).
     pub fn set_str(&mut self, key: &str, value: &str) {
         self.set_raw(key, format!("\"{}\"", nix_escape(value)));
@@ -133,6 +143,11 @@ impl Settings {
 
     /// Set `key` to `true`/`false` (appends if missing).
     pub fn set_bool(&mut self, key: &str, value: bool) {
+        self.set_raw(key, value.to_string());
+    }
+
+    /// Set `key` to a bare decimal integer (appends if missing).
+    pub fn set_int(&mut self, key: &str, value: i64) {
         self.set_raw(key, value.to_string());
     }
 
@@ -261,4 +276,58 @@ pub fn validate_git_email(s: &str) -> Result<(), String> {
 /// Returns the reason the email is invalid.
 pub fn validate_proton_email(s: &str) -> Result<(), String> {
     validate_email("proton email", s)
+}
+
+/// IANA time zone identifier sanity check (e.g. `Europe/Bratislava`) — the
+/// nixpkgs `time.timeZone` option validates the real zone database at eval
+/// time, so this only catches an obviously wrong value before that rebuild.
+///
+/// # Errors
+/// Returns the reason the value is rejected.
+pub fn validate_timezone(s: &str) -> Result<(), String> {
+    if s.is_empty() {
+        return Err("timezone must not be empty".into());
+    }
+    if s.chars().any(char::is_whitespace) {
+        return Err("timezone must not contain whitespace".into());
+    }
+    if s.contains("..") {
+        return Err("timezone must not contain '..'".into());
+    }
+    Ok(())
+}
+
+/// Ollama HTTP(S) endpoint sanity check: a `http://`/`https://` URL with a
+/// non-empty host after the scheme.
+///
+/// # Errors
+/// Returns the reason the value is rejected.
+pub fn validate_ollama_endpoint(s: &str) -> Result<(), String> {
+    let rest = s
+        .strip_prefix("http://")
+        .or_else(|| s.strip_prefix("https://"))
+        .ok_or_else(|| "ollama endpoint must start with http:// or https://".to_string())?;
+    if rest.is_empty() || rest.starts_with('/') {
+        return Err("ollama endpoint must have a host after the scheme".into());
+    }
+    if s.chars().any(char::is_whitespace) {
+        return Err("ollama endpoint must not contain whitespace".into());
+    }
+    Ok(())
+}
+
+/// Git `user.signingkey` sanity check. Unlike the name/email fields, empty
+/// is accepted here on purpose: an empty key is exactly how this row's
+/// default reads "signing not configured", and clearing a previously set
+/// key must stay reachable through the same field. The key's own shape (a
+/// GPG key id/fingerprint, or `ssh-...` for `gpg.format = ssh`) is git's
+/// business, not this crate's.
+///
+/// # Errors
+/// Returns the reason the value is rejected.
+pub fn validate_git_signing_key(s: &str) -> Result<(), String> {
+    if s.chars().any(|c| c == '\n' || c == '\r') {
+        return Err("git signing key must not contain newlines".into());
+    }
+    Ok(())
 }

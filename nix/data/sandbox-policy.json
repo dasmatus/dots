@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "denyPaths": ["~/.ssh", "~/.config/rbw", "~/.local/share/rbw"],
+  "apps": {
+    "default": {
+      "tier": "container",
+      "caps": { "repo-read": "allow" }
+    },
+    "nix-lint": {
+      "tier": "container",
+      "caps": {
+        "repo-write": "allow",
+        "nix-daemon": "allow",
+        "net": "allow"
+      },
+      "paths": [{ "path": "~/.cargo", "mode": "rw", "state": "allow" }]
+    },
+    "memory-derive": {
+      "tier": "container",
+      "caps": { "repo-read": "allow", "postgres": "allow" }
+    },
+    "memory-health": {
+      "tier": "container",
+      "caps": { "postgres": "allow" }
+    },
+    "iso": {
+      "tier": "container",
+      "caps": {
+        "repo-write": "allow",
+        "nix-daemon": "allow",
+        "net": "allow",
+        "settings-ro": "allow"
+      }
+    },
+    "iso-full": {
+      "tier": "container",
+      "caps": {
+        "repo-write": "allow",
+        "nix-daemon": "allow",
+        "net": "allow",
+        "settings-ro": "allow"
+      }
+    },
+    "nix-smoke": {
+      "tier": "container",
+      "caps": {
+        "repo-write": "allow",
+        "nix-daemon": "allow",
+        "net": "allow",
+        "settings-ro": "allow"
+      }
+    },
+    "clean": {
+      "tier": "container",
+      "caps": { "repo-write": "allow" }
+    },
+    "nix-smoke-interactive": {
+      "unconfined": true,
+      "reason": "drops into the test driver's Python REPL; needs a real terminal"
+    },
+    "enroll-fido": {
+      "unconfined": true,
+      "reason": "needs /dev/hidraw* and a physical key tap"
+    },
+    "global-settings": {
+      "unconfined": true,
+      "reason": "re-execs under pkexec to write the root-owned settings file"
+    },
+    "computer-use-linux": {
+      "unconfined": true,
+      "reason": "needs /dev/uinput, the AT-SPI bus, whole-desktop input control"
+    },
+    "kitty": {
+      "unconfined": true,
+      "reason": "a terminal; whatever it launches inherits the sandbox anyway"
+    },
+    "junction": {
+      "unconfined": true,
+      "reason": "exists to exec browsers; children would inherit confinement"
+    },
+    "bitwarden": {
+      "unconfined": true,
+      "reason": "the secret broker other things connect to; \"only bitwarden.com\" is not expressible with an all-or-nothing network namespace"
+    }
+  }
+}

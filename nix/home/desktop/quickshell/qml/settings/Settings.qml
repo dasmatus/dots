@@ -1,18 +1,42 @@
-// The settings form, reached with SUPER+comma.
+// The settings panel, reached with SUPER+comma.
 //
-// Edits the installer-written settings.nix through rust/settings-global, which
-// survives the migration because it never owned a surface: beamenu-canvas drew
-// its form over JSON-RPC while the crate did the parsing, the validation and
-// the pkexec re-exec when the file is root-owned.
+// Rebuilt on an imported "ChromeOS Settings" layout for its STRUCTURE only —
+// a 260px sidebar of nav entries, a header with the panel title over the
+// sidebar column and a live search field over the content column, a content
+// column of pages (each a title, a description, then groups of rows), and a
+// sticky footer with keyboard hints and Save. None of the source design's
+// own visual language survives: no light ground, no square corners, no 2px
+// rules, every colour and metric comes from Theme (nix/data/palette.json).
 //
-// This talks to `dump` and `set` rather than `serve`. The JSON-RPC mode exists
-// to feed beamenu-canvas a component tree, and with the canvas gone the plain
-// CLI is the smaller interface: one process to read every field, one per field
-// changed to write it back.
+// common/Chrome.qml is NOT reused here, on purpose, after checking it first:
+// Chrome's header is a single title Text spanning the whole panel and its
+// footer is a single hint line, both fixed shapes three other surfaces
+// (Cheatsheet, Arrange, wallpaper/Picker) already depend on. This shell's
+// header is two columns of DIFFERENT widths carrying DIFFERENT content
+// (a title over the sidebar's own width, a search field over the content
+// column's), and its footer carries hints AND a Save button AND a transient
+// acknowledgement — composing all of that as optional Chrome modes would
+// either grow Chrome a settings-shaped special case or fork it under a new
+// name, which is exactly what reuse is supposed to avoid. common/Panel.qml —
+// the translucent rounded surface Chrome itself wraps — is what this shell
+// builds directly on instead, the same way launcher/Launcher.qml already
+// does for a shape of its own.
 //
-// Writes are per-field on purpose. `set` validates one key at a time and
-// re-execs itself under pkexec when it has to, so a failed field fails alone
-// instead of taking a whole document with it.
+// Still edits the installer-written settings.nix through
+// rust/settings-global, exactly as before: `dump` and `set`, one process per
+// changed field so a rejected field fails alone, the `edits` object
+// reassigned rather than mutated because QML does not see an in-place
+// object mutation.
+//
+// Five real pages now sit behind the Identity page this shell shipped with:
+// Window manager, AI, Accounts and Keyboard join it, each filtering the same
+// `fields` array down to its own keys through pages.js's PAGE_FIELDS table
+// (dump's own order interleaves keys from every page, so a page's row order
+// is this shell's presentation choice, not something dump's array can be
+// trusted to match). Security stays the EmptyState stub a later task fills
+// in — see navPages below — and the sidebar itself is unchanged: it was
+// already data-driven off navPages before any of this landed, precisely so
+// that later task adds three rows instead of restructuring this file.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -23,6 +47,10 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 import ".."
 import "../common"
+import "controls"
+import "search.js" as Search
+import "pages.js" as Pages
+import "wm.js" as Wm
 
 Scope {
     id: root
@@ -37,40 +65,277 @@ Scope {
 
     property string status: ""
 
-    // Which row Up/Down highlights. A cursor only — editing still needs a
-    // click, same as before, so arrowing past a field never steals focus
-    // out from under whatever the mouse last put it on.
+    // Which row Up/Down highlights, among whatever `visibleRows` currently
+    // is — the active page's own rows normally, or the search matches while
+    // a query is active. A cursor only, same as before: editing still needs
+    // a click, so arrowing past a field never steals focus out from under
+    // whatever the mouse last put it on.
     property int selected: 0
 
-    // Which surface the panel is showing. The Proton page is a second screen
-    // rather than more rows because connecting an account is an action, not a
-    // field you save, and mixing the two under one Enter key would make Enter
-    // mean "save" on five rows and "log in" on a sixth.
+    // Which surface the panel is showing. The Proton page is a second
+    // screen rather than more rows because connecting an account is an
+    // action, not a field you save, and mixing the two under one Enter key
+    // would make Enter mean "save" on most rows and "log in" on one.
     property string page: "form"
 
-    // What the cursor actually walks: the dumped fields plus one synthetic
-    // row that opens the Proton page. Synthetic rather than a seventh entry in
-    // the Rust ITEMS table, because global-settings only knows how to dump and
-    // set values, and this row has none.
+    // The sidebar's own selection — independent of `page`, which is form
+    // vs. Proton, a distinction the old flat form never had to draw at all.
+    property string activePage: "identity"
+
+    property string query: ""
+    readonly property bool searching: root.query.trim() !== ""
+
+    // The 260px sidebar's own model. Six entries because that is the whole
+    // information architecture the source design was imported for. Security
+    // stays a stub for a later task (Security & privacy, Wallpaper and
+    // Displays all land after this one); the other five each have a real
+    // page behind them now.
+    readonly property var navPages: [
+        {
+            id: "identity",
+            label: "Identity",
+            glyph: "\u{F0004}",
+            description: "This machine and the person who owns it."
+        },
+        {
+            id: "wm",
+            label: "Window manager",
+            glyph: "\u{F0379}",
+            description: "Layout, workspaces and how windows behave."
+        },
+        {
+            id: "ai",
+            label: "AI",
+            glyph: "\u{F06A9}",
+            description: "Coding and chat assistants available on this machine."
+        },
+        {
+            id: "accounts",
+            label: "Accounts",
+            glyph: "\u{F0849}",
+            description: "Connected services and how they authenticate."
+        },
+        {
+            id: "keyboard",
+            label: "Keyboard",
+            glyph: "\u{F030C}",
+            description: "Every SUPER shortcut this session recognises."
+        },
+        {
+            id: "security",
+            label: "Security",
+            glyph: "\u{F099D}",
+            description: "Locking, encryption and what can unlock this machine."
+        }
+    ]
+
+    readonly property var activeNavEntry: root.navPages.find(p => p.id === root.activePage) ?? root.navPages[0]
+
+    // ~/.claude/settings.json is a different store than settings.nix — a
+    // store symlink into the Nix store that `home-manager switch` rewrites
+    // wholesale (nix/home/ai/claude.nix's own comment on its `model` key says
+    // so), so there is nothing here for edit()/save() to write back to.
+    // Read the same watch-and-reload way Theme.qml's tintState property
+    // does for tint/current.json.
+    // qmllint disable unresolved-type
+    property var claudeSettingsFile: FileView {
+        path: `${Quickshell.env("HOME")}/.claude/settings.json`
+        watchChanges: true
+        onFileChanged: reload()
+        adapter: JsonAdapter {
+            property string model: ""
+            property var permissions: ({})
+        }
+    }
+
+    // The Keyboard page's own data: the same keybinds.json tree.nix already
+    // writes for the SUPER+/ cheatsheet, read the identical way
+    // Cheatsheet.qml reads it so a change to that file's shape only has to
+    // be taught once.
+    property var keybindsFile: FileView {
+        path: `${Quickshell.shellDir}/cheatsheet/keybinds.json`
+        adapter: JsonAdapter {
+            property var groups: []
+        }
+    }
+    // qmllint enable unresolved-type
+
+    readonly property var keyboardGroups: root.keybindsFile.adapter.groups
+
+    // Whether the content column is showing the Keyboard page's own
+    // keybind list instead of the rows grammar every other real page uses.
+    // Keyboard owns no dumped field at all (see pages.js's PAGE_FIELDS),
+    // so there is nothing for visibleRows, the empty state or the keyboard
+    // cursor to walk while it is up.
+    readonly property bool showingKeyboardPage: root.activePage === "keyboard" && !root.searching
+
+    // Synthetic rows for the three Claude Code fields that live in
+    // ~/.claude/settings.json rather than settings.nix — see
+    // fieldDescriptions' entries for these keys for why they render
+    // read-only instead of through edit()/save() like every dumped field.
+    readonly property var claudeReadonlyRows: [
+        {
+            key: "claudeModel",
+            label: "Claude model",
+            type: "readonly",
+            value: root.claudeSettingsFile.adapter.model || "(unset)"
+        },
+        {
+            key: "claudePermissionMode",
+            label: "Claude permission mode",
+            type: "readonly",
+            value: root.claudeSettingsFile.adapter.permissions.defaultMode || "(unset)"
+        },
+        {
+            key: "claudeAllowedTools",
+            label: "Claude allowed tools",
+            type: "readonly",
+            value: `${(root.claudeSettingsFile.adapter.permissions.allow ?? []).length} allow rule(s)`
+        }
+    ]
+
+    // What the cursor walked on the Identity page before this shell had more
+    // than one real page, kept around verbatim: the synthetic Proton row
+    // still hangs off it (Accounts' own rows below borrow it rather than
+    // declaring a second one), and every dumped field is still in here for
+    // any caller that wants the whole set regardless of page.
     readonly property var rows: root.fields.concat([
         {
             key: "proton",
             label: "Proton",
             type: "page"
         }
-    ])
+    ]);
+
+    // One page's own rows, in pages.js's order, plus whatever synthetic rows
+    // that page owns — Accounts' drill-in to Proton, AI's three read-only
+    // Claude rows. "keyboard" and "security" fall through to
+    // Pages.fieldsForPage's empty answer: Keyboard renders keybindsFile
+    // directly instead (see showingKeyboardPage above), and Security is
+    // still the EmptyState stub.
+    function rowsForPage(pageId) {
+        if (pageId === "ai")
+            return Pages.fieldsForPage(root.fields, "ai").concat(root.claudeReadonlyRows);
+        if (pageId === "accounts")
+            return Pages.fieldsForPage(root.fields, "accounts").concat(root.rows.filter(r => r.key === "proton"));
+        return Pages.fieldsForPage(root.fields, pageId);
+    }
+
+    // A one-line description per row, since global-settings only dumps a
+    // key/label/type/value — the "one-line description" the row grammar
+    // wants is this shell's own copy, not Rust's. The three claude* entries
+    // double as the "labelled" requirement the task brief asks for on rows
+    // that write nowhere this Save button reaches: read-only here, and said
+    // so, rather than a write that could corrupt a config the user's agent
+    // depends on.
+    readonly property var fieldDescriptions: ({
+            gitName: "Used for commit authorship on this machine.",
+            gitEmail: "Used for commit authorship on this machine.",
+            hostname: "The name this machine answers to on the network.",
+            timezone: "The IANA zone this machine's clock uses.",
+            desktop: "Which desktop environment the system module enables.",
+            gitSigningKey: "Overrides the SSH key commits and tags are signed with.",
+            wmGapsIn: "Space between adjacent tiled windows.",
+            wmGapsOut: "Space between a tiled window and the screen edge.",
+            wmBorderSize: "Width of the focused/unfocused window border.",
+            wmFollowMouse: "Moving the pointer over a window focuses it.",
+            wmAnimations: "Window open, close and move animations.",
+            wmLayout: "The tiling algorithm new windows join.",
+            aiOllama: "Runs models on this machine, no cloud involved.",
+            aiClaude: "Enables the Claude Code CLI.",
+            aiCodex: "Enables the Codex CLI.",
+            aiOllamaEndpoint: "Where the Ollama HTTP API listens.",
+            aiOllamaDefaultModel: "Which pulled model answers by default.",
+            protonEmail: "The address proton-setup signs in with.",
+            proton: "Connect Proton Drive and Calendar.",
+            claudeModel: "Read from ~/.claude/settings.json, managed by Home Manager (nix/home/ai/claude.nix) — read-only here.",
+            claudePermissionMode: "Read from ~/.claude/settings.json, managed by Home Manager (nix/home/ai/claude.nix) — read-only here.",
+            claudeAllowedTools: "Read from ~/.claude/settings.json, managed by Home Manager (nix/home/ai/claude.nix) — read-only here."
+        })
+
+    function descriptionFor(row: var): string {
+        return root.fieldDescriptions[row.key] ?? "";
+    }
+
+    // The parent value a dependent row's `dependsOn` reads — null for a key
+    // pages.js's DEPENDS_ON does not name, which the row-building delegate
+    // below treats as "not dependent at all" rather than looking a key up
+    // that has no parent to find.
+    function valueOfKey(key: string): var {
+        const field = root.fields.find(f => f.key === key);
+        return field ? root.valueOf(field) : null;
+    }
+
+    // Which real pages search.js's search() reaches across. Keyboard is not
+    // one of them: its rows are keybinds.json entries, not settings.nix
+    // fields, so there is nothing here yet for a query to match against.
+    readonly property var searchablePages: ["identity", "wm", "ai", "accounts"]
+
+    // The flat search index: one descriptor per row any real page can show
+    // today. search.js never sees a live SettingsRow, only this.
+    readonly property var searchIndex: {
+        const out = [];
+        for (const pageId of root.searchablePages) {
+            for (const row of root.rowsForPage(pageId)) {
+                out.push({
+                    id: row.key,
+                    pageId: pageId,
+                    groupId: `${pageId}-general`,
+                    title: row.label,
+                    description: root.descriptionFor(row),
+                    keywords: ""
+                });
+            }
+        }
+        return out;
+    }
+
+    readonly property var searchResult: Search.search(root.searchIndex, root.query)
+
+    // What the content column actually renders and the keyboard cursor
+    // actually walks: the active page's own rows while browsing (empty for
+    // the Security stub, and for Keyboard, which renders keybindsFile
+    // instead), or every row search.js matched while a query is active,
+    // regardless of which nav entry is selected — a real ChromeOS-style
+    // search reaches across pages, not just the one on screen.
+    readonly property var visibleRows: {
+        if (!root.searching)
+            return root.rowsForPage(root.activePage);
+
+        const matched = new Set(root.searchResult.matchedIds);
+        const out = [];
+        for (const pageId of root.searchablePages) {
+            for (const row of root.rowsForPage(pageId)) {
+                if (matched.has(row.key))
+                    out.push(row);
+            }
+        }
+        return out;
+    }
+
+    function emptyMessage(): string {
+        if (root.searching)
+            return `No settings match "${root.query.trim()}"`;
+
+        if (root.activePage === "security")
+            return "This page has not been built yet — a later task fills it in.";
+
+        return "Nothing to show here yet.";
+    }
 
     function load(): void {
         root.edits = {};
         root.status = "";
         root.selected = 0;
+        root.query = "";
+        searchField.text = "";
         loader.running = false;
         loader.running = true;
     }
 
     // Wraps, matching Launcher's own move().
     function moveSelection(delta: int): void {
-        const count = root.rows.length;
+        const count = root.visibleRows.length;
         if (count === 0)
             return;
 
@@ -104,9 +369,12 @@ Scope {
 
     // Enter does whatever the highlighted row is for. Only the synthetic
     // Proton row is a page; everything else is a value, and for those Enter
-    // still means save, exactly as before.
+    // still means save, exactly as before. A read-only Claude row (type
+    // "readonly") falls through to save() too, harmlessly: it is never in
+    // root.edits, so save() just reports "Nothing changed" if it was the
+    // only thing touched.
     function activate(): void {
-        const row = root.rows[root.selected];
+        const row = root.visibleRows[root.selected];
         if (row && row.type === "page") {
             root.openProton();
             return;
@@ -139,6 +407,41 @@ Scope {
         }
         root.edit("protonEmail", value);
         root.save();
+    }
+
+    // Runs the hyprctl side of a window-manager row's change — and only
+    // ever after writer.onExited below has confirmed that same row's
+    // persist to settings.nix actually landed. A key wm.js does not map
+    // (every non-WM field) is a no-op: hyprctlArgs returns null and there is
+    // nothing to run, which is what lets this be called unconditionally
+    // from one shared path rather than a second branch that already has to
+    // know which keys are WM ones.
+    function applyLive(key: string, value: var): void {
+        const args = Wm.hyprctlArgs(key, value);
+        if (args === null)
+            return;
+
+        applier.command = args;
+        applier.running = false;
+        applier.running = true;
+    }
+
+    // A "Saved" acknowledgement is meant to be noticed, not lived with —
+    // this is what makes it transient. Cleared on anything else so a
+    // failure message or a fresh "Writing N fields…" is never raced away by
+    // a timer left over from the save before it.
+    Timer {
+        id: savedAckTimer
+
+        interval: 1600
+        onTriggered: root.status = ""
+    }
+
+    onStatusChanged: {
+        if (root.status === "Saved")
+            savedAckTimer.restart();
+        else
+            savedAckTimer.stop();
     }
 
     IpcHandler {
@@ -185,6 +488,13 @@ Scope {
 
         property var pending: []
 
+        // What next() just tried to persist — read back in onExited below
+        // so the live-apply path acts on the SAME key/value the just-exited
+        // `global-settings set` call carried, not whatever root.edits
+        // happens to hold by the time the process reports back.
+        property string lastKey: ""
+        property var lastValue: null
+
         function next(): void {
             if (writer.pending.length === 0) {
                 root.status = "Saved";
@@ -196,6 +506,8 @@ Scope {
             writer.pending = writer.pending.slice(1);
 
             const value = root.edits[key];
+            writer.lastKey = key;
+            writer.lastValue = value;
             writer.running = false;
             writer.command = ["global-settings", "set", key, typeof value === "boolean" ? (value ? "true" : "false") : `${value}`];
             writer.running = true;
@@ -211,9 +523,22 @@ Scope {
                 return;
             }
 
+            // Persist first, apply second, never the reverse: applyLive
+            // only runs once this process's own exit code has confirmed the
+            // write landed, so a rejected field can never leave the
+            // compositor showing a value settings.nix disagrees with.
+            root.applyLive(writer.lastKey, writer.lastValue);
             writer.next();
         }
         // qmllint enable signal-handler-parameters
+    }
+
+    // The window-manager live-apply path's own process, fire-and-forget:
+    // `hyprctl keyword` either takes immediately or the field simply does
+    // not show up until the next `hyprctl reload`, neither of which the
+    // settings panel needs to gate anything else on.
+    Process {
+        id: applier
     }
 
     PanelWindow {
@@ -247,22 +572,20 @@ Scope {
             onClicked: window.visible = false
         }
 
-        Chrome {
+        Panel {
             id: panel
 
             anchors.centerIn: parent
 
-            width: Math.min(680, parent.width - 80)
-            // Chrome's own implicitHeight already accounts for the header,
-            // the hint footer and the form's natural height — no more
-            // guessing at what the chrome costs.
-            height: Math.min(panel.implicitHeight, parent.height - 80)
+            // Fractions of the screen, matching how the launcher sizes
+            // itself (Theme.launcherWidthFactor): the settings panel is
+            // itself sized relative to the monitor, so a fixed pixel size
+            // would mean something different on every one.
+            width: Math.round(parent.width * Theme.settingsPanelWidthFactor)
+            height: Math.round(parent.height * Theme.settingsPanelHeightFactor)
 
-            padding: 24
-
+            padding: 0
             focus: true
-
-            title: "Settings"
 
             // The arrows in this first hint hold unconditionally; the jk half
             // holds only while the panel itself has focus. A click into a text
@@ -273,24 +596,6 @@ Scope {
             // onVisibleChanged and nowhere else — so from that point on the
             // arrows are the only way to move until the window is reopened.
             // Arrange's footer makes the same promise on the same terms.
-            hints: [
-                {
-                    key: "↑↓/jk",
-                    label: "move"
-                },
-                {
-                    key: "Enter",
-                    label: "save"
-                },
-                {
-                    key: "Esc",
-                    label: "close"
-                }
-            ]
-
-            // Esc means "one step back", not "close", once there is somewhere
-            // to step back to. Closing the whole panel from the Proton page
-            // would throw away a half-typed login for the sake of one keypress.
             Keys.onEscapePressed: {
                 if (root.page === "proton") {
                     root.leaveProton();
@@ -318,178 +623,577 @@ Scope {
                 }
             }
 
-            ColumnLayout {
-                id: form
+            // The sidebar's own background continues under the header, the
+            // two-tone fill that stands in for the source design's `box-
+            // shadow`-drawn divider: no rule is drawn anywhere in this file.
+            Rectangle {
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
 
+                width: Theme.settingsSidebarWidth
+                color: Theme.bgDarker
                 visible: root.page === "form"
+            }
 
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+            ColumnLayout {
+                anchors.fill: parent
 
-                spacing: 14
+                spacing: 0
 
-                Repeater {
-                    model: root.rows
+                // --- Header: "Settings" over the sidebar column, search
+                // over the content column. ---
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.settingsHeaderHeight
 
-                    delegate: RowLayout {
-                        id: row
+                    spacing: 0
 
-                        required property var modelData
-                        required property int index
-
-                        Layout.fillWidth: true
-
-                        spacing: 16
+                    Item {
+                        Layout.preferredWidth: Theme.settingsSidebarWidth
+                        Layout.fillHeight: true
 
                         Text {
-                            Layout.preferredWidth: 200
+                            anchors.left: parent.left
+                            anchors.leftMargin: 20
+                            anchors.verticalCenter: parent.verticalCenter
 
-                            text: row.modelData.label
-                            color: row.index === root.selected ? Theme.accent : Theme.fgDark
+                            text: "Settings"
+                            color: Theme.fg
 
                             font.family: Theme.fontUi
-                            font.pointSize: 10
+                            font.pointSize: Theme.settingsTitleFontSize
+                            font.bold: true
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        // common/Field.qml, reused as-is per the task
+                        // brief's own callout. It has no placeholder text of
+                        // its own, so the ghost "Search settings" label below
+                        // is drawn separately rather than added to a shared
+                        // component this file cannot touch.
+                        Field {
+                            id: searchField
+
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 20
+                            anchors.rightMargin: 20
+
+                            implicitHeight: Theme.settingsSearchHeight
+
+                            // No `text: root.query` binding here — a live
+                            // binding on a TextInput's own text property does
+                            // not survive the user's first keystroke (Qt
+                            // Quick treats a keystroke's own edit as an
+                            // ordinary write, which severs any binding on the
+                            // property, live-typed or not), so a later
+                            // external reset (a nav click, below) would stop
+                            // reaching the field the moment anything had been
+                            // typed into it. Plain two-way sync instead: this
+                            // Connections block pushes an edit out to
+                            // root.query, and every external reset assigns
+                            // searchField.text back imperatively.
+                            Connections {
+                                target: searchField.input
+
+                                function onTextEdited(): void {
+                                    root.query = searchField.text;
+                                    root.selected = 0;
+                                }
+                            }
+
+                            onEscaped: panel.forceActiveFocus()
                         }
 
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 32
+                        Text {
+                            anchors.left: searchField.left
+                            anchors.leftMargin: 12
+                            anchors.verticalCenter: searchField.verticalCenter
 
-                            visible: row.modelData.type === "text"
+                            text: "Search settings"
+                            color: Theme.muted
+                            visible: searchField.text === ""
 
-                            // bgDark against this panel's own ~95%-opaque
-                            // Theme.bg fill computed at roughly 1.1:1 —
-                            // with the field's own border gone, that pair
-                            // was not actually distinguishable. raised
-                            // sits at ~1.8:1 against bg instead. Safe to
-                            // lighten here: the only text this box carries
-                            // is the field's own Theme.fg value, which
-                            // stays comfortably above AA even after the
-                            // lift (~5.9:1).
-                            radius: 6
-                            color: Theme.raised
+                            font.family: Theme.fontUi
+                            font.pointSize: Theme.settingsRowDescFontSize
+                        }
+                    }
+                }
 
-                            TextInput {
-                                anchors.fill: parent
-                                anchors.leftMargin: 10
-                                anchors.rightMargin: 10
+                // --- Body: sidebar nav | content column. ---
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
 
-                                text: `${root.valueOf(row.modelData)}`
+                    spacing: 0
+
+                    Item {
+                        Layout.preferredWidth: Theme.settingsSidebarWidth
+                        Layout.fillHeight: true
+
+                        visible: root.page === "form"
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.topMargin: 8
+                            anchors.bottomMargin: 8
+
+                            spacing: 2
+
+                            Repeater {
+                                model: root.navPages
+
+                                delegate: Item {
+                                    id: navEntry
+
+                                    required property var modelData
+
+                                    readonly property bool active: root.activePage === navEntry.modelData.id
+
+                                    Layout.fillWidth: true
+                                    implicitHeight: Theme.settingsRowHeight - 12
+
+                                    // The idiomatic way to mark "active" here,
+                                    // per the task brief: the source design's
+                                    // own `box-shadow: inset 4px 0 0` is the
+                                    // same idea drawn with CSS instead.
+                                    EdgeStrip {
+                                        edge: "left"
+                                        active: navEntry.active
+                                    }
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 20
+                                        anchors.rightMargin: 12
+
+                                        spacing: 12
+
+                                        Text {
+                                            text: navEntry.modelData.glyph
+                                            color: navEntry.active ? Theme.accent : Theme.dim
+
+                                            font.family: Theme.fontUi
+                                            font.pointSize: Theme.settingsNavFontSize
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+
+                                            text: navEntry.modelData.label
+                                            color: navEntry.active ? Theme.fg : Theme.muted
+                                            elide: Text.ElideRight
+
+                                            font.family: Theme.fontUi
+                                            font.pointSize: Theme.settingsNavFontSize
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.activePage = navEntry.modelData.id;
+                                            root.selected = 0;
+                                            root.query = "";
+                                            searchField.text = "";
+                                        }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                Layout.fillHeight: true
+                            }
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 20
+
+                            spacing: Theme.settingsGroupGap
+
+                            visible: root.page === "form"
+
+                            Text {
+                                Layout.fillWidth: true
+
+                                text: root.searching ? `Search results for "${root.query.trim()}"` : root.activeNavEntry.label
                                 color: Theme.fg
+                                elide: Text.ElideRight
 
                                 font.family: Theme.fontUi
-                                font.pointSize: 10
+                                font.pointSize: Theme.settingsTitleFontSize
+                                font.bold: true
+                            }
 
-                                verticalAlignment: TextInput.AlignVCenter
-                                clip: true
-                                selectByMouse: true
-                                selectionColor: Theme.accent
-                                selectedTextColor: Theme.bg
+                            Text {
+                                Layout.fillWidth: true
 
-                                onTextEdited: root.edit(row.modelData.key, text)
+                                visible: !root.searching
+                                text: root.activeNavEntry.description
+                                color: Theme.muted
+                                wrapMode: Text.WordWrap
+
+                                font.family: Theme.fontUi
+                                font.pointSize: Theme.settingsRowDescFontSize
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+
+                                visible: !root.showingKeyboardPage && root.visibleRows.length > 0
+                                spacing: Theme.settingsRowGap
+
+                                Text {
+                                    text: root.searching ? "Matches" : "General"
+                                    color: Theme.muted
+
+                                    font.family: Theme.fontUi
+                                    font.pointSize: Theme.settingsGroupFontSize
+                                    font.bold: true
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+
+                                    spacing: Theme.settingsRowGap
+
+                                    Repeater {
+                                        model: root.visibleRows
+
+                                        delegate: SettingsRow {
+                                            id: fieldRow
+
+                                            required property var modelData
+                                            required property int index
+
+                                            Layout.fillWidth: true
+
+                                            title: fieldRow.modelData.label
+                                            description: root.descriptionFor(fieldRow.modelData)
+                                            clickable: fieldRow.modelData.type === "page"
+                                            highlighted: root.selected === fieldRow.index
+                                            // Data-dep: the AI page's Ollama
+                                            // endpoint/default-model rows only
+                                            // mean something while aiOllama
+                                            // itself is on (pages.js's
+                                            // DEPENDS_ON) — every other row
+                                            // has no parent, and dependsOn
+                                            // defaults to enabled for exactly
+                                            // that case.
+                                            dependent: Pages.dependencyKeyFor(fieldRow.modelData.key) !== null
+                                            dependsOn: {
+                                                const parentKey = Pages.dependencyKeyFor(fieldRow.modelData.key);
+                                                return parentKey === null ? true : root.valueOfKey(parentKey) === true;
+                                            }
+
+                                            onClicked: {
+                                                root.selected = fieldRow.index;
+                                                root.activate();
+                                            }
+
+                                            Field {
+                                                id: valueField
+
+                                                visible: fieldRow.modelData.type === "text"
+                                                width: 220
+
+                                                text: root.valueOf(fieldRow.modelData)
+
+                                                Connections {
+                                                    target: valueField.input
+
+                                                    function onTextEdited(): void {
+                                                        root.edit(fieldRow.modelData.key, valueField.text);
+                                                    }
+                                                }
+                                            }
+
+                                            Toggle {
+                                                visible: fieldRow.modelData.type === "checkbox"
+
+                                                checked: root.valueOf(fieldRow.modelData) === true
+                                                onToggled: value => root.edit(fieldRow.modelData.key, value)
+                                            }
+
+                                            // Bounds come straight from the
+                                            // dump payload's min/max/step,
+                                            // never a constant here — see
+                                            // rust/settings-global/src/menu.rs's
+                                            // own comment on why those fields
+                                            // reach the payload at all.
+                                            Slider {
+                                                visible: fieldRow.modelData.type === "number"
+
+                                                from: fieldRow.modelData.min ?? 0
+                                                to: fieldRow.modelData.max ?? 100
+                                                stepSize: fieldRow.modelData.step ?? 0
+                                                value: root.valueOf(fieldRow.modelData)
+                                                onMoved: value => root.edit(fieldRow.modelData.key, value)
+                                            }
+
+                                            // Same reasoning as Slider above:
+                                            // the option list is whatever the
+                                            // dump payload's own `options`
+                                            // array says, not a second copy
+                                            // of it hand-kept in QML.
+                                            Select {
+                                                visible: fieldRow.modelData.type === "select"
+                                                width: 200
+
+                                                options: (fieldRow.modelData.options ?? []).map(o => ({
+                                                            label: o,
+                                                            value: o
+                                                        }))
+                                                value: root.valueOf(fieldRow.modelData)
+                                                onActivated: value => root.edit(fieldRow.modelData.key, value)
+                                            }
+
+                                            // A value from a different store
+                                            // entirely (~/.claude/settings.json —
+                                            // see fieldDescriptions'
+                                            // claudeModel entry). There is
+                                            // nothing here for edit()/save()
+                                            // to reach, so this is a label,
+                                            // not a control.
+                                            Text {
+                                                visible: fieldRow.modelData.type === "readonly"
+
+                                                text: fieldRow.modelData.value ?? ""
+                                                color: Theme.muted
+
+                                                font.family: Theme.fontMono
+                                                font.pointSize: Theme.settingsRowDescFontSize
+                                            }
+
+                                            // The Proton row's own control: a
+                                            // bare chevron rather than a
+                                            // field, since Enter/click on
+                                            // this row opens a page instead
+                                            // of editing a value —
+                                            // `clickable: true` above is what
+                                            // makes the WHOLE row (not just
+                                            // this glyph) answer the click.
+                                            Text {
+                                                visible: fieldRow.modelData.type === "page"
+
+                                                text: "\u{F0142}"
+                                                color: Theme.muted
+
+                                                font.family: Theme.fontUi
+                                                font.pointSize: Theme.settingsRowTitleFontSize
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Keyboard page: keybinds.json rendered directly,
+                            // the same read-only grouped list Cheatsheet.qml
+                            // already shows for SUPER+/ — reused rather than
+                            // parsed a second way, per the task brief. No row
+                            // here reaches edit()/save(): the page carries no
+                            // state of its own at all.
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                visible: root.showingKeyboardPage
+                                spacing: Theme.settingsGroupGap
+
+                                Repeater {
+                                    model: root.keyboardGroups
+
+                                    delegate: ColumnLayout {
+                                        id: kbGroup
+
+                                        required property var modelData
+
+                                        Layout.fillWidth: true
+                                        spacing: Theme.settingsRowGap
+
+                                        Text {
+                                            text: kbGroup.modelData.name
+                                            color: Theme.muted
+
+                                            font.family: Theme.fontUi
+                                            font.pointSize: Theme.settingsGroupFontSize
+                                            font.bold: true
+                                        }
+
+                                        Repeater {
+                                            model: kbGroup.modelData.items
+
+                                            delegate: SettingsRow {
+                                                id: kbRow
+
+                                                required property var modelData
+
+                                                Layout.fillWidth: true
+
+                                                title: kbRow.modelData.desc
+
+                                                Text {
+                                                    text: kbRow.modelData.key
+                                                    color: Theme.fg
+
+                                                    font.family: Theme.fontMono
+                                                    font.pointSize: Theme.settingsRowDescFontSize
+                                                    font.bold: true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Item {
+                                    Layout.fillHeight: true
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                visible: !root.showingKeyboardPage && root.visibleRows.length === 0
+
+                                EmptyState {
+                                    anchors.centerIn: parent
+
+                                    message: root.emptyMessage()
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                visible: !root.showingKeyboardPage && root.visibleRows.length > 0
+                            }
+                        }
+
+                        // The second surface. Built once and hidden rather
+                        // than created per visit, which is why leaveProton()
+                        // clears its fields by hand. Occupies the same
+                        // content column the form uses — the sidebar band
+                        // above stays hidden while this is up, but its
+                        // reserved width is not reclaimed, so Proton keeps
+                        // the same left margin the form's own content does.
+                        Proton {
+                            id: proton
+
+                            anchors.fill: parent
+                            anchors.margins: 20
+
+                            visible: root.page === "proton"
+
+                            initialEmail: {
+                                const row = root.fields.find(f => f.key === "protonEmail");
+                                return row ? `${row.value}` : "";
+                            }
+
+                            onBack: root.leaveProton()
+                            onEmailEdited: value => root.rememberProtonEmail(value)
+                        }
+                    }
+                }
+
+                // --- Sticky footer: hints on the left, Save and a
+                // transient "Saved" acknowledgement on the right. ---
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.settingsFooterHeight
+
+                    color: Theme.raised
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 20
+                        anchors.rightMargin: 20
+
+                        spacing: 12
+
+                        Text {
+                            Layout.fillWidth: true
+
+                            text: [
+                                {
+                                    key: "↑↓/jk",
+                                    label: "move"
+                                },
+                                {
+                                    key: "Enter",
+                                    label: "save"
+                                },
+                                {
+                                    key: "Esc",
+                                    label: "close"
+                                }
+                            ].map(h => `${h.key} ${h.label}`).join("   ·   ")
+                            color: Theme.fg
+                            opacity: 0.6
+                            elide: Text.ElideRight
+
+                            font.family: Theme.fontUi
+                            font.pointSize: Theme.settingsRowDescFontSize
+                        }
+
+                        Text {
+                            text: root.status
+                            visible: root.status !== ""
+                            color: root.status === "Saved" ? Theme.accent : Theme.muted
+
+                            font.family: Theme.fontUi
+                            font.pointSize: Theme.settingsRowDescFontSize
+                            font.bold: root.status === "Saved"
+
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration: 200
+                                }
                             }
                         }
 
                         Rectangle {
-                            Layout.preferredWidth: 44
-                            Layout.preferredHeight: 24
+                            implicitWidth: 96
+                            implicitHeight: Theme.settingsToggleHeight + 8
 
-                            visible: row.modelData.type === "checkbox"
+                            radius: height / 2
+                            color: Object.keys(root.edits).length > 0 ? Theme.accent : Theme.selection
 
-                            radius: 12
-                            color: root.valueOf(row.modelData) ? Theme.accent : Theme.selection
+                            Text {
+                                anchors.centerIn: parent
 
-                            Rectangle {
-                                width: 18
-                                height: 18
-                                radius: 9
+                                text: "Save"
+                                color: Object.keys(root.edits).length > 0 ? Theme.bg : Theme.muted
 
-                                anchors.verticalCenter: parent.verticalCenter
-                                x: root.valueOf(row.modelData) ? parent.width - width - 3 : 3
-
-                                color: Theme.bg
-
-                                Behavior on x {
-                                    NumberAnimation {
-                                        duration: 90
-                                    }
-                                }
+                                font.family: Theme.fontUi
+                                font.pointSize: Theme.settingsRowDescFontSize
+                                font.bold: true
                             }
 
                             MouseArea {
                                 anchors.fill: parent
 
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.edit(row.modelData.key, !root.valueOf(row.modelData))
+                                onClicked: root.save()
                             }
                         }
-
-                        Item {
-                            Layout.fillWidth: row.modelData.type === "checkbox"
-                        }
                     }
                 }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.topMargin: 8
-
-                    spacing: 12
-
-                    Text {
-                        Layout.fillWidth: true
-
-                        text: root.status
-                        color: Theme.muted
-
-                        font.family: Theme.fontUi
-                        font.pointSize: 9
-                    }
-
-                    Rectangle {
-                        Layout.preferredWidth: 110
-                        Layout.preferredHeight: 32
-
-                        radius: 8
-                        color: Object.keys(root.edits).length > 0 ? Theme.accent : Theme.selection
-
-                        Text {
-                            anchors.centerIn: parent
-
-                            text: "Save"
-                            color: Object.keys(root.edits).length > 0 ? Theme.bg : Theme.muted
-
-                            font.family: Theme.fontUi
-                            font.pointSize: 10
-                            font.bold: true
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.save()
-                        }
-                    }
-                }
-            }
-
-            // The second surface. Built once and hidden rather than created
-            // per visit, which is why leaveProton() clears its fields by hand.
-            Proton {
-                id: proton
-
-                Layout.fillWidth: true
-
-                visible: root.page === "proton"
-
-                initialEmail: {
-                    const row = root.fields.find(f => f.key === "protonEmail");
-                    return row ? `${row.value}` : "";
-                }
-
-                onBack: root.leaveProton()
-                onEmailEdited: value => root.rememberProtonEmail(value)
             }
         }
     }

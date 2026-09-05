@@ -67,28 +67,198 @@ let
     {
       name,
       target ? "iso",
+      sandboxed ? false,
     }:
-    {
-      type = "app";
-      program =
-        (pkgs.writeShellApplication {
-          inherit name;
-          text = ''
-            ${cdRepoRoot}
-            nix build --impure .#${target} -o result-iso
-          '';
-        })
-        + "/bin/${name}";
+    mkSandboxedApp {
+      inherit name sandboxed;
+      app = {
+        type = "app";
+        program =
+          (pkgs.writeShellApplication {
+            inherit name;
+            text = ''
+              ${cdRepoRoot}
+              nix build --impure .#${target} -o result-iso
+            '';
+          })
+          + "/bin/${name}";
+      };
     };
 
-  # Sugar: wrap a writeShellApplication into an app attrset.
-  mkShellApp = name: args: {
-    type = "app";
-    program = (pkgs.writeShellApplication (args // { inherit name; })) + "/bin/${name}";
-  };
+  # Sugar: wrap a writeShellApplication into an app attrset, then route the
+  # result through mkSandboxedApp. `sandboxed` and `appId` are pulled out of
+  # `args` before it reaches writeShellApplication, which has no use for
+  # either. `appId ? name` covers every call site but one: every app here
+  # names its writeShellApplication script after the flake attribute it is
+  # bound under (`clean = mkShellApp "clean" { ... }`), except `default`,
+  # whose script is called "dots-list" for historical reasons while the
+  # flake attribute — and therefore the policy catalog's app id, and the
+  # argument `nix run .#default` actually resolves — is "default". See
+  # that definition below for the explicit override this forces.
+  mkShellApp =
+    name: args:
+    mkSandboxedApp {
+      inherit name;
+      sandboxed = args.sandboxed or false;
+      appId = args.appId or name;
+      app = {
+        type = "app";
+        program =
+          (pkgs.writeShellApplication (
+            builtins.removeAttrs args [
+              "sandboxed"
+              "appId"
+            ]
+            // {
+              inherit name;
+            }
+          ))
+          + "/bin/${name}";
+      };
+    };
+
+  # nix/data/sandbox-policy.json is the single source of truth for which
+  # apps opt out of the sandbox entirely (its own `unconfined` entries,
+  # each carrying its own `reason`, read here rather than restated — one
+  # place that can drift instead of two). mkSandboxedApp consults it
+  # directly rather than trusting its own caller, so a rollout mistake
+  # below can never re-confine an app the policy already excused.
+  sandboxPolicyPath = ../nix/data/sandbox-policy.json;
+  sandboxPolicy = builtins.fromJSON (builtins.readFile sandboxPolicyPath);
+  isSandboxExempt = appId: sandboxPolicy.apps.${appId}.unconfined or false;
+
+  # Wraps an already-built `{ type = "app"; program = <store path>; }` —
+  # mkShellApp's or mkIsoApp's own output, unmodified — so `nix run
+  # .#<appId>` resolves the sandbox policy and launches through
+  # `dots-sandbox run` instead of running the built script directly. This
+  # is the only place that construction happens; mkShellApp and mkIsoApp
+  # both route through it, which is what lets every app in this file gain
+  # the mechanism without any of their ten `text` bodies changing.
+  #
+  # `sandboxed` is an opt-in, false unless a call site sets it. Wrapping
+  # all ten apps in one commit turns one flawed wrapper into ten broken
+  # apps at once instead of one, so today only `default` and `clean` pass
+  # `sandboxed = true` — see the rollout note on each below for which apps
+  # that leaves for a follow-up, and why those two first.
+  #
+  # `appId` is looked up against the policy independently of `sandboxed`:
+  # an app the policy already marks `unconfined` is never wrapped, no
+  # matter what its caller asked for. That means a rollout-list mistake
+  # can only ever fail to sandbox an app that was never going to be
+  # sandboxed, never accidentally confine one the policy explicitly
+  # excused (nix-smoke-interactive, enroll-fido, today).
+  mkSandboxedApp =
+    {
+      name,
+      appId ? name,
+      sandboxed,
+      app,
+    }:
+    if !sandboxed || isSandboxExempt appId then
+      app
+    else
+      {
+        type = "app";
+        program =
+          (pkgs.writeShellApplication {
+            inherit name;
+            runtimeInputs = [ self.packages.${pkgs.stdenv.hostPlatform.system}.dots-sandbox ];
+            text = ''
+              # DOTS_SANDBOX=0 is the escape hatch for when the sandbox
+              # itself is what is broken: a policy file dots-sandbox still
+              # parses but resolves into nonsense, a capability-to-argv bug,
+              # a systemd-nspawn incompatibility on some host. None of that
+              # is something dots-sandbox can be trusted to notice about
+              # itself, so this check does NOT live inside dots-sandbox (say,
+              # as a flag `run_command` inspects in main.rs before doing
+              # anything else) — if it did, every one of those failure modes
+              # would have to be survived by the very code that might be the
+              # thing failing, before the bypass could even take effect.
+              # Checked here instead, in this wrapper, before dots-sandbox is
+              # invoked at all, the bypass keeps working even if dots-sandbox
+              # fails to build, panics on startup, or resolves a policy into
+              # something actively wrong — the only version of "bypass"
+              # actually worth having. A future "simplification" that moves
+              # this check into the binary quietly deletes the one thing
+              # this variable exists for.
+              #
+              # Exact-match "0" rather than a truthiness test: an unset,
+              # misspelled or otherwise ambiguous value stays sandboxed,
+              # because the safe failure direction for a security escape
+              # hatch is staying confined, not falling out of the sandbox by
+              # accident.
+              if [[ "''${DOTS_SANDBOX:-1}" == "0" ]]; then
+                exec "${app.program}" "$@"
+              fi
+
+              # The defaults file ships from the Nix store, read-only
+              # (${sandboxPolicyPath}). DOTS_SANDBOX_DEFAULTS lets it be
+              # pointed elsewhere instead — how a real install relocates it,
+              # and how property 4 below gets tested against a deliberately
+              # broken file. An already-set value always wins; only an
+              # unset one falls back to the store path.
+              export DOTS_SANDBOX_DEFAULTS="''${DOTS_SANDBOX_DEFAULTS:-${sandboxPolicyPath}}"
+
+              # Absent or malformed policy must not brick every `nix run` on
+              # a dev machine — failing closed here is a far worse outcome
+              # than one app running unconfined. So this checks the file
+              # BEFORE ever invoking `dots-sandbox run`, rather than trying
+              # the sandboxed launch first and guessing from its exit code
+              # whether it failed because the policy was broken or because
+              # the wrapped program itself legitimately exited non-zero.
+              # Those two cases are indistinguishable after the fact, and
+              # treating a real failure as "policy must be broken, retry
+              # unconfined" would silently hand a capability-denied app full
+              # access on its very first denial — worse than either honest
+              # outcome on its own.
+              if ! dots-sandbox policy validate "$DOTS_SANDBOX_DEFAULTS" >/dev/null; then
+                echo "dots-sandbox: policy at \$DOTS_SANDBOX_DEFAULTS ($DOTS_SANDBOX_DEFAULTS) is missing or invalid (see the diagnostic above); running '${appId}' unconfined" >&2
+                exec "${app.program}" "$@"
+              fi
+
+              # cdRepoRoot (above) walks upward from $PWD for flake.nix so
+              # every app works from any subdirectory; the repo-read/
+              # repo-write capability then binds that same path into the
+              # sandbox at the identical path (systemd-nspawn's single-
+              # argument --bind=PATH form binds a host path onto itself, not
+              # onto some remapped location). But the sandboxed process's
+              # own working directory starts wherever systemd-nspawn
+              # defaults it, which is not this path — so without resolving
+              # and threading it through here, the wrapped program's OWN
+              # cdRepoRoot walk (unchanged, per this task's own constraint)
+              # would start from the wrong place and immediately hit its
+              # "not running inside a flake checkout" exit. Resolving the
+              # root out here, then `cd`-ing to that exact path with a `sh
+              # -c` shim as the sandboxed command instead of the real
+              # program directly, is what makes the bind-in and the
+              # in-sandbox walk agree on where the checkout actually is.
+              # (This assumes the eventual container rootfs carries a `sh`
+              # on PATH; worth checking once that rootfs exists.)
+              ${cdRepoRoot}
+              export DOTS_SANDBOX_REPO_ROOT="''${DOTS_SANDBOX_REPO_ROOT:-$PWD}"
+
+              # shellcheck disable=SC2016 # single-quoted on purpose: "$1"/
+              # "$@" below must reach the INNER `sh -c`, not expand here.
+              exec dots-sandbox run --app "${appId}" -- \
+                sh -c 'cd "$1" && shift && exec "$@"' sh \
+                "$DOTS_SANDBOX_REPO_ROOT" "${app.program}" "$@"
+            '';
+          })
+          + "/bin/${name}";
+      };
 in
 {
+  # Rollout: the first of two apps wrapped through mkSandboxedApp today
+  # (see mkSandboxedApp's own comment for why only two). This one echoes
+  # text and touches nothing, so a wrapper bug here costs a confusing
+  # message at worst — about as little as an app can have to lose.
+  # `appId = "default"` overrides mkShellApp's `appId ? name` default:
+  # this script is internally named "dots-list", but the flake attribute
+  # (and therefore the policy catalog id and `nix run .#default`) is
+  # "default" — the one call site in this file where those two differ.
   default = mkShellApp "dots-list" {
+    sandboxed = true;
+    appId = "default";
     text = ''
       ${cdRepoRoot}
       echo "tokyonight-dots — nix run .#<app>"
@@ -192,6 +362,8 @@ in
       cd dots-memory-mcp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
 
       cd dots-memory-derive && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
+
+      cd dots-sandbox && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
     '';
   };
 
@@ -317,7 +489,21 @@ in
   };
 
   # Remove local build/test leftovers (safe — all gitignored).
+  #
+  # Rollout: the second of two apps wrapped through mkSandboxedApp today
+  # (see mkSandboxedApp's own comment, and the rollout note on `default`
+  # above). `rm -rf` touching the wrong tree is the one way this app could
+  # ever have anything to lose, and the sandbox is precisely what bounds
+  # that: the policy grants `repo-write` and nothing else, so a confused
+  # invocation can still only ever reach this checkout.
+  #
+  # nix-lint, memory-derive, memory-health, iso, iso-full and nix-smoke
+  # deliberately still return mkShellApp's plain, unwrapped app — same
+  # mechanism, not yet flipped on, left for a follow-up once this pair has
+  # proven out. nix-smoke-interactive and enroll-fido are never wrapped at
+  # all; see mkSandboxedApp's isSandboxExempt check.
   clean = mkShellApp "clean" {
+    sandboxed = true;
     text = ''
       ${cdRepoRoot}
       rm -rf result result-* *.qcow2 vm-state-*

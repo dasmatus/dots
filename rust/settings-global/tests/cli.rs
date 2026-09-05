@@ -164,3 +164,86 @@ fn set_rejects_non_boolean_for_checkbox_key() {
         .contains("aiCodex = false;"));
     std::fs::remove_file(&path).unwrap();
 }
+
+#[test]
+fn set_saves_a_valid_number_field() {
+    let path = temp_settings_file("cli-set-int", "{\n  wmGapsIn = 5;\n}\n");
+    let status = settings_bin()
+        .args(["set", "wmGapsIn", "20", "--file"])
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("wmGapsIn = 20;"));
+    std::fs::remove_file(&path).unwrap();
+}
+
+/// `Settings.qml`'s writer surfaces a non-zero exit as "a field was
+/// rejected" — a number field given non-numeric text must fail loudly
+/// rather than write a garbage value.
+#[test]
+fn set_rejects_non_integer_for_number_key_with_a_clear_message() {
+    let path = temp_settings_file("cli-set-badint", "{\n  wmGapsIn = 5;\n}\n");
+    let output = settings_bin()
+        .args(["set", "wmGapsIn", "abc", "--file"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("wmGapsIn"), "{stderr}");
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("wmGapsIn = 5;"),
+        "value must be left untouched on a rejected set"
+    );
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn set_rejects_out_of_range_number() {
+    let path = temp_settings_file("cli-set-int-range", "{\n  wmGapsIn = 5;\n}\n");
+    let output = settings_bin()
+        .args(["set", "wmGapsIn", "999", "--file"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("wmGapsIn = 5;"));
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn set_saves_a_valid_select_field() {
+    let path = temp_settings_file("cli-set-select", "{\n  wmLayout = \"dwindle\";\n}\n");
+    let status = settings_bin()
+        .args(["set", "wmLayout", "master", "--file"])
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("wmLayout = \"master\";"));
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn set_rejects_a_select_value_outside_its_options() {
+    let path = temp_settings_file("cli-set-select-bad", "{\n  wmLayout = \"dwindle\";\n}\n");
+    let output = settings_bin()
+        .args(["set", "wmLayout", "spiral", "--file"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("wmLayout = \"dwindle\";"));
+    std::fs::remove_file(&path).unwrap();
+}

@@ -67,6 +67,39 @@ self: {
     doCheck = false;
     meta.mainProgram = "dots-memory-derive";
   };
+  # dots-sandbox — the per-app sandbox's policy model and pure
+  # systemd-nspawn/-vmspawn argv translation (rust/dots-sandbox, a parallel
+  # agent's work this task only wires into the flake: no app is wrapped by
+  # it yet). `nix build .#dots-sandbox` is what the sandbox-policy-eval
+  # check below shells out to for `policy validate`, and it is also the
+  # binary the QML Settings page will eventually call `policy dump`
+  # through.
+  #
+  # doCheck stays false, for a reason with the same shape as
+  # dots-memory-derive above rather than the same cause: `src` here is only
+  # rust/dots-sandbox, so tests/defaults_roundtrip.rs's read of
+  # `../../nix/data/sandbox-policy.json` never finds the real file inside
+  # the build sandbox and only ever exercises its own "skip cleanly"
+  # branch — a green tick that never actually parsed the checked-in policy.
+  # That alone would be a reason to distrust `doCheck = true` here even
+  # though it would not fail outright. The harder, permanent reason is
+  # forward-looking: this crate's own lib.rs doc comment is explicit that
+  # spawning a real `systemd-nspawn`/`systemd-vmspawn` process is
+  # deliberately left to a later task, and the tests that will matter once
+  # that lands exercise real Linux namespaces, which the Nix build sandbox
+  # refuses outright — the identical restriction pg_agentmem and
+  # dots-memory-derive already route around by moving their real test run
+  # out of the package build and into `nix run .#nix-lint`, which is where
+  # this crate's `cargo fmt --check && cargo clippy --all-targets -- -D
+  # warnings && cargo test` line now runs too.
+  dots-sandbox = pkgs.rustPlatform.buildRustPackage {
+    pname = "dots-sandbox";
+    version = "0.1.0";
+    src = ../rust/dots-sandbox;
+    cargoLock.lockFile = ../rust/dots-sandbox/Cargo.lock;
+    doCheck = false;
+    meta.mainProgram = "dots-sandbox";
+  };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
   # nix/data/palette.json. nix/home/desktop/quickshell/default.nix builds the same thing
   # with the real state directory; this one exists so `nix run .#nix-lint` has

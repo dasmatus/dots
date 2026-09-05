@@ -1,0 +1,507 @@
+{
+  "SecurityAttributes": [
+    {
+      "AppstreamId": "org.fwupd.hsi.Cet.Active",
+      "Created": 1788585426,
+      "HsiResult": "supported",
+      "HsiResultSuccess": "supported",
+      "Name": "CET-BS-Unterstützung",
+      "Summary": "Kontrollfluss-Durchsetzungstechnologie (CET)",
+      "Description": "Die Kontrollfluss-Durchsetzungstechnologie erkennt und verhindert bestimmte Methoden zur Ausführung bösartiger Software auf dem Gerät.",
+      "Plugin": "cpu",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Cet.Active",
+      "Flags": [
+        "success",
+        "runtime-issue"
+      ],
+      "Guid": [
+        "79759cdc-94db-5098-be7b-eb02521fbbec",
+        "20b595b0-5892-5870-8e4c-688133ad6e34"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Fwupd.Plugins",
+      "Created": 1788585426,
+      "HsiResult": "not-tainted",
+      "HsiResultSuccess": "not-tainted",
+      "Name": "fwupd-Plugins",
+      "Summary": "Firmware-Aktualisierungsprogramm-Verifizierung",
+      "Description": "Die Firmware-Aktualisierungsprogramm-Verifizierung prüft, ob die für die Aktualisierung verwendete Software nicht manipuliert wurde.",
+      "Plugin": "core",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Fwupd.Plugins",
+      "Flags": [
+        "success",
+        "runtime-issue"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Kernel.Swap",
+      "Created": 1788585426,
+      "HsiResult": "encrypted",
+      "HsiResultSuccess": "encrypted",
+      "Name": "Linux-Auslagerung",
+      "Summary": "Linux-Auslagerung",
+      "Description": "Die Auslagerung des Linux-Kernels speichert temporär Informationen auf der Festplatte, während Sie arbeiten. Wenn die Informationen nicht geschützt sind, könnte jemand auf sie zugreifen, wenn er die Festplatte erbeutet.",
+      "Plugin": "linux_swap",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Kernel.Swap",
+      "Flags": [
+        "success",
+        "runtime-issue"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Kernel.Tainted",
+      "Created": 1788585426,
+      "HsiResult": "not-tainted",
+      "HsiResultSuccess": "not-tainted",
+      "Name": "Linux-Kernel",
+      "Summary": "Linux-Kernel-Verifizierung",
+      "Description": "Die Linux-Kernel-Verifizierung stellt sicher, dass kritische Systemsoftware nicht manipuliert wurde. Die Verwendung von Gerätetreibern, die nicht im Lieferumfang des Systems enthalten sind, kann verhindern, dass diese Sicherheitsfunktion korrekt funktioniert.",
+      "Plugin": "linux_tainted",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Kernel.Tainted",
+      "Flags": [
+        "success",
+        "runtime-issue"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Uefi.Db",
+      "Created": 1788585426,
+      "HsiResult": "valid",
+      "HsiResultSuccess": "valid",
+      "Name": "UEFI-DB",
+      "Summary": "UEFI-DB",
+      "Description": "Die UEFI-DB enthält die Liste der gültigen Zertifikate, die zur Autorisierung der EFI-Binärdateien verwendet werden können.",
+      "Plugin": "uefi_db",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Uefi.Db",
+      "Flags": [
+        "success",
+        "runtime-issue",
+        "action-config-fw"
+      ],
+      "Guid": [
+        "24f896ae-1a2f-499a-af2f-d187815189fd"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Kernel.Lockdown",
+      "Created": 1788585426,
+      "HsiResultSuccess": "enabled",
+      "Name": "Linux-Kernel-Sperrung",
+      "Summary": "Linux-Kernel-Sperrung",
+      "Description": "Die Abriegelung des Linux-Kernels verhindert, dass Administratorkonten (root) auf kritische Teile der Systemsoftware zugreifen und diese ändern können.",
+      "Plugin": "linux_lockdown",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Kernel.Lockdown",
+      "Flags": [
+        "missing-data",
+        "runtime-issue"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Uefi.SecureBoot",
+      "Created": 1788585426,
+      "HsiResult": "not-enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "Sicherer UEFI-Boot",
+      "Summary": "Sicherer UEFI-Boot",
+      "Description": "UEFI Secure Boot verhindert, dass bösartige Software beim Start des Geräts geladen wird.",
+      "Plugin": "uefi_capsule",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Uefi.SecureBoot",
+      "Flags": [
+        "runtime-issue",
+        "action-config-fw"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Amd.SmmLocked",
+      "Created": 1788585426,
+      "HsiLevel": 1,
+      "HsiResult": "locked",
+      "HsiResultSuccess": "locked",
+      "Name": "SMM gesperrt",
+      "Summary": "Systemverwaltungsmodus",
+      "Description": "Der Systemverwaltungsmodus wird von der Firmware für den Zugriff auf speicherresidenten BIOS-Code und Daten verwendet.",
+      "Plugin": "msr",
+      "Version": "2.0.2",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Amd.SmmLocked",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "79759cdc-94db-5098-be7b-eb02521fbbec",
+        "20b595b0-5892-5870-8e4c-688133ad6e34"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Bios.CapsuleUpdates",
+      "Created": 1788585426,
+      "HsiLevel": 1,
+      "HsiResult": "enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "BIOS Firmware-Aktualisierungen",
+      "Summary": "BIOS Firmware-Aktualisierungen",
+      "Description": "Das Aktivieren von Firmware-Aktualisierungen für das BIOS ermöglicht das Beheben von Sicherheitsproblemen.",
+      "Plugin": "uefi_esrt",
+      "Version": "1.9.6",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Bios.CapsuleUpdates",
+      "Flags": [
+        "success"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.PlatformFused",
+      "Created": 1788585426,
+      "HsiLevel": 1,
+      "HsiResult": "locked",
+      "HsiResultSuccess": "locked",
+      "Name": "Abgesicherte Plattform",
+      "Summary": "Abgesicherte Plattform",
+      "Description": "Der Herstellungsmodus wird verwendet, wenn das Gerät hergestellt wird und die Sicherheitsfunktionen noch nicht aktiviert sind.",
+      "Plugin": "pci_psp",
+      "Version": "1.8.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.PlatformFused",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "0e8dc554-a0a2-51fb-b439-1eb72b14ec38"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.SupportedCpu",
+      "Created": 1788585426,
+      "HsiLevel": 1,
+      "HsiResult": "valid",
+      "HsiResultSuccess": "valid",
+      "Name": "Unterstützte CPU",
+      "Summary": "Prozessor-Sicherheitsprüfungen",
+      "Description": "Jedes System sollte Tests haben, um die Sicherheit der Firmware zu gewährleisten.",
+      "Plugin": "core",
+      "Version": "1.8.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.SupportedCpu",
+      "Flags": [
+        "success",
+        "action-contact-oem"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Tpm.EmptyPcr",
+      "Created": 1788585426,
+      "HsiLevel": 1,
+      "HsiResult": "valid",
+      "HsiResultSuccess": "valid",
+      "Name": "TPM leere PCRs",
+      "Summary": "TPM-Plattformkonfiguration",
+      "Description": "Die TPM (Trusted Platform Module)-Plattformkonfiguration wird verwendet, um zu überprüfen, ob der Gerätestartprozess geändert wurde.",
+      "Plugin": "tpm",
+      "Version": "1.7.2",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Tpm.EmptyPcr",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "9305de1c-1e12-5665-81c4-37f8e51219b8",
+        "78a291ae-b499-5b0f-8f1d-74e1fefd0b1c",
+        "65a3fced-b423-563f-8098-bf5c329fc063",
+        "5e704f0d-83cb-5364-8384-f46d725a23b8"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Tpm.Version20",
+      "Created": 1788585426,
+      "HsiLevel": 1,
+      "HsiResult": "found",
+      "HsiResultSuccess": "found",
+      "Name": "TPM v2.0",
+      "Summary": "TPM v2.0",
+      "Description": "TPM (Trusted Platform Module) ist ein Computer-Chip, der erkennt, wenn Hardware-Komponenten manipuliert wurden.",
+      "Plugin": "tpm",
+      "Version": "1.5.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Tpm.Version20",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "9305de1c-1e12-5665-81c4-37f8e51219b8",
+        "78a291ae-b499-5b0f-8f1d-74e1fefd0b1c",
+        "65a3fced-b423-563f-8098-bf5c329fc063",
+        "5e704f0d-83cb-5364-8384-f46d725a23b8"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Uefi.BootserviceVars",
+      "Created": 1788585426,
+      "HsiLevel": 1,
+      "HsiResult": "locked",
+      "HsiResultSuccess": "locked",
+      "Name": "UEFI-Bootdienst-Variablen",
+      "Summary": "UEFI-Bootdienst-Variablen",
+      "Description": "UEFI-Bootdienst-Variablen sollten im Laufzeitmodus nicht lesbar sein.",
+      "Plugin": "uefi_capsule",
+      "Version": "1.9.3",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Uefi.BootserviceVars",
+      "Flags": [
+        "success"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Uefi.Pk",
+      "Created": 1788585426,
+      "HsiLevel": 1,
+      "HsiResult": "valid",
+      "HsiResultSuccess": "valid",
+      "Name": "UEFI-Plattformschlüssel",
+      "Summary": "UEFI-Plattformschlüssel",
+      "Description": "Der UEFI-Plattformschlüssel wird verwendet, um festzustellen, ob die Gerätesoftware aus einer vertrauenswürdigen Quelle stammt.",
+      "Plugin": "uefi_pk",
+      "Version": "1.5.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Uefi.Pk",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "8a7cfe11-c3e7-5fd4-a429-da16c9fc509c",
+        "ae3507ad-372b-53de-9109-bf24fa453927",
+        "24f896ae-1a2f-499a-af2f-d187815189fd"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Iommu",
+      "Created": 1788585426,
+      "HsiLevel": 2,
+      "HsiResult": "enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "IOMMU",
+      "Summary": "IOMMU-Schutz",
+      "Description": "IOMMU-Schutz verhindert, dass angeschlossene Geräte auf nicht autorisierte Teile des Systemspeichers zugreifen.",
+      "Plugin": "iommu",
+      "Version": "1.5.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Iommu",
+      "Flags": [
+        "success"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.PlatformDebugLocked",
+      "Created": 1788585426,
+      "HsiLevel": 2,
+      "HsiResult": "locked",
+      "HsiResultSuccess": "locked",
+      "Name": "Plattform-Defektlokalisierung",
+      "Summary": "Plattform-Defektlokalisierung",
+      "Description": "Mit Plattform-Defektlokalisierung können die Sicherheitsfunktionen des Geräts deaktiviert werden. Dies sollte nur von Hardware-Herstellern verwendet werden.",
+      "Plugin": "pci_psp",
+      "Version": "1.8.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.PlatformDebugLocked",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "0e8dc554-a0a2-51fb-b439-1eb72b14ec38"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Tpm.ReconstructionPcr0",
+      "Created": 1788585426,
+      "HsiLevel": 2,
+      "HsiResult": "valid",
+      "HsiResultSuccess": "valid",
+      "Name": "TPM-PCR0-Rekonstruktion",
+      "Summary": "TPM-Rekonstruktion",
+      "Description": "Die TPM (Trusted Platform Module)-Rekonstruktion wird verwendet, um zu überprüfen, ob der Gerätestartprozess geändert wurde.",
+      "Plugin": "tpm",
+      "Version": "1.5.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Tpm.ReconstructionPcr0",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "9305de1c-1e12-5665-81c4-37f8e51219b8",
+        "78a291ae-b499-5b0f-8f1d-74e1fefd0b1c",
+        "65a3fced-b423-563f-8098-bf5c329fc063",
+        "5e704f0d-83cb-5364-8384-f46d725a23b8"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Amd.PlatformSecureBoot",
+      "Created": 1788585426,
+      "HsiLevel": 2,
+      "HsiResult": "not-enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "Secure Boot Plattform",
+      "Summary": "AMD Secure Boot Plattform",
+      "Description": "Die Secure Boot Plattform verhindert, dass unsignierte Software geladen wird, wenn das Gerät startet.",
+      "Plugin": "pci_psp",
+      "Version": "2.1.1",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Amd.PlatformSecureBoot",
+      "Flags": [
+        "action-contact-oem"
+      ],
+      "Guid": [
+        "0e8dc554-a0a2-51fb-b439-1eb72b14ec38"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Amd.SpiWriteProtection",
+      "Created": 1788585426,
+      "HsiLevel": 2,
+      "HsiResult": "not-enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "SPI-Schreibschutz",
+      "Summary": "AMD-Firmware-Schreibschutz",
+      "Description": "Firmware-Schreibschutz schützt den Firmware-Speicher des Geräts vor Manipulationen.",
+      "Plugin": "pci_psp",
+      "Version": "1.8.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Amd.SpiWriteProtection",
+      "Flags": [
+        "action-contact-oem"
+      ],
+      "Guid": [
+        "0e8dc554-a0a2-51fb-b439-1eb72b14ec38"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Cet.Enabled",
+      "Created": 1788585426,
+      "HsiLevel": 3,
+      "HsiResult": "supported",
+      "HsiResultSuccess": "supported",
+      "Name": "CET-Plattform",
+      "Summary": "Kontrollfluss-Durchsetzungstechnologie (CET)",
+      "Description": "Die Kontrollfluss-Durchsetzungstechnologie erkennt und verhindert bestimmte Methoden zur Ausführung bösartiger Software auf dem Gerät.",
+      "Plugin": "cpu",
+      "Version": "2.0.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Cet.Enabled",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "79759cdc-94db-5098-be7b-eb02521fbbec",
+        "20b595b0-5892-5870-8e4c-688133ad6e34"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.PrebootDma",
+      "Created": 1788585426,
+      "HsiLevel": 3,
+      "HsiResult": "enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "DMA-Schutz vor dem Booten",
+      "Summary": "DMA-Schutz vor dem Booten",
+      "Description": "Der DMA-Schutz vor dem Booten verhindert, dass Geräte auf den Systemspeicher zugreifen, nachdem sie an den Rechner angeschlossen wurden.",
+      "Plugin": "acpi_ivrs",
+      "Version": "1.8.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.PrebootDma",
+      "Flags": [
+        "success"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.SuspendToIdle",
+      "Created": 1788585426,
+      "HsiLevel": 3,
+      "HsiResult": "enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "Im Leerlauf anhalten",
+      "Summary": "Im Leerlauf anhalten",
+      "Description": "Im Leerlauf anhalten ermöglicht es dem Gerät, sich schnell schlafen zu legen, um Strom zu sparen. Während das Gerät angehalten ist, kann sein Speicher physisch entfernt und auf seine Informationen zugegriffen werden.",
+      "Plugin": "acpi_facp",
+      "Version": "1.5.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.SuspendToIdle",
+      "Flags": [
+        "success"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.SuspendToRam",
+      "Created": 1788585426,
+      "HsiLevel": 3,
+      "HsiResult": "not-enabled",
+      "HsiResultSuccess": "not-enabled",
+      "Name": "Im RAM anhalten",
+      "Summary": "Im RAM anhalten",
+      "Description": "Im RAM anhalten ermöglicht es dem Gerät, sich schnell schlafen zu legen, um Strom zu sparen. Während das Gerät angehalten ist, kann sein Speicher physisch entfernt und auf seine Informationen zugegriffen werden.",
+      "Plugin": "linux_sleep",
+      "Version": "1.5.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.SuspendToRam",
+      "Flags": [
+        "success"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Amd.SpiReplayProtection",
+      "Created": 1788585426,
+      "HsiLevel": 3,
+      "HsiResult": "not-supported",
+      "HsiResultSuccess": "enabled",
+      "Name": "SPI-Wiederholungsschutz",
+      "Summary": "AMD-Firmware-Wiederholungsschutz",
+      "Description": "Der Rückrollschutz verhindert, dass die Gerätesoftware auf eine ältere Version heruntergestuft wird, die Sicherheitsprobleme aufweist.",
+      "Plugin": "pci_psp",
+      "Version": "1.8.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Amd.SpiReplayProtection",
+      "Guid": [
+        "0e8dc554-a0a2-51fb-b439-1eb72b14ec38"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Smap",
+      "Created": 1788585426,
+      "HsiLevel": 4,
+      "HsiResult": "enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "SMAP",
+      "Summary": "Zugriffsverhinderung im Supervisor-Modus",
+      "Description": "Die Zugriffsverhinderung im Supervisor-Modus stellt sicher, dass weniger sichere Programme nicht auf kritische Teile des Gerätespeichers zugreifen können.",
+      "Plugin": "cpu",
+      "Version": "2.0.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Smap",
+      "Flags": [
+        "success"
+      ],
+      "Guid": [
+        "79759cdc-94db-5098-be7b-eb02521fbbec",
+        "20b595b0-5892-5870-8e4c-688133ad6e34"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.Amd.RollbackProtection",
+      "Created": 1788585426,
+      "HsiLevel": 4,
+      "HsiResult": "not-enabled",
+      "HsiResultSuccess": "enabled",
+      "Name": "Prozessor-Rückrollschutz",
+      "Summary": "Rückrollschutz des AMD Sicherheitsprozessors",
+      "Description": "Der Rückrollschutz verhindert, dass die Gerätesoftware auf eine ältere Version heruntergestuft wird, die Sicherheitsprobleme aufweist.",
+      "Plugin": "pci_psp",
+      "Version": "1.8.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.Amd.RollbackProtection",
+      "Flags": [
+        "action-contact-oem",
+        "action-config-fw"
+      ],
+      "Guid": [
+        "0e8dc554-a0a2-51fb-b439-1eb72b14ec38"
+      ]
+    },
+    {
+      "AppstreamId": "org.fwupd.hsi.EncryptedRam",
+      "Created": 1788585426,
+      "HsiLevel": 4,
+      "HsiResult": "not-supported",
+      "HsiResultSuccess": "encrypted",
+      "Name": "Verschlüsselter RAM",
+      "Summary": "Verschlüsselter RAM",
+      "Description": "Verschlüsselter RAM macht es unmöglich, dass im Gerätespeicher gespeicherte Informationen gelesen werden können, wenn der Speicherchip entfernt und darauf zugegriffen wird.",
+      "Plugin": "pci_psp",
+      "Version": "1.5.0",
+      "Uri": "https://fwupd.github.io/libfwupdplugin/hsi.html#org.fwupd.hsi.EncryptedRam",
+      "Flags": [
+        "action-config-fw"
+      ],
+      "Guid": [
+        "0e8dc554-a0a2-51fb-b439-1eb72b14ec38"
+      ]
+    }
+  ]
+}

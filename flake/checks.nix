@@ -303,10 +303,98 @@ in
     assert palette.alpha.opaque == "ff";
     assert palette.fonts.canvasUi == "Manrope";
     assert palette.beamenu.lines == 9;
+    assert palette.bar.pillSpacing == 6;
+    assert palette.settings.sidebarWidth == 260;
+    assert palette.settings.panelWidthFactor == 0.72;
     assert carries palette.colors.bg;
     assert carries palette.accentFallback;
     assert carries palette.fonts.ui;
     pkgs.writeText "palette-eval-ok" palette.accentFallback;
+
+  # nix/data/sandbox-policy.json is the committed, read-only defaults every
+  # per-app sandbox launch resolves against (rust/dots-sandbox). Modelled on
+  # palette-eval above, then taken one step further: that check only proves
+  # the Nix side agrees with itself, but here there are genuinely two
+  # parsers of the same file — this eval-time half and the Rust binary's
+  # own `serde` schema — and this repo's convention for exactly that shape
+  # of risk is a single committed source of truth with a check proving it
+  # round-trips through both. The asserts below catch a malformed file
+  # cheaply, at eval time, before any derivation realizes; the
+  # `dots-sandbox policy validate` build afterwards is what actually proves
+  # the two parsers still agree, since an eval-only assert here and the
+  # crate's own `serde`/`validate_strict` logic can drift independently of
+  # each other without this.
+  sandbox-policy-eval =
+    let
+      policyPath = ../nix/data/sandbox-policy.json;
+      policy = builtins.fromJSON (builtins.readFile policyPath);
+
+      # The crate itself has no compiled-in app catalog — the defaults file
+      # *is* the catalog (see resolve_app in rust/dots-sandbox/src/policy.rs)
+      # — so "an app id the crate knows" is checked here against every real
+      # launchable surface this repo actually offers: the flake's own
+      # `nix run .#<app>` list, plus the handful of desktop launcher apps
+      # (the quickshell pill bar) that sit outside that list entirely.
+      # Nothing in Nix enumerates the launcher's app ids today, so the
+      # second half is a hand-kept list; a new sandboxed launcher entry
+      # needs a line here as much as it needs one in the policy file.
+      knownFlakeApps = builtins.attrNames self.apps.${system};
+      knownDesktopApps = [
+        "global-settings"
+        "computer-use-linux"
+        "kitty"
+        "junction"
+        "bitwarden"
+      ];
+      knownApps = knownFlakeApps ++ knownDesktopApps;
+
+      appIds = builtins.attrNames policy.apps;
+      unknownApps = builtins.filter (id: !(builtins.elem id knownApps)) appIds;
+
+      apps = builtins.attrValues policy.apps;
+      capStates = lib.flatten (map (app: builtins.attrValues (app.caps or { })) apps);
+      pathStates = lib.flatten (map (app: map (p: p.state) (app.paths or [ ])) apps);
+      validStates = [
+        "allow"
+        "deny"
+        "ask"
+      ];
+      # `allow-once` is a session-state answer, never a persisted one (see
+      # PolicyState's doc comment) — this is the same rejection `serde`
+      # gives the binary for free by only ever having three variants to
+      # deserialize into, restated here since raw JSON parsing has no such
+      # enum to lean on.
+      badStates = builtins.filter (s: !(builtins.elem s validStates)) (capStates ++ pathStates);
+
+      unconfinedApps = lib.filterAttrs (_: app: app.unconfined or false) policy.apps;
+      # Missing and blank are the same failure (`require_reason` trims
+      # before checking emptiness), so both collapse into one match here.
+      badReasons = builtins.filter (
+        id: builtins.match "[[:space:]]*" (unconfinedApps.${id}.reason or "") != null
+      ) (builtins.attrNames unconfinedApps);
+    in
+    # SUPPORTED_VERSION in rust/dots-sandbox/src/policy.rs. Bumping the
+    # schema is deliberate on both sides at once, never on just one.
+    assert policy.version == 1;
+    assert lib.assertMsg (unknownApps == [ ]) (
+      "nix/data/sandbox-policy.json names app id(s) this repo does not define: "
+      + builtins.concatStringsSep ", " unknownApps
+    );
+    assert lib.assertMsg (badStates == [ ]) (
+      "nix/data/sandbox-policy.json has a grant state other than allow/deny/ask: "
+      + builtins.concatStringsSep ", " badStates
+    );
+    assert lib.assertMsg (badReasons == [ ]) (
+      "nix/data/sandbox-policy.json marks unconfined app(s) with no non-empty reason: "
+      + builtins.concatStringsSep ", " badReasons
+    );
+    pkgs.runCommand "sandbox-policy-validate-ok"
+      {
+        nativeBuildInputs = [ self.packages.${system}.dots-sandbox ];
+      }
+      ''
+        dots-sandbox policy validate ${policyPath} | tee $out
+      '';
 
   # nix/modules/services/agentmem.nix, guarded against the three ways it has already
   # broken at activation. Each of those reached a rebuild because parsing a

@@ -43,6 +43,7 @@ let
         ../nix/modules/services/searxng.nix
         ../nix/modules/services/agentmem.nix
         ../nix/modules/system/virtualisation.nix
+        ../nix/modules/system/sandbox-host.nix
         ../nix/modules/system/users.nix
         ../nix/modules/system/hardening.nix
         ../nix/modules/services/maintenance.nix

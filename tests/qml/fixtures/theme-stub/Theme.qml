@@ -22,6 +22,11 @@ QtObject {
     readonly property color bg: "#1a1b26"
     readonly property color bgDark: "#16161e"
     readonly property color border: "#292e42"
+
+    // Added for tst_settings_controls.qml: Toggle.qml and Slider.qml both
+    // read this for their unchecked/at-rest fill, and neither one had a
+    // stub test to need it before.
+    readonly property color selection: "#3b4261"
     readonly property string fontUi: "sans-serif"
     readonly property string fontMono: "monospace"
     readonly property int fontSize: 12
@@ -67,4 +72,32 @@ QtObject {
     readonly property int barPillPadding: 14
     readonly property int barIconSize: 20
     readonly property int barWorkspaceIconCap: 4
+    readonly property int barPillSpacing: 6
+
+    // Settings panel geometry, mirrored from the generated Theme.qml on the
+    // same principle as the bar tokens above: not exercised by any test
+    // today (the richer sidebar-nav layout lands in a later task) but kept
+    // in step so that task is never blocked on this stub catching up.
+    // settingsTitleFontSize and friends stay `real`, matching
+    // font.pointSize's own type, the same distinction barFontSize's `int`
+    // makes for font.pixelSize above.
+    readonly property int settingsSidebarWidth: 260
+    readonly property int settingsHeaderHeight: 64
+    readonly property int settingsSearchHeight: 40
+    readonly property int settingsRowHeight: 56
+    readonly property int settingsRowPadding: 16
+    readonly property int settingsRowGap: 2
+    readonly property int settingsGroupGap: 32
+    readonly property int settingsControlColumn: 320
+    readonly property int settingsRadius: 10
+    readonly property real settingsPanelWidthFactor: 0.72
+    readonly property real settingsPanelHeightFactor: 0.8
+    readonly property real settingsTitleFontSize: 24
+    readonly property real settingsGroupFontSize: 11
+    readonly property real settingsRowTitleFontSize: 14
+    readonly property real settingsRowDescFontSize: 11
+    readonly property real settingsNavFontSize: 13
+    readonly property int settingsFooterHeight: 40
+    readonly property int settingsToggleWidth: 44
+    readonly property int settingsToggleHeight: 24
 }

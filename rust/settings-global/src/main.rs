@@ -105,8 +105,9 @@ fn dump_mode(file: &Path) -> ExitCode {
     }
 }
 
-/// `set <key> <value>`: validate (for `EditStr` keys) or parse `true`/`false`
-/// (for `Toggle` keys), then save through the same path as the JSON-RPC form.
+/// `set <key> <value>`: validate (for `EditStr`/`EditInt`/`Select` keys) or
+/// parse `true`/`false` (for `Toggle` keys), then save through the same path
+/// as the JSON-RPC form.
 fn set_mode(file: &Path, key: &str, value: &str) -> ExitCode {
     let Some(item) = ITEMS.iter().find(|item| item.key() == key) else {
         eprintln!("unknown key `{key}`");
@@ -135,6 +136,32 @@ fn set_mode(file: &Path, key: &str, value: &str) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         },
+        Action::EditInt {
+            min, max, validate, ..
+        } => match value.parse::<i64>() {
+            Ok(n) if n < *min || n > *max => {
+                eprintln!("`{key}` must be between {min} and {max}, got {n}");
+                return ExitCode::FAILURE;
+            }
+            Ok(n) => {
+                if let Err(e) = validate(n) {
+                    eprintln!("{e}");
+                    return ExitCode::FAILURE;
+                }
+                settings.set_int(key, n);
+            }
+            Err(_) => {
+                eprintln!("`{key}` is a number field; expected an integer, got `{value}`");
+                return ExitCode::FAILURE;
+            }
+        },
+        Action::Select { options, .. } => {
+            if !options.contains(&value) {
+                eprintln!("`{key}` must be one of {options:?}, got `{value}`");
+                return ExitCode::FAILURE;
+            }
+            settings.set_str(key, value);
+        }
     }
     match save(&settings, file) {
         Ok(()) => ExitCode::SUCCESS,
