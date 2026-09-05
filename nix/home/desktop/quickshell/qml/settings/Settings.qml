@@ -26,13 +26,17 @@
 // rust/settings-global, exactly as before: `dump` and `set`, one process per
 // changed field so a rejected field fails alone, the `edits` object
 // reassigned rather than mutated because QML does not see an in-place
-// object mutation. Only Identity is wired to that data — every other nav
-// entry (WM, AI, Accounts, Keyboard, Security) is a stub a later task fills
-// in; see EmptyState.qml's "not been built yet" message for where they
-// stand today. That does mean the three AI toggles global-settings already
-// dumps (aiOllama, aiClaude, aiCodex) have no row anywhere in this shell yet
-// — they still round-trip through `fields`/`edits`/`save()` correctly, they
-// are just not rendered until the AI page exists to own them.
+// object mutation.
+//
+// Five real pages now sit behind the Identity page this shell shipped with:
+// Window manager, AI, Accounts and Keyboard join it, each filtering the same
+// `fields` array down to its own keys through pages.js's PAGE_FIELDS table
+// (dump's own order interleaves keys from every page, so a page's row order
+// is this shell's presentation choice, not something dump's array can be
+// trusted to match). Security stays the EmptyState stub a later task fills
+// in — see navPages below — and the sidebar itself is unchanged: it was
+// already data-driven off navPages before any of this landed, precisely so
+// that later task adds three rows instead of restructuring this file.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -45,6 +49,8 @@ import ".."
 import "../common"
 import "controls"
 import "search.js" as Search
+import "pages.js" as Pages
+import "wm.js" as Wm
 
 Scope {
     id: root
@@ -80,9 +86,10 @@ Scope {
     readonly property bool searching: root.query.trim() !== ""
 
     // The 260px sidebar's own model. Six entries because that is the whole
-    // information architecture the source design was imported for — this
-    // task ships the chrome around all six; only Identity has a page behind
-    // it today.
+    // information architecture the source design was imported for. Security
+    // stays a stub for a later task (Security & privacy, Wallpaper and
+    // Displays all land after this one); the other five each have a real
+    // page behind them now.
     readonly property var navPages: [
         {
             id: "identity",
@@ -112,7 +119,7 @@ Scope {
             id: "keyboard",
             label: "Keyboard",
             glyph: "\u{F030C}",
-            description: "Layout, repeat rate and shortcuts."
+            description: "Every SUPER shortcut this session recognises."
         },
         {
             id: "security",
@@ -124,10 +131,74 @@ Scope {
 
     readonly property var activeNavEntry: root.navPages.find(p => p.id === root.activePage) ?? root.navPages[0]
 
-    // What the cursor actually walks on the Identity page: the dumped fields
-    // plus one synthetic row that opens the Proton page. Synthetic rather
-    // than a seventh entry in the Rust ITEMS table, because global-settings
-    // only knows how to dump and set values, and this row has none.
+    // ~/.claude/settings.json is a different store than settings.nix — a
+    // store symlink into the Nix store that `home-manager switch` rewrites
+    // wholesale (nix/home/ai/claude.nix's own comment on its `model` key says
+    // so), so there is nothing here for edit()/save() to write back to.
+    // Read the same watch-and-reload way Theme.qml's tintState property
+    // does for tint/current.json.
+    // qmllint disable unresolved-type
+    property var claudeSettingsFile: FileView {
+        path: `${Quickshell.env("HOME")}/.claude/settings.json`
+        watchChanges: true
+        onFileChanged: reload()
+        adapter: JsonAdapter {
+            property string model: ""
+            property var permissions: ({})
+        }
+    }
+
+    // The Keyboard page's own data: the same keybinds.json tree.nix already
+    // writes for the SUPER+/ cheatsheet, read the identical way
+    // Cheatsheet.qml reads it so a change to that file's shape only has to
+    // be taught once.
+    property var keybindsFile: FileView {
+        path: `${Quickshell.shellDir}/cheatsheet/keybinds.json`
+        adapter: JsonAdapter {
+            property var groups: []
+        }
+    }
+    // qmllint enable unresolved-type
+
+    readonly property var keyboardGroups: root.keybindsFile.adapter.groups
+
+    // Whether the content column is showing the Keyboard page's own
+    // keybind list instead of the rows grammar every other real page uses.
+    // Keyboard owns no dumped field at all (see pages.js's PAGE_FIELDS),
+    // so there is nothing for visibleRows, the empty state or the keyboard
+    // cursor to walk while it is up.
+    readonly property bool showingKeyboardPage: root.activePage === "keyboard" && !root.searching
+
+    // Synthetic rows for the three Claude Code fields that live in
+    // ~/.claude/settings.json rather than settings.nix — see
+    // fieldDescriptions' entries for these keys for why they render
+    // read-only instead of through edit()/save() like every dumped field.
+    readonly property var claudeReadonlyRows: [
+        {
+            key: "claudeModel",
+            label: "Claude model",
+            type: "readonly",
+            value: root.claudeSettingsFile.adapter.model || "(unset)"
+        },
+        {
+            key: "claudePermissionMode",
+            label: "Claude permission mode",
+            type: "readonly",
+            value: root.claudeSettingsFile.adapter.permissions.defaultMode || "(unset)"
+        },
+        {
+            key: "claudeAllowedTools",
+            label: "Claude allowed tools",
+            type: "readonly",
+            value: `${(root.claudeSettingsFile.adapter.permissions.allow ?? []).length} allow rule(s)`
+        }
+    ]
+
+    // What the cursor walked on the Identity page before this shell had more
+    // than one real page, kept around verbatim: the synthetic Proton row
+    // still hangs off it (Accounts' own rows below borrow it rather than
+    // declaring a second one), and every dumped field is still in here for
+    // any caller that wants the whole set regardless of page.
     readonly property var rows: root.fields.concat([
         {
             key: "proton",
@@ -136,53 +207,117 @@ Scope {
         }
     ]);
 
+    // One page's own rows, in pages.js's order, plus whatever synthetic rows
+    // that page owns — Accounts' drill-in to Proton, AI's three read-only
+    // Claude rows. "keyboard" and "security" fall through to
+    // Pages.fieldsForPage's empty answer: Keyboard renders keybindsFile
+    // directly instead (see showingKeyboardPage above), and Security is
+    // still the EmptyState stub.
+    function rowsForPage(pageId) {
+        if (pageId === "ai")
+            return Pages.fieldsForPage(root.fields, "ai").concat(root.claudeReadonlyRows);
+        if (pageId === "accounts")
+            return Pages.fieldsForPage(root.fields, "accounts").concat(root.rows.filter(r => r.key === "proton"));
+        return Pages.fieldsForPage(root.fields, pageId);
+    }
+
     // A one-line description per row, since global-settings only dumps a
     // key/label/type/value — the "one-line description" the row grammar
-    // wants is this shell's own copy, not Rust's.
+    // wants is this shell's own copy, not Rust's. The three claude* entries
+    // double as the "labelled" requirement the task brief asks for on rows
+    // that write nowhere this Save button reaches: read-only here, and said
+    // so, rather than a write that could corrupt a config the user's agent
+    // depends on.
     readonly property var fieldDescriptions: ({
             gitName: "Used for commit authorship on this machine.",
             gitEmail: "Used for commit authorship on this machine.",
             hostname: "The name this machine answers to on the network.",
+            timezone: "The IANA zone this machine's clock uses.",
+            desktop: "Which desktop environment the system module enables.",
+            gitSigningKey: "Overrides the SSH key commits and tags are signed with.",
+            wmGapsIn: "Space between adjacent tiled windows.",
+            wmGapsOut: "Space between a tiled window and the screen edge.",
+            wmBorderSize: "Width of the focused/unfocused window border.",
+            wmFollowMouse: "Moving the pointer over a window focuses it.",
+            wmAnimations: "Window open, close and move animations.",
+            wmLayout: "The tiling algorithm new windows join.",
+            aiOllama: "Runs models on this machine, no cloud involved.",
+            aiClaude: "Enables the Claude Code CLI.",
+            aiCodex: "Enables the Codex CLI.",
+            aiOllamaEndpoint: "Where the Ollama HTTP API listens.",
+            aiOllamaDefaultModel: "Which pulled model answers by default.",
             protonEmail: "The address proton-setup signs in with.",
-            proton: "Connect Proton Drive and Calendar."
+            proton: "Connect Proton Drive and Calendar.",
+            claudeModel: "Read from ~/.claude/settings.json, managed by Home Manager (nix/home/ai/claude.nix) — read-only here.",
+            claudePermissionMode: "Read from ~/.claude/settings.json, managed by Home Manager (nix/home/ai/claude.nix) — read-only here.",
+            claudeAllowedTools: "Read from ~/.claude/settings.json, managed by Home Manager (nix/home/ai/claude.nix) — read-only here."
         })
 
     function descriptionFor(row: var): string {
         return root.fieldDescriptions[row.key] ?? "";
     }
 
-    // The flat search index: one descriptor per row this shell can actually
-    // show today. search.js never sees a live SettingsRow, only this.
-    readonly property var searchIndex: root.rows.map(r => ({
-                id: r.key,
-                pageId: "identity",
-                groupId: "identity-general",
-                title: r.label,
-                description: root.descriptionFor(r),
-                keywords: ""
-            }))
+    // The parent value a dependent row's `dependsOn` reads — null for a key
+    // pages.js's DEPENDS_ON does not name, which the row-building delegate
+    // below treats as "not dependent at all" rather than looking a key up
+    // that has no parent to find.
+    function valueOfKey(key: string): var {
+        const field = root.fields.find(f => f.key === key);
+        return field ? root.valueOf(field) : null;
+    }
+
+    // Which real pages search.js's search() reaches across. Keyboard is not
+    // one of them: its rows are keybinds.json entries, not settings.nix
+    // fields, so there is nothing here yet for a query to match against.
+    readonly property var searchablePages: ["identity", "wm", "ai", "accounts"]
+
+    // The flat search index: one descriptor per row any real page can show
+    // today. search.js never sees a live SettingsRow, only this.
+    readonly property var searchIndex: {
+        const out = [];
+        for (const pageId of root.searchablePages) {
+            for (const row of root.rowsForPage(pageId)) {
+                out.push({
+                    id: row.key,
+                    pageId: pageId,
+                    groupId: `${pageId}-general`,
+                    title: row.label,
+                    description: root.descriptionFor(row),
+                    keywords: ""
+                });
+            }
+        }
+        return out;
+    }
 
     readonly property var searchResult: Search.search(root.searchIndex, root.query)
 
     // What the content column actually renders and the keyboard cursor
     // actually walks: the active page's own rows while browsing (empty for
-    // every stub page — there is nothing to select), or every row search.js
-    // matched while a query is active, regardless of which nav entry is
-    // selected — a real ChromeOS-style search reaches across pages, not
-    // just the one on screen.
+    // the Security stub, and for Keyboard, which renders keybindsFile
+    // instead), or every row search.js matched while a query is active,
+    // regardless of which nav entry is selected — a real ChromeOS-style
+    // search reaches across pages, not just the one on screen.
     readonly property var visibleRows: {
         if (!root.searching)
-            return root.activePage === "identity" ? root.rows : [];
+            return root.rowsForPage(root.activePage);
 
         const matched = new Set(root.searchResult.matchedIds);
-        return root.rows.filter(r => matched.has(r.key));
+        const out = [];
+        for (const pageId of root.searchablePages) {
+            for (const row of root.rowsForPage(pageId)) {
+                if (matched.has(row.key))
+                    out.push(row);
+            }
+        }
+        return out;
     }
 
     function emptyMessage(): string {
         if (root.searching)
             return `No settings match "${root.query.trim()}"`;
 
-        if (root.activePage !== "identity")
+        if (root.activePage === "security")
             return "This page has not been built yet — a later task fills it in.";
 
         return "Nothing to show here yet.";
@@ -234,7 +369,10 @@ Scope {
 
     // Enter does whatever the highlighted row is for. Only the synthetic
     // Proton row is a page; everything else is a value, and for those Enter
-    // still means save, exactly as before.
+    // still means save, exactly as before. A read-only Claude row (type
+    // "readonly") falls through to save() too, harmlessly: it is never in
+    // root.edits, so save() just reports "Nothing changed" if it was the
+    // only thing touched.
     function activate(): void {
         const row = root.visibleRows[root.selected];
         if (row && row.type === "page") {
@@ -269,6 +407,23 @@ Scope {
         }
         root.edit("protonEmail", value);
         root.save();
+    }
+
+    // Runs the hyprctl side of a window-manager row's change — and only
+    // ever after writer.onExited below has confirmed that same row's
+    // persist to settings.nix actually landed. A key wm.js does not map
+    // (every non-WM field) is a no-op: hyprctlArgs returns null and there is
+    // nothing to run, which is what lets this be called unconditionally
+    // from one shared path rather than a second branch that already has to
+    // know which keys are WM ones.
+    function applyLive(key: string, value: var): void {
+        const args = Wm.hyprctlArgs(key, value);
+        if (args === null)
+            return;
+
+        applier.command = args;
+        applier.running = false;
+        applier.running = true;
     }
 
     // A "Saved" acknowledgement is meant to be noticed, not lived with —
@@ -333,6 +488,13 @@ Scope {
 
         property var pending: []
 
+        // What next() just tried to persist — read back in onExited below
+        // so the live-apply path acts on the SAME key/value the just-exited
+        // `global-settings set` call carried, not whatever root.edits
+        // happens to hold by the time the process reports back.
+        property string lastKey: ""
+        property var lastValue: null
+
         function next(): void {
             if (writer.pending.length === 0) {
                 root.status = "Saved";
@@ -344,6 +506,8 @@ Scope {
             writer.pending = writer.pending.slice(1);
 
             const value = root.edits[key];
+            writer.lastKey = key;
+            writer.lastValue = value;
             writer.running = false;
             writer.command = ["global-settings", "set", key, typeof value === "boolean" ? (value ? "true" : "false") : `${value}`];
             writer.running = true;
@@ -359,9 +523,22 @@ Scope {
                 return;
             }
 
+            // Persist first, apply second, never the reverse: applyLive
+            // only runs once this process's own exit code has confirmed the
+            // write landed, so a rejected field can never leave the
+            // compositor showing a value settings.nix disagrees with.
+            root.applyLive(writer.lastKey, writer.lastValue);
             writer.next();
         }
         // qmllint enable signal-handler-parameters
+    }
+
+    // The window-manager live-apply path's own process, fire-and-forget:
+    // `hyprctl keyword` either takes immediately or the field simply does
+    // not show up until the next `hyprctl reload`, neither of which the
+    // settings panel needs to gate anything else on.
+    Process {
+        id: applier
     }
 
     PanelWindow {
@@ -677,7 +854,7 @@ Scope {
                             ColumnLayout {
                                 Layout.fillWidth: true
 
-                                visible: root.visibleRows.length > 0
+                                visible: !root.showingKeyboardPage && root.visibleRows.length > 0
                                 spacing: Theme.settingsRowGap
 
                                 Text {
@@ -709,6 +886,19 @@ Scope {
                                             description: root.descriptionFor(fieldRow.modelData)
                                             clickable: fieldRow.modelData.type === "page"
                                             highlighted: root.selected === fieldRow.index
+                                            // Data-dep: the AI page's Ollama
+                                            // endpoint/default-model rows only
+                                            // mean something while aiOllama
+                                            // itself is on (pages.js's
+                                            // DEPENDS_ON) — every other row
+                                            // has no parent, and dependsOn
+                                            // defaults to enabled for exactly
+                                            // that case.
+                                            dependent: Pages.dependencyKeyFor(fieldRow.modelData.key) !== null
+                                            dependsOn: {
+                                                const parentKey = Pages.dependencyKeyFor(fieldRow.modelData.key);
+                                                return parentKey === null ? true : root.valueOfKey(parentKey) === true;
+                                            }
 
                                             onClicked: {
                                                 root.selected = fieldRow.index;
@@ -739,6 +929,56 @@ Scope {
                                                 onToggled: value => root.edit(fieldRow.modelData.key, value)
                                             }
 
+                                            // Bounds come straight from the
+                                            // dump payload's min/max/step,
+                                            // never a constant here — see
+                                            // rust/settings-global/src/menu.rs's
+                                            // own comment on why those fields
+                                            // reach the payload at all.
+                                            Slider {
+                                                visible: fieldRow.modelData.type === "number"
+
+                                                from: fieldRow.modelData.min ?? 0
+                                                to: fieldRow.modelData.max ?? 100
+                                                stepSize: fieldRow.modelData.step ?? 0
+                                                value: root.valueOf(fieldRow.modelData)
+                                                onMoved: value => root.edit(fieldRow.modelData.key, value)
+                                            }
+
+                                            // Same reasoning as Slider above:
+                                            // the option list is whatever the
+                                            // dump payload's own `options`
+                                            // array says, not a second copy
+                                            // of it hand-kept in QML.
+                                            Select {
+                                                visible: fieldRow.modelData.type === "select"
+                                                width: 200
+
+                                                options: (fieldRow.modelData.options ?? []).map(o => ({
+                                                            label: o,
+                                                            value: o
+                                                        }))
+                                                value: root.valueOf(fieldRow.modelData)
+                                                onActivated: value => root.edit(fieldRow.modelData.key, value)
+                                            }
+
+                                            // A value from a different store
+                                            // entirely (~/.claude/settings.json —
+                                            // see fieldDescriptions'
+                                            // claudeModel entry). There is
+                                            // nothing here for edit()/save()
+                                            // to reach, so this is a label,
+                                            // not a control.
+                                            Text {
+                                                visible: fieldRow.modelData.type === "readonly"
+
+                                                text: fieldRow.modelData.value ?? ""
+                                                color: Theme.muted
+
+                                                font.family: Theme.fontMono
+                                                font.pointSize: Theme.settingsRowDescFontSize
+                                            }
+
                                             // The Proton row's own control: a
                                             // bare chevron rather than a
                                             // field, since Enter/click on
@@ -761,11 +1001,74 @@ Scope {
                                 }
                             }
 
+                            // Keyboard page: keybinds.json rendered directly,
+                            // the same read-only grouped list Cheatsheet.qml
+                            // already shows for SUPER+/ — reused rather than
+                            // parsed a second way, per the task brief. No row
+                            // here reaches edit()/save(): the page carries no
+                            // state of its own at all.
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                visible: root.showingKeyboardPage
+                                spacing: Theme.settingsGroupGap
+
+                                Repeater {
+                                    model: root.keyboardGroups
+
+                                    delegate: ColumnLayout {
+                                        id: kbGroup
+
+                                        required property var modelData
+
+                                        Layout.fillWidth: true
+                                        spacing: Theme.settingsRowGap
+
+                                        Text {
+                                            text: kbGroup.modelData.name
+                                            color: Theme.muted
+
+                                            font.family: Theme.fontUi
+                                            font.pointSize: Theme.settingsGroupFontSize
+                                            font.bold: true
+                                        }
+
+                                        Repeater {
+                                            model: kbGroup.modelData.items
+
+                                            delegate: SettingsRow {
+                                                id: kbRow
+
+                                                required property var modelData
+
+                                                Layout.fillWidth: true
+
+                                                title: kbRow.modelData.desc
+
+                                                Text {
+                                                    text: kbRow.modelData.key
+                                                    color: Theme.fg
+
+                                                    font.family: Theme.fontMono
+                                                    font.pointSize: Theme.settingsRowDescFontSize
+                                                    font.bold: true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Item {
+                                    Layout.fillHeight: true
+                                }
+                            }
+
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
 
-                                visible: root.visibleRows.length === 0
+                                visible: !root.showingKeyboardPage && root.visibleRows.length === 0
 
                                 EmptyState {
                                     anchors.centerIn: parent
@@ -778,7 +1081,7 @@ Scope {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
 
-                                visible: root.visibleRows.length > 0
+                                visible: !root.showingKeyboardPage && root.visibleRows.length > 0
                             }
                         }
 

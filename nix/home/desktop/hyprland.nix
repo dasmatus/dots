@@ -2,6 +2,7 @@
   config,
   pkgs,
   lib,
+  settings,
   ...
 }:
 let
@@ -271,15 +272,22 @@ in
       # hyprlang) becomes a nested `col` table — the Lua API reads
       # col.active_border / col.inactive_border, not ["col.active_border"].
       config = {
+        # gaps_in/gaps_out/border_size/layout come from the settings panel's
+        # Window manager page (nix/home/desktop/quickshell/qml/settings/Settings.qml)
+        # now, persisted to settings.nix and applied live via `hyprctl
+        # keyword` — see that page's applyLive()/wm.js for the live half.
+        # nix/system/defaults.nix's wmGapsIn/wmGapsOut/wmBorderSize/wmLayout match
+        # the literals this replaced exactly, so a rebuild with no settings
+        # panel edit yet made is a no-op.
         general = {
-          gaps_in = 5;
-          gaps_out = 15;
-          border_size = 2;
+          gaps_in = settings.wmGapsIn;
+          gaps_out = settings.wmGapsOut;
+          border_size = settings.wmBorderSize;
           col = {
             active_border = "rgba(9aa5ceff)";
             inactive_border = "rgba(16161dff)";
           };
-          layout = "dwindle";
+          layout = settings.wmLayout;
           allow_tearing = false;
         };
 
@@ -331,7 +339,12 @@ in
         input = {
           kb_layout = "us";
           kb_options = "caps:escape";
-          follow_mouse = 1;
+          # wmFollowMouse is a bool on the settings side (the panel only ever
+          # offers on/off) where Hyprland's own follow_mouse is an int
+          # (0/1/2/3); true maps to Hyprland's own default 1, false to 0 —
+          # see nix/system/defaults.nix's comment on the key and wm.js's matching
+          # boolAsInt conversion for the live-apply half.
+          follow_mouse = if settings.wmFollowMouse then 1 else 0;
           sensitivity = 0;
           touchpad = {
             natural_scroll = true;
@@ -343,7 +356,7 @@ in
         # per-leaf animation calls are the top-level `curve`/`animation`
         # keys below (HM's importantPrefixes emits `curve` first).
         animations = {
-          enabled = true;
+          enabled = settings.wmAnimations;
         };
       };
 
