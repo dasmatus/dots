@@ -64,7 +64,14 @@ ShellRoot {
 
     Cheatsheet {}
 
-    Settings {}
+    // Declared after Picker below so the reference resolves; QML object
+    // creation is order-independent for id lookups within the same scope.
+    // Settings only forwards this to its Wallpaper page's Loader — the one
+    // Picker instance stays owned here, because Rotation's hourly pick and
+    // `qs ipc call wallpaper apply` drive it whether Settings is open or not.
+    Settings {
+        wallpaperPicker: picker
+    }
 
     Files {}
 

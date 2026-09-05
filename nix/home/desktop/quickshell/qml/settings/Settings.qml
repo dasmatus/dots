@@ -104,6 +104,18 @@ Scope {
             description: "Layout, workspaces and how windows behave."
         },
         {
+            id: "displays",
+            label: "Displays",
+            glyph: "\u{F0379}",
+            description: "How monitors are arranged, scaled and rotated."
+        },
+        {
+            id: "wallpaper",
+            label: "Wallpaper",
+            glyph: "\u{F02BA}",
+            description: "The image behind everything, and the accent it sets."
+        },
+        {
             id: "ai",
             label: "AI",
             glyph: "\u{F06A9}",
@@ -177,6 +189,25 @@ Scope {
     // []), so there is nothing here for visibleRows, the empty state or the
     // keyboard cursor to walk while it is up.
     readonly property bool showingSecurityPage: root.activePage === "security" && !root.searching
+
+    // Wallpaper and Displays, same shape and same reason as the two above:
+    // both own no dumped field (pages.js's PAGE_FIELDS names neither), so
+    // there is nothing for visibleRows, the empty state or the keyboard
+    // cursor to walk while either is up.
+    //
+    // These two are consolidations rather than new surfaces: the wallpaper
+    // grid and the monitor arranger used to be their own full-screen
+    // overlays on SUPER+W and SUPER+M. Those binds now open Settings at
+    // these pages instead (see the `openAt` IPC below), so there is one
+    // place each lives rather than two that drift apart.
+    // The shell's one wallpaper/Picker.qml, handed in by shell.qml. Held here
+    // only to pass on to pages/wallpaper.qml's Loader — Settings itself never
+    // touches it. Typed `var` rather than `Picker` so this file needs no
+    // import of the wallpaper module for a reference it only forwards.
+    property var wallpaperPicker: null
+
+    readonly property bool showingWallpaperPage: root.activePage === "wallpaper" && !root.searching
+    readonly property bool showingDisplaysPage: root.activePage === "displays" && !root.searching
 
     // Synthetic rows for the three Claude Code fields that live in
     // ~/.claude/settings.json rather than settings.nix — see
@@ -469,6 +500,23 @@ Scope {
                 root.load();
                 window.visible = true;
             }
+        }
+
+        // Open straight onto one page. This is what lets SUPER+W and SUPER+M
+        // stay one keystroke after the wallpaper picker and monitor arranger
+        // were folded into Settings: without it, consolidation would have
+        // cost the user an extra navigation every time, which is a
+        // regression wearing consolidation's clothes.
+        //
+        // An unknown page id is ignored rather than treated as an error —
+        // the panel still opens, on whatever page load() settled on. A typo
+        // in a keybind should not make Settings unopenable.
+        function openAt(page: string): void {
+            root.load();
+            if (root.navPages.some(p => p.id === page)) {
+                root.activePage = page;
+            }
+            window.visible = true;
         }
     }
 
@@ -1092,6 +1140,35 @@ Scope {
                                 active: root.showingSecurityPage
                                 visible: active
                                 source: "pages/security.qml"
+                            }
+
+                            // Wallpaper: same Loader-by-URL shape as Security
+                            // above. `item.picker` is assigned rather than the
+                            // page building its own — wallpaper/Picker.qml is
+                            // the single instance shell.qml keeps alive,
+                            // because Rotation.qml's hourly pick and
+                            // `qs ipc call wallpaper apply` drive it whether
+                            // or not this page is mounted. A second Picker
+                            // here would mean two apply queues, two output
+                            // states, and an accent retint racing itself.
+                            Loader {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                active: root.showingWallpaperPage
+                                visible: active
+                                source: "pages/wallpaper.qml"
+
+                                onLoaded: item.picker = root.wallpaperPicker
+                            }
+
+                            Loader {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                active: root.showingDisplaysPage
+                                visible: active
+                                source: "pages/displays.qml"
                             }
 
                             Item {

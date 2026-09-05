@@ -67,8 +67,19 @@ let
     file-manager = "${qs} ipc call files toggle";
     cheatsheet-toggle = "${qs} ipc call cheatsheet toggle";
     settings-toggle = "${qs} ipc call settings toggle";
-    wallpaper-toggle = "${qs} ipc call wallpaper toggle";
-    arrange-toggle = "${qs} ipc call arrange toggle";
+    # SUPER+W and SUPER+M open Settings at their own page rather than a
+    # separate overlay. The wallpaper grid moved into the Settings panel
+    # outright (nix/home/desktop/quickshell/qml/settings/pages/wallpaper.qml);
+    # Displays shows every monitor there and hands the spatial drag editor
+    # the full-screen surface it actually needs.
+    #
+    # The binds keep their keys on purpose. Folding a surface into Settings
+    # and then making the user navigate to it would cost a keystroke every
+    # time — consolidation that charges the user for the tidying is not worth
+    # having, which is why Settings grew `openAt` rather than these binds
+    # becoming a plain `toggle`.
+    wallpaper-toggle = "${qs} ipc call settings openAt wallpaper";
+    arrange-toggle = "${qs} ipc call settings openAt displays";
     volume-mute = "${qs} ipc call osd volumeMute";
     mic-mute = "${qs} ipc call osd micToggle";
     touchpad-toggle = "${qs} ipc call osd touchpadToggle";

@@ -196,14 +196,28 @@ Scope {
     // record — see recordOutputState()). hasOutputRecord() distinguishes
     // "found, reload from it" from "nothing recorded, leave the live
     // cycling state alone".
-    function cycleOutput(): void {
-        root.output = PickerLogic.cycleOutput(root.output, root.outputNames);
+    // Select one output by name, adopting whatever mode and fill colour that
+    // output last had applied to it. Split out of cycleOutput so the Settings
+    // page's Displays/Wallpaper dropdown can pick directly rather than
+    // stepping blind through the list — the overlay's cycling affordance made
+    // sense with only a keyboard, a Select does not.
+    //
+    // The state adoption is the part that must not be skipped. Assigning
+    // `output` alone would leave the form showing the previous output's mode
+    // and fill colour while pointing at a different monitor, so the next
+    // apply would silently write the wrong settings.
+    function selectOutput(name: string): void {
+        root.output = name;
         if (!PickerLogic.hasOutputRecord(root.outputRecords, root.output))
             return;
 
         const effective = PickerLogic.effectiveOutput(root.outputRecords, root.output);
         root.mode = effective.mode;
         root.fillColor = effective.fillColor;
+    }
+
+    function cycleOutput(): void {
+        root.selectOutput(PickerLogic.cycleOutput(root.output, root.outputNames));
     }
 
     // -e is case-insensitive in fd, so a stray .JPG is still found. "." is
