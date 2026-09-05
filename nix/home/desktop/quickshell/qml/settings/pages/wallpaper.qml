@@ -4,14 +4,18 @@
 // by-source-URL idiom pages/security.qml uses, for the identical reason —
 // this filename cannot be a QML type name).
 //
-// root.picker is required, not owned: wallpaper/Picker.qml is the ONE
+// root.picker is handed in, not owned: wallpaper/Picker.qml is the ONE
 // instance shell.qml keeps alive at the top level, because Rotation.qml's
 // hourly pick and `qs ipc call wallpaper apply` both drive it whether or
-// not this page is even mounted. Settings.qml's Loader wires
-// `onLoaded: item.picker = picker` rather than this file instantiating its
-// own Picker, so a click here runs through the exact same apply queue,
-// output-state FileView and accent-retint Canvas Picker.qml already owns —
-// never a second copy of any of them.
+// not this page is even mounted. Settings.qml's Loader assigns it in
+// `onLoaded` rather than this file instantiating its own Picker, so a click
+// here runs through the exact same apply queue, output-state FileView and
+// accent-retint Canvas Picker.qml already owns — never a second copy of any
+// of them.
+//
+// Because the Loader assigns after construction, every read of `picker` in a
+// binding is guarded: for one frame it really is null, and an unguarded
+// binding spends that frame emitting type warnings.
 //
 // mode/output/fill colour used to be m/o/c keyboard cycles on the
 // standalone overlay's own Chrome; this page has no window-level key
@@ -34,16 +38,25 @@ import "../controls"
 ColumnLayout {
     id: root
 
-    required property Picker picker
+    // Not `required`, deliberately. A Loader assigns properties in its
+    // `onLoaded`, which runs *after* the component is constructed, so a
+    // required property is already too late by then and Qt warns
+    // "Required property picker was not initialized" — which is exactly what
+    // this page did until it didn't. Nullable plus a guard is the shape that
+    // survives being loaded rather than instantiated directly.
+    property var picker: null
 
     spacing: Theme.settingsGroupGap
 
     // Mirrors the standalone overlay's own open(): reload the Wallpapers/
-    // listing and start the cursor at the first tile. Runs once per mount,
-    // since Settings' Loader tears this whole item down on every exit from
-    // the Wallpaper page — a directory that changed while Settings sat open
-    // elsewhere must not show as this page's stale first read.
-    Component.onCompleted: {
+    // listing and start the cursor at the first tile. Driven by the picker
+    // arriving rather than by Component.onCompleted, since the Loader hands
+    // it over a moment after construction — on completion there is nothing
+    // to reload yet.
+    onPickerChanged: {
+        if (!root.picker)
+            return;
+
         root.picker.reload();
         root.picker.selected = 0;
     }
@@ -60,7 +73,7 @@ ColumnLayout {
             Select {
                 width: 160
                 options: ["fill", "stretch", "fit", "center", "tile"].map(m => ({ label: m, value: m }))
-                value: root.picker.mode
+                value: root.picker?.mode ?? "fill"
                 onActivated: value => root.picker.mode = value
             }
         }
@@ -71,8 +84,8 @@ ColumnLayout {
 
             Select {
                 width: 160
-                options: ["*"].concat(root.picker.outputNames).map(o => ({ label: o, value: o }))
-                value: root.picker.output
+                options: ["*"].concat(root.picker?.outputNames ?? []).map(o => ({ label: o, value: o }))
+                value: root.picker?.output ?? "*"
                 onActivated: value => root.picker.selectOutput(value)
             }
         }
@@ -84,7 +97,7 @@ ColumnLayout {
             Select {
                 width: 160
                 options: PickerLogic.COLOR_PALETTE.map(c => ({ label: c, value: c }))
-                value: root.picker.fillColor
+                value: root.picker?.fillColor ?? ""
                 onActivated: value => root.picker.fillColor = value
             }
         }
@@ -120,8 +133,8 @@ ColumnLayout {
         cellWidth: 200
         cellHeight: 130
 
-        model: root.picker.files
-        currentIndex: root.picker.selected
+        model: root.picker?.files ?? []
+        currentIndex: root.picker?.selected ?? 0
         highlightFollowsCurrentItem: true
 
         delegate: Rectangle {
@@ -138,7 +151,7 @@ ColumnLayout {
 
             EdgeStrip {
                 edge: "top"
-                active: cell.index === root.picker.selected
+                active: cell.index === (root.picker?.selected ?? -1)
                 thickness: 2
             }
 

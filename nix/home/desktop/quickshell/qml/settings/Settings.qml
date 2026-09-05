@@ -965,7 +965,16 @@ Scope {
                                                 visible: fieldRow.modelData.type === "text"
                                                 width: 220
 
-                                                text: root.valueOf(fieldRow.modelData)
+                                                // `?? ""` because a delegate
+                                                // outlives its model entry for
+                                                // a frame when the page
+                                                // changes: modelData is still
+                                                // bound but its field is gone,
+                                                // valueOf answers undefined,
+                                                // and QML warns "Unable to
+                                                // assign [undefined] to
+                                                // QString" on every switch.
+                                                text: root.valueOf(fieldRow.modelData) ?? ""
 
                                                 Connections {
                                                     target: valueField.input
@@ -995,7 +1004,13 @@ Scope {
                                                 from: fieldRow.modelData.min ?? 0
                                                 to: fieldRow.modelData.max ?? 100
                                                 stepSize: fieldRow.modelData.step ?? 0
-                                                value: root.valueOf(fieldRow.modelData)
+                                                // `?? 0` for the same reason
+                                                // the text field above needs
+                                                // `?? ""`, with the default
+                                                // typed to match: a slider
+                                                // handed undefined warns about
+                                                // a double, not a string.
+                                                value: root.valueOf(fieldRow.modelData) ?? 0
                                                 onMoved: value => root.edit(fieldRow.modelData.key, value)
                                             }
 
