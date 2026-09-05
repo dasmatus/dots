@@ -328,6 +328,35 @@ fn the_catalog_publishes_the_capability_vocabulary_it_was_built_from() {
     );
 }
 
+/// The path-grant group carries its own descriptor, and is deliberately
+/// NOT an eighth capability.
+///
+/// A path grant has no `Capability` variant and never appears in an app's
+/// `caps`. Putting a pseudo-entry into `Capability::ALL` to give the UI a
+/// label would push something meaningless into `argv`'s translation path,
+/// so it travels as its own field instead — while still getting its label
+/// from here rather than from the QML, for the same reason the capability
+/// labels do.
+#[test]
+fn the_path_grant_group_has_a_descriptor_but_is_not_a_capability() {
+    let catalog = build_catalog(&[], &empty_policy());
+
+    assert_eq!(catalog.path_grants.name, "paths");
+    assert!(!catalog.path_grants.label.is_empty());
+    assert!(!catalog.path_grants.description.is_empty());
+    assert!(
+        !catalog
+            .capabilities
+            .iter()
+            .any(|cap| cap.name == catalog.path_grants.name),
+        "the path group must not also appear in the capability vocabulary"
+    );
+    assert!(
+        Capability::parse(&catalog.path_grants.name).is_none(),
+        "'paths' must not parse as a real capability"
+    );
+}
+
 /// `Capability::as_str()`'s values are argv-shaped — "settings-ro",
 /// "repo-read" — chosen for `spawn_argv` to read back, not for a person to
 /// read off a button. A label that is merely the raw name means the label

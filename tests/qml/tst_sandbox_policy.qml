@@ -231,6 +231,62 @@ TestCase {
         compare(Policy.unconfinedEntries(catalogSet)[0].reason, "");
     }
 
+    // Named path grants are part of what an app's policy actually hands
+    // over, and the capability-first restructuring dropped them from the
+    // page entirely for a while — `CatalogEntry.paths` was populated and
+    // nothing read it. These pin the group back in place.
+    function test_path_grant_group_counts_apps_that_have_one() {
+        const catalogSet = {
+            version: 1,
+            capabilities: [],
+            pathGrants: { name: "paths", label: "Files and folders", description: "Read or write specific paths" },
+            apps: [
+                { appId: "nix-lint", name: "nix-lint", icon: null, tier: "container", caps: ["repo-write"], paths: [{ path: "~/.cargo", mode: "rw" }], source: null, state: {} },
+                { appId: "zed", name: "Zed", icon: "zed", tier: "vm", caps: ["net"], paths: [], source: null, state: {} }
+            ]
+        };
+        const group = Policy.pathGrantGroup(catalogSet);
+        compare(group.label, "Files and folders");
+        compare(group.count, 1, "only the app with a path grant counts");
+    }
+
+    // The label comes from the catalog's own `pathGrants` descriptor, the
+    // same rule the capability labels follow. Without the descriptor there
+    // is no group — never a name invented here.
+    function test_path_grant_group_is_absent_without_a_descriptor() {
+        compare(Policy.pathGrantGroup(null), null);
+        compare(Policy.pathGrantGroup({ version: 1, apps: [] }), null);
+    }
+
+    function test_apps_with_path_grants_spell_out_the_mode() {
+        // "ro" and "rw" differ by one character in a list where a misread
+        // is a wrong conclusion about what an app can do to a directory.
+        const catalogSet = {
+            version: 1,
+            pathGrants: { name: "paths", label: "Files and folders", description: "" },
+            apps: [
+                { appId: "nix-lint", name: "nix-lint", icon: null, tier: "container", caps: [], paths: [{ path: "~/.cargo", mode: "rw" }, { path: "/etc/nixos", mode: "ro" }], source: null, state: {} }
+            ]
+        };
+        const grants = Policy.appsWithPathGrants(catalogSet)[0].paths;
+        compare(grants[0].modeLabel, "Read and write");
+        compare(grants[1].modeLabel, "Read only");
+        compare(grants[0].path, "~/.cargo", "the path itself must survive verbatim");
+    }
+
+    function test_an_exempt_app_contributes_no_path_grants() {
+        // Same rule as everywhere else on this page: an unconfined app has
+        // no policy grants to list, only a reason.
+        const catalogSet = {
+            version: 1,
+            pathGrants: { name: "paths", label: "Files and folders", description: "" },
+            apps: [
+                { appId: "bitwarden", name: "Bitwarden", icon: null, tier: null, caps: [], paths: [{ path: "~/secrets", mode: "rw" }], source: null, state: {}, reason: "the secret broker" }
+            ]
+        };
+        compare(Policy.appsWithPathGrants(catalogSet).length, 0);
+    }
+
     function test_unconfined_entries_handles_nothing_to_show() {
         compare(Policy.unconfinedEntries(null).length, 0);
         compare(Policy.unconfinedEntries({}).length, 0);

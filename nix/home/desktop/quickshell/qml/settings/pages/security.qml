@@ -572,6 +572,47 @@ Item {
                             }
                         }
                     }
+
+                    // Named path grants, as a group beside the capabilities.
+                    //
+                    // Not a capability and not inside one: a path grant has
+                    // no `Capability` variant, and the capability-first
+                    // restructuring dropped it from this page entirely for a
+                    // while. It belongs at the top level for the same reason
+                    // Android and iOS put filesystem access in the
+                    // permission list — someone scanning for "what can reach
+                    // my files" has to find the answer here, not three taps
+                    // into an app they had to guess at first.
+                    //
+                    // Hidden at zero rather than shown empty: an app has to
+                    // declare a path grant for this to mean anything, and a
+                    // row reading "0 apps" is noise on a page whose whole
+                    // job is making the non-zero rows visible.
+                    SettingsRow {
+                        id: pathGroupRow
+
+                        readonly property var group: Policy.pathGrantGroup(root.catalogSet)
+
+                        Layout.fillWidth: true
+
+                        visible: pathGroupRow.group !== null && pathGroupRow.group.count > 0
+                        clickable: true
+
+                        title: pathGroupRow.group ? pathGroupRow.group.label : ""
+                        description: pathGroupRow.group
+                            ? `${pathGroupRow.group.count} app${pathGroupRow.group.count === 1 ? "" : "s"} granted specific paths`
+                            : ""
+
+                        onClicked: root.selectedCapability = pathGroupRow.group ? pathGroupRow.group.name : ""
+
+                        Text {
+                            text: "\u{F0142}"
+                            color: Theme.muted
+
+                            font.family: Theme.fontUi
+                            font.pointSize: Theme.settingsRowTitleFontSize
+                        }
+                    }
                 }
 
                 // Drilled into one capability: exactly the apps that
@@ -582,7 +623,14 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
 
-                    visible: root.catalogSet !== null && root.selectedCapability !== ""
+                    // "paths" is excluded because it has its own drill-in
+                    // below: `appsForCapability` matches against an app's
+                    // `caps`, where a path grant never appears, so this
+                    // section would render an empty list under a heading
+                    // that promised otherwise.
+                    visible: root.catalogSet !== null
+                             && root.selectedCapability !== ""
+                             && root.selectedCapability !== "paths"
                     spacing: Theme.settingsRowGap
 
                     SettingsRow {
@@ -673,6 +721,131 @@ Item {
                                     ]
                                     value: appPermRow.modelData.state
                                     onActivated: value => root.setCapability(appPermRow.modelData.appId, root.selectedCapability, value)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Drilled into path grants: each app with the specific
+                // paths its policy hands it, and whether each is readable
+                // or writable.
+                //
+                // Deliberately read-only, and that is not an omission. A
+                // capability is a yes/no the user can flip from here; a
+                // path grant names a specific directory, so "editing" it
+                // means choosing a new path, which is a file picker and a
+                // validation pass this page does not have. Showing them
+                // read-only is the honest half — the page states what is
+                // granted without implying it can be changed here. The
+                // alternative, leaving them off the page as the first
+                // version of this restructuring did, meant the permissions
+                // UI silently omitted part of what an app can reach.
+                ColumnLayout {
+                    Layout.fillWidth: true
+
+                    visible: root.catalogSet !== null && root.selectedCapability === "paths"
+                    spacing: Theme.settingsRowGap
+
+                    SettingsRow {
+                        Layout.fillWidth: true
+                        clickable: true
+
+                        title: "\u{F0141}  Back to permissions"
+
+                        onClicked: root.selectedCapability = ""
+                    }
+
+                    Repeater {
+                        model: Policy.appsWithPathGrants(root.catalogSet)
+
+                        delegate: Rectangle {
+                            id: pathAppRow
+
+                            required property var modelData
+
+                            Layout.fillWidth: true
+                            implicitHeight: pathAppLayout.implicitHeight + Theme.settingsRowPadding * 2
+
+                            radius: Theme.settingsRadius
+                            color: Theme.bgDark
+
+                            ColumnLayout {
+                                id: pathAppLayout
+
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: Theme.settingsRowPadding
+
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 16
+
+                                    Image {
+                                        Layout.preferredWidth: Theme.settingsIconSize
+                                        Layout.preferredHeight: Theme.settingsIconSize
+                                        Layout.alignment: Qt.AlignVCenter
+
+                                        visible: pathAppRow.modelData.icon !== ""
+                                        source: pathAppRow.modelData.icon !== "" ? Quickshell.iconPath(pathAppRow.modelData.icon, true) : ""
+                                        sourceSize.width: Theme.settingsIconSize
+                                        sourceSize.height: Theme.settingsIconSize
+                                        fillMode: Image.PreserveAspectFit
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+
+                                        text: pathAppRow.modelData.name
+                                        color: Theme.fg
+                                        elide: Text.ElideRight
+
+                                        font.family: Theme.fontUi
+                                        font.pointSize: Theme.settingsRowTitleFontSize
+                                    }
+                                }
+
+                                Repeater {
+                                    model: pathAppRow.modelData.paths
+
+                                    delegate: RowLayout {
+                                        id: grantRow
+
+                                        required property var modelData
+
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: Theme.settingsIconSize + 16
+
+                                        spacing: 12
+
+                                        Text {
+                                            Layout.fillWidth: true
+
+                                            text: grantRow.modelData.path
+                                            color: Theme.fg
+                                            elide: Text.ElideMiddle
+
+                                            font.family: Theme.fontMono
+                                            font.pointSize: Theme.settingsRowDescFontSize
+                                        }
+
+                                        // Spelled out rather than shown as
+                                        // "rw"/"ro": those differ by one
+                                        // character in a list where a
+                                        // misread is a wrong conclusion
+                                        // about what an app can do to a
+                                        // directory.
+                                        Text {
+                                            text: grantRow.modelData.modeLabel
+                                            color: grantRow.modelData.mode === "rw" ? Theme.accent : Theme.muted
+
+                                            font.family: Theme.fontUi
+                                            font.pointSize: Theme.settingsRowDescFontSize
+                                        }
+                                    }
                                 }
                             }
                         }

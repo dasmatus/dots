@@ -96,6 +96,31 @@ pub struct Catalog {
     /// own label table, which drifts the moment a capability is added here
     /// and fails silently when it does.
     pub capabilities: Vec<CapabilityInfo>,
+    /// The descriptor for named path grants, which the permissions page
+    /// shows as a group beside the capabilities.
+    ///
+    /// A separate field rather than an eighth entry in `capabilities`: a
+    /// path grant is not a [`Capability`], has no variant in
+    /// `Capability::ALL`, and adding a pseudo-entry there would put
+    /// something meaningless into `argv`'s translation path. It still gets
+    /// its label from here rather than from the QML, for the same reason
+    /// the capability labels do.
+    #[serde(rename = "pathGrants")]
+    pub path_grants: CapabilityInfo,
+}
+
+/// The presentation for the path-grant group.
+///
+/// Named "Files and folders" after the shape users already know from
+/// Android and iOS, where filesystem access sits in the permission list
+/// beside the camera and the microphone despite not being a sensor.
+#[must_use]
+pub fn path_grant_descriptor() -> CapabilityInfo {
+    CapabilityInfo {
+        name: "paths".to_string(),
+        label: "Files and folders".to_string(),
+        description: "Read or write specific paths outside the app's own directories".to_string(),
+    }
 }
 
 /// The capability vocabulary, derived from the enum rather than restated.
@@ -409,6 +434,7 @@ pub fn build_catalog(desktop_files: &[(PathBuf, String)], policy: &ResolvedPolic
         version: CATALOG_VERSION,
         apps,
         capabilities: capability_vocabulary(),
+        path_grants: path_grant_descriptor(),
     }
 }
 

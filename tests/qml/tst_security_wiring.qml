@@ -130,6 +130,34 @@ TestCase {
         verify(src.indexOf("unconfinedRow.modelData.reason") !== -1, "an exempt app's row must show the policy's own reason string");
     }
 
+    // Path grants must actually reach the page.
+    //
+    // `CatalogEntry.paths` was populated and read by nothing for a while:
+    // the capability-first restructuring dropped the rendering, and because
+    // no test asserted a path grant is ever shown, the permissions UI
+    // silently omitted part of what an app can reach. That is the specific
+    // failure this guards.
+    function test_path_grants_are_rendered_not_merely_collected() {
+        const src = securitySource();
+        verify(src.indexOf("Policy.pathGrantGroup(root.catalogSet)") !== -1,
+               "the top level must offer a path-grant group beside the capabilities");
+        verify(src.indexOf("Policy.appsWithPathGrants(root.catalogSet)") !== -1,
+               "drilling into path grants must list the apps that hold them");
+        verify(src.indexOf("modelData.modeLabel") !== -1,
+               "each grant must show whether it is read-only or writable, spelled out");
+    }
+
+    // The capability drill-in matches on an app's `caps`, where a path
+    // grant never appears — so if "paths" were not excluded there, the page
+    // would render an empty list under a heading promising otherwise.
+    function test_the_path_group_does_not_fall_into_the_capability_drill_in() {
+        const src = securitySource();
+        verify(src.indexOf('root.selectedCapability !== "paths"') !== -1,
+               "the capability drill-in must exclude the path group, which has its own view");
+        verify(src.indexOf('root.selectedCapability === "paths"') !== -1,
+               "the path group needs its own drill-in section");
+    }
+
     // The capability vocabulary must come from the binary, never from a
     // table in QML.
     //

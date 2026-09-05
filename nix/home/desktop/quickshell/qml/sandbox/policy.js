@@ -157,6 +157,60 @@ function appsForCapability(catalogSet, capability) {
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// The path-grant group, shown at the permissions section's top level
+// beside the capability groups.
+//
+// A named path grant — nix-lint's `~/.cargo` rw, say — is part of what an
+// app's policy actually hands over, and the capability-first restructuring
+// dropped it from the page entirely for a while. Filesystem access is not
+// a capability, has no `Capability` variant, and does not belong inside
+// one; it is its own kind of grant. Android and iOS both put it in the
+// permission list all the same, and for the same reason: someone scanning
+// for "what can reach my files" has to find an answer at the top level.
+//
+// The label comes from `catalog --json`'s `pathGrants` descriptor, not
+// from here, for exactly the reason the capability labels do.
+function pathGrantGroup(catalogSet) {
+    if (!catalogSet || !catalogSet.pathGrants)
+        return null;
+
+    const apps = appsWithPathGrants(catalogSet);
+    return {
+        name: catalogSet.pathGrants.name || "paths",
+        label: catalogSet.pathGrants.label || "",
+        description: catalogSet.pathGrants.description || "",
+        count: apps.length
+    };
+}
+
+// Every app carrying at least one named path grant, each with its own
+// grants. An unconfined app is excluded on the same grounds as everywhere
+// else on this page: it has no policy grants to list, only a reason.
+//
+// `mode` is carried through verbatim ("rw"/"ro") rather than being
+// translated here — the distinction between reading a path and writing it
+// is the entire point of showing the row, and a UI that flattened both to
+// "granted" would be hiding the more dangerous half.
+function appsWithPathGrants(catalogSet) {
+    return catalogApps(catalogSet)
+        .filter(app => !isUnconfined(app) && Array.isArray(app.paths) && app.paths.length > 0)
+        .map(app => ({
+            appId: app.appId,
+            name: app.name || app.appId,
+            icon: app.icon || "",
+            paths: app.paths.map(grant => ({
+                path: grant.path || "",
+                mode: grant.mode || "",
+                // Spelled out because "ro" and "rw" differ by one character
+                // and sit in a list where a misread is a wrong decision.
+                modeLabel: grant.mode === "rw" ? "Read and write"
+                         : grant.mode === "ro" ? "Read only"
+                         : String(grant.mode || "")
+            }))
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // Apps the policy exempts outright — shown once, unconditionally, at the
 // permissions section's own top level rather than behind any one
 // capability's drill-in, since an unconfined app has no capability list
