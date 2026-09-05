@@ -51,6 +51,7 @@ let
         ../nix/modules/system/sandbox-host.nix
         ../nix/modules/system/users.nix
         ../nix/modules/system/hardening.nix
+        ../nix/modules/system/apparmor.nix
         ../nix/modules/services/maintenance.nix
         ../nix/modules/desktop/desktop.nix
         ../nix/modules/system/form-factor.nix

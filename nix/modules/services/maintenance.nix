@@ -52,4 +52,42 @@ in
       ${pkgs.coreutils}/bin/chown ${settings.username}: ${dotsRepo}/flake.lock
     '';
   };
+
+  # Lynis PKGS-7398 asks for a package audit tool. The generic answer (a distro
+  # package auditor) has nothing to read on NixOS, so this uses vulnix, which
+  # matches store paths in the running system closure against NVD instead of
+  # against a package database that does not exist here.
+  #
+  # Weekly rather than daily, and it only reports: nothing here upgrades or
+  # reboots on a CVE. Read it with `journalctl -u vulnix`. Exit status 2 means
+  # vulnix found something, which systemd would otherwise call a failed unit,
+  # so the status is remapped to success and the finding lives in the log.
+  systemd.services.vulnix = {
+    description = "Scan the system closure for known vulnerabilities";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.vulnix}/bin/vulnix --system";
+      SuccessExitStatus = [
+        0
+        2
+      ];
+      # Read-only, unprivileged, no network beyond the NVD fetch it does itself.
+      DynamicUser = true;
+      ProtectSystem = "strict";
+      ProtectHome = true;
+      PrivateTmp = true;
+      NoNewPrivileges = true;
+      CacheDirectory = "vulnix";
+    };
+  };
+
+  systemd.timers.vulnix = {
+    description = "Weekly vulnerability scan of the system closure";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "weekly";
+      Persistent = true;
+      RandomizedDelaySec = "1h";
+    };
+  };
 }
