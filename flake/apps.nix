@@ -506,7 +506,7 @@ in
     sandboxed = true;
     text = ''
       ${cdRepoRoot}
-      rm -rf result result-* *.qcow2 vm-state-*
+      rm -rf -- result result-* *.qcow2 vm-state-*
       echo "cleaned build + VM-test leftovers"
     '';
   };

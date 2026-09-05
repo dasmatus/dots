@@ -5,8 +5,8 @@
 # `org.freedesktop.machine1.manage-machines`, which is `auth_admin_keep`: a
 # real admin password prompt, even for an active wheel session, on every
 # `nix run .#<app>`. The unprivileged `--user` scope never calls that action,
-# so it never prompts. Two things the user-scope route needs are missing from
-# a stock NixOS system; this module supplies them.
+# so it never prompts. Three things the user-scope route needs are missing
+# from a stock NixOS system; this module supplies them.
 #
 # Deliberately its own file rather than folded into virtualisation.nix: that
 # module is the libvirt/virt-manager desktop stack and exists for an unrelated
@@ -30,9 +30,22 @@
   # normal search path, so this references what ships instead of
   # transcribing unit text that would silently drift on the next systemd
   # version bump.
+  #
+  # systemd-mountfsd is the second, sibling requirement, found the same way:
+  # once nsresourced let `systemd-nspawn --user` past the UID-range hurdle
+  # above, the very next thing it does — mounting the `--ephemeral` overlay
+  # over a plain (non-btrfs) `--directory=` tree — fails with "Failed to
+  # connect to mountfsd: No such file or directory" without it. Confirmed
+  # directly by the VM test (tests/sandbox.nix, "start a long-lived container"
+  # subtest): nsresourced alone was NOT enough to get a machine running at
+  # all, only far enough to hit this next missing daemon. Same shape as
+  # nsresourced in every respect that matters here — ships in this systemd,
+  # parked under `example/systemd/system/`, socket-activated, no polkit.
   systemd.additionalUpstreamSystemUnits = [
     "systemd-nsresourced.service"
     "systemd-nsresourced.socket"
+    "systemd-mountfsd.service"
+    "systemd-mountfsd.socket"
   ];
 
   # additionalUpstreamSystemUnits only makes the unit file available; NixOS
@@ -41,12 +54,14 @@
   # at boot. The service doesn't: it's socket-activated (Requires= the socket
   # unit), so the socket pulls it in on first connection.
   systemd.sockets.systemd-nsresourced.wantedBy = [ "sockets.target" ];
+  systemd.sockets.systemd-mountfsd.wantedBy = [ "sockets.target" ];
 
-  # nsresourced's Varlink socket (/run/systemd/io.systemd.NamespaceResource)
-  # ships with SocketMode=0666 and no polkit check at all — any local process
-  # can dial it directly. That's deliberate upstream design, and it's exactly
-  # what makes the unprivileged-user-scope route work with zero prompts,
-  # unlike the system-scope machinectl route rejected above.
+  # Both Varlink sockets (nsresourced's /run/systemd/io.systemd.NamespaceResource,
+  # mountfsd's /run/systemd/io.systemd.MountFileSystem) ship with
+  # SocketMode=0666 and no polkit check at all — any local process can dial
+  # either directly. That's deliberate upstream design, and it's exactly what
+  # makes the unprivileged-user-scope route work with zero prompts, unlike
+  # the system-scope machinectl route rejected above.
 
   # systemd-vmspawn needs virtiofsd to serve `--bind=` shares into a VM — it's
   # how live permission grants reach the VM tier at all, so without it that
