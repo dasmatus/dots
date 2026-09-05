@@ -16,6 +16,7 @@ use std::process::ExitCode;
 
 use dots_sandbox::broker::{AuditLog, Interactivity};
 use dots_sandbox::catalog;
+use dots_sandbox::daemon;
 use dots_sandbox::error::PolicyError;
 use dots_sandbox::grants::{self, GrantKind};
 use dots_sandbox::launch;
@@ -99,8 +100,61 @@ fn main() -> ExitCode {
         "list" => list_command(),
         "report" => report_command(&rest),
         "catalog" => catalog_command(&rest),
+        "daemon" => daemon_command(&rest),
         other => usage_failure(&format!("unknown command {other:?}")),
     }
+}
+
+/// `dots-sandbox daemon` — claim `org.dots.Sandbox1` on the session bus and
+/// serve until stopped.
+///
+/// Blocks forever by design: it is a systemd `Type=dbus` service, and
+/// systemd owns its lifetime. It takes no arguments beyond the policy path
+/// overrides every other subcommand already honours, so a broken policy
+/// fails at startup where systemd will report it, rather than on the first
+/// method call where a UI would have to explain it.
+fn daemon_command(args: &[String]) -> ExitCode {
+    if !args.is_empty() {
+        return usage_failure("dots-sandbox daemon: takes no arguments");
+    }
+
+    let Ok(home) = env::var("HOME") else {
+        eprintln!("dots-sandbox daemon: cannot resolve the policy paths: $HOME is not set");
+        return ExitCode::FAILURE;
+    };
+    let home = PathBuf::from(home);
+
+    let defaults = match defaults_path(None) {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("dots-sandbox daemon: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let sandbox = match daemon::Sandbox::new(home.clone(), defaults, overrides_path(&home)) {
+        Ok(sandbox) => sandbox,
+        Err(err) => return report_and_fail(err),
+    };
+
+    // zbus 5 runs on async-io/smol rather than tokio, so this is the whole
+    // runtime: one blocking call that drives the connection for the life of
+    // the process. Deliberately not a tokio runtime — nothing else in this
+    // repo needs one, and the launch path must stay free of it.
+    zbus::block_on(async {
+        match daemon::serve(sandbox).await {
+            Ok(_connection) => {
+                tracing::info!(bus = daemon::BUS_NAME, "serving");
+                // Park. Dropping the connection would release the name.
+                std::future::pending::<()>().await;
+                ExitCode::SUCCESS
+            }
+            Err(err) => {
+                eprintln!("dots-sandbox daemon: {err}");
+                ExitCode::FAILURE
+            }
+        }
+    })
 }
 
 fn usage_failure(message: &str) -> ExitCode {

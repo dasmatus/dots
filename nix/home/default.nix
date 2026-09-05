@@ -50,6 +50,7 @@
     ./apps/zed.nix
     ./sandbox/machined.nix
     ./sandbox/wrap.nix
+    ./sandbox/daemon.nix
     ./sandbox/triage.nix
   ];
   home.stateVersion = "26.05";
