@@ -873,6 +873,17 @@ Scope {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
+                        // QML layouts do not clip. When a page's content is
+                        // taller than the space it was given, the children
+                        // simply overflow — and because this Item sits inside
+                        // a Panel that draws no boundary of its own, that
+                        // overflow renders *outside the panel*, over the
+                        // desktop. Observed exactly that: the Wallpaper page's
+                        // rows painting below the panel's bottom edge.
+                        // Clipping keeps a too-tall page ugly instead of
+                        // broken.
+                        clip: true
+
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 20
