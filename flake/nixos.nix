@@ -26,6 +26,11 @@ let
         aipageChrome = inputs.self.packages.x86_64-linux.aipage-chrome;
         pgAgentmem = inputs.self.packages.x86_64-linux.pg-agentmem;
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
+        # The sandbox CLI. The Settings panel's Security page shells out to
+        # `dots-sandbox report --json` and `dots-sandbox policy dump`, so the
+        # binary has to be on the session's PATH — packaging it in the flake
+        # alone left the page waiting forever on a command that did not exist.
+        dotsSandbox = inputs.self.packages.x86_64-linux.dots-sandbox;
         claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;
         betterbird = inputs.self.packages.x86_64-linux.betterbird;
       };

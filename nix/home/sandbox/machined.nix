@@ -162,11 +162,23 @@
 # never through `systemctl start systemd-nspawn@…`. Wiring an unused
 # template is not free insurance; it is a unit nobody starts that someone
 # later has to explain away. Left out on purpose.
-{ pkgs, lib, ... }:
+{
+  pkgs,
+  lib,
+  dotsSandbox,
+  ...
+}:
 let
   systemdUser = "${pkgs.systemd}/example/systemd/user";
 in
 {
+  # The sandbox CLI itself. Without it on PATH the Settings panel's Security
+  # page waits forever on `dots-sandbox report --json` and
+  # `dots-sandbox policy dump` — it renders "Reading…" and never resolves,
+  # because the command it shells out to does not exist. Packaging the crate
+  # in the flake made it buildable, not installed; this is what installs it.
+  home.packages = [ dotsSandbox ];
+
   xdg.configFile = {
     # The daemon. No enablement of its own — reached only via the socket
     # (varlink registration) or the D-Bus alias below (bus-name lookup).

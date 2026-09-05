@@ -698,8 +698,18 @@ Scope {
                 // --- Header: "Settings" over the sidebar column, search
                 // over the content column. ---
                 RowLayout {
+                    id: headerRow
+
                     Layout.fillWidth: true
+                    // preferredHeight alone is a request, not a cap: with no
+                    // sibling claiming the slack, a ColumnLayout will happily
+                    // stretch this row to fill the panel. Both children below
+                    // anchor their content to verticalCenter, so a stretched
+                    // header does not look tall — it looks like the title and
+                    // the search field have slid to the middle of the panel,
+                    // which is exactly the symptom this pins.
                     Layout.preferredHeight: Theme.settingsHeaderHeight
+                    Layout.maximumHeight: Theme.settingsHeaderHeight
 
                     spacing: 0
 
@@ -782,6 +792,8 @@ Scope {
 
                 // --- Body: sidebar nav | content column. ---
                 RowLayout {
+                    id: bodyRow
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
@@ -884,9 +896,32 @@ Scope {
                         // broken.
                         clip: true
 
-                        ColumnLayout {
+                        // Scrollable, because clipping alone turns "content
+                        // spills onto the desktop" into "content is
+                        // unreachable" — the Keyboard page lists every SUPER
+                        // bind and runs well past the panel's height. The
+                        // Flickable owns the scrolling; the ColumnLayout
+                        // inside keeps doing the layout, sized to the
+                        // viewport's width and to its own natural height.
+                        Flickable {
+                            id: contentFlick
+
                             anchors.fill: parent
                             anchors.margins: 20
+
+                            contentWidth: width
+                            contentHeight: contentColumn.implicitHeight
+                            // StopAtBounds, not the default elastic overscroll:
+                            // this is a settings form, not a touch surface, and
+                            // rubber-banding a form reads as jank rather than
+                            // as feedback.
+                            boundsBehavior: Flickable.StopAtBounds
+                            flickableDirection: Flickable.VerticalFlick
+
+                        ColumnLayout {
+                            id: contentColumn
+
+                            width: contentFlick.width
 
                             spacing: Theme.settingsGroupGap
 
@@ -1161,7 +1196,13 @@ Scope {
                             // one that costs a re-read on every visit.
                             Loader {
                                 Layout.fillWidth: true
-                                Layout.fillHeight: true
+                                // Not fillHeight: inside a Flickable the
+                                // column's height comes from its children's
+                                // implicit heights, so fillHeight resolves to
+                                // zero and the page loads but renders nothing.
+                                // The viewport's height is what "fill" means
+                                // here.
+                                Layout.preferredHeight: contentFlick.height
 
                                 active: root.showingSecurityPage
                                 visible: active
@@ -1179,7 +1220,7 @@ Scope {
                             // states, and an accent retint racing itself.
                             Loader {
                                 Layout.fillWidth: true
-                                Layout.fillHeight: true
+                                Layout.preferredHeight: contentFlick.height
 
                                 active: root.showingWallpaperPage
                                 visible: active
@@ -1190,7 +1231,7 @@ Scope {
 
                             Loader {
                                 Layout.fillWidth: true
-                                Layout.fillHeight: true
+                                Layout.preferredHeight: contentFlick.height
 
                                 active: root.showingDisplaysPage
                                 visible: active
@@ -1199,7 +1240,11 @@ Scope {
 
                             Item {
                                 Layout.fillWidth: true
-                                Layout.fillHeight: true
+                                // Same reason as the page Loaders above: a
+                                // fillHeight item is zero-height inside a
+                                // Flickable, and a zero-height box has nothing
+                                // for EmptyState to centre itself in.
+                                Layout.preferredHeight: contentFlick.height
 
                                 visible: !root.showingKeyboardPage && !root.showingSecurityPage && root.visibleRows.length === 0
 
@@ -1210,12 +1255,18 @@ Scope {
                                 }
                             }
 
+                            // A trailing spacer that used to absorb the
+                            // column's slack. Inside a Flickable there is no
+                            // slack to absorb — the column is exactly as tall
+                            // as its content — so it keeps only its old job of
+                            // marking the end of the rows.
                             Item {
                                 Layout.fillWidth: true
-                                Layout.fillHeight: true
+                                Layout.preferredHeight: 0
 
                                 visible: !root.showingKeyboardPage && !root.showingSecurityPage && root.visibleRows.length > 0
                             }
+                        }
                         }
 
                         // The second surface. Built once and hidden rather

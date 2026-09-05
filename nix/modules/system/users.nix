@@ -11,6 +11,7 @@
   aipageFirefox,
   aipageChrome,
   settingsMenu,
+  dotsSandbox,
   claudeDesktop,
   betterbird,
   ...
@@ -116,6 +117,7 @@ in
         aipageFirefox
         aipageChrome
         settingsMenu
+        dotsSandbox
         claudeDesktop
         betterbird
         ;
