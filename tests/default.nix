@@ -16,6 +16,16 @@
   inputs,
 }:
 let
+  # sandbox — a real pkgs.testers.runNixOSTest (unlike sandboxMachinedTest
+  # above): the previously-unsettled question of whether `machinectl --user
+  # bind` actually works against a user-scope machine needs
+  # `systemd-nsresourced` genuinely running, a real unprivileged
+  # `systemd-nspawn` machine, and a real `machinectl` invocation -- none of
+  # which an eval-only check or a Nix build sandbox can produce. See
+  # tests/sandbox.nix for the full brief and why this could not be settled
+  # any other way.
+  sandboxTest = import ./sandbox.nix { inherit pkgs lib inputs dotsFlake; };
+
   # session-units — eval-only, costs nothing (no VM, no build): a standalone
   # home-manager evaluation checked with five `assert`s. Everything else in
   # this file is a heavy `pkgs.testers.runNixOSTest`; this one is here so
@@ -701,6 +711,7 @@ in
   session-units = sessionUnitsTest;
   proton-calendar = protonCalendarTest;
   sandbox-machined = sandboxMachinedTest;
+  sandbox = sandboxTest;
   iso-boot = isoBootTest;
   userborn-reboot-login = userbornRebootLogin;
   limine-install-home = limineHomeTest;
