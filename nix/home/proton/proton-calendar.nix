@@ -223,6 +223,17 @@ in
       # timer and let the next scheduled run pick things up.
       Restart = "on-failure";
       RestartSec = "30m";
+
+      # Only these two: this unit reads a persisted proton-cli session
+      # under ~/.config/proton-cli and writes the exported .ics wherever
+      # Thunderbird reads it from, so ProtectSystem/ProtectHome need a
+      # precise ReadWritePaths for both — real work tracked separately,
+      # not added here (see research-units.md §4 item 6). These two are
+      # safe regardless: neither proton-cli nor the export script has a
+      # legitimate reason to gain privilege via a setuid/setgid exec, or
+      # to create a new setuid/setgid file.
+      NoNewPrivileges = true;
+      RestrictSUIDSGID = true;
     };
   };
 

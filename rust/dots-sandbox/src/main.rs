@@ -15,14 +15,16 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use dots_sandbox::broker::{AuditLog, Interactivity};
+use dots_sandbox::catalog;
 use dots_sandbox::error::PolicyError;
 use dots_sandbox::grants::{self, GrantKind};
 use dots_sandbox::launch;
-use dots_sandbox::policy::{self, PolicyFile};
+use dots_sandbox::policy::{self, PolicyFile, ResolvedPolicySet};
 use dots_sandbox::report;
 
 const USAGE: &str =
-    "usage: dots-sandbox <policy validate|policy dump|run|grant|revoke|list> [OPTIONS...]
+    "usage: dots-sandbox <policy validate|policy dump|run|grant|revoke|list|catalog> \
+[OPTIONS...]
 
   policy validate [PATH]   parse and check a policy file under defaults
                            semantics; PATH defaults to
@@ -59,7 +61,15 @@ const USAGE: &str =
       what recently touched a sensor, and how hard this machine is to
       attack. Read-only and unprivileged throughout; every external
       command it consults is optional, and a missing one degrades only
-      its own card.";
+      its own card.
+
+  catalog [--json]
+      Print the Settings permissions-page catalog as one JSON document:
+      one entry per app carrying X-Dots-Sandbox-AppId in a desktop file
+      under $XDG_DATA_HOME/applications or $XDG_DATA_DIRS/applications
+      (first directory wins), each merged with its currently resolved
+      policy. An app the defaults catalog defines but no desktop file
+      names still appears, with a null source.";
 
 fn main() -> ExitCode {
     tracing_subscriber::fmt()
@@ -88,6 +98,7 @@ fn main() -> ExitCode {
         "revoke" => revoke_command(&rest),
         "list" => list_command(),
         "report" => report_command(&rest),
+        "catalog" => catalog_command(&rest),
         other => usage_failure(&format!("unknown command {other:?}")),
     }
 }
@@ -416,6 +427,54 @@ fn report_command(args: &[String]) -> ExitCode {
         }
         Err(err) => {
             eprintln!("dots-sandbox report: failed to serialize the report: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Loads defaults + overrides exactly the way `policy dump` does and
+/// resolves every app the defaults catalog defines in one pass — the
+/// input `catalog` needs to pair against a desktop-file scan. Every
+/// error path has already printed its own diagnostic by the time this
+/// returns `Err`, so the caller only needs to propagate the exit code.
+fn resolve_full_policy(home: &Path) -> Result<ResolvedPolicySet, ExitCode> {
+    let defaults_path = defaults_path(None).map_err(|message| usage_failure(&message))?;
+    let defaults = read_policy_file(&defaults_path).map_err(report_and_fail)?;
+    let overrides_path = overrides_path(home);
+    let overrides = if overrides_path.exists() {
+        read_policy_file(&overrides_path).map_err(report_and_fail)?
+    } else {
+        policy::empty_overrides(defaults.version)
+    };
+    policy::resolve_all(&defaults, &overrides, home).map_err(report_and_fail)
+}
+
+fn catalog_command(args: &[String]) -> ExitCode {
+    // `--json` is optional and changes nothing today, mirroring `report`:
+    // it names the one output shape this subcommand knows, leaving room
+    // for a future human-readable mode without an ambiguous default to
+    // change later.
+    if !(args.is_empty() || args == ["--json"]) {
+        return usage_failure("dots-sandbox catalog: only an optional `--json` is supported");
+    }
+    let home = match env::var("HOME") {
+        Ok(home) => PathBuf::from(home),
+        Err(_) => {
+            return usage_failure("cannot resolve the XDG applications scan: $HOME is not set")
+        }
+    };
+    let resolved = match resolve_full_policy(&home) {
+        Ok(resolved) => resolved,
+        Err(code) => return code,
+    };
+    let catalog = catalog::scan(&home, &resolved);
+    match serde_json::to_string(&catalog) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("dots-sandbox catalog: failed to serialize the catalog: {err}");
             ExitCode::FAILURE
         }
     }

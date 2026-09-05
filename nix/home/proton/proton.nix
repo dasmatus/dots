@@ -66,6 +66,25 @@
       ExecStart = "${lib.getExe pkgs.proton-vpn} --start-minimized";
       Restart = "on-failure";
       RestartSec = 5;
+
+      # Only the seven directives with no plausible conflict with this
+      # unit's job. Held back on purpose: MemoryDenyWriteExecute (Python
+      # GTK apps commonly JIT via their bindings/typelib loading),
+      # RestrictAddressFamilies (this app monitors NetworkManager over
+      # D-Bus/netlink — could plausibly cut into route/link monitoring,
+      # untested here), ProtectHome/ProtectSystem (untested against
+      # wherever proton-vpn keeps its own state/config). Rationale for the
+      # seven that are safe matches mkUnit's baseline in
+      # session/default.nix: none of clock/hostname/kernel-log/cgroup/
+      # personality/realtime/setuid-setgid access is part of running a
+      # tray-docked VPN GUI.
+      ProtectClock = true;
+      ProtectHostname = true;
+      ProtectKernelLogs = true;
+      ProtectControlGroups = true;
+      LockPersonality = true;
+      RestrictRealtime = true;
+      RestrictSUIDSGID = true;
     };
     Install = {
       WantedBy = [ "graphical-session.target" ];

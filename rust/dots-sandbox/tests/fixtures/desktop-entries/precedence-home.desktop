@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Zed (user override)
+Icon=zed
+Exec=zed %U
+X-Dots-Sandbox-AppId=zed
+X-Dots-Sandbox-Caps=net;
+X-Dots-Sandbox-Tier=vm

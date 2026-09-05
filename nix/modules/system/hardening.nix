@@ -62,10 +62,12 @@
   # /usr/bin/brave. NixOS has no such paths, so most will load and match
   # nothing. That makes this close to risk-free and also close to
   # protection-free — real confinement here needs profiles written against
-  # Nix store paths, which is a separate piece of work. What this does buy is
-  # honesty: the profile count stops being zero, so the security dashboard
-  # can report what is actually loaded instead of implying protection that
-  # does not exist.
+  # Nix store paths, which is nix/modules/system/apparmor-store.nix (see
+  # that file for the generator and the store-catchall complain-mode
+  # profile it ships; it is imported alongside this module in
+  # flake/nixos.nix). What this does buy is honesty: the profile count
+  # stops being zero, so the security dashboard can report what is
+  # actually loaded instead of implying protection that does not exist.
   #
   # Only regular files are eligible: the directory also holds abstractions/,
   # tunables/ and disable/, which are include fragments rather than profiles,

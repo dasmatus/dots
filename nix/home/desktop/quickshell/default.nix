@@ -291,6 +291,26 @@ in
 
         Restart = "on-failure";
         RestartSec = 2;
+
+        # Only the seven directives with no plausible conflict with this
+        # unit's job. Held back on purpose, per the comment above this
+        # unit's own Qt6/QV4 JIT reasoning: MemoryDenyWriteExecute is a
+        # likely breakage (QML's JS engine JITs), RestrictAddressFamilies
+        # (the shell reaches Wayland, D-Bus, and network-status sources)
+        # and ProtectHome/ProtectSystem (the shell reads wallpapers, theme
+        # state, and other files across $HOME) are all untested here and
+        # plausible breakage too, so none of the four are added. Rationale
+        # for the seven that are safe matches mkUnit's baseline in
+        # session/default.nix: rendering the desktop shell has no need for
+        # clock/hostname/kernel-log/cgroup/personality/realtime/setuid-
+        # setgid access.
+        ProtectClock = true;
+        ProtectHostname = true;
+        ProtectKernelLogs = true;
+        ProtectControlGroups = true;
+        LockPersonality = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
       };
       Install = {
         WantedBy = [ "graphical-session.target" ];

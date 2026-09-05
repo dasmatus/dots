@@ -90,6 +90,7 @@ QtObject {
     readonly property int settingsGroupGap: 32
     readonly property int settingsControlColumn: 320
     readonly property int settingsRadius: 10
+    readonly property int settingsIconSize: 20
     readonly property real settingsPanelWidthFactor: 0.72
     readonly property real settingsPanelHeightFactor: 0.8
     readonly property real settingsTitleFontSize: 24

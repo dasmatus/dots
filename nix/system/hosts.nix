@@ -13,6 +13,7 @@
   config,
   lib,
   pkgs,
+  settings,
   ...
 }:
 let
@@ -40,6 +41,17 @@ in
       }
     else
       { };
+
+  # `dots-sandbox triage --assist` (nix/home/sandbox/triage.nix) is a TRIAGE-ONLY
+  # consumer of the same services.ollama below — it is never a reason to flip
+  # dots.ai.ollama on, and this warning is purely advisory (the triage
+  # subcommand already degrades to heuristics-only, without hanging, when
+  # ollama is unreachable; see the contract). It exists only to catch the
+  # "enabled the assist flag, forgot ollama is off" case at rebuild time
+  # instead of silently at first triage invocation.
+  warnings = lib.optional (settings.triageAssistEnable && !config.dots.ai.ollama) ''
+    settings.triageAssistEnable is on but dots.ai.ollama is off: `dots-sandbox triage --assist` will find nothing at ${settings.aiOllamaEndpoint} and fall back to heuristics-only until services.ollama is enabled.
+  '';
 
   # Local model server for the fish `claude`/`codex` launch aliases and as
   # an optional Codex model_provider. Gated on the installer "AI" screen

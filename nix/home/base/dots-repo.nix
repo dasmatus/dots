@@ -87,6 +87,16 @@ in
       # Network may not be up yet at first login; retry a handful of times.
       Restart = "on-failure";
       RestartSec = 30;
+
+      # Only these two: this unit clones the repo into $HOME and chowns
+      # flake.lock, so ProtectSystem/ProtectHome need a precise
+      # ReadWritePaths naming the clone path — real work tracked
+      # separately, not added here (see research-units.md §4 item 6).
+      # These two are safe regardless: neither git nor the restore script
+      # has a legitimate reason to gain privilege via a setuid/setgid
+      # exec, or to create a new setuid/setgid file.
+      NoNewPrivileges = true;
+      RestrictSUIDSGID = true;
     };
     Install.WantedBy = [ "default.target" ];
   };

@@ -185,6 +185,46 @@ let
       Service = {
         ExecStart = cfg.exec.${a.name};
         Slice = if isDaemonLike a then "session.slice" else "app-graphical.slice";
+
+        # Baseline sandboxing applied to every daemon/startup/app/action unit
+        # this generator emits (awww-daemon, nm-applet, and all eighteen
+        # `dots-<action>@` templates, including the three screenshot units
+        # hyprland.nix layers a KillMode override onto). Each directive here
+        # blocks one narrow kernel/namespace surface none of these processes
+        # touch, so the set is safe across the whole table rather than
+        # picked per-unit:
+        #   ProtectClock        - blocks changing the system/RTC clock;
+        #                         nothing in actions.nix sets time.
+        #   ProtectHostname     - blocks changing the host/domainname; no
+        #                         action here is a hostname-setting tool.
+        #   ProtectKernelLogs   - blocks reading/writing the kernel ring
+        #                         buffer; these are desktop apps/launchers,
+        #                         not log tooling.
+        #   ProtectControlGroups - blocks writes to the cgroupfs; none of
+        #                         these units manage cgroups themselves.
+        #   LockPersonality     - blocks switching the process's ABI
+        #                         personality (e.g. to 32-bit uname
+        #                         emulation); no action here needs that.
+        #   RestrictRealtime    - blocks requesting SCHED_FIFO/RR; nothing
+        #                         in this table is a realtime workload.
+        #   RestrictSUIDSGID    - blocks the unit creating new setuid/setgid
+        #                         files; none of these write files at all,
+        #                         let alone ones needing that bit.
+        # Left out deliberately: MemoryDenyWriteExecute (quickshell's own
+        # unit is JIT-heavy and lives outside this generator, but some
+        # actions.nix entries launch general-purpose GUI apps whose
+        # toolkits may JIT too — untested here), RestrictAddressFamilies
+        # and ProtectHome/ProtectSystem (several entries, e.g. the file
+        # manager and editor, need real filesystem and network access) —
+        # see files-index.nix and the individually-hardened units for
+        # where those apply instead.
+        ProtectClock = true;
+        ProtectHostname = true;
+        ProtectKernelLogs = true;
+        ProtectControlGroups = true;
+        LockPersonality = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
       }
       // lib.optionalAttrs (a.kind == "startup" || a.kind == "action") {
         Type = "oneshot";

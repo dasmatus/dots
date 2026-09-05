@@ -51,5 +51,18 @@ in
       ${config.nix.package}/bin/nix flake update --flake ${dotsRepo}
       ${pkgs.coreutils}/bin/chown ${settings.username}: ${dotsRepo}/flake.lock
     '';
+    # Only these two: this unit runs as root, writes into $HOME (the
+    # clone) and needs to build a boot generation and touch /boot, so
+    # ProtectSystem=strict/ProtectHome and friends need a precise
+    # ReadWritePaths computed from settings.username — real, non-mechanical
+    # work tracked separately, not a drive-by addition here (see
+    # research-units.md §4 item 6). These two are safe regardless: neither
+    # `nix flake update` nor the nixos-rebuild machinery this unit drives
+    # has a legitimate reason to gain privilege via a setuid/setgid exec,
+    # or to create a new setuid/setgid file.
+    serviceConfig = {
+      NoNewPrivileges = true;
+      RestrictSUIDSGID = true;
+    };
   };
 }
