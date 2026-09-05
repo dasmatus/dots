@@ -87,7 +87,7 @@ pub fn decide(
         (PolicyState::Allow, _) => Outcome::AllowedByPolicy,
         (PolicyState::Deny, _) => Outcome::DeniedByPolicy,
         (PolicyState::Ask, Interactivity::NonInteractive) => Outcome::DeniedNonInteractive,
-        (PolicyState::Ask, Interactivity::Interactive) => prompt(capability),
+        (PolicyState::Ask, Interactivity::Interactive) => prompt(app_id, capability),
     };
     audit.log(&AuditEvent {
         ts_ms: now_ms(),
@@ -108,10 +108,10 @@ pub fn decide(
 /// which in this sandboxed build environment means no `qs` binary and no
 /// TTY, and so isn't itself something an automated test can cover
 /// meaningfully; see this crate's tests for the split.
-fn prompt(capability: &str) -> Outcome {
+fn prompt(app_id: &str, capability: &str) -> Outcome {
     let has_wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
     let gui_reply = if has_wayland {
-        gui_prompt(capability, PROMPT_TIMEOUT)
+        gui_prompt(app_id, capability, PROMPT_TIMEOUT)
     } else {
         None
     };
@@ -168,9 +168,14 @@ pub fn resolve_prompt(
 /// what `qs ipc call` prints for a boolean-returning QML function.
 /// Returns `None` if the call could not be made or timed out, distinct
 /// from an explicit `false` reply.
-fn gui_prompt(capability: &str, timeout: Duration) -> Option<bool> {
+fn gui_prompt(app_id: &str, capability: &str, timeout: Duration) -> Option<bool> {
+    // `app_id` is passed as well as `capability` because the dialog's
+    // "allow always" writes an override, and an override is per app: without
+    // knowing which app asked, that answer could only be recorded globally,
+    // which is a far broader grant than the user believes they are giving.
+    // Prompt.qml's handler already takes `ask(appId, capability)`.
     let mut child = Command::new("qs")
-        .args(["ipc", "call", "sandboxprompt", "ask", capability])
+        .args(["ipc", "call", "sandboxprompt", "ask", app_id, capability])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
