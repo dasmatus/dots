@@ -7,7 +7,8 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::settings::{
-    validate_git_email, validate_git_name, validate_hostname, validate_proton_email, Settings,
+    validate_git_email, validate_git_name, validate_git_signing_key, validate_hostname,
+    validate_ollama_endpoint, validate_proton_email, validate_timezone, Settings,
 };
 
 /// What editing a row does.
@@ -20,6 +21,27 @@ pub enum Action {
     },
     /// A boolean value at `key`.
     Toggle { key: &'static str },
+    /// A validated integer value at `key`, bounded to `[min, max]` in steps
+    /// of `step` — the range a slider renders against. `validate` is an
+    /// extra hook for rules the range alone does not express; pass
+    /// `|_| Ok(())` when the range is the whole rule.
+    EditInt {
+        key: &'static str,
+        prompt: &'static str,
+        min: i64,
+        max: i64,
+        step: i64,
+        validate: fn(i64) -> Result<(), String>,
+    },
+    /// A string value at `key` constrained to one of `options` — a
+    /// dropdown. `options` reaches the dump payload too, so the front end
+    /// never keeps a second copy of the choices that could drift out of
+    /// sync with this one.
+    Select {
+        key: &'static str,
+        prompt: &'static str,
+        options: &'static [&'static str],
+    },
 }
 
 /// One menu row: display label plus its action.
@@ -33,7 +55,10 @@ impl Item {
     #[must_use]
     pub fn key(&self) -> &'static str {
         match &self.action {
-            Action::EditStr { key, .. } | Action::Toggle { key } => key,
+            Action::EditStr { key, .. }
+            | Action::Toggle { key }
+            | Action::EditInt { key, .. }
+            | Action::Select { key, .. } => key,
         }
     }
 
@@ -43,15 +68,23 @@ impl Item {
         match &self.action {
             Action::EditStr { .. } => "text",
             Action::Toggle { .. } => "checkbox",
+            Action::EditInt { .. } => "number",
+            Action::Select { .. } => "select",
         }
     }
 
-    /// The row's current value, typed to match `kind()`.
+    /// The row's current value, typed to match `kind()`. A missing or
+    /// malformed stored value falls back to that type's zero value (`""`,
+    /// `false`, `0`) — the same convention `get_str`/`get_bool`/`get_int`
+    /// document individually.
     #[must_use]
     pub fn value_json(&self, settings: &Settings) -> Value {
         match &self.action {
-            Action::EditStr { key, .. } => Value::String(settings.get_str(key).unwrap_or_default()),
+            Action::EditStr { key, .. } | Action::Select { key, .. } => {
+                Value::String(settings.get_str(key).unwrap_or_default())
+            }
             Action::Toggle { key } => Value::Bool(settings.get_bool(key).unwrap_or_default()),
+            Action::EditInt { key, .. } => Value::from(settings.get_int(key).unwrap_or_default()),
         }
     }
 }
@@ -102,9 +135,97 @@ pub const ITEMS: &[Item] = &[
             validate: validate_proton_email,
         },
     },
+    Item {
+        label: "Timezone",
+        action: Action::EditStr {
+            key: "timezone",
+            prompt: "Timezone",
+            validate: validate_timezone,
+        },
+    },
+    Item {
+        label: "Desktop",
+        action: Action::Select {
+            key: "desktop",
+            prompt: "Desktop",
+            options: &["hyprland", "none"],
+        },
+    },
+    Item {
+        label: "Window gaps (inner)",
+        action: Action::EditInt {
+            key: "wmGapsIn",
+            prompt: "Window gaps (inner)",
+            min: 0,
+            max: 50,
+            step: 1,
+            validate: |_| Ok(()),
+        },
+    },
+    Item {
+        label: "Window gaps (outer)",
+        action: Action::EditInt {
+            key: "wmGapsOut",
+            prompt: "Window gaps (outer)",
+            min: 0,
+            max: 100,
+            step: 1,
+            validate: |_| Ok(()),
+        },
+    },
+    Item {
+        label: "Window border size",
+        action: Action::EditInt {
+            key: "wmBorderSize",
+            prompt: "Window border size",
+            min: 0,
+            max: 10,
+            step: 1,
+            validate: |_| Ok(()),
+        },
+    },
+    Item {
+        label: "Focus follows mouse",
+        action: Action::Toggle {
+            key: "wmFollowMouse",
+        },
+    },
+    Item {
+        label: "Window animations",
+        action: Action::Toggle {
+            key: "wmAnimations",
+        },
+    },
+    Item {
+        label: "Window layout",
+        action: Action::Select {
+            key: "wmLayout",
+            prompt: "Window layout",
+            options: &["dwindle", "master"],
+        },
+    },
+    Item {
+        label: "Ollama endpoint",
+        action: Action::EditStr {
+            key: "aiOllamaEndpoint",
+            prompt: "Ollama endpoint",
+            validate: validate_ollama_endpoint,
+        },
+    },
+    Item {
+        label: "Git signing key",
+        action: Action::EditStr {
+            key: "gitSigningKey",
+            prompt: "Git signing key",
+            validate: validate_git_signing_key,
+        },
+    },
 ];
 
-/// One row of `global-settings dump`'s JSON array.
+/// One row of `global-settings dump`'s JSON array. `min`/`max`/`step` are
+/// only present for `EditInt` rows (so a QML slider can bound itself
+/// instead of hardcoding limits) and `options` only for `Select` rows;
+/// every other combination serializes to no field at all rather than `null`.
 #[derive(Serialize)]
 pub struct DumpItem {
     pub key: &'static str,
@@ -114,10 +235,18 @@ pub struct DumpItem {
     pub value: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<&'static [&'static str]>,
 }
 
 /// `global-settings dump`'s payload: one entry per item, current values
-/// included. `EditStr` carries its prompt; `Toggle` has none.
+/// included. `EditStr`/`EditInt`/`Select` carry a prompt; `Toggle` has none.
 #[must_use]
 pub fn dump(settings: &Settings) -> Vec<DumpItem> {
     ITEMS
@@ -128,8 +257,26 @@ pub fn dump(settings: &Settings) -> Vec<DumpItem> {
             kind: item.kind(),
             value: item.value_json(settings),
             prompt: match &item.action {
-                Action::EditStr { prompt, .. } => Some(*prompt),
+                Action::EditStr { prompt, .. }
+                | Action::EditInt { prompt, .. }
+                | Action::Select { prompt, .. } => Some(*prompt),
                 Action::Toggle { .. } => None,
+            },
+            min: match &item.action {
+                Action::EditInt { min, .. } => Some(*min),
+                _ => None,
+            },
+            max: match &item.action {
+                Action::EditInt { max, .. } => Some(*max),
+                _ => None,
+            },
+            step: match &item.action {
+                Action::EditInt { step, .. } => Some(*step),
+                _ => None,
+            },
+            options: match &item.action {
+                Action::Select { options, .. } => Some(*options),
+                _ => None,
             },
         })
         .collect()
@@ -164,6 +311,7 @@ pub fn form_fields(settings: &Settings) -> Vec<FormField> {
 enum Edit {
     Str(String),
     Bool(bool),
+    Int(i64),
 }
 
 /// Validate every field in `values` that differs from `settings`'s current
@@ -201,6 +349,33 @@ pub fn apply_values(settings: &mut Settings, values: &Map<String, Value>) -> Res
                 }
                 edits.push((key, Edit::Bool(b)));
             }
+            Action::EditInt {
+                min, max, validate, ..
+            } => {
+                let n = new_value
+                    .as_i64()
+                    .ok_or_else(|| format!("{key}: expected an integer value"))?;
+                if settings.get_int(key) == Some(n) {
+                    continue;
+                }
+                if n < *min || n > *max {
+                    return Err(format!("{key}: must be between {min} and {max}, got {n}"));
+                }
+                validate(n)?;
+                edits.push((key, Edit::Int(n)));
+            }
+            Action::Select { options, .. } => {
+                let s = new_value
+                    .as_str()
+                    .ok_or_else(|| format!("{key}: expected a string value"))?;
+                if settings.get_str(key).as_deref() == Some(s) {
+                    continue;
+                }
+                if !options.contains(&s) {
+                    return Err(format!("{key}: must be one of {options:?}, got `{s}`"));
+                }
+                edits.push((key, Edit::Str(s.to_string())));
+            }
         }
     }
     let changed = !edits.is_empty();
@@ -208,6 +383,7 @@ pub fn apply_values(settings: &mut Settings, values: &Map<String, Value>) -> Res
         match edit {
             Edit::Str(s) => settings.set_str(key, &s),
             Edit::Bool(b) => settings.set_bool(key, b),
+            Edit::Int(n) => settings.set_int(key, n),
         }
     }
     Ok(changed)

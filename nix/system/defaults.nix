@@ -48,6 +48,36 @@
   # two, at the cost of editing a working account, so they are separate.
   protonEmail = "";
 
+  # Git commit-signing key override, edited from the settings panel. Empty
+  # by default: nix/home/shell/git.nix currently hardcodes `signingkey` to the
+  # Bitwarden-vault SSH key's public half and does not read this key yet, so
+  # an empty default changes nothing. Wiring git.nix to consume it (falling
+  # back to the current hardcoded path when empty) is left to the task that
+  # rewires the settings panel's live-apply path.
+  gitSigningKey = "";
+
+  # Ollama HTTP endpoint, edited from the settings panel. Nothing on the Nix
+  # side consumes it yet — nix/system/hosts.nix's `services.ollama` binds to the
+  # NixOS module's own default (127.0.0.1:11434), which is what this default
+  # matches. Same split as gitSigningKey above: the key exists now, the Nix
+  # side is wired to it later.
+  aiOllamaEndpoint = "http://127.0.0.1:11434";
+
+  # Window manager — edited from the settings panel. Values here match
+  # nix/home/desktop/hyprland.nix's current hardcoded `general`/`input`/`animations`
+  # block exactly, so this addition is a no-op on rebuild: hyprland.nix does
+  # not read these keys yet, and wiring it to do so is left to the task that
+  # owns the settings panel's live-apply path. wmFollowMouse is a bool here
+  # even though Hyprland's own `input.follow_mouse` is an int (0/1/2/3); the
+  # settings panel only offers on/off, so `true` maps to Hyprland's default
+  # `1` and `false` to `0` once that wiring lands.
+  wmGapsIn = 5;
+  wmGapsOut = 15;
+  wmBorderSize = 2;
+  wmFollowMouse = true;
+  wmAnimations = true;
+  wmLayout = "dwindle";
+
   # Network — consumed by nix/modules/system/network.nix. wifiBackend is one of
   # "wpa_supplicant" | "iwd"; reversePathFilter is one of "loose" | "strict"
   # (or false) — see networking.firewall.checkReversePath in nixpkgs.

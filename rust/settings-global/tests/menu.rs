@@ -156,3 +156,115 @@ fn proton_email_round_trips_through_apply_values() {
     assert!(apply_values(&mut s, bad.as_object().unwrap()).is_err());
     assert_eq!(s.get_str("protonEmail").as_deref(), Some("me@proton.me"));
 }
+
+/// SRC omits every window-manager key (the state every settings.nix is in
+/// before this feature), so their rows must still dump: `number` for the
+/// int rows, current value falling back to 0, with `min`/`max`/`step`
+/// reaching the payload; `select` for the layout row, with `options`.
+#[test]
+fn wm_int_and_select_rows_dump_their_schema_even_when_absent() {
+    let s = Settings::parse(SRC).unwrap();
+    let items = dump(&s);
+
+    let gaps_in = items.iter().find(|i| i.key == "wmGapsIn").unwrap();
+    assert_eq!(gaps_in.kind, "number");
+    assert_eq!(gaps_in.value, json!(0));
+    assert_eq!(gaps_in.min, Some(0));
+    assert_eq!(gaps_in.max, Some(50));
+    assert_eq!(gaps_in.step, Some(1));
+
+    let layout = items.iter().find(|i| i.key == "wmLayout").unwrap();
+    assert_eq!(layout.kind, "select");
+    assert_eq!(layout.value, json!(""));
+    assert_eq!(layout.options, Some(&["dwindle", "master"][..]));
+
+    // A checkbox/text row must not carry number/select-only fields.
+    let hostname = items.iter().find(|i| i.key == "hostname").unwrap();
+    assert_eq!(hostname.min, None);
+    assert_eq!(hostname.options, None);
+}
+
+#[test]
+fn dump_serializes_int_as_a_json_number_with_bounds_and_no_string_coercion() {
+    let mut s = Settings::parse(SRC).unwrap();
+    s.set_int("wmGapsIn", 7);
+    let json = serde_json::to_value(dump(&s)).unwrap();
+    let gaps_in = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["key"] == "wmGapsIn")
+        .unwrap();
+    assert_eq!(gaps_in["type"], "number");
+    assert!(gaps_in["value"].is_number(), "{gaps_in}");
+    assert_eq!(gaps_in["value"], 7);
+    assert_eq!(gaps_in["min"], 0);
+    assert_eq!(gaps_in["max"], 50);
+    assert_eq!(gaps_in["step"], 1);
+}
+
+#[test]
+fn dump_serializes_select_options_to_the_documented_shape() {
+    let s = Settings::parse(SRC).unwrap();
+    let json = serde_json::to_value(dump(&s)).unwrap();
+    let layout = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["key"] == "wmLayout")
+        .unwrap();
+    assert_eq!(layout["type"], "select");
+    assert_eq!(layout["options"], json!(["dwindle", "master"]));
+}
+
+#[test]
+fn apply_values_round_trips_an_int_field() {
+    let mut s = Settings::parse(SRC).unwrap();
+    let values = serde_json::json!({ "wmGapsIn": 12 });
+    assert!(apply_values(&mut s, values.as_object().unwrap()).unwrap());
+    assert_eq!(s.get_int("wmGapsIn"), Some(12));
+}
+
+#[test]
+fn apply_values_rejects_an_out_of_range_int_and_leaves_settings_untouched() {
+    let mut s = Settings::parse(SRC).unwrap();
+    let values = serde_json::json!({ "wmGapsIn": 999 });
+    let err = apply_values(&mut s, values.as_object().unwrap()).unwrap_err();
+    assert!(err.contains("wmGapsIn"), "{err}");
+    assert_eq!(s.get_int("wmGapsIn"), None);
+}
+
+#[test]
+fn apply_values_rejects_a_non_integer_json_value_for_an_int_field() {
+    let mut s = Settings::parse(SRC).unwrap();
+    let values = serde_json::json!({ "wmGapsIn": "5" });
+    let err = apply_values(&mut s, values.as_object().unwrap()).unwrap_err();
+    assert!(err.contains("wmGapsIn"), "{err}");
+}
+
+#[test]
+fn apply_values_round_trips_a_select_field() {
+    let mut s = Settings::parse(SRC).unwrap();
+    let values = serde_json::json!({ "wmLayout": "master" });
+    assert!(apply_values(&mut s, values.as_object().unwrap()).unwrap());
+    assert_eq!(s.get_str("wmLayout").as_deref(), Some("master"));
+}
+
+#[test]
+fn apply_values_rejects_a_select_value_outside_its_options() {
+    let mut s = Settings::parse(SRC).unwrap();
+    let values = serde_json::json!({ "wmLayout": "tiling-but-fancy" });
+    let err = apply_values(&mut s, values.as_object().unwrap()).unwrap_err();
+    assert!(err.contains("wmLayout"), "{err}");
+    assert_eq!(s.get_str("wmLayout"), None);
+}
+
+#[test]
+fn form_fields_include_number_and_select_kinds() {
+    let s = Settings::parse(SRC).unwrap();
+    let fields = form_fields(&s);
+    let gaps_in = fields.iter().find(|f| f.key == "wmGapsIn").unwrap();
+    assert_eq!(gaps_in.kind, "number");
+    let layout = fields.iter().find(|f| f.key == "wmLayout").unwrap();
+    assert_eq!(layout.kind, "select");
+}

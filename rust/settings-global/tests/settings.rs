@@ -3,7 +3,8 @@
 //! must survive), typed get/set, atomic save, and the field validators.
 
 use global_settings::settings::{
-    validate_git_email, validate_git_name, validate_hostname, validate_proton_email, Settings,
+    validate_git_email, validate_git_name, validate_git_signing_key, validate_hostname,
+    validate_ollama_endpoint, validate_proton_email, validate_timezone, Settings,
 };
 
 /// Verbatim shape of what rust/installer-tui/src/config.rs::settings_nix
@@ -222,4 +223,70 @@ fn email_validators_name_the_field_they_rejected() {
     assert!(validate_proton_email("nodomain")
         .unwrap_err()
         .contains("proton email"));
+}
+
+#[test]
+fn get_int_and_set_int_roundtrip() {
+    let mut s = Settings::parse("{\n  hostname = \"x\";\n}\n").unwrap();
+    s.set_int("wmGapsIn", 5);
+    let reparsed = Settings::parse(&s.render()).unwrap();
+    assert_eq!(reparsed.get_int("wmGapsIn"), Some(5));
+    assert!(reparsed.render().contains("wmGapsIn = 5;"));
+}
+
+#[test]
+fn get_int_roundtrips_negative_values() {
+    let mut s = Settings::parse("{\n  hostname = \"x\";\n}\n").unwrap();
+    s.set_int("someOffset", -3);
+    let reparsed = Settings::parse(&s.render()).unwrap();
+    assert_eq!(reparsed.get_int("someOffset"), Some(-3));
+}
+
+/// A non-integer at an int key (a float, a suffixed literal, or trailing
+/// garbage) must read back as `None` rather than being truncated or
+/// otherwise silently coerced — the documented choice for `get_int`.
+#[test]
+fn get_int_is_none_for_non_integer_values() {
+    let s =
+        Settings::parse("{\n  wmGapsIn = 5.0;\n  wmGapsOut = \"15\";\n  wmBorderSize = 2px;\n}\n")
+            .unwrap();
+    assert_eq!(s.get_int("wmGapsIn"), None);
+    assert_eq!(s.get_int("wmGapsOut"), None);
+    assert_eq!(s.get_int("wmBorderSize"), None);
+}
+
+#[test]
+fn get_int_is_none_for_missing_key() {
+    let s = Settings::parse(INSTALLER_WRITTEN).unwrap();
+    assert_eq!(s.get_int("wmGapsIn"), None);
+}
+
+#[test]
+fn timezone_validator_rejects_empty_and_whitespace() {
+    assert!(validate_timezone("Europe/Bratislava").is_ok());
+    assert!(validate_timezone("UTC").is_ok());
+    assert!(validate_timezone("").is_err());
+    assert!(validate_timezone("Europe /Bratislava").is_err());
+    assert!(validate_timezone("../../etc/passwd").is_err());
+}
+
+#[test]
+fn ollama_endpoint_validator_requires_a_scheme_and_host() {
+    assert!(validate_ollama_endpoint("http://127.0.0.1:11434").is_ok());
+    assert!(validate_ollama_endpoint("https://ollama.example.com").is_ok());
+    assert!(validate_ollama_endpoint("").is_err());
+    assert!(validate_ollama_endpoint("127.0.0.1:11434").is_err());
+    assert!(validate_ollama_endpoint("http://").is_err());
+    assert!(validate_ollama_endpoint("http:// 127.0.0.1").is_err());
+}
+
+/// Unlike the name/email validators, an empty signing key is accepted: it
+/// is the default's own "not configured" state and must stay settable back
+/// to that state.
+#[test]
+fn git_signing_key_validator_only_rejects_newlines() {
+    assert!(validate_git_signing_key("").is_ok());
+    assert!(validate_git_signing_key("ABCDEF1234567890").is_ok());
+    assert!(validate_git_signing_key("ssh-ed25519 AAAA... user@host").is_ok());
+    assert!(validate_git_signing_key("line1\nline2").is_err());
 }
