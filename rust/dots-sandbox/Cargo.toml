@@ -1,0 +1,24 @@
+[package]
+name = "dots-sandbox"
+version = "0.1.0"
+edition = "2021"
+description = "Per-app sandbox policy model and systemd-nspawn/-vmspawn argv translation"
+license = "AGPL-3.0-only"
+
+# Hand-rolled argument parsing, matching rust/settings-global and every other
+# binary in this repo: no crate here pulls in a CLI framework. Dependencies
+# stay to serde for the policy file schema, miette for diagnostics (the
+# house error-handling choice over anyhow/thiserror) and tracing for the
+# warn-and-ignore path an unrecognized override capability takes. This crate
+# makes no syscalls of its own, so neither `nix` nor `rustix` belongs here;
+# that is a later task's concern once something actually spawns a sandbox.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+miette = "7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = true
+strip = true
