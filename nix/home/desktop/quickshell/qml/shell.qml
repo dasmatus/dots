@@ -17,9 +17,10 @@
 // restart to manage. Bar declares modelData as required, and Variants supplies
 // it per screen.
 //
-// The notification layer and the OSD are single instances that follow the
-// focused monitor, rather than one per screen. Two monitors showing the same
-// notification is a duplicate, not a feature.
+// The notification layer, the OSD and the sandbox permission prompt are
+// single instances that follow the focused monitor, rather than one per
+// screen. Two monitors showing the same notification is a duplicate, not a
+// feature.
 //
 // The launcher, cheatsheet, settings form, wallpaper picker, monitor
 // arrange surface and file manager are single instances too: only one can
@@ -42,6 +43,7 @@ import "launcher"
 import "monitors"
 import "notifications"
 import "osd"
+import "sandbox"
 import "settings"
 import "wallpaper"
 
@@ -55,6 +57,8 @@ ShellRoot {
     Notifications {}
 
     Osd {}
+
+    Prompt {}
 
     Launcher {}
 
