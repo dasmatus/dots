@@ -12,7 +12,12 @@
 # module is the libvirt/virt-manager desktop stack and exists for an unrelated
 # reason. Adding this module changes nothing by itself — both units below only
 # take effect once someone runs `nixos-rebuild switch`.
-{ config, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 {
   # virtiofsd has to be placed in a user namespace with uid 0 mapped, and
   # doing that needs a delegated subordinate UID/GID range. This host has
