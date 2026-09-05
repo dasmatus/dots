@@ -11,16 +11,21 @@ use crate::settings::{
     validate_ollama_endpoint, validate_proton_email, validate_timezone, Settings,
 };
 
-/// What editing a row does.
+/// What editing a row does. Every variant carries its own `default`: the
+/// value `value_json` reports when the key is absent from the store (a
+/// fresh install, or one predating this row). It must match whatever
+/// `nix/system/defaults.nix` gives that key — this table has no way to read
+/// that file, so the two are kept in sync by convention, not by code.
 pub enum Action {
     /// A validated string value at `key`.
     EditStr {
         key: &'static str,
         prompt: &'static str,
+        default: &'static str,
         validate: fn(&str) -> Result<(), String>,
     },
     /// A boolean value at `key`.
-    Toggle { key: &'static str },
+    Toggle { key: &'static str, default: bool },
     /// A validated integer value at `key`, bounded to `[min, max]` in steps
     /// of `step` — the range a slider renders against. `validate` is an
     /// extra hook for rules the range alone does not express; pass
@@ -28,6 +33,7 @@ pub enum Action {
     EditInt {
         key: &'static str,
         prompt: &'static str,
+        default: i64,
         min: i64,
         max: i64,
         step: i64,
@@ -40,6 +46,7 @@ pub enum Action {
     Select {
         key: &'static str,
         prompt: &'static str,
+        default: &'static str,
         options: &'static [&'static str],
     },
 }
@@ -56,7 +63,7 @@ impl Item {
     pub fn key(&self) -> &'static str {
         match &self.action {
             Action::EditStr { key, .. }
-            | Action::Toggle { key }
+            | Action::Toggle { key, .. }
             | Action::EditInt { key, .. }
             | Action::Select { key, .. } => key,
         }
@@ -74,28 +81,43 @@ impl Item {
     }
 
     /// The row's current value, typed to match `kind()`. A missing or
-    /// malformed stored value falls back to that type's zero value (`""`,
-    /// `false`, `0`) — the same convention `get_str`/`get_bool`/`get_int`
-    /// document individually.
+    /// malformed stored value falls back to the row's own `default` — not
+    /// that type's zero value, which would misreport a key like
+    /// `wmGapsIn` (real default `5`) as `0` on any install that has never
+    /// written it, the exact state every install is in before this row
+    /// existed.
     #[must_use]
     pub fn value_json(&self, settings: &Settings) -> Value {
         match &self.action {
-            Action::EditStr { key, .. } | Action::Select { key, .. } => {
-                Value::String(settings.get_str(key).unwrap_or_default())
+            Action::EditStr { key, default, .. } | Action::Select { key, default, .. } => {
+                Value::String(
+                    settings
+                        .get_str(key)
+                        .unwrap_or_else(|| (*default).to_string()),
+                )
             }
-            Action::Toggle { key } => Value::Bool(settings.get_bool(key).unwrap_or_default()),
-            Action::EditInt { key, .. } => Value::from(settings.get_int(key).unwrap_or_default()),
+            Action::Toggle { key, default } => {
+                Value::Bool(settings.get_bool(key).unwrap_or(*default))
+            }
+            Action::EditInt { key, default, .. } => {
+                Value::from(settings.get_int(key).unwrap_or(*default))
+            }
         }
     }
 }
 
 /// The menu, top to bottom.
 pub const ITEMS: &[Item] = &[
+    // gitName/gitEmail/hostname carry no nix/system/defaults.nix entry at all —
+    // rust/installer-tui writes them at install time, unconditionally, so
+    // there is no real default to mirror. "" documents "not yet answered"
+    // rather than standing in for a value defaults.nix would supply.
     Item {
         label: "Git name",
         action: Action::EditStr {
             key: "gitName",
             prompt: "Git name",
+            default: "",
             validate: validate_git_name,
         },
     },
@@ -104,6 +126,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::EditStr {
             key: "gitEmail",
             prompt: "Git email",
+            default: "",
             validate: validate_git_email,
         },
     },
@@ -112,26 +135,37 @@ pub const ITEMS: &[Item] = &[
         action: Action::EditStr {
             key: "hostname",
             prompt: "Hostname",
+            default: "",
             validate: validate_hostname,
         },
     },
     Item {
         label: "AI: Ollama",
-        action: Action::Toggle { key: "aiOllama" },
+        action: Action::Toggle {
+            key: "aiOllama",
+            default: true,
+        },
     },
     Item {
         label: "AI: Claude Code",
-        action: Action::Toggle { key: "aiClaude" },
+        action: Action::Toggle {
+            key: "aiClaude",
+            default: true,
+        },
     },
     Item {
         label: "AI: Codex",
-        action: Action::Toggle { key: "aiCodex" },
+        action: Action::Toggle {
+            key: "aiCodex",
+            default: true,
+        },
     },
     Item {
         label: "Proton email",
         action: Action::EditStr {
             key: "protonEmail",
             prompt: "Proton email",
+            default: "",
             validate: validate_proton_email,
         },
     },
@@ -140,6 +174,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::EditStr {
             key: "timezone",
             prompt: "Timezone",
+            default: "Europe/Bratislava",
             validate: validate_timezone,
         },
     },
@@ -148,6 +183,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::Select {
             key: "desktop",
             prompt: "Desktop",
+            default: "hyprland",
             options: &["hyprland", "none"],
         },
     },
@@ -156,6 +192,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::EditInt {
             key: "wmGapsIn",
             prompt: "Window gaps (inner)",
+            default: 5,
             min: 0,
             max: 50,
             step: 1,
@@ -167,6 +204,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::EditInt {
             key: "wmGapsOut",
             prompt: "Window gaps (outer)",
+            default: 15,
             min: 0,
             max: 100,
             step: 1,
@@ -178,6 +216,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::EditInt {
             key: "wmBorderSize",
             prompt: "Window border size",
+            default: 2,
             min: 0,
             max: 10,
             step: 1,
@@ -188,12 +227,14 @@ pub const ITEMS: &[Item] = &[
         label: "Focus follows mouse",
         action: Action::Toggle {
             key: "wmFollowMouse",
+            default: true,
         },
     },
     Item {
         label: "Window animations",
         action: Action::Toggle {
             key: "wmAnimations",
+            default: true,
         },
     },
     Item {
@@ -201,6 +242,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::Select {
             key: "wmLayout",
             prompt: "Window layout",
+            default: "dwindle",
             options: &["dwindle", "master"],
         },
     },
@@ -209,6 +251,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::EditStr {
             key: "aiOllamaEndpoint",
             prompt: "Ollama endpoint",
+            default: "http://127.0.0.1:11434",
             validate: validate_ollama_endpoint,
         },
     },
@@ -217,6 +260,7 @@ pub const ITEMS: &[Item] = &[
         action: Action::EditStr {
             key: "gitSigningKey",
             prompt: "Git signing key",
+            default: "",
             validate: validate_git_signing_key,
         },
     },

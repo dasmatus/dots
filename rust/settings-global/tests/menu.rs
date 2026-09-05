@@ -159,8 +159,13 @@ fn proton_email_round_trips_through_apply_values() {
 
 /// SRC omits every window-manager key (the state every settings.nix is in
 /// before this feature), so their rows must still dump: `number` for the
-/// int rows, current value falling back to 0, with `min`/`max`/`step`
-/// reaching the payload; `select` for the layout row, with `options`.
+/// int rows, `select` for the layout row, with `min`/`max`/`step`/`options`
+/// reaching the payload regardless of whether the key exists. The current
+/// *value*, though, must be the row's real schema default (`5`, `"dwindle"`)
+/// — not `0`/`""` — because a missing key is not the same as an unset one:
+/// it means the value defaults.nix already supplies, and reporting the
+/// wrong number here is how a Settings-panel Save would flatten a user's
+/// gaps to zero on the first edit of an unrelated field.
 #[test]
 fn wm_int_and_select_rows_dump_their_schema_even_when_absent() {
     let s = Settings::parse(SRC).unwrap();
@@ -168,20 +173,60 @@ fn wm_int_and_select_rows_dump_their_schema_even_when_absent() {
 
     let gaps_in = items.iter().find(|i| i.key == "wmGapsIn").unwrap();
     assert_eq!(gaps_in.kind, "number");
-    assert_eq!(gaps_in.value, json!(0));
+    assert_eq!(gaps_in.value, json!(5));
     assert_eq!(gaps_in.min, Some(0));
     assert_eq!(gaps_in.max, Some(50));
     assert_eq!(gaps_in.step, Some(1));
 
     let layout = items.iter().find(|i| i.key == "wmLayout").unwrap();
     assert_eq!(layout.kind, "select");
-    assert_eq!(layout.value, json!(""));
+    assert_eq!(layout.value, json!("dwindle"));
     assert_eq!(layout.options, Some(&["dwindle", "master"][..]));
 
     // A checkbox/text row must not carry number/select-only fields.
     let hostname = items.iter().find(|i| i.key == "hostname").unwrap();
     assert_eq!(hostname.min, None);
     assert_eq!(hostname.options, None);
+}
+
+/// The regression this whole fix exists for: every key this task added must
+/// dump its `nix/system/defaults.nix` value when the store has never heard of
+/// it, not the type's zero value. Values here were independently confirmed
+/// against defaults.nix via `nix-instantiate --eval --strict --json` — if
+/// either file changes without the other, this is the test that catches it.
+#[test]
+fn every_new_key_dumps_its_real_default_when_absent_from_the_store() {
+    let s = Settings::parse(SRC).unwrap();
+    let items = dump(&s);
+    let value_of = |key: &str| items.iter().find(|i| i.key == key).unwrap().value.clone();
+
+    assert_eq!(value_of("timezone"), json!("Europe/Bratislava"));
+    assert_eq!(value_of("desktop"), json!("hyprland"));
+    assert_eq!(value_of("wmGapsIn"), json!(5));
+    assert_eq!(value_of("wmGapsOut"), json!(15));
+    assert_eq!(value_of("wmBorderSize"), json!(2));
+    assert_eq!(value_of("wmFollowMouse"), json!(true));
+    assert_eq!(value_of("wmAnimations"), json!(true));
+    assert_eq!(value_of("wmLayout"), json!("dwindle"));
+    assert_eq!(
+        value_of("aiOllamaEndpoint"),
+        json!("http://127.0.0.1:11434")
+    );
+    assert_eq!(value_of("gitSigningKey"), json!(""));
+}
+
+/// aiClaude/aiCodex/aiOllama predate this task but share the same schema-vs-
+/// zero-value split: nix/system/defaults.nix defaults all three to `true`, so a
+/// settings.nix from before the installer wrote them (or one hand-edited to
+/// drop a line) must not silently read as every AI integration disabled.
+#[test]
+fn ai_toggles_default_to_true_when_absent_matching_defaults_nix() {
+    let s = Settings::parse("{\n  hostname = \"box\";\n}\n").unwrap();
+    let items = dump(&s);
+    let value_of = |key: &str| items.iter().find(|i| i.key == key).unwrap().value.clone();
+    assert_eq!(value_of("aiOllama"), json!(true));
+    assert_eq!(value_of("aiClaude"), json!(true));
+    assert_eq!(value_of("aiCodex"), json!(true));
 }
 
 #[test]
