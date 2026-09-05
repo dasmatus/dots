@@ -19,6 +19,31 @@ use crate::broker::{self, AuditEvent, AuditLog, EventKind, Interactivity};
 use crate::error::PolicyError;
 use crate::policy::{self, PolicyFile, ResolvedApp};
 
+/// Where `systemd-nsresourced` puts its Varlink socket once the service is
+/// running. `systemd-nspawn`'s unprivileged `--user` scope talks to it
+/// directly to claim a UID range, so without it the sandbox cannot start at
+/// all — nspawn dies with "Failed to connect to nsresourced".
+///
+/// The service ships with systemd but NixOS never wires it up; this repo adds
+/// a module that does, and that module only takes effect after a rebuild. So
+/// between merging the sandbox and switching the system, every machine sits in
+/// a window where this socket is absent.
+const NSRESOURCED_SOCKET: &str = "/run/systemd/userdb/io.systemd.NamespaceResource";
+
+/// Whether the host can actually run a sandbox right now.
+///
+/// Returns the reason it cannot, or `None` when it can.
+fn sandbox_runtime_unavailable() -> Option<String> {
+    if Path::new(NSRESOURCED_SOCKET).exists() {
+        return None;
+    }
+    Some(format!(
+        "{NSRESOURCED_SOCKET} is absent, so systemd-nsresourced is not running \
+         and systemd-nspawn cannot claim a UID range; enable the sandbox host \
+         module and rebuild to confine this app"
+    ))
+}
+
 /// What running the sandboxed app came to, once it has exited.
 #[derive(Debug, Clone, Copy)]
 pub struct LaunchOutcome {
@@ -71,6 +96,27 @@ pub fn run(
             spawn_and_wait(&unconfined_argv(program, args))
         }
         ResolvedApp::Sandboxed(resolved) => {
+            // Degrade rather than break. A host that cannot start a sandbox
+            // must still run the app: failing closed here would mean every
+            // `nix run .#<app>` stops working the moment this wrapper lands
+            // and stays broken until the user rebuilds, which is a far worse
+            // outcome than an unconfined `clean`. The warning goes to stderr
+            // and the audit log so the degradation is loud rather than
+            // silent — an unconfined app that looks confined is the one
+            // failure this must never have.
+            if let Some(reason) = sandbox_runtime_unavailable() {
+                eprintln!("dots-sandbox: running {app_id} UNCONFINED: {reason}");
+                audit.log(&AuditEvent {
+                    ts_ms: broker::now_ms(),
+                    app_id,
+                    kind: EventKind::Unconfined,
+                    capability: None,
+                    outcome: "unconfined_runtime_unavailable",
+                    detail: Some(&reason),
+                });
+                return spawn_and_wait(&unconfined_argv(program, args));
+            }
+
             // Every capability gets a decision and an audit line,
             // allow-by-policy included — the dashboard should be able to
             // show the whole picture, not only the exceptions. See
