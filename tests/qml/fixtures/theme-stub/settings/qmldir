@@ -1,0 +1,4 @@
+# Same rule as the sibling common/qmldir: every component symlinked into
+# this directory must be listed here, or `import "fixtures/theme-stub/settings"`
+# cannot resolve it as a bare type.
+SettingsRow 1.0 SettingsRow.qml

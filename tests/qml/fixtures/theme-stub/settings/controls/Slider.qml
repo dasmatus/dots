@@ -1,0 +1,1 @@
+../../../../../../nix/home/desktop/quickshell/qml/settings/controls/Slider.qml
