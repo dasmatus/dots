@@ -157,9 +157,10 @@ pub fn run(
 /// exist) cannot be read or parsed, or if `app_id` cannot be resolved
 /// against them — see [`policy::resolve_app`].
 fn resolve_policy(app_id: &str, home_dir: &Path) -> Result<ResolvedApp, PolicyError> {
-    let defaults_path = env::var_os("DOTS_SANDBOX_DEFAULTS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir.join(".config/dots-sandbox/defaults.json"));
+    let defaults_path = env::var_os("DOTS_SANDBOX_DEFAULTS").map_or_else(
+        || home_dir.join(".config/dots-sandbox/defaults.json"),
+        PathBuf::from,
+    );
     let defaults = read_policy_file(&defaults_path)?;
 
     let overrides_path = home_dir.join(".config/dots-sandbox/overrides.json");

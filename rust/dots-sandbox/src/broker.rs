@@ -174,14 +174,26 @@ fn gui_prompt(app_id: &str, capability: &str, timeout: Duration) -> Option<bool>
     // knowing which app asked, that answer could only be recorded globally,
     // which is a far broader grant than the user believes they are giving.
     // Prompt.qml's handler already takes `ask(appId, capability)`.
-    let mut child = Command::new("qs")
+    let (reader, writer) = io::pipe().ok()?;
+
+    let mut command = Command::new("qs");
+    command
         .args(["ipc", "call", "sandboxprompt", "ask", app_id, capability])
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let stdout = read_with_timeout(&mut child, timeout)?;
+        .stdout(writer)
+        .stderr(Stdio::null());
+    let mut child = command.spawn().ok()?;
+
+    // Drop the command, and with it the parent's copy of the pipe's write
+    // end. The child holds its own dup; while ours stays open the read end
+    // never sees EOF, so the reader below would block for the whole timeout
+    // even after `qs` has answered and exited — turning a prompt that works
+    // into one that always appears to hang. `Stdio::piped()` hides this by
+    // closing the parent's end itself; an explicit pipe hands that
+    // responsibility over.
+    drop(command);
+
+    let stdout = read_with_timeout(reader, &mut child, timeout)?;
     Some(stdout.trim() == "true")
 }
 
@@ -211,12 +223,24 @@ fn tty_prompt(capability: &str, timeout: Duration) -> Option<bool> {
 /// wedged `qs` call must not wedge the launch with it — so the read runs
 /// on a dedicated thread and the timeout is enforced with a channel
 /// rather than polling `try_wait` in a sleep loop.
-fn read_with_timeout(child: &mut Child, timeout: Duration) -> Option<String> {
-    let mut stdout = child.stdout.take()?;
+fn read_with_timeout(
+    mut reader: io::PipeReader,
+    child: &mut Child,
+    timeout: Duration,
+) -> Option<String> {
+    // The read happens on its own thread and comes back over a channel,
+    // because `read_to_string` has no timeout of its own: a `qs` that hangs
+    // rather than exiting would block this call forever. `recv_timeout` is
+    // what bounds it, and the thread is what leaves us free to bound it —
+    // the module's whole promise is that no prompt can hang.
+    //
+    // A leaked thread on the timeout path is deliberate. It is parked in a
+    // read on a pipe whose write end dies with the child we kill below, so
+    // it wakes, finds EOF, sends into a dropped receiver, and exits.
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let mut buf = String::new();
-        let _ = stdout.read_to_string(&mut buf);
+        let _ = reader.read_to_string(&mut buf);
         let _ = tx.send(buf);
     });
     if let Ok(buf) = rx.recv_timeout(timeout) {
