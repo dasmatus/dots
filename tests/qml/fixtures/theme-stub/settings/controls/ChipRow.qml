@@ -1,0 +1,1 @@
+../../../../../../nix/home/desktop/quickshell/qml/settings/controls/ChipRow.qml

@@ -22,6 +22,11 @@ QtObject {
     readonly property color bg: "#1a1b26"
     readonly property color bgDark: "#16161e"
     readonly property color border: "#292e42"
+
+    // Added for tst_settings_controls.qml: Toggle.qml and Slider.qml both
+    // read this for their unchecked/at-rest fill, and neither one had a
+    // stub test to need it before.
+    readonly property color selection: "#3b4261"
     readonly property string fontUi: "sans-serif"
     readonly property string fontMono: "monospace"
     readonly property int fontSize: 12
@@ -88,8 +93,8 @@ QtObject {
     readonly property real settingsPanelWidthFactor: 0.72
     readonly property real settingsPanelHeightFactor: 0.8
     readonly property real settingsTitleFontSize: 24
-    readonly property real settingsGroupFontSize: 12
-    readonly property real settingsRowTitleFontSize: 13
+    readonly property real settingsGroupFontSize: 11
+    readonly property real settingsRowTitleFontSize: 14
     readonly property real settingsRowDescFontSize: 11
     readonly property real settingsNavFontSize: 13
     readonly property int settingsFooterHeight: 40

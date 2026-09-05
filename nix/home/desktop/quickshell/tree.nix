@@ -254,6 +254,13 @@ let
         // font.pixelSize instead. QML's own font.pointSize property is a
         // real (Qt exposes it as `double`), so these follow suit rather
         // than being declared int like the pixel-sized ones.
+        //
+        // groupFontSize sits a full 3pt under rowTitleFontSize (11 vs 14),
+        // not the original 12/13 the task landing before the shell rebuild
+        // cut: at 1pt apart a group heading and a row title read as the same
+        // size, which flattens the exact hierarchy a group heading exists
+        // to draw. The shell rebuild task (task 4) is what actually renders
+        // these side by side and caught it.
         readonly property real settingsTitleFontSize: ${toString palette.settings.titleFontSize};
         readonly property real settingsGroupFontSize: ${toString palette.settings.groupFontSize};
         readonly property real settingsRowTitleFontSize: ${toString palette.settings.rowTitleFontSize};
