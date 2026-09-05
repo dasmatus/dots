@@ -1,0 +1,36 @@
+# Provisional scaffold, not the final manifest: task 9 (the launcher and
+# live grants) was dispatched in parallel with the task building this
+# crate's policy half (Cargo.toml, lib.rs, main.rs's own subcommands,
+# policy.rs, caps.rs, argv.rs), which owns this file for real. Everything
+# below exists only so `cargo fmt`/`clippy`/`test` can run against the
+# launcher/broker/grants half in isolation; reconcile with the policy
+# agent's manifest at merge time rather than trusting this as final.
+[package]
+authors = ["Matus Mastena <Shadiness9530@proton.me>"]
+edition = "2021"
+name = "dots-sandbox"
+description = "Unprivileged app sandboxing: policy resolution, launch and live grants"
+version = "0.1.0"
+
+[[bin]]
+name = "dots-sandbox"
+path = "src/main.rs"
+
+[dependencies]
+# Diagnostics: surfaces a shelled-out child's exit status and stderr
+# instead of swallowing them (writing-good-rs house rule; see broker.rs
+# and grants.rs, both of which shell out to `qs`/`machinectl`).
+miette = { version = "7", features = ["fancy"] }
+# Forwards SIGINT/SIGTERM/SIGHUP from us to the sandboxed child (launch.rs).
+signal-hook = "0.3"
+libc = "0.2"
+# Audit log (JSON Lines) the privacy dashboard reads, and generic
+# passthrough of `machinectl --user list --output=json`.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# Integration tests spawn the compiled binary and send it real signals.
+libc = "0.2"
