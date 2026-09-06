@@ -76,6 +76,11 @@ let
         program =
           (pkgs.writeShellApplication {
             inherit name;
+            # `nix` itself is not on the sandboxed PATH by name — see the
+            # runtimeInputs comment on nix-lint below for why this has to
+            # be a runtimeInput rather than the ambient
+            # /run/current-system/sw/bin/nix.
+            runtimeInputs = [ pkgs.nix ];
             text = ''
               ${cdRepoRoot}
               nix build --impure .#${target} -o result-iso
@@ -324,9 +329,22 @@ in
   # Static gate: flake eval (--no-build), then fmt/clippy/test for every Rust
   # crate in the repo. Cargo is pinned in runtimeInputs so the dev shell need
   # not be on.
+  #
+  # pkgs.nix is pinned here for the same reason: this script calls `nix`
+  # by bare name three times below, and writeShellApplication only puts
+  # runtimeInputs on PATH, not the caller's own environment. Under the
+  # bwrap tier that matters more than usual — the ambient
+  # /run/current-system/sw/bin/nix is never bound into the sandbox at all
+  # (bwrap_argv, rust/dots-sandbox/src/argv.rs, binds only /nix/store,
+  # /proc, /dev and a tmpfs $HOME), so without this the bare name resolves
+  # to nothing and `nix: command not found` is the first line the script
+  # gets past cdRepoRoot. Pinning it as a runtimeInput makes it an
+  # absolute store path baked into the script's own PATH, which /nix/store
+  # being bound read-only is enough to satisfy.
   nix-lint = mkShellApp "nix-lint" {
     sandboxed = true;
     runtimeInputs = [
+      pkgs.nix
       pkgs.cargo
       pkgs.rustc
       pkgs.rustfmt
@@ -505,6 +523,9 @@ in
   # in ci.yml, not something this fix touches.
   nix-smoke = mkShellApp "nix-smoke" {
     sandboxed = true;
+    # pkgs.nix — see the runtimeInputs comment on nix-lint above for why a
+    # bare `nix` call needs this under the bwrap tier.
+    runtimeInputs = [ pkgs.nix ];
     text = ''
       ${cdRepoRoot}
       nix build -L --impure ".#checks.x86_64-linux.iso-boot" "$@"
