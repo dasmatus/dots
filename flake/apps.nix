@@ -76,6 +76,11 @@ let
         program =
           (pkgs.writeShellApplication {
             inherit name;
+            # `nix` itself is not on the sandboxed PATH by name — see the
+            # runtimeInputs comment on nix-lint below for why this has to
+            # be a runtimeInput rather than the ambient
+            # /run/current-system/sw/bin/nix.
+            runtimeInputs = [ pkgs.nix ];
             text = ''
               ${cdRepoRoot}
               nix build --impure .#${target} -o result-iso
@@ -147,9 +152,17 @@ let
   # planted secret unreadable, the network namespace unshared, and the one
   # granted capability still working.
   #
-  # There is no environment-variable bypass any more either — see the
-  # wrapper body below. Confinement is on by default with no way to opt out
-  # of it at run time.
+  # DOTS_SANDBOX=0 still bypasses at run time — see the wrapper body below.
+  # This is a single-user desktop, not a multi-tenant one: the wrapper's job
+  # is to make confinement the default nobody has to opt into, not to be
+  # tamper-proof against its own operator, who already has root and every
+  # other way to disable it if they actually want to. A wrapper that cannot
+  # be switched off turns any bug in dots-sandbox — a build failure, a panic
+  # on startup, a policy resolved into nonsense — into an unbootable-desktop
+  # event with no recovery short of `git revert`. The hatch trades that
+  # failure mode for a narrower one: a stray or malicious `DOTS_SANDBOX=0`
+  # in the environment, which the exact-match check below at least keeps a
+  # typo from triggering by accident.
   #
   # What remains unwrapped is unwrapped on purpose, not on schedule: the
   # entries `isSandboxExempt` reads out of nix/data/sandbox-policy.json,
@@ -178,24 +191,33 @@ let
             inherit name;
             runtimeInputs = [ self.packages.${pkgs.stdenv.hostPlatform.system}.dots-sandbox ];
             text = ''
-              # There is deliberately NO bypass here.
+              # DOTS_SANDBOX=0 is the escape hatch for when the sandbox
+              # itself is what is broken: a policy file dots-sandbox still
+              # parses but resolves into nonsense, a capability-to-argv bug,
+              # a systemd-nspawn incompatibility on some host. None of that
+              # is something dots-sandbox can be trusted to notice about
+              # itself, so this check does NOT live inside dots-sandbox (say,
+              # as a flag `run_command` inspects in main.rs before doing
+              # anything else) — if it did, every one of those failure modes
+              # would have to be survived by the very code that might be the
+              # thing failing, before the bypass could even take effect.
+              # Checked here instead, in this wrapper, before dots-sandbox is
+              # invoked at all, the bypass keeps working even if dots-sandbox
+              # fails to build, panics on startup, or resolves a policy into
+              # something actively wrong — the only version of "bypass"
+              # actually worth having. A future "simplification" that moves
+              # this check into the binary quietly deletes the one thing
+              # this variable exists for.
               #
-              # This wrapper used to honour DOTS_SANDBOX=0, on the argument
-              # that a bypass must keep working when the sandbox itself is
-              # the broken thing. That argument is sound and it was
-              # overruled: an escape hatch anyone can set is also an escape
-              # hatch anything can set, and a confinement that a stray
-              # environment variable switches off is not confinement. The
-              # decision is "on by default, with no way of opting out", and
-              # a variable check here would be exactly the opt-out.
-              #
-              # The cost is real and worth stating plainly rather than
-              # discovering later: if dots-sandbox fails to build, panics on
-              # startup, or resolves a policy into something actively wrong,
-              # every wrapped app stops working and there is no environment
-              # variable that rescues it. The way out is `git revert` or
-              # running the underlying program directly — not a flag.
-              #
+              # Exact-match "0" rather than a truthiness test: an unset,
+              # misspelled or otherwise ambiguous value stays sandboxed,
+              # because the safe failure direction for a security escape
+              # hatch is staying confined, not falling out of the sandbox by
+              # accident.
+              if [[ "''${DOTS_SANDBOX:-1}" == "0" ]]; then
+                exec "${app.program}" "$@"
+              fi
+
               # The defaults file ships from the Nix store, read-only
               # (${sandboxPolicyPath}). DOTS_SANDBOX_DEFAULTS lets it be
               # pointed elsewhere instead — how a real install relocates it,
@@ -207,12 +229,14 @@ let
               # A malformed policy now REFUSES to launch rather than running
               # the app unconfined.
               #
-              # This inverts the previous behaviour, and for the same reason
-              # the bypass above is gone: "degrade to unconfined" is an
-              # opt-out with extra steps, and it is the most dangerous kind,
-              # because it triggers exactly when something is already wrong
-              # and nobody is watching. A policy file that fails to parse
-              # would have silently handed every app full access.
+              # This is deliberately asymmetric with DOTS_SANDBOX=0 above:
+              # that bypass is an explicit, operator-set opt-out, while
+              # degrading to unconfined because the policy failed to parse
+              # is not a decision anyone made — it is the most dangerous
+              # kind of opt-out, because it triggers exactly when something
+              # is already wrong and nobody is watching. A policy file that
+              # fails to parse would otherwise silently hand every app full
+              # access.
               #
               # Still checked BEFORE `dots-sandbox run` rather than inferred
               # from its exit code afterwards: a launch failure and a
@@ -240,15 +264,41 @@ let
               # -c` shim as the sandboxed command instead of the real
               # program directly, is what makes the bind-in and the
               # in-sandbox walk agree on where the checkout actually is.
-              # (This assumes the eventual container rootfs carries a `sh`
-              # on PATH; worth checking once that rootfs exists.)
+              #
+              # That shim is invoked by its absolute store path
+              # (${pkgs.runtimeShell}), not the bare name `sh`. The bwrap
+              # tier has no container rootfs — bwrap_argv (rust/dots-sandbox/
+              # src/argv.rs) binds only /nix/store (read-only), /proc, /dev
+              # and a tmpfs $HOME, never anything under /run or /usr the
+              # launcher's own PATH points at. A bare `sh` here is therefore
+              # not a style choice but a bug: bwrap resolves its argv[0] with
+              # execvp against that PATH, finds nothing bound there, and dies
+              # with "execvp sh: No such file or directory" before the app
+              # ever starts. The absolute path resolves because every app in
+              # nix/data/sandbox-policy.json runs on the `bwrap` tier today,
+              # and bwrap_argv binds the store unconditionally (see
+              # fixed_paths::NIX_STORE's own doc comment in argv.rs) — that
+              # is not true of every tier: container_argv only binds the
+              # store when the nix-daemon capability resolves to allow, and
+              # vm_argv never binds it explicitly at all. Re-verify this
+              # reasoning before relying on it for a container- or vm-tier
+              # app. It costs the closure nothing new here only because
+              # writeShellApplication already pulls in runtimeShell for
+              # every script's own shebang. Do not "simplify" this back to
+              # a bare `sh`.
               ${cdRepoRoot}
               export DOTS_SANDBOX_REPO_ROOT="''${DOTS_SANDBOX_REPO_ROOT:-$PWD}"
 
               # shellcheck disable=SC2016 # single-quoted on purpose: "$1"/
               # "$@" below must reach the INNER `sh -c`, not expand here.
+              #
+              # The trailing bare `sh` is argv[0] for that inner shell, a
+              # conventional placeholder consumed only as "$0" so that "$1"
+              # lands on the repo root — never looked up against PATH, so it
+              # carries none of the bug above. Left as `sh` rather than the
+              # absolute path for readability; it is a label, not a command.
               exec dots-sandbox run --app "${appId}" -- \
-                sh -c 'cd "$1" && shift && exec "$@"' sh \
+                ${pkgs.runtimeShell} -c 'cd "$1" && shift && exec "$@"' sh \
                 "$DOTS_SANDBOX_REPO_ROOT" "${app.program}" "$@"
             '';
           })
@@ -256,11 +306,13 @@ let
       };
 in
 {
-  # Rollout: the first of two apps wrapped through mkSandboxedApp today
-  # (see mkSandboxedApp's own comment for why only two). This one echoes
-  # text and touches nothing, so a wrapper bug here costs a confusing
-  # message at worst — about as little as an app can have to lose.
-  # `appId = "default"` overrides mkShellApp's `appId ? name` default:
+  # All 8 non-exempt apps in this file carry `sandboxed = true` and route
+  # through mkSandboxedApp (see its own comment for the rollout's history,
+  # and `clean`'s comment below for where the rollout actually stands
+  # today). This one echoes text and touches nothing, so a wrapper bug
+  # here costs a confusing message at worst — about as little as an app
+  # can have to lose. `appId = "default"` overrides mkShellApp's
+  # `appId ? name` default:
   # this script is internally named "dots-list", but the flake attribute
   # (and therefore the policy catalog id and `nix run .#default`) is
   # "default" — the one call site in this file where those two differ.
@@ -286,9 +338,22 @@ in
   # Static gate: flake eval (--no-build), then fmt/clippy/test for every Rust
   # crate in the repo. Cargo is pinned in runtimeInputs so the dev shell need
   # not be on.
+  #
+  # pkgs.nix is pinned here for the same reason: this script calls `nix`
+  # by bare name three times below, and writeShellApplication only puts
+  # runtimeInputs on PATH, not the caller's own environment. Under the
+  # bwrap tier that matters more than usual — the ambient
+  # /run/current-system/sw/bin/nix is never bound into the sandbox at all
+  # (bwrap_argv, rust/dots-sandbox/src/argv.rs, binds only /nix/store,
+  # /proc, /dev and a tmpfs $HOME), so without this the bare name resolves
+  # to nothing and `nix: command not found` is the first line the script
+  # gets past cdRepoRoot. Pinning it as a runtimeInput makes it an
+  # absolute store path baked into the script's own PATH, which /nix/store
+  # being bound read-only is enough to satisfy.
   nix-lint = mkShellApp "nix-lint" {
     sandboxed = true;
     runtimeInputs = [
+      pkgs.nix
       pkgs.cargo
       pkgs.rustc
       pkgs.rustfmt
@@ -467,6 +532,9 @@ in
   # in ci.yml, not something this fix touches.
   nix-smoke = mkShellApp "nix-smoke" {
     sandboxed = true;
+    # pkgs.nix — see the runtimeInputs comment on nix-lint above for why a
+    # bare `nix` call needs this under the bwrap tier.
+    runtimeInputs = [ pkgs.nix ];
     text = ''
       ${cdRepoRoot}
       nix build -L --impure ".#checks.x86_64-linux.iso-boot" "$@"
@@ -506,18 +574,29 @@ in
 
   # Remove local build/test leftovers (safe — all gitignored).
   #
-  # Rollout: the second of two apps wrapped through mkSandboxedApp today
-  # (see mkSandboxedApp's own comment, and the rollout note on `default`
-  # above). `rm -rf` touching the wrong tree is the one way this app could
-  # ever have anything to lose, and the sandbox is precisely what bounds
-  # that: the policy grants `repo-write` and nothing else, so a confused
+  # All 8 non-exempt apps in this file carry `sandboxed = true` and route
+  # through mkSandboxedApp (see its own comment for why the default
+  # flipped to true for everyone at once, rather than staying an opt-in
+  # two apps picked up one at a time): default, nix-lint, memory-derive,
+  # memory-health, iso, iso-full, nix-smoke and this one. `rm -rf`
+  # touching the wrong tree is the one way this particular app could ever
+  # have anything to lose, and the sandbox is precisely what bounds that:
+  # the policy grants `repo-write` and nothing else, so a confused
   # invocation can still only ever reach this checkout.
   #
-  # nix-lint, memory-derive, memory-health, iso, iso-full and nix-smoke
-  # deliberately still return mkShellApp's plain, unwrapped app — same
-  # mechanism, not yet flipped on, left for a follow-up once this pair has
-  # proven out. nix-smoke-interactive and enroll-fido are never wrapped at
-  # all; see mkSandboxedApp's isSandboxExempt check.
+  # Wrapped is not the same as working. Running these apps under the
+  # sandbox surfaced two bugs already fixed on this branch: a bare `sh`
+  # bwrap could not resolve (1f79557), and a bare `nix` invisible on the
+  # bwrap PATH (35a7484). A third stayed open by deliberate choice:
+  # nix-lint, iso, iso-full and nix-smoke all shell out to `nix`, and the
+  # sandboxed `nix` refuses with "experimental Nix feature 'nix-command'
+  # is disabled". bwrap_argv (rust/dots-sandbox/src/argv.rs) binds no
+  # /etc and replaces $HOME with a tmpfs, so the sandboxed process never
+  # reaches /etc/nix/nix.conf or ~/.config/nix/nix.conf, the only places
+  # this host turns on nix-command/flakes. Those four apps cannot
+  # complete inside the sandbox today; run them with `DOTS_SANDBOX=0`
+  # until that gap is closed. nix-smoke-interactive and enroll-fido are
+  # never wrapped at all; see mkSandboxedApp's isSandboxExempt check.
   clean = mkShellApp "clean" {
     sandboxed = true;
     text = ''

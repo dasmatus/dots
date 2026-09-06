@@ -44,10 +44,12 @@ fn tmp_audit(name: &str) -> PathBuf {
 }
 
 /// A `defaults.json` fixture covering every app id this file resolves:
-/// four `unconfined` apps (one per behavioural test below, run directly
-/// with no sandbox wrapper) and one `dash-app` sandboxed under the
+/// five `unconfined` apps (one per behavioural test below, run directly
+/// with no sandbox wrapper), one `dash-app` sandboxed under the
 /// `container` tier with one capability in each of the three resolvable
-/// states, to exercise `broker::decide`'s full range.
+/// states (to exercise `broker::decide`'s full range), and one `t-degrade`
+/// also sandboxed under `container`, with no capabilities at all, whose
+/// only job is to sit on a tier this test host cannot provide.
 fn write_fixture() -> PathBuf {
     let path = std::env::temp_dir().join(format!(
         "dots-sandbox-launch-test-defaults-{}.json",
@@ -64,6 +66,10 @@ fn write_fixture() -> PathBuf {
             "dash-app": {
                 "tier": "container",
                 "caps": { "net": "allow", "kvm": "ask", "postgres": "deny" }
+            },
+            "t-degrade": {
+                "tier": "container",
+                "caps": {}
             }
         },
         "denyPaths": []
@@ -271,5 +277,59 @@ fn forwards_sigint_to_the_child_too() {
     sender.join().unwrap();
 
     assert_eq!(outcome.exit_code, 128 + libc::SIGINT);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn degrades_to_unconfined_when_the_tier_is_unavailable() {
+    let _guard = TEST_SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // `logs_every_capability_decision_for_the_dashboard` sets this
+    // process-wide and `cargo test` gives no guarantee which test in this
+    // binary runs first, so a prior run could leave it set here and
+    // suppress the very degrade this test exists to exercise.
+    std::env::remove_var("DOTS_SANDBOX_REQUIRE_RUNTIME");
+
+    // On a host where `systemd-nsresourced` is actually running, the
+    // `container` tier is genuinely available and `t-degrade` would launch
+    // for real instead of degrading — attempting a real `systemd-nspawn`
+    // this test has no business starting. Skip rather than assert the
+    // wrong thing.
+    if std::path::Path::new("/run/systemd/userdb/io.systemd.NamespaceResource").exists() {
+        eprintln!(
+            "skipping degrades_to_unconfined_when_the_tier_is_unavailable: \
+             systemd-nsresourced is enabled on this host, so the container \
+             tier is available and there is nothing to degrade from"
+        );
+        return;
+    }
+
+    set_fixture_env();
+    let path = tmp_audit("degrade");
+    let audit = AuditLog::with_path(&path);
+    let outcome = launch::run(
+        "t-degrade",
+        "true",
+        &[],
+        Interactivity::NonInteractive,
+        &audit,
+    )
+    .expect("run should succeed by degrading to unconfined, not by refusing");
+    assert_eq!(
+        outcome.exit_code, 0,
+        "the degraded launch runs `true` directly, unwrapped"
+    );
+
+    let content = std::fs::read_to_string(&path).expect("audit log should have been written");
+    let lines: Vec<serde_json::Value> = content
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("every audit line must be valid JSON"))
+        .collect();
+    assert!(
+        lines.iter().any(|line| line["kind"] == "unconfined"
+            && line["outcome"] == "unconfined_runtime_unavailable"),
+        "expected an unconfined/unconfined_runtime_unavailable audit line: {lines:#?}"
+    );
     let _ = std::fs::remove_file(&path);
 }

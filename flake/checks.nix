@@ -333,10 +333,12 @@ in
       # *is* the catalog (see resolve_app in rust/dots-sandbox/src/policy.rs)
       # — so "an app id the crate knows" is checked here against every real
       # launchable surface this repo actually offers: the flake's own
-      # `nix run .#<app>` list, plus the handful of desktop launcher apps
-      # (the quickshell pill bar) that sit outside that list entirely.
-      # Nothing in Nix enumerates the launcher's app ids today, so the
-      # second half is a hand-kept list; a new sandboxed launcher entry
+      # `nix run .#<app>` list, plus every other surface `wrapSandboxed`
+      # confines outside that list — the quickshell pill bar's desktop
+      # launchers and the `home.packages` MCP servers (edupage-mcp,
+      # dots-memory-mcp) that ship no launcher at all. Nothing in Nix
+      # enumerates either set's app ids today, so the second half is a
+      # hand-kept list; a new sandboxed app — launcher or MCP server —
       # needs a line here as much as it needs one in the policy file.
       knownFlakeApps = builtins.attrNames self.apps.${system};
       knownDesktopApps = [
@@ -345,6 +347,10 @@ in
         "kitty"
         "junction"
         "bitwarden"
+        "zed"
+        "claude-desktop"
+        "edupage-mcp"
+        "dots-memory-mcp"
       ];
       knownApps = knownFlakeApps ++ knownDesktopApps;
 
