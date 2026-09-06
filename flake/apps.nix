@@ -147,9 +147,17 @@ let
   # planted secret unreadable, the network namespace unshared, and the one
   # granted capability still working.
   #
-  # There is no environment-variable bypass any more either — see the
-  # wrapper body below. Confinement is on by default with no way to opt out
-  # of it at run time.
+  # DOTS_SANDBOX=0 still bypasses at run time — see the wrapper body below.
+  # This is a single-user desktop, not a multi-tenant one: the wrapper's job
+  # is to make confinement the default nobody has to opt into, not to be
+  # tamper-proof against its own operator, who already has root and every
+  # other way to disable it if they actually want to. A wrapper that cannot
+  # be switched off turns any bug in dots-sandbox — a build failure, a panic
+  # on startup, a policy resolved into nonsense — into an unbootable-desktop
+  # event with no recovery short of `git revert`. The hatch trades that
+  # failure mode for a narrower one: a stray or malicious `DOTS_SANDBOX=0`
+  # in the environment, which the exact-match check below at least keeps a
+  # typo from triggering by accident.
   #
   # What remains unwrapped is unwrapped on purpose, not on schedule: the
   # entries `isSandboxExempt` reads out of nix/data/sandbox-policy.json,
@@ -178,24 +186,33 @@ let
             inherit name;
             runtimeInputs = [ self.packages.${pkgs.stdenv.hostPlatform.system}.dots-sandbox ];
             text = ''
-              # There is deliberately NO bypass here.
+              # DOTS_SANDBOX=0 is the escape hatch for when the sandbox
+              # itself is what is broken: a policy file dots-sandbox still
+              # parses but resolves into nonsense, a capability-to-argv bug,
+              # a systemd-nspawn incompatibility on some host. None of that
+              # is something dots-sandbox can be trusted to notice about
+              # itself, so this check does NOT live inside dots-sandbox (say,
+              # as a flag `run_command` inspects in main.rs before doing
+              # anything else) — if it did, every one of those failure modes
+              # would have to be survived by the very code that might be the
+              # thing failing, before the bypass could even take effect.
+              # Checked here instead, in this wrapper, before dots-sandbox is
+              # invoked at all, the bypass keeps working even if dots-sandbox
+              # fails to build, panics on startup, or resolves a policy into
+              # something actively wrong — the only version of "bypass"
+              # actually worth having. A future "simplification" that moves
+              # this check into the binary quietly deletes the one thing
+              # this variable exists for.
               #
-              # This wrapper used to honour DOTS_SANDBOX=0, on the argument
-              # that a bypass must keep working when the sandbox itself is
-              # the broken thing. That argument is sound and it was
-              # overruled: an escape hatch anyone can set is also an escape
-              # hatch anything can set, and a confinement that a stray
-              # environment variable switches off is not confinement. The
-              # decision is "on by default, with no way of opting out", and
-              # a variable check here would be exactly the opt-out.
-              #
-              # The cost is real and worth stating plainly rather than
-              # discovering later: if dots-sandbox fails to build, panics on
-              # startup, or resolves a policy into something actively wrong,
-              # every wrapped app stops working and there is no environment
-              # variable that rescues it. The way out is `git revert` or
-              # running the underlying program directly — not a flag.
-              #
+              # Exact-match "0" rather than a truthiness test: an unset,
+              # misspelled or otherwise ambiguous value stays sandboxed,
+              # because the safe failure direction for a security escape
+              # hatch is staying confined, not falling out of the sandbox by
+              # accident.
+              if [[ "''${DOTS_SANDBOX:-1}" == "0" ]]; then
+                exec "${app.program}" "$@"
+              fi
+
               # The defaults file ships from the Nix store, read-only
               # (${sandboxPolicyPath}). DOTS_SANDBOX_DEFAULTS lets it be
               # pointed elsewhere instead — how a real install relocates it,
@@ -207,12 +224,14 @@ let
               # A malformed policy now REFUSES to launch rather than running
               # the app unconfined.
               #
-              # This inverts the previous behaviour, and for the same reason
-              # the bypass above is gone: "degrade to unconfined" is an
-              # opt-out with extra steps, and it is the most dangerous kind,
-              # because it triggers exactly when something is already wrong
-              # and nobody is watching. A policy file that fails to parse
-              # would have silently handed every app full access.
+              # This is deliberately asymmetric with DOTS_SANDBOX=0 above:
+              # that bypass is an explicit, operator-set opt-out, while
+              # degrading to unconfined because the policy failed to parse
+              # is not a decision anyone made — it is the most dangerous
+              # kind of opt-out, because it triggers exactly when something
+              # is already wrong and nobody is watching. A policy file that
+              # fails to parse would otherwise silently hand every app full
+              # access.
               #
               # Still checked BEFORE `dots-sandbox run` rather than inferred
               # from its exit code afterwards: a launch failure and a

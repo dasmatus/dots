@@ -33,9 +33,20 @@ const NSRESOURCED_SOCKET: &str = "/run/systemd/userdb/io.systemd.NamespaceResour
 /// Whether the host can run the tier this policy asks for.
 ///
 /// Returns the reason it cannot, or `None` when it can. A caller that gets
-/// a reason must REFUSE, never fall back to running unconfined — see
-/// [`run`].
+/// a reason degrades to running the app unconfined rather than refusing to
+/// launch it at all — see [`run`].
 fn tier_unavailable(tier: policy::Tier) -> Option<String> {
+    // `DOTS_SANDBOX_REQUIRE_RUNTIME=1` suppresses the degradation below and
+    // forces every tier to attempt its real launch regardless of what the
+    // match below would otherwise say, following the same injection
+    // convention as `$DOTS_SANDBOX_DEFAULTS` and friends. It can only ever
+    // make confinement stricter — forcing an attempt that then fails loudly
+    // — so unlike `DOTS_SANDBOX=0` in the wrapper scripts, it is not a route
+    // to less isolation. This is what lets the audit tests exercise the
+    // sandboxed path on a host whose nsresourced is not enabled.
+    if env::var_os("DOTS_SANDBOX_REQUIRE_RUNTIME").is_some_and(|value| value == "1") {
+        return None;
+    }
     match tier {
         // bubblewrap needs nothing but an unprivileged user namespace,
         // which this kernel allows. It deliberately does NOT consult
@@ -112,28 +123,32 @@ pub fn run(
             spawn_and_wait(&unconfined_argv(program, args))
         }
         ResolvedApp::Sandboxed(resolved) => {
-            // REFUSE rather than degrade.
+            // Degrade rather than refuse. A host that cannot start a
+            // sandbox must still run the app: refusing outright would mean
+            // every `nix run .#<app>` (or wrapped binary) stops working the
+            // moment this tier check trips, with no recourse short of a
+            // rebuild — worse than the app running unconfined in the
+            // meantime.
             //
-            // This used to run the app unconfined with a warning, arguing
-            // that a host which cannot start a sandbox must still run the
-            // app. That was overruled: confinement is on by default with no
-            // opt-out, and "degrade to unconfined" is the most dangerous
-            // opt-out there is, because it fires exactly when something is
-            // already wrong and nobody is reading stderr. An app the policy
-            // says is sandboxed either runs sandboxed or does not run.
+            // The cost is real, and stating it honestly matters more than
+            // stating the benefit: this fires exactly when something is
+            // already wrong and nobody is reading stderr. The line below
+            // plus the audit record are the ENTIRE mitigation — there is no
+            // retry, no alert, nothing else that makes this loud. A machine
+            // whose audit log holds `unconfined_runtime_unavailable` entries
+            // needs the sandbox host module enabled and a rebuild, not a
+            // shrug because nothing crashed.
             if let Some(reason) = tier_unavailable(resolved.tier) {
+                eprintln!("dots-sandbox: running {app_id} UNCONFINED: {reason}");
                 audit.log(&AuditEvent {
                     ts_ms: broker::now_ms(),
                     app_id,
                     kind: EventKind::Unconfined,
                     capability: None,
-                    outcome: "refused_tier_unavailable",
+                    outcome: "unconfined_runtime_unavailable",
                     detail: Some(&reason),
                 });
-                return Err(LaunchError::TierUnavailable {
-                    app_id: app_id.to_string(),
-                    reason,
-                });
+                return spawn_and_wait(&unconfined_argv(program, args));
             }
 
             // Every capability gets a decision and an audit line,
@@ -368,10 +383,6 @@ pub enum LaunchError {
     Spawn(io::Error),
     SignalSetup(io::Error),
     Wait(io::Error),
-    /// The policy says this app is sandboxed and the host cannot provide
-    /// that tier. Refusing, never degrading: an app the policy calls
-    /// sandboxed either runs sandboxed or does not run.
-    TierUnavailable { app_id: String, reason: String },
 }
 
 impl std::fmt::Display for LaunchError {
@@ -384,12 +395,6 @@ impl std::fmt::Display for LaunchError {
             Self::Spawn(err) => write!(f, "failed to spawn sandboxed command: {err}"),
             Self::SignalSetup(err) => write!(f, "failed to install signal forwarding: {err}"),
             Self::Wait(err) => write!(f, "failed to wait for sandboxed command: {err}"),
-            Self::TierUnavailable { app_id, reason } => write!(
-                f,
-                "refusing to run {app_id}: the policy says it is sandboxed and this \
-                 host cannot provide that ({reason}). Running it unconfined is not \
-                 an option this build offers."
-            ),
         }
     }
 }
@@ -401,7 +406,7 @@ impl std::error::Error for LaunchError {
             Self::Io(err) | Self::Spawn(err) | Self::SignalSetup(err) | Self::Wait(err) => {
                 Some(err)
             }
-            Self::MissingEnv(_) | Self::EmptyArgv | Self::TierUnavailable { .. } => None,
+            Self::MissingEnv(_) | Self::EmptyArgv => None,
         }
     }
 }

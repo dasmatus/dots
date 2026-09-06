@@ -133,12 +133,19 @@ pub fn spawn_argv(resolved: &ResolvedPolicy, ctx: &LaunchCtx) -> Vec<String> {
 /// The `bwrap` tier: namespace confinement with no VM and no systemd spawn
 /// binary in the path.
 ///
-/// Structured as deny-by-default. The sandbox starts with nothing —
-/// `--clearenv`, every namespace unshared, `$HOME` replaced by a tmpfs —
-/// and each granted capability adds exactly one thing back. That ordering
-/// is the whole safety argument: a capability this function forgets to
-/// handle results in an app that cannot do something, never in an app that
-/// can do something it was not granted.
+/// Structured as deny-by-default for namespaces and the filesystem: the
+/// sandbox starts with every namespace unshared and `$HOME` replaced by a
+/// tmpfs, and each granted capability adds exactly one thing back. That
+/// ordering is the whole safety argument: a capability this function
+/// forgets to handle results in an app that cannot do something, never in
+/// an app that can do something it was not granted.
+///
+/// The environment is a known gap, not an oversight: this never emits
+/// `bwrap --clearenv`, so every sandboxed process inherits the launcher's
+/// full environment verbatim. Closing it would break every wrapped CLI that
+/// needs `PATH`, `CARGO_HOME` and similar variables just to start, and
+/// there is no per-capability allowlist here to say which ones a given app
+/// actually needs — the fix belongs to a future capability, not this one.
 ///
 /// `/nix/store` is bound read-only unconditionally, and is not a capability.
 /// Every binary on this system, including the program being launched, is a
