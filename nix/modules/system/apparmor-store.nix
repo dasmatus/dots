@@ -129,7 +129,7 @@ in
     #     research-apparmor.md §4) will break them. This is the user's
     #     daily driver; that flip is future, deliberate, per-binary work,
     #     not a follow-up to this commit.
-    state = "enforce";
+    state = "complain";
     profile = mkStoreProfile {
       name = "store-catchall";
       # Every regular file under any store output, at any nesting depth
