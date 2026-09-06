@@ -306,11 +306,13 @@ let
       };
 in
 {
-  # Rollout: the first of two apps wrapped through mkSandboxedApp today
-  # (see mkSandboxedApp's own comment for why only two). This one echoes
-  # text and touches nothing, so a wrapper bug here costs a confusing
-  # message at worst — about as little as an app can have to lose.
-  # `appId = "default"` overrides mkShellApp's `appId ? name` default:
+  # All 8 non-exempt apps in this file carry `sandboxed = true` and route
+  # through mkSandboxedApp (see its own comment for the rollout's history,
+  # and `clean`'s comment below for where the rollout actually stands
+  # today). This one echoes text and touches nothing, so a wrapper bug
+  # here costs a confusing message at worst — about as little as an app
+  # can have to lose. `appId = "default"` overrides mkShellApp's
+  # `appId ? name` default:
   # this script is internally named "dots-list", but the flake attribute
   # (and therefore the policy catalog id and `nix run .#default`) is
   # "default" — the one call site in this file where those two differ.
@@ -572,18 +574,29 @@ in
 
   # Remove local build/test leftovers (safe — all gitignored).
   #
-  # Rollout: the second of two apps wrapped through mkSandboxedApp today
-  # (see mkSandboxedApp's own comment, and the rollout note on `default`
-  # above). `rm -rf` touching the wrong tree is the one way this app could
-  # ever have anything to lose, and the sandbox is precisely what bounds
-  # that: the policy grants `repo-write` and nothing else, so a confused
+  # All 8 non-exempt apps in this file carry `sandboxed = true` and route
+  # through mkSandboxedApp (see its own comment for why the default
+  # flipped to true for everyone at once, rather than staying an opt-in
+  # two apps picked up one at a time): default, nix-lint, memory-derive,
+  # memory-health, iso, iso-full, nix-smoke and this one. `rm -rf`
+  # touching the wrong tree is the one way this particular app could ever
+  # have anything to lose, and the sandbox is precisely what bounds that:
+  # the policy grants `repo-write` and nothing else, so a confused
   # invocation can still only ever reach this checkout.
   #
-  # nix-lint, memory-derive, memory-health, iso, iso-full and nix-smoke
-  # deliberately still return mkShellApp's plain, unwrapped app — same
-  # mechanism, not yet flipped on, left for a follow-up once this pair has
-  # proven out. nix-smoke-interactive and enroll-fido are never wrapped at
-  # all; see mkSandboxedApp's isSandboxExempt check.
+  # Wrapped is not the same as working. Running these apps under the
+  # sandbox surfaced two bugs already fixed on this branch: a bare `sh`
+  # bwrap could not resolve (1f79557), and a bare `nix` invisible on the
+  # bwrap PATH (35a7484). A third stayed open by deliberate choice:
+  # nix-lint, iso, iso-full and nix-smoke all shell out to `nix`, and the
+  # sandboxed `nix` refuses with "experimental Nix feature 'nix-command'
+  # is disabled". bwrap_argv (rust/dots-sandbox/src/argv.rs) binds no
+  # /etc and replaces $HOME with a tmpfs, so the sandboxed process never
+  # reaches /etc/nix/nix.conf or ~/.config/nix/nix.conf, the only places
+  # this host turns on nix-command/flakes. Those four apps cannot
+  # complete inside the sandbox today; run them with `DOTS_SANDBOX=0`
+  # until that gap is closed. nix-smoke-interactive and enroll-fido are
+  # never wrapped at all; see mkSandboxedApp's isSandboxExempt check.
   clean = mkShellApp "clean" {
     sandboxed = true;
     text = ''
