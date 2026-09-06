@@ -15,18 +15,27 @@
 //   receives them. If a judgement like "is TPM present AND Secure Boot off"
 //   ever seems tempting here, it belongs in that collector instead; see
 //   this task's own report for what was actually found missing there.
-// - `dots-sandbox policy dump` (rust/dots-sandbox/src/policy.rs) resolves
-//   every app the defaults catalog knows, merged with whatever
-//   ~/.config/dots-sandbox/overrides.json already says. Writes go straight
-//   to that same file via FileView.setText — the identical idiom
+// - `dots-sandbox catalog --json` (rust/dots-sandbox/src/catalog.rs) lists
+//   every app the defaults catalog knows, each carrying the real Name/Icon
+//   its desktop entry declares (so rows show an app, not a policy key) and
+//   its already-resolved capability state (defaults layered with whatever
+//   ~/.config/dots-sandbox/overrides.json already says — one call is all
+//   this page ever needs for that). Writes still go straight to that same
+//   overrides file via FileView.setText — the identical idiom
 //   monitors/Arrange.qml already uses for its own overrides.json, not a
 //   second `dots-sandbox` CLI subcommand invented for this one write.
 //
+// The permissions list below groups by CAPABILITY first, same as an
+// Android permission manager: a row per capability `policy.rs` knows,
+// each showing how many apps requested it, opening onto exactly those
+// apps and their own three-way control — never the reverse (an app,
+// then its capabilities), which is what this page drew before.
+//
 // sandbox/policy.js carries every pure transform both this file and
-// sandbox/Prompt.qml need (status-to-colour-name, capability sorting, the
-// overrides merge) — qmltestrunner cannot instantiate anything here (this
-// file reaches Process and FileView, both Quickshell.Io types), so that
-// logic has to live somewhere the test runner can load on its own.
+// sandbox/Prompt.qml need (status-to-colour-name, the capability grouping,
+// the overrides merge) — qmltestrunner cannot instantiate anything here
+// (this file reaches Process and FileView, both Quickshell.Io types), so
+// that logic has to live somewhere the test runner can load on its own.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -49,12 +58,22 @@ Item {
     // side; either way there is nothing to draw yet.
     property var cards: []
 
-    // `policy dump`'s whole document (`{version, denyPaths, apps}`), or
-    // `null` before the first read / after a parse failure. `null` rather
-    // than `{}` so `Policy.appEntries` (which already treats a missing
+    // `catalog --json`'s whole document (`{version, apps}`), or `null`
+    // before the first read / after a parse failure — including the
+    // binary being entirely missing, which lands in the exact same catch
+    // block as a malformed document (see catalogProc below). `null` rather
+    // than `{}` so `Policy.catalogApps` (which already treats a missing
     // `apps` key as "nothing to show") is the one place that has to know
-    // what "not ready yet" looks like.
-    property var policySet: null
+    // what "not ready yet" looks like; every Policy function the
+    // permissions section calls goes through it.
+    property var catalogSet: null
+
+    // Which capability's own app list the permissions section is showing,
+    // or "" for the top-level list of capabilities itself. Local page
+    // state only — this page is rebuilt fresh every time the Security tab
+    // is opened (Settings.qml's own Loader `active` binding), so there is
+    // nothing to reset on the way out.
+    property string selectedCapability: ""
 
     // Feedback for the last capability write — cleared by the next
     // successful read, same lifetime as Settings.qml's own `status` for the
@@ -64,8 +83,8 @@ Item {
     function refresh(): void {
         reportProc.running = false;
         reportProc.running = true;
-        policyProc.running = false;
-        policyProc.running = true;
+        catalogProc.running = false;
+        catalogProc.running = true;
     }
 
     Component.onCompleted: root.refresh()
@@ -108,16 +127,22 @@ Item {
     }
 
     Process {
-        id: policyProc
+        id: catalogProc
 
-        command: ["dots-sandbox", "policy", "dump"]
+        command: ["dots-sandbox", "catalog", "--json"]
 
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
-                    root.policySet = JSON.parse(this.text);
+                    root.catalogSet = JSON.parse(this.text);
                 } catch (error) {
-                    root.policySet = null;
+                    // A missing binary, a killed process or a malformed
+                    // document all land here the same way: no permissions
+                    // list, not a crashed settings panel — the loading
+                    // message below is what tells the user something is
+                    // wrong, the same honesty rule reportProc's own catch
+                    // above already follows.
+                    root.catalogSet = null;
                 }
             }
         }
@@ -166,15 +191,17 @@ Item {
     // The one write this page ever makes: one app, one capability, one new
     // state — Policy.withCapabilityOverride folds it into whatever
     // overrides.json already holds rather than replacing the file outright.
-    // `policyProc` is re-run afterwards so the permissions list reflects the
-    // MERGED, resolved state the write actually produced, not an optimistic
-    // guess at what `policy dump` would say.
+    // `catalogProc` is re-run afterwards so the permissions list reflects
+    // the MERGED, resolved state the write actually produced, not an
+    // optimistic guess at what `catalog --json` would say. `selectedCapability`
+    // is left untouched, so flipping a segment stays on the same drill-in
+    // list rather than bouncing the user back to the top level.
     function setCapability(appId: string, capability: string, state: string): void {
         const merged = Policy.withCapabilityOverride(root.overridesRoot, appId, capability, state);
         overridesFile.setText(JSON.stringify(merged));
         root.writeStatus = `${appId}: ${capability} → ${state} (applies next launch)`;
-        policyProc.running = false;
-        policyProc.running = true;
+        catalogProc.running = false;
+        catalogProc.running = true;
     }
 
     Flickable {
@@ -389,72 +416,250 @@ Item {
                 Text {
                     Layout.fillWidth: true
 
-                    visible: root.policySet === null
-                    text: "Reading dots-sandbox policy dump…"
+                    visible: root.catalogSet === null
+                    text: "Reading dots-sandbox catalog --json…"
                     color: Theme.muted
 
                     font.family: Theme.fontUi
                     font.pointSize: Theme.settingsRowDescFontSize
                 }
 
-                Repeater {
-                    model: Policy.appEntries(root.policySet)
+                // Exempt apps: shown at this section's own top level,
+                // never behind a capability click — an unconfined app has
+                // no capability list of its own to be filed under, and
+                // hiding it even one click deep is the same invisible-
+                // exemption problem the task brief's own callout warns
+                // against. Hidden only while drilled into one capability,
+                // where it would just be noise unrelated to that list.
+                ColumnLayout {
+                    Layout.fillWidth: true
 
-                    delegate: ColumnLayout {
-                        id: appBlock
+                    visible: root.catalogSet !== null && root.selectedCapability === "" && unconfinedRepeater.count > 0
+                    spacing: Theme.settingsRowGap
 
-                        required property var modelData
+                    Repeater {
+                        id: unconfinedRepeater
 
-                        Layout.fillWidth: true
-                        spacing: Theme.settingsRowGap
+                        model: Policy.unconfinedEntries(root.catalogSet)
 
-                        Text {
-                            text: appBlock.modelData.kind === "sandboxed" ? `${appBlock.modelData.id}  ·  ${appBlock.modelData.tier}` : appBlock.modelData.id
-                            color: Theme.fg
+                        delegate: Rectangle {
+                            id: unconfinedRow
 
-                            font.family: Theme.fontMono
-                            font.pointSize: Theme.settingsRowDescFontSize
-                            font.bold: true
-                        }
+                            required property var modelData
 
-                        // Exempt apps get exactly one row: unsandboxed, plus
-                        // the policy's own reason — never hidden, per the
-                        // task brief's own callout on why an invisible
-                        // exemption list is a permissions UI that has
-                        // started lying about what it controls.
-                        SettingsRow {
-                            visible: appBlock.modelData.kind === "unconfined"
                             Layout.fillWidth: true
+                            implicitHeight: Math.max(Theme.settingsRowHeight, unconfinedLayout.implicitHeight + Theme.settingsRowPadding)
 
-                            title: "Unsandboxed"
-                            description: appBlock.modelData.reason ?? ""
+                            radius: Theme.settingsRadius
+                            color: Theme.bgDark
 
-                            Pill {
-                                color: Theme.selection
+                            RowLayout {
+                                id: unconfinedLayout
 
-                                Text {
-                                    text: "No sandbox"
-                                    color: Theme.fg
+                                anchors.fill: parent
+                                anchors.margins: Theme.settingsRowPadding
 
-                                    font.family: Theme.fontUi
-                                    font.pointSize: Theme.settingsRowDescFontSize
-                                    font.bold: true
+                                spacing: 16
+
+                                // Most unconfined apps were never rewrapped
+                                // at all (wrap.nix returns them untouched —
+                                // see the wrap-contract's own Piece 1 rule
+                                // 5), so there is usually no desktop entry
+                                // for the catalog to have sourced an icon
+                                // from; an empty string just hides this.
+                                Image {
+                                    Layout.preferredWidth: Theme.settingsIconSize
+                                    Layout.preferredHeight: Theme.settingsIconSize
+                                    Layout.alignment: Qt.AlignVCenter
+
+                                    visible: unconfinedRow.modelData.icon !== ""
+                                    source: unconfinedRow.modelData.icon !== "" ? Quickshell.iconPath(unconfinedRow.modelData.icon, true) : ""
+                                    sourceSize.width: Theme.settingsIconSize
+                                    sourceSize.height: Theme.settingsIconSize
+                                    fillMode: Image.PreserveAspectFit
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    Text {
+                                        Layout.fillWidth: true
+
+                                        text: unconfinedRow.modelData.name
+                                        color: Theme.fg
+                                        elide: Text.ElideRight
+
+                                        font.family: Theme.fontUi
+                                        font.pointSize: Theme.settingsRowTitleFontSize
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+
+                                        // Empty today for every real entry:
+                                        // `catalog --json` does not surface
+                                        // `ResolvedApp::Unconfined`'s reason
+                                        // string yet (see Policy.unconfinedEntries'
+                                        // own comment) — hidden rather than
+                                        // shown blank, the honest degrade
+                                        // until that one field lands.
+                                        visible: text !== ""
+                                        text: unconfinedRow.modelData.reason
+                                        color: Theme.muted
+                                        wrapMode: Text.WordWrap
+
+                                        font.family: Theme.fontUi
+                                        font.pointSize: Theme.settingsRowDescFontSize
+                                    }
+                                }
+
+                                Pill {
+                                    color: Theme.selection
+
+                                    Text {
+                                        text: "No sandbox"
+                                        color: Theme.fg
+
+                                        font.family: Theme.fontUi
+                                        font.pointSize: Theme.settingsRowDescFontSize
+                                        font.bold: true
+                                    }
                                 }
                             }
                         }
+                    }
+                }
 
-                        Repeater {
-                            model: appBlock.modelData.kind === "sandboxed" ? Policy.capabilityEntries(appBlock.modelData.capabilities) : []
+                // The permission-manager top level: one row per capability
+                // policy.rs knows, in its own declared order, each leading
+                // to the apps that requested it — the task brief's own
+                // words, "make permission type buttons that'll lead to
+                // apps that requested them", rather than the app-then-
+                // capabilities shape this page drew before.
+                ColumnLayout {
+                    Layout.fillWidth: true
 
-                            delegate: SettingsRow {
-                                id: capRow
+                    visible: root.catalogSet !== null && root.selectedCapability === ""
+                    spacing: Theme.settingsRowGap
 
-                                required property var modelData
+                    Repeater {
+                        model: Policy.capabilityGroups(root.catalogSet)
 
-                                Layout.fillWidth: true
+                        delegate: SettingsRow {
+                            id: capGroupRow
 
-                                title: capRow.modelData.name
-                                description: Policy.needsRelaunch(capRow.modelData.name) ? "Applies on next launch, not to a copy already running" : ""
+                            required property var modelData
+
+                            Layout.fillWidth: true
+                            clickable: true
+
+                            title: capGroupRow.modelData.label
+                            description: `${capGroupRow.modelData.count} app${capGroupRow.modelData.count === 1 ? "" : "s"} requested this`
+
+                            onClicked: root.selectedCapability = capGroupRow.modelData.name
+
+                            // The same drill-in chevron Settings.qml's own
+                            // Proton row uses, for the same reason: this
+                            // row opens a second view rather than editing a
+                            // value in place.
+                            Text {
+                                text: "\u{F0142}"
+                                color: Theme.muted
+
+                                font.family: Theme.fontUi
+                                font.pointSize: Theme.settingsRowTitleFontSize
+                            }
+                        }
+                    }
+                }
+
+                // Drilled into one capability: exactly the apps that
+                // requested it, each with the three-way Allow/Ask/Deny
+                // control the task brief's own non-negotiable calls out —
+                // a two-state toggle here would silently delete the "ask"
+                // state, the state that makes an app prompt at all.
+                ColumnLayout {
+                    Layout.fillWidth: true
+
+                    visible: root.catalogSet !== null && root.selectedCapability !== ""
+                    spacing: Theme.settingsRowGap
+
+                    SettingsRow {
+                        Layout.fillWidth: true
+                        clickable: true
+
+                        title: "\u{F0141}  Back to permissions"
+
+                        onClicked: root.selectedCapability = ""
+                    }
+
+                    Repeater {
+                        model: Policy.appsForCapability(root.catalogSet, root.selectedCapability)
+
+                        // Not SettingsRow: that component's title is a
+                        // plain string with no room for a leading icon, and
+                        // the whole point of reading the catalog instead of
+                        // `policy dump` is showing the app's own Name/Icon
+                        // rather than its bare policy key.
+                        delegate: Rectangle {
+                            id: appPermRow
+
+                            required property var modelData
+
+                            Layout.fillWidth: true
+                            implicitHeight: Math.max(Theme.settingsRowHeight, appPermLayout.implicitHeight + Theme.settingsRowPadding)
+
+                            radius: Theme.settingsRadius
+                            color: Theme.bgDark
+
+                            RowLayout {
+                                id: appPermLayout
+
+                                anchors.fill: parent
+                                anchors.margins: Theme.settingsRowPadding
+
+                                spacing: 16
+
+                                Image {
+                                    Layout.preferredWidth: Theme.settingsIconSize
+                                    Layout.preferredHeight: Theme.settingsIconSize
+                                    Layout.alignment: Qt.AlignVCenter
+
+                                    visible: appPermRow.modelData.icon !== ""
+                                    source: appPermRow.modelData.icon !== "" ? Quickshell.iconPath(appPermRow.modelData.icon, true) : ""
+                                    sourceSize.width: Theme.settingsIconSize
+                                    sourceSize.height: Theme.settingsIconSize
+                                    fillMode: Image.PreserveAspectFit
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    Text {
+                                        Layout.fillWidth: true
+
+                                        text: appPermRow.modelData.name
+                                        color: Theme.fg
+                                        elide: Text.ElideRight
+
+                                        font.family: Theme.fontUi
+                                        font.pointSize: Theme.settingsRowTitleFontSize
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+
+                                        visible: Policy.needsRelaunch(root.selectedCapability)
+                                        text: "Applies on next launch, not to a copy already running"
+                                        color: Theme.muted
+                                        wrapMode: Text.WordWrap
+
+                                        font.family: Theme.fontUi
+                                        font.pointSize: Theme.settingsRowDescFontSize
+                                    }
+                                }
 
                                 // controls/Segmented.qml, per the task
                                 // brief's own callout to reuse this shell's
@@ -466,31 +671,9 @@ Item {
                                         { label: "Ask", value: "ask" },
                                         { label: "Deny", value: "deny" }
                                     ]
-                                    value: capRow.modelData.state
-                                    onActivated: value => root.setCapability(appBlock.modelData.id, capRow.modelData.name, value)
+                                    value: appPermRow.modelData.state
+                                    onActivated: value => root.setCapability(appPermRow.modelData.appId, root.selectedCapability, value)
                                 }
-                            }
-                        }
-
-                        // Named path grants (nix-lint's own ~/.cargo, say)
-                        // are part of what this app's policy actually
-                        // grants too — shown so the list stays honest about
-                        // the whole picture, read-only for now: editing an
-                        // arbitrary path is a bigger surface than a
-                        // three-state capability toggle and the task brief
-                        // never asked this page to grow one.
-                        Repeater {
-                            model: appBlock.modelData.kind === "sandboxed" ? (appBlock.modelData.paths ?? []) : []
-
-                            delegate: SettingsRow {
-                                id: pathRow
-
-                                required property var modelData
-
-                                Layout.fillWidth: true
-
-                                title: pathRow.modelData.path
-                                description: `${pathRow.modelData.mode} · ${pathRow.modelData.state}`
                             }
                         }
                     }

@@ -58,6 +58,7 @@
   lib,
   pkgs,
   dots,
+  wrapSandboxed,
   ...
 }:
 let
@@ -207,9 +208,26 @@ in
   config = lib.mkIf dots.ai.claude {
     home.packages = [ edupage-keyring ];
 
+    # Wrapped rather than installed straight: this process only ever needs
+    # the school's remote API over the open internet (a real "net" grant, not
+    # a loopback service dots-sandbox's VM boundary would strand — unlike,
+    # say, a bridge that only serves 127.0.0.1). The secret-tool keyring
+    # lookup above talks to the Secret Service over the session D-Bus, which
+    # a systemd-vmspawn boundary does not carry through; that degrades to the
+    # wrapper's own already-designed fallback (empty credentials, `login`
+    # tool as the way in) rather than a hard failure, which is why the
+    # tradeoff is worth taking rather than routing around. See
+    # nix/home/sandbox/wrap.nix and nix/data/sandbox-policy.json's "edupage-mcp"
+    # entry.
     programs.claude-code.mcpServers.edupage = {
       type = "stdio";
-      command = lib.getExe edupage-mcp-keyring;
+      command = lib.getExe (
+        wrapSandboxed {
+          appId = "edupage-mcp";
+          caps = [ "net" ];
+          tier = "container";
+        } edupage-mcp-keyring
+      );
     };
   };
 }

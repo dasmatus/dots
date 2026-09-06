@@ -1,17 +1,26 @@
-# AppArmor. Split out of nix/modules/system/hardening.nix because the profiles
-# below are already the bulk of it and will grow as each one is flipped to
-# enforce.
+# AppArmor — the part that actually attaches to anything. Split out of
+# nix/modules/system/hardening.nix because the profiles below are already the
+# bulk of it and will grow as each one is flipped to enforce.
 #
-# The arrangement this replaces loaded every profile from pkgs.apparmor-profiles
-# and confined nothing. Measured 2026-09-05: `aa-enabled` answered Yes,
+# hardening.nix still loads every profile from pkgs.apparmor-profiles, and that
+# load confines nothing. Measured 2026-09-05: `aa-enabled` answered Yes,
 # /sys/kernel/security/apparmor/profiles held 223 entries, and reading
 # /proc/[0-9]*/attr/current across the whole machine returned `unconfined` for
 # every single process. Those are upstream FHS profiles attaching to paths like
 # /usr/bin/brave, and /usr/bin here contains exactly one file, `env`. A profile
-# that matches no executable is not protection, and on the Security page it was
-# worse than none, because 223 reads as a healthy number.
+# that matches no executable is not protection, and on the Security page it is
+# worse than none, because 223 reads as a healthy number. Read that count as
+# "loaded", never as "confined".
 #
-# Three details decide whether the replacement actually attaches:
+# This file is the narrow answer to that: five profiles aimed at real store
+# binaries. nix/modules/system/apparmor-store.nix is the wide one — a
+# complain-mode catch-all over the whole store whose denial log feeds
+# `dots-sandbox triage`, which is how the rules for the apps not covered here
+# get written. The catch-all attaches to /nix/store/*/** and therefore also
+# matches the five binaries below; AppArmor picks the most specific attachment,
+# so these profiles still win for their own executables.
+#
+# Three details decide whether these five actually attach:
 #
 #  1. $out/bin/<name> is the wrong path. Every one of these packages ships a
 #     makeWrapper shell script there, and claude-desktop ships a makeCWrapper

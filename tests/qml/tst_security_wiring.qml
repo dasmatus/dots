@@ -83,20 +83,41 @@ TestCase {
         verify(securitySource().indexOf("Pill {") !== -1, "status chips must be built from common/Pill.qml");
     }
 
-    // --- Global permissions ---
+    // --- Global permissions: capability-first, Android-permission-manager
+    // shape (the task brief's own words: "make permission type buttons
+    // that'll lead to apps that requested them"), reading the catalog
+    // instead of `policy dump`. ---
 
-    function test_permissions_reads_policy_dump() {
-        verify(securitySource().indexOf('command: ["dots-sandbox", "policy", "dump"]') !== -1, "the permissions list must be driven by dots-sandbox policy dump");
+    function test_permissions_reads_catalog_json() {
+        verify(securitySource().indexOf('command: ["dots-sandbox", "catalog", "--json"]') !== -1, "the permissions list must be driven by dots-sandbox catalog --json, not policy dump");
     }
 
-    // Exempt apps must appear, marked unsandboxed, with the policy's own
-    // reason string shown — an invisible exemption list is how a
+    // The top level: one row per capability, each leading to its own apps
+    // — never the reverse (an app, then its capabilities), which is the
+    // shape this page drew before reading the catalog.
+    function test_permissions_top_level_groups_by_capability() {
+        const src = securitySource();
+        verify(src.indexOf("Policy.capabilityGroups(root.catalogSet)") !== -1, "the top-level list must come from Policy.capabilityGroups");
+        verify(src.indexOf("root.selectedCapability = capGroupRow.modelData.name") !== -1, "clicking a capability row must drill into that capability's own apps");
+    }
+
+    // Drilling into a capability must actually walk that capability's own
+    // apps (Policy.appsForCapability), and offer a way back to the
+    // top-level list — a drill-in with no way out is a dead end.
+    function test_permissions_drill_in_lists_apps_for_the_selected_capability() {
+        const src = securitySource();
+        verify(src.indexOf("Policy.appsForCapability(root.catalogSet, root.selectedCapability)") !== -1, "the drill-in list must come from Policy.appsForCapability for the SELECTED capability");
+        verify(src.indexOf('root.selectedCapability = ""') !== -1, "there must be a way back to the top-level capability list");
+    }
+
+    // Exempt apps must appear, marked unsandboxed, at the permissions
+    // section's own top level — an invisible exemption list is how a
     // permissions UI starts lying about what it controls.
     function test_exempt_apps_show_marked_unsandboxed_with_their_reason() {
         const src = securitySource();
-        verify(src.indexOf('appBlock.modelData.kind === "unconfined"') !== -1, "an unconfined app must get its own visible row");
-        verify(src.indexOf('title: "Unsandboxed"') !== -1, "an exempt app's row must say it is unsandboxed, not just omit the usual controls");
-        verify(src.indexOf("appBlock.modelData.reason") !== -1, "an exempt app's row must show the policy's own reason string");
+        verify(src.indexOf("Policy.unconfinedEntries(root.catalogSet)") !== -1, "unconfined apps must come from Policy.unconfinedEntries");
+        verify(src.indexOf('text: "No sandbox"') !== -1, "an exempt app's row must say it is unsandboxed, not just omit the usual controls");
+        verify(src.indexOf("unconfinedRow.modelData.reason") !== -1, "an exempt app's row must show the policy's own reason string");
     }
 
     // Every capability toggle must be a real three-state control
@@ -104,7 +125,7 @@ TestCase {
     // wired to setCapability — which itself must never touch
     // overridesFile.adapter directly (see settings/pages/security.qml's own
     // overridesRoot comment for why that specific split matters to
-    // qmllint), and must re-read policy dump afterwards rather than only
+    // qmllint), and must re-read the catalog afterwards rather than only
     // guessing at the merged result.
     function test_capability_toggle_writes_through_the_overrides_file() {
         const src = securitySource();
@@ -115,17 +136,30 @@ TestCase {
         verify(setCapability !== "", "setCapability must be a real function");
         verify(setCapability.indexOf("Policy.withCapabilityOverride(root.overridesRoot") !== -1, "the write must narrow through Policy.withCapabilityOverride, never replace the whole overrides file");
         verify(setCapability.indexOf("overridesFile.setText(") !== -1, "the merged document must actually be written back");
-        verify(setCapability.indexOf("policyProc.running = true") !== -1, "the permissions list must re-read policy dump after a write, to show the MERGED resolved state rather than an optimistic guess");
+        verify(setCapability.indexOf("catalogProc.running = true") !== -1, "the permissions list must re-read the catalog after a write, to show the MERGED resolved state rather than an optimistic guess");
     }
 
-    // Every capability row must say whether it needs a relaunch — marking
-    // NOTHING here (an editable toggle with no caveat at all) would read
-    // as "this applies immediately", which rust/dots-sandbox/src/argv.rs's
-    // spawn-time-only binds make untrue for all seven known capabilities.
+    // The three-way control is a non-negotiable: a previous attempt at
+    // this page replaced Allow/Ask/Deny with a two-state toggle and
+    // silently deleted the "ask" state — the state that makes an app
+    // prompt at all. Pinned directly rather than trusted to survive by
+    // implication of the Segmented check above.
+    function test_capability_control_stays_three_way() {
+        const src = securitySource();
+        verify(src.indexOf('{ label: "Allow", value: "allow" }') !== -1, "the Allow option must survive");
+        verify(src.indexOf('{ label: "Ask", value: "ask" }') !== -1, "the Ask option must survive — this is the state a two-state toggle silently deletes");
+        verify(src.indexOf('{ label: "Deny", value: "deny" }') !== -1, "the Deny option must survive");
+    }
+
+    // Every app row in the drill-in must say whether it needs a relaunch —
+    // marking NOTHING here (an editable toggle with no caveat at all)
+    // would read as "this applies immediately", which
+    // rust/dots-sandbox/src/argv.rs's spawn-time-only binds make untrue
+    // for all seven known capabilities.
     function test_every_capability_row_carries_a_relaunch_caveat() {
         const src = securitySource();
-        verify(src.indexOf("Policy.needsRelaunch(capRow.modelData.name)") !== -1, "each capability row's relaunch caveat must come from the shared Policy.needsRelaunch lookup");
-        verify(src.indexOf("Applies on next launch") !== -1, "a capability row must say its change applies on the next launch, not to a copy already running");
+        verify(src.indexOf("Policy.needsRelaunch(root.selectedCapability)") !== -1, "each app row's relaunch caveat must come from the shared Policy.needsRelaunch lookup");
+        verify(src.indexOf("Applies on next launch") !== -1, "an app row must say its change applies on the next launch, not to a copy already running");
     }
 
     // The revocation-stops-new-access-only fact, said where a user

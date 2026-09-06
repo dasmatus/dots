@@ -38,7 +38,7 @@
   "settings": {
     "sidebarWidth": 260, "headerHeight": 64, "searchHeight": 40,
     "rowHeight": 56, "rowPadding": 16, "rowGap": 2, "groupGap": 32,
-    "controlColumn": 320, "radius": 10,
+    "controlColumn": 320, "radius": 10, "iconSize": 20,
     "panelWidthFactor": 0.72, "panelHeightFactor": 0.8,
     "titleFontSize": 24, "groupFontSize": 11, "rowTitleFontSize": 14,
     "rowDescFontSize": 11, "navFontSize": 13,

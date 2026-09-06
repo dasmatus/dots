@@ -26,11 +26,20 @@
 //! dashboard: read-only and unprivileged throughout, it gathers what
 //! recently touched a sensor and how hard this machine is to attack into
 //! one JSON document for a separate QML page to render.
+//!
+//! `catalog` derives the Settings permissions page's app list by scanning
+//! installed desktop entries `wrapSandboxed` (the Nix half of the same
+//! feature) rewrote, then attaching each app's currently resolved policy —
+//! so the page shows real names and icons, and an app with no desktop
+//! entry at all (the flake apps, run only via `nix run .#foo`) still
+//! appears rather than silently dropping out of the list.
 
 pub mod argv;
 pub mod broker;
+pub mod catalog;
 pub mod error;
 pub mod grants;
 pub mod launch;
 pub mod policy;
 pub mod report;
+pub mod triage;

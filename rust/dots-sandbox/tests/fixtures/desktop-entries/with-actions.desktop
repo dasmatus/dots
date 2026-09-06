@@ -1,0 +1,16 @@
+# A desktop file with a Desktop Action group, whose own Name=/Icon=/Exec=
+# must not contaminate the [Desktop Entry] group's parse.
+[Desktop Entry]
+Type=Application
+Name=Code
+Icon=code
+Exec=code %F
+Actions=NewWindow;
+X-Dots-Sandbox-AppId=code
+X-Dots-Sandbox-Caps=net;repo-read;
+X-Dots-Sandbox-Tier=container
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=code --new-window
+Icon=code-new

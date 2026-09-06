@@ -52,6 +52,7 @@ let
         ../nix/modules/system/users.nix
         ../nix/modules/system/hardening.nix
         ../nix/modules/system/apparmor.nix
+        ../nix/modules/system/apparmor-store.nix
         ../nix/modules/services/maintenance.nix
         ../nix/modules/desktop/desktop.nix
         ../nix/modules/system/form-factor.nix

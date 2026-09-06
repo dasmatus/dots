@@ -38,6 +38,24 @@
       Slice = "session.slice";
       TimeoutStopSec = "5sec";
       Restart = "on-failure";
+
+      # Only the seven directives that carry no plausible conflict with
+      # this unit's job (showing a polkit auth dialog over D-Bus). Held
+      # back on purpose: MemoryDenyWriteExecute (GTK/Qt dialog toolkits can
+      # JIT), RestrictAddressFamilies (needs at least AF_UNIX for D-Bus,
+      # untested here), ProtectHome/ProtectSystem (untested against
+      # whatever the toolkit reads from the user's theme config) — see
+      # mkUnit's baseline comment in session/default.nix for the per-
+      # directive rationale, identical here: no clock/hostname/kernel-log/
+      # cgroup/personality/realtime/setuid-setgid access is needed to draw
+      # an auth prompt.
+      ProtectClock = true;
+      ProtectHostname = true;
+      ProtectKernelLogs = true;
+      ProtectControlGroups = true;
+      LockPersonality = true;
+      RestrictRealtime = true;
+      RestrictSUIDSGID = true;
     };
     Install.WantedBy = [ "graphical-session.target" ];
   };

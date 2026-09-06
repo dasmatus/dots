@@ -57,12 +57,43 @@
   # rewires the settings panel's live-apply path.
   gitSigningKey = "";
 
-  # Ollama HTTP endpoint, edited from the settings panel. Nothing on the Nix
-  # side consumes it yet — nix/system/hosts.nix's `services.ollama` binds to the
-  # NixOS module's own default (127.0.0.1:11434), which is what this default
-  # matches. Same split as gitSigningKey above: the key exists now, the Nix
-  # side is wired to it later.
+  # Ollama HTTP endpoint, edited from the settings panel. nix/home/sandbox/triage.nix
+  # is the first Nix-side consumer (exports it to `dots-sandbox triage`'s
+  # optional assist layer); nix/system/hosts.nix's `services.ollama` itself
+  # still just binds to the NixOS module's own default (127.0.0.1:11434),
+  # which is what this default matches.
   aiOllamaEndpoint = "http://127.0.0.1:11434";
+
+  # `dots-sandbox triage`'s optional assist layer — see
+  # .superpowers/sdd/structured-fluttering-chipmunk/triage-contract.md.
+  # Consulted ONLY for denials the pure heuristic table in
+  # rust/dots-sandbox/src/triage.rs abstains on; never for anything the
+  # table already resolved to allow/block. Off by default: a security tool
+  # that silently starts consulting a model is a surprise, not an assist.
+  # This flag is read solely by nix/home/sandbox/triage.nix, which exports it
+  # (plus the two keys below) as DOTS_TRIAGE_ASSIST_* environment variables
+  # for the `triage` subcommand. It has no bearing on `dots-sandbox run` —
+  # the launcher every app start goes through — which reads none of the
+  # DOTS_TRIAGE_* variables and imports no ollama-touching module; grep
+  # rust/dots-sandbox/src/{launch,main}.rs for "ollama" or "DOTS_TRIAGE" to
+  # confirm that separation instead of trusting this comment.
+  triageAssistEnable = false;
+
+  # Model `dots-sandbox triage --assist` asks. Already one of aiOllamaModels
+  # above, so it is already pulled by `services.ollama.loadModels` and
+  # already persisted under aiOllamaModelsDir (/var/lib/ollama/models) —
+  # enabling triageAssistEnable downloads nothing new. Configurable past
+  # this default; the assist layer must not hardcode it.
+  triageAssistModel = "ornith:9b";
+
+  # SearXNG endpoint the assist layer's `searxng_search` tool calls, subject
+  # to the wrapper's hard privacy gate (queries containing a `$HOME` path or
+  # any absolute path are rejected before the HTTP call — see the contract's
+  # "search tool" section; enforced in the wrapper, not by asking the model
+  # nicely). Matches nix/modules/services/searxng.nix's bind_address/port —
+  # that module owns the actual `searx` service (its systemd unit is named
+  # `searx`, NOT `searxng`); this is only the address a client dials.
+  triageAssistSearxngEndpoint = "http://127.0.0.1:8888";
 
   # Window manager — edited from the settings panel. Values here match
   # nix/home/desktop/hyprland.nix's current hardcoded `general`/`input`/`animations`

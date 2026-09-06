@@ -54,6 +54,14 @@
       "tier": "container",
       "caps": { "repo-write": "allow" }
     },
+    "edupage-mcp": {
+      "tier": "container",
+      "caps": { "net": "allow" }
+    },
+    "dots-memory-mcp": {
+      "tier": "container",
+      "caps": { "postgres": "allow" }
+    },
     "nix-smoke-interactive": {
       "unconfined": true,
       "reason": "drops into the test driver's Python REPL; needs a real terminal"

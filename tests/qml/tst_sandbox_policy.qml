@@ -46,23 +46,142 @@ TestCase {
         compare(Policy.statusLabel("unavailable"), "Unavailable");
     }
 
-    function test_capability_entries_sorts_alphabetically() {
-        const entries = Policy.capabilityEntries({
-            "settings-ro": "allow",
-            "net": "deny",
-            "kvm": "ask"
-        });
-        compare(entries.length, 3);
-        compare(entries[0].name, "kvm");
-        compare(entries[1].name, "net");
-        compare(entries[2].name, "settings-ro");
-        compare(entries[2].state, "allow");
+    // `capabilityGroups` is the permissions section's own top level now —
+    // one entry per capability `policy.rs` knows, in its declared order
+    // (never alphabetical: "net" before "nix-daemon" is Capability::ALL's
+    // own order, not "kvm" first), each carrying how many catalog apps
+    // actually declared it.
+    function test_capability_groups_lists_every_known_capability_in_order() {
+        const groups = Policy.capabilityGroups(null);
+        compare(groups.length, 7);
+        compare(groups.map(g => g.name), ["net", "nix-daemon", "repo-read", "repo-write", "postgres", "settings-ro", "kvm"]);
+        // A `null` catalog is "nothing read yet", same as every other
+        // Policy function here — every count stays zero rather than the
+        // list disappearing outright, since the capability vocabulary
+        // itself never depends on the catalog being loaded.
+        verify(groups.every(g => g.count === 0));
     }
 
-    function test_capability_entries_handles_nothing_to_show() {
-        compare(Policy.capabilityEntries(undefined).length, 0);
-        compare(Policy.capabilityEntries(null).length, 0);
-        compare(Policy.capabilityEntries({}).length, 0);
+    function test_capability_groups_counts_only_apps_that_declared_it() {
+        const catalogSet = {
+            version: 1,
+            apps: [
+                { appId: "zed", name: "Zed", icon: "zed", tier: "vm", caps: ["net", "repo-read"], paths: [], source: "/nix/store/zed.desktop", state: { net: "allow", "repo-read": "allow" } },
+                { appId: "nix-lint", name: "nix-lint", icon: null, tier: "container", caps: ["net"], paths: [], source: null, state: { net: "ask" } },
+                // Unconfined: no tier, no declared caps — must contribute to
+                // NO capability's count, even though a bug that forgot the
+                // unconfined check would otherwise count it under nothing
+                // anyway (its own caps array is empty), so this fixture
+                // pins the shape rather than the (currently vacuous) count.
+                { appId: "bitwarden", name: "Bitwarden", icon: null, tier: null, caps: [], paths: [], source: null, state: {} }
+            ]
+        };
+        const groups = Policy.capabilityGroups(catalogSet);
+        compare(groups.find(g => g.name === "net").count, 2);
+        compare(groups.find(g => g.name === "repo-read").count, 1);
+        compare(groups.find(g => g.name === "kvm").count, 0);
+    }
+
+    function test_apps_for_capability_returns_only_matching_apps_with_their_own_state() {
+        const catalogSet = {
+            version: 1,
+            apps: [
+                { appId: "zed", name: "Zed", icon: "zed", tier: "vm", caps: ["net", "repo-read"], paths: [], source: "/nix/store/zed.desktop", state: { net: "allow", "repo-read": "deny" } },
+                { appId: "nix-lint", name: "nix-lint", icon: null, tier: "container", caps: ["net"], paths: [], source: null, state: { net: "ask" } },
+                { appId: "firefox", name: "Firefox", icon: "firefox", tier: "vm", caps: ["repo-read"], paths: [], source: "/nix/store/firefox.desktop", state: { "repo-read": "allow" } }
+            ]
+        };
+        const netApps = Policy.appsForCapability(catalogSet, "net");
+        compare(netApps.length, 2);
+        // Sorted by name, not appId or declaration order.
+        compare(netApps[0].name, "nix-lint");
+        compare(netApps[0].state, "ask");
+        compare(netApps[1].name, "Zed");
+        compare(netApps[1].state, "allow");
+
+        const repoReadApps = Policy.appsForCapability(catalogSet, "repo-read");
+        compare(repoReadApps.length, 2);
+        compare(repoReadApps.find(a => a.appId === "zed").state, "deny");
+    }
+
+    // A hole in the resolved state map (the catalog declared the
+    // capability but the state object is silent about it) must read as
+    // "ask" — a place to prompt, never a guessed "allow" or "deny".
+    function test_apps_for_capability_defaults_missing_state_to_ask() {
+        const catalogSet = {
+            version: 1,
+            apps: [{ appId: "clean", name: "clean", icon: null, tier: "container", caps: ["kvm"], paths: [], source: null, state: {} }]
+        };
+        compare(Policy.appsForCapability(catalogSet, "kvm")[0].state, "ask");
+    }
+
+    // A name the catalog never mentions, or an app with no icon, falls
+    // back rather than showing "undefined" or a broken image request.
+    function test_apps_for_capability_falls_back_to_app_id_and_empty_icon() {
+        const catalogSet = {
+            version: 1,
+            apps: [{ appId: "nix-lint", name: null, icon: null, tier: "container", caps: ["net"], paths: [], source: null, state: { net: "allow" } }]
+        };
+        const entry = Policy.appsForCapability(catalogSet, "net")[0];
+        compare(entry.name, "nix-lint");
+        compare(entry.icon, "");
+    }
+
+    function test_apps_for_capability_handles_nothing_to_show() {
+        compare(Policy.appsForCapability(null, "net").length, 0);
+        compare(Policy.appsForCapability({}, "net").length, 0);
+        compare(Policy.appsForCapability({ apps: [] }, "net").length, 0);
+    }
+
+    // An app the resolved policy exempts outright surfaces in the catalog
+    // with no tier and no declared capabilities (`entry_from_policy_only`'s
+    // `Unconfined` arm) — that shape, not a `kind`/`unconfined` tag `policy
+    // dump` used to carry, is what `unconfinedEntries` has to detect.
+    function test_unconfined_entries_detects_no_tier_and_no_caps() {
+        const catalogSet = {
+            version: 1,
+            apps: [
+                { appId: "bitwarden", name: "Bitwarden", icon: null, tier: null, caps: [], paths: [], source: null, state: {} },
+                { appId: "zed", name: "Zed", icon: "zed", tier: "vm", caps: ["net"], paths: [], source: "/nix/store/zed.desktop", state: { net: "allow" } }
+            ]
+        };
+        const entries = Policy.unconfinedEntries(catalogSet);
+        compare(entries.length, 1);
+        compare(entries[0].appId, "bitwarden");
+        compare(entries[0].name, "Bitwarden");
+    }
+
+    // A null tier alone is not enough: an app resolved as sandboxed but
+    // never wrapped (a flake app run only via `nix run .#foo` — see
+    // catalog.rs's own `entry_from_policy_only` doc comment) still always
+    // carries `Some(tier)` for that path, so this only exists to prove a
+    // real declared-caps entry is never misfiled as unconfined even if
+    // some future bug dropped its tier.
+    function test_unconfined_entries_requires_empty_caps_too() {
+        const catalogSet = {
+            version: 1,
+            apps: [{ appId: "weird", name: "weird", icon: null, tier: null, caps: ["net"], paths: [], source: null, state: { net: "allow" } }]
+        };
+        compare(Policy.unconfinedEntries(catalogSet).length, 0);
+    }
+
+    // `reason` is read defensively (`app.reason || ""`) because
+    // `CatalogEntry` does not carry one yet — see this function's own
+    // comment in policy.js. Pinned here so a future reader who DOES add
+    // the field can flip this fixture and watch the assertion start
+    // meaning something.
+    function test_unconfined_entries_reason_defaults_to_empty_string() {
+        const catalogSet = {
+            version: 1,
+            apps: [{ appId: "bitwarden", name: "Bitwarden", icon: null, tier: null, caps: [], paths: [], source: null, state: {} }]
+        };
+        compare(Policy.unconfinedEntries(catalogSet)[0].reason, "");
+    }
+
+    function test_unconfined_entries_handles_nothing_to_show() {
+        compare(Policy.unconfinedEntries(null).length, 0);
+        compare(Policy.unconfinedEntries({}).length, 0);
+        compare(Policy.unconfinedEntries({ apps: [] }).length, 0);
     }
 
     // rust/dots-sandbox/src/argv.rs turns every one of the seven known
@@ -70,8 +189,8 @@ TestCase {
     // mount, both spawn-time-only — see this function's own comment in
     // policy.js. Every one of them needs a relaunch today, and this test
     // pins that for the whole known vocabulary at once rather than one
-    // capability at a time, so a future capability nobody remembered to add
-    // here still gets checked by test_capability_entries's own callers.
+    // capability at a time, so a future capability nobody remembered to
+    // add to CAPABILITIES still gets checked here regardless.
     function test_every_known_capability_needs_a_relaunch_data() {
         return [
             { tag: "net", capability: "net" },
@@ -136,30 +255,5 @@ TestCase {
         // with a field poked in.
         verify(merged !== existing, "withCapabilityOverride must return a new object, never mutate its argument");
         compare(existing.apps["clean"].caps["repo-write"], "allow", "the original object must be left untouched");
-    }
-
-    function test_app_entries_sorts_alphabetically_and_carries_every_field() {
-        const policySet = {
-            version: 1,
-            denyPaths: [],
-            apps: {
-                "zzz-app": { kind: "sandboxed", tier: "container", capabilities: {}, paths: [] },
-                "bitwarden": { kind: "unconfined", reason: "the secret broker other things connect to" }
-            }
-        };
-
-        const entries = Policy.appEntries(policySet);
-        compare(entries.length, 2);
-        compare(entries[0].id, "bitwarden");
-        compare(entries[0].kind, "unconfined");
-        compare(entries[0].reason, "the secret broker other things connect to");
-        compare(entries[1].id, "zzz-app");
-        compare(entries[1].tier, "container");
-    }
-
-    function test_app_entries_handles_nothing_to_show() {
-        compare(Policy.appEntries(null).length, 0);
-        compare(Policy.appEntries({}).length, 0);
-        compare(Policy.appEntries({ apps: {} }).length, 0);
     }
 }

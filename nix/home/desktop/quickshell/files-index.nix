@@ -99,6 +99,28 @@ in
       ExecStart = "${builder}";
       Nice = 19;
       IOSchedulingClass = "idle";
+
+      # This unit is `find`+`grep` over $HOME writing two files under
+      # $XDG_CACHE_HOME, with no network step anywhere in the script, so it
+      # is safe to lock down harder than the generic session-unit baseline
+      # (nix/home/desktop/session/default.nix's `mkUnit`):
+      #   RestrictAddressFamilies = [] - blocks opening a socket of any
+      #     family. The builder never does, so this can't break it and
+      #     removes the entire "can reach the network" attack surface.
+      #   ProtectClock/ProtectHostname/ProtectKernelLogs/
+      #   ProtectControlGroups/LockPersonality/RestrictRealtime/
+      #   RestrictSUIDSGID - same rationale as `mkUnit`'s baseline: a find/
+      #     grep walk has no reason to touch the clock, hostname, kernel
+      #     log ring, cgroupfs, ABI personality, realtime scheduling, or
+      #     create a setuid/setgid file.
+      RestrictAddressFamilies = [ ];
+      ProtectClock = true;
+      ProtectHostname = true;
+      ProtectKernelLogs = true;
+      ProtectControlGroups = true;
+      LockPersonality = true;
+      RestrictRealtime = true;
+      RestrictSUIDSGID = true;
     };
     Install = {
       WantedBy = [ "quickshell.service" ];

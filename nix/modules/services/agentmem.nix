@@ -103,6 +103,47 @@ in
         # The migrations themselves still run as ${username}, see below.
         User = "postgres";
         Group = "postgres";
+
+        # This unit only ever runs `psql` against the local cluster over
+        # its unix socket (enableTCPIP = false, above) and never touches a
+        # file outside PostgreSQL's own state, so it takes almost the same
+        # mechanical set as searx-keygen.service, minus the two exceptions
+        # noted below:
+        #   NoNewPrivileges/ProtectSystem=strict/ProtectHome/PrivateTmp/
+        #   PrivateDevices/ProtectKernelTunables/ProtectKernelModules/
+        #   ProtectControlGroups/RestrictNamespaces/LockPersonality/
+        #   MemoryDenyWriteExecute/RestrictRealtime/RestrictSUIDSGID - same
+        #     rationale as searx-keygen.service: psql needs none of the
+        #     privilege, namespace, kernel-tunable, cgroup, personality,
+        #     realtime, or setuid/setgid surface these block.
+        #   RestrictAddressFamilies = [ "AF_UNIX" ] - unlike searx-keygen,
+        #     this unit needs a socket family: it's how psql reaches
+        #     postgresql-setup's listener. Only AF_UNIX, not the full
+        #     empty set, because enableTCPIP is false and no other family
+        #     is ever dialed.
+        #   No CapabilityBoundingSet = [] here (unlike searx-keygen):
+        #     CREATE EXTENSION on the pgrx-built pg_agentmem needs a real
+        #     Postgres superuser *session* (granted by connecting as the
+        #     `postgres` role), not a Linux capability held by this unit's
+        #     process, so dropping Linux capabilities should not interfere
+        #     — but this is the one directive in this set not already
+        #     covered by an automatic StateDirectory-style exception, so
+        #     watch for a connection failure to /run/postgresql's socket
+        #     under ProtectSystem=strict before trusting this in the field.
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectControlGroups = true;
+        RestrictNamespaces = true;
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        RestrictAddressFamilies = [ "AF_UNIX" ];
       };
       script = ''
         SU="${config.services.postgresql.package}/bin/psql -U postgres -d ${username} -v ON_ERROR_STOP=1"

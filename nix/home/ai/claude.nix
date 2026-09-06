@@ -9,6 +9,7 @@
   dots,
   claudeDesktop,
   inputs,
+  wrapSandboxed,
   ...
 }:
 let
@@ -200,12 +201,27 @@ let
   # manifest. `dots-memory-mcp` is plan 3's crate
   # (rust/dots-memory-mcp); this derivation only symlinks the built
   # binary in, it does not build it.
+  #
+  # The binary linked in is `wrapSandboxed`'s output, not the bare package —
+  # same "postgres" grant, same tier, and the same peer-auth-over-virtio-fs
+  # caveat `flake/apps.nix`'s `memory-derive`/`memory-health` already carry
+  # (nix/data/sandbox-policy.json's "dots-memory-mcp" entry): a real MCP
+  # server spawn, once per session rather than per turn, is the low-latency
+  # tolerance this mechanism needs, and a stateless stdio server has nothing
+  # left to lose from confinement beyond that one socket.
   dotsMemoryPlugin = pkgs.runCommand "dots-memory-plugin" { } ''
     cp -r ${../../../plugins/dots-memory} $out
     chmod -R u+w $out
     mkdir -p $out/bin
-    ln -s ${inputs.self.packages.x86_64-linux.dots-memory-mcp}/bin/dots-memory-mcp \
-      $out/bin/dots-memory-mcp
+    ln -s ${
+      lib.getExe (
+        wrapSandboxed {
+          appId = "dots-memory-mcp";
+          caps = [ "postgres" ];
+          tier = "container";
+        } inputs.self.packages.x86_64-linux.dots-memory-mcp
+      )
+    } $out/bin/dots-memory-mcp
     ln -s ${dotsMemoryHook}/bin/dots-memory-hook $out/bin/dots-memory-hook
     test -e $out/.claude-plugin/plugin.json
     test -e $out/.mcp.json

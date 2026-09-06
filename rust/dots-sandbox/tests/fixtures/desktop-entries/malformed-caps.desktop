@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Broken
+Icon=broken
+Exec=broken
+X-Dots-Sandbox-AppId=broken-app
+X-Dots-Sandbox-Caps=net;wayland;
+X-Dots-Sandbox-Tier=vm
