@@ -5,6 +5,7 @@
 # impermanence (tmpfs `/` + tmpfs-wiped `/etc` + non-persisted machine-id)
 # creates for systemd-boot at install time. See nix/README.md.
 {
+  lib,
   pkgs,
   settings,
   ...
@@ -67,6 +68,32 @@
       "amdgpu"
     ];
   };
+
+  # `nixos-rebuild build-vm` could not evaluate this configuration at all
+  # before this block, which cost the one cheap way to rehearse a switch
+  # before performing it:
+  #
+  #   error: Failed assertions:
+  #   - Zswap requires at least one physical swap device to function as a
+  #     backing store.
+  #
+  # The assertion is upstream's and it is correct. `boot.zswap` above is a
+  # compressed cache in front of swap, not swap itself, so it needs a real
+  # backing device; on hardware that device comes from disko
+  # (nix/system/disko.nix builds the swap partition). The VM variant never
+  # runs disko — it synthesises its own qcow2 root — so `swapDevices` is
+  # empty there and the assertion fires before anything builds.
+  #
+  # Turning zswap off for the VM only is the honest fix. Giving the variant a
+  # synthetic swapfile purely to satisfy an assertion would be worse: it would
+  # make the VM's memory behaviour differ from the host it is supposed to be
+  # rehearsing, in exactly the subsystem being faked. A VM without zswap is
+  # still a faithful rehearsal of boot, greetd, the session and the units,
+  # which is what build-vm is for. It is NOT a rehearsal of USBGuard (VM USB
+  # enumeration bears no resemblance to a real hub chain) or of the GPU and
+  # Wayland stack, so a green VM is necessary and not sufficient before a
+  # switch.
+  virtualisation.vmVariant.boot.zswap.enable = lib.mkForce false;
 
   hardware.enableRedistributableFirmware = true;
   security.tpm2.enable = true;

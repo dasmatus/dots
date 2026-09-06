@@ -194,17 +194,42 @@
   # is plugged in when the daemon starts, so the first boot after this lands
   # does not fight the hardware.
   #
-  # This is safe on this machine for a specific reason worth writing down: the
-  # keyboard is an `AT Translated Set 2 keyboard` on PS/2 and the touchpad is
-  # `ELAN0524:00` on i2c, so neither traverses USB and no USBGuard decision can
-  # lock the console out. /proc/bus/input/devices lists no USB input device at
-  # all; the only USB attachments are the webcam and the wireless combo. On a
-  # machine with a USB keyboard this configuration is one replug away from an
-  # unusable console, so re-check that before copying this block elsewhere.
+  # An earlier version of this comment claimed the machine could not lock
+  # itself out because its keyboard was `AT Translated Set 2 keyboard` on PS/2
+  # and its touchpad `ELAN0524:00` on i2c, so nothing traversed USB. That is
+  # true of the laptop and false of `matthiaspc`, which drives this same
+  # closure: there the keyboard is a `Massdrop Inc. ALT Keyboard` sitting
+  # BEHIND a `Massdrop Hub`, and the mouse a `Corsair NIGHTSWORD RGB`. Both
+  # are USB, which is precisely the "one replug away from an unusable console"
+  # case the old comment warned others about while asserting it did not apply
+  # here.
+  #
+  # `presentDevicePolicy = "allow"` still grandfathers in whatever is attached
+  # when the daemon starts, so a clean boot was never the exposure. The
+  # exposure is everything after it: a replug, a hub power cycle, a KVM
+  # switch, or any re-enumeration hits `implicitPolicyTarget = "block"` and
+  # takes the keyboard with it.
+  #
+  # The `rules` below close that. They are the input chain and nothing else,
+  # listed parent-first because a rule for a device behind a blocked hub
+  # grants nothing — the hub has to come back before the keyboard hanging off
+  # it can. Deliberately NOT a general "allow all HID": BadUSB attacks work by
+  # claiming to be a keyboard, so allowing the class would surrender exactly
+  # what USBGuard is here to hold. Everything else on this box — the audio
+  # device, MSI Mystic Light, Bluetooth, any USB storage — stays subject to
+  # the implicit block once re-enumerated, and gets approved through the
+  # daemon (see IPCAllowedUsers) or gains a line here.
   services.usbguard = {
     enable = true;
     implicitPolicyTarget = "block";
     presentDevicePolicy = "allow";
+    rules = ''
+      allow id 1d6b:0002 # Linux xHCI root hub (USB 2.0) — the input chain hangs off this one
+      allow id 1d6b:0003 # Linux xHCI root hub (USB 3.0)
+      allow id 04d8:eec5 # Massdrop Hub — the ALT keyboard's parent; blocking it orphans the keyboard
+      allow id 04d8:eed3 # Massdrop Inc. ALT Keyboard
+      allow id 1b1c:1b5c # Corsair NIGHTSWORD RGB Gaming Mouse
+    '';
     # The desktop needs to talk to the daemon to approve a new device without
     # a root shell.
     IPCAllowedUsers = [
