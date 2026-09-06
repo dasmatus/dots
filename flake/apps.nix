@@ -274,11 +274,18 @@ let
               # not a style choice but a bug: bwrap resolves its argv[0] with
               # execvp against that PATH, finds nothing bound there, and dies
               # with "execvp sh: No such file or directory" before the app
-              # ever starts. The absolute path resolves because the store is
-              # the one thing every sandbox tier binds in, and it costs the
-              # closure nothing new — writeShellApplication already pulls in
-              # runtimeShell for every script's own shebang. Do not
-              # "simplify" this back to a bare `sh`.
+              # ever starts. The absolute path resolves because every app in
+              # nix/data/sandbox-policy.json runs on the `bwrap` tier today,
+              # and bwrap_argv binds the store unconditionally (see
+              # fixed_paths::NIX_STORE's own doc comment in argv.rs) — that
+              # is not true of every tier: container_argv only binds the
+              # store when the nix-daemon capability resolves to allow, and
+              # vm_argv never binds it explicitly at all. Re-verify this
+              # reasoning before relying on it for a container- or vm-tier
+              # app. It costs the closure nothing new here only because
+              # writeShellApplication already pulls in runtimeShell for
+              # every script's own shebang. Do not "simplify" this back to
+              # a bare `sh`.
               ${cdRepoRoot}
               export DOTS_SANDBOX_REPO_ROOT="''${DOTS_SANDBOX_REPO_ROOT:-$PWD}"
 
