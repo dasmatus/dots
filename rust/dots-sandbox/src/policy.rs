@@ -48,6 +48,25 @@ pub enum PolicyState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
+    /// Namespaces via `bubblewrap`, no VM and no systemd spawn binary.
+    ///
+    /// The only tier that actually confines on this host, and therefore
+    /// the default. `Container` and `Vm` both route through
+    /// `systemd-nsresourced`, which delegates a user namespace to an
+    /// unprivileged caller by installing a BPF LSM program — and this
+    /// systemd is built with BPF disabled, so nsresourced starts, claims
+    /// its Varlink socket, answers every readiness check, and cannot
+    /// perform the delegation. `systemd-nspawn` says so outright ("User-
+    /// scoped operation requires managed user namespaces"); `vmspawn`
+    /// reports it one layer down as "Failed to enter user namespace for
+    /// virtiofsd".
+    ///
+    /// What this tier gives up, relative to the other two: live grants.
+    /// `machinectl bind`'s mount propagation has no bwrap equivalent that
+    /// survives `pivot_root` (see the module docs on why `nsenter`+`mount`
+    /// and `setns` both fail), so a capability change applies on next
+    /// launch. The permissions UI already says exactly that on every row.
+    Bwrap,
     Container,
     Vm,
 }
@@ -55,6 +74,7 @@ pub enum Tier {
 impl fmt::Display for Tier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::Bwrap => "bwrap",
             Self::Container => "container",
             Self::Vm => "vm",
         })

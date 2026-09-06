@@ -193,6 +193,27 @@ fn unconfined_argv(program: &str, args: &[String]) -> Vec<String> {
 /// Assembles the injected context `spawn_argv` needs. Kept out of
 /// `spawn_argv` itself (which stays pure, per the contract) — this is
 /// where the actual filesystem/environment access happens.
+/// Walk up from the working directory looking for a `flake.nix`.
+///
+/// Returns the first ancestor that has one, or `None` if the launcher was
+/// invoked from outside any flake checkout — in which case the caller falls
+/// back rather than binding a directory picked at random.
+///
+/// `flake.nix` rather than `.git`: the thing being bound is the flake this
+/// app was launched from, and a `.git` hit could be any unrelated
+/// repository the user happened to be sitting in.
+fn discover_repo_root() -> Option<PathBuf> {
+    let mut dir = env::current_dir().ok()?;
+    loop {
+        if dir.join("flake.nix").is_file() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
 fn build_ctx(
     app_id: &str,
     program: &str,
@@ -202,11 +223,22 @@ fn build_ctx(
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .ok_or(LaunchError::MissingEnv("XDG_RUNTIME_DIR"))?;
-    // Invented convention, not read anywhere else in this crate yet: an
-    // env var override for the dotfiles checkout, falling back to the
-    // common `~/dots` clone location.
-    let repo_root =
-        env::var_os("DOTS_SANDBOX_REPO_ROOT").map_or_else(|| home_dir.join("dots"), PathBuf::from);
+    // `$DOTS_SANDBOX_REPO_ROOT` wins; otherwise the checkout is discovered
+    // by walking up from the working directory for a `flake.nix`.
+    //
+    // The previous default was a bare `~/dots`, which is a guess about where
+    // someone cloned their dotfiles, and on this machine it is wrong — the
+    // checkout is under ~/Dokumente/codeberg/personal/dots. Every launch of
+    // a repo-touching app died on `Failed to parse --bind= argument
+    // /home/matus/dots: No such file or directory`, which is a confusing
+    // way to say "I looked in the wrong place". Discovery makes `nix run
+    // .#<app>` work from anywhere inside the checkout, which is where it is
+    // always run from; `~/dots` survives only as the last resort so the
+    // behaviour is never worse than it was.
+    let repo_root = env::var_os("DOTS_SANDBOX_REPO_ROOT")
+        .map(PathBuf::from)
+        .or_else(discover_repo_root)
+        .unwrap_or_else(|| home_dir.join("dots"));
     let machine_name = sanitize_machine_name(app_id);
     let grant_share_dir = runtime_dir
         .join("dots-sandbox")

@@ -3,11 +3,11 @@
   "denyPaths": ["~/.ssh", "~/.config/rbw", "~/.local/share/rbw"],
   "apps": {
     "default": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": { "repo-read": "allow" }
     },
     "nix-lint": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": {
         "repo-write": "allow",
         "nix-daemon": "allow",
@@ -16,15 +16,15 @@
       "paths": [{ "path": "~/.cargo", "mode": "rw", "state": "allow" }]
     },
     "memory-derive": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": { "repo-read": "allow", "postgres": "allow" }
     },
     "memory-health": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": { "postgres": "allow" }
     },
     "iso": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": {
         "repo-write": "allow",
         "nix-daemon": "allow",
@@ -33,7 +33,7 @@
       }
     },
     "iso-full": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": {
         "repo-write": "allow",
         "nix-daemon": "allow",
@@ -42,7 +42,7 @@
       }
     },
     "nix-smoke": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": {
         "repo-write": "allow",
         "nix-daemon": "allow",
@@ -51,15 +51,15 @@
       }
     },
     "clean": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": { "repo-write": "allow" }
     },
     "edupage-mcp": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": { "net": "allow" }
     },
     "dots-memory-mcp": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": { "postgres": "allow" }
     },
     "nix-smoke-interactive": {

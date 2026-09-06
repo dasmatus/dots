@@ -369,3 +369,138 @@ fn container_and_vm_tiers_produce_genuinely_different_command_lines() {
         "the vm tier takes no root image, got {vm_argv:?}"
     );
 }
+
+// --- the bwrap tier ------------------------------------------------------
+//
+// The only tier that confines on this host. `container` and `vm` both route
+// through systemd-nsresourced, whose namespace delegation installs a BPF LSM
+// program, and this systemd is built without BPF — see tests/live_grant.rs
+// for the measurements behind that claim.
+
+#[test]
+fn bwrap_denies_everything_it_was_not_asked_to_grant() {
+    // The safety property the tier is built around: a capability this
+    // translation forgets can only ever produce an app that cannot do
+    // something, never one that can do something it was not granted.
+    let argv = spawn_argv(&all_denied(Tier::Bwrap), &ctx()).join(" ");
+
+    assert!(argv.starts_with("bwrap "), "must invoke bwrap, got: {argv}");
+    assert!(
+        argv.contains("--unshare-net"),
+        "no net capability means no network namespace"
+    );
+    assert!(!argv.contains("/run/postgresql"), "postgres was denied");
+    assert!(!argv.contains("/dev/kvm"), "kvm was denied");
+    assert!(
+        !argv.contains("daemon-socket"),
+        "nix-daemon was denied: {argv}"
+    );
+    assert!(
+        !argv.contains("--bind /home/tester/dots"),
+        "neither repo capability was granted: {argv}"
+    );
+}
+
+#[test]
+fn bwrap_replaces_home_with_a_tmpfs_rather_than_leaving_it_unbound() {
+    // The distinction between confined and not. An unbound path is still
+    // visible through the mount namespace the sandbox inherits; only
+    // replacing it makes ~/.ssh unreachable. Verified against a planted
+    // canary on the real machine, and pinned here so it stays true.
+    let argv = spawn_argv(&all_denied(Tier::Bwrap), &ctx()).join(" ");
+
+    assert!(
+        argv.contains("--tmpfs /home/tester"),
+        "home must be replaced, not merely left unmentioned: {argv}"
+    );
+}
+
+#[test]
+fn bwrap_always_binds_the_store_read_only() {
+    // Not a capability: every binary here is a store path, so a sandbox
+    // without it cannot execve at all. It is world-readable and immutable,
+    // so it holds nothing a policy would withhold — but it must never be
+    // writable.
+    let argv = spawn_argv(&all_denied(Tier::Bwrap), &ctx()).join(" ");
+
+    assert!(argv.contains("--ro-bind /nix/store /nix/store"));
+    assert!(
+        !argv.contains("--bind /nix/store /nix/store"),
+        "the store must never be writable: {argv}"
+    );
+}
+
+#[test]
+fn bwrap_never_lets_a_setuid_binary_gain_privilege() {
+    // --unshare-user is what makes handing over a whole read-only
+    // /nix/store safe: nothing inside can elevate through setuid.
+    let argv = spawn_argv(&all_denied(Tier::Bwrap), &ctx()).join(" ");
+
+    assert!(argv.contains("--unshare-user"));
+}
+
+#[test]
+fn bwrap_dies_with_its_parent() {
+    // Without this, killing the launcher orphans the sandbox — the failure
+    // `nix run .#<app>` must not have, and the one signal forwarding cannot
+    // cover, because SIGKILL is uncatchable.
+    let argv = spawn_argv(&all_denied(Tier::Bwrap), &ctx()).join(" ");
+
+    assert!(argv.contains("--die-with-parent"));
+}
+
+#[test]
+fn bwrap_net_allow_drops_the_namespace_and_adds_resolver_config() {
+    let policy = with_allowed(all_denied(Tier::Bwrap), Capability::Net);
+    let argv = spawn_argv(&policy, &ctx()).join(" ");
+
+    assert!(
+        !argv.contains("--unshare-net"),
+        "granted net must share the host stack"
+    );
+    assert!(
+        argv.contains("/etc/resolv.conf"),
+        "a shared network stack with no resolver config resolves nothing: {argv}"
+    );
+}
+
+#[test]
+fn bwrap_repo_write_implies_read_and_is_the_writable_bind() {
+    let write = spawn_argv(
+        &with_allowed(all_denied(Tier::Bwrap), Capability::RepoWrite),
+        &ctx(),
+    )
+    .join(" ");
+    assert!(write.contains("--bind /home/tester/dots /home/tester/dots"));
+
+    let read = spawn_argv(
+        &with_allowed(all_denied(Tier::Bwrap), Capability::RepoRead),
+        &ctx(),
+    )
+    .join(" ");
+    assert!(read.contains("--ro-bind /home/tester/dots /home/tester/dots"));
+    assert!(
+        !read.contains("--bind /home/tester/dots /home/tester/dots"),
+        "repo-read alone must not grant write: {read}"
+    );
+}
+
+#[test]
+fn bwrap_kvm_uses_dev_bind_not_a_plain_bind() {
+    // A device node bound with --bind loses its device-ness; /dev/kvm needs
+    // --dev-bind to be usable inside.
+    let policy = with_allowed(all_denied(Tier::Bwrap), Capability::Kvm);
+    let argv = spawn_argv(&policy, &ctx()).join(" ");
+
+    assert!(argv.contains("--dev-bind /dev/kvm /dev/kvm"), "got: {argv}");
+}
+
+#[test]
+fn bwrap_puts_the_program_last_with_its_arguments() {
+    // Everything before the program is a bwrap flag; anything leaking past
+    // it would be handed to the app instead of to bwrap.
+    let argv = spawn_argv(&all_denied(Tier::Bwrap), &ctx());
+    let tail: Vec<&str> = argv.iter().rev().take(3).map(String::as_str).collect();
+
+    assert_eq!(tail, vec!["check", "flake", "nix"]);
+}

@@ -10,6 +10,27 @@
 //! `unbind` — only `bind-volume`/`unbind-volume` form a reversible pair.
 //! A plain path grant is therefore one-way until the sandbox restarts;
 //! [`revoke`] refuses to pretend otherwise for anything but a volume.
+//!
+//! # What a revoke does not do
+//!
+//! Revoking stops *new* opens. Any file descriptor the app already holds
+//! survives until the app closes it, because unmounting a path does not
+//! reach into a process that already has the file open. Every portal
+//! system on Linux behaves this way, and it is stated here rather than
+//! left implicit because the opposite belief is the dangerous one: a user
+//! who revokes access to a directory and assumes a running app has lost it
+//! is relying on something that is not true. Restart the sandbox if that
+//! guarantee is needed.
+//!
+//! # Availability
+//!
+//! None of this works on a host whose systemd cannot delegate a managed
+//! user namespace, because no machine ever starts to grant into. That is
+//! the case on the development machine — systemd built without BPF, so
+//! `systemd-nsresourced` runs and answers but cannot delegate — which is
+//! why [`crate::policy::Tier::Bwrap`] is the default tier and why
+//! capability changes there apply on next launch. See
+//! `tests/live_grant.rs` for the measurements.
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
