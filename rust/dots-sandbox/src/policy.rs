@@ -107,11 +107,34 @@ pub enum Capability {
     Postgres,
     SettingsRo,
     Kvm,
+
+    // The three below exist only because the sandbox moved to bubblewrap.
+    // A VM cannot reach the host's compositor socket, render node or audio
+    // daemon — the original plan said as much and deferred GUI confinement
+    // indefinitely on that basis. Sharing the host kernel makes them
+    // ordinary bind mounts, which is what turned "GUI apps cannot be
+    // sandboxed here" into "GUI apps need three more capabilities".
+    /// The Wayland compositor socket, i.e. the ability to put a window on
+    /// screen and read the clipboard.
+    Wayland,
+    /// GPU render nodes under `/dev/dri`, for hardware acceleration.
+    ///
+    /// Separate from `wayland` because software rendering into a Wayland
+    /// surface is a real, safer configuration: an app can be allowed to
+    /// draw without being handed direct GPU access.
+    Dri,
+    /// The `PipeWire` socket: audio playback, and capture from the
+    /// microphone and camera.
+    ///
+    /// One capability rather than three because `PipeWire` hands them over
+    /// through a single socket — a per-device split would be a promise the
+    /// mechanism cannot keep, and the dashboard would be lying about it.
+    Pipewire,
 }
 
 impl Capability {
     /// Every capability this binary knows how to translate into argv.
-    pub const ALL: [Capability; 7] = [
+    pub const ALL: [Capability; 10] = [
         Capability::Net,
         Capability::NixDaemon,
         Capability::RepoRead,
@@ -119,14 +142,26 @@ impl Capability {
         Capability::Postgres,
         Capability::SettingsRo,
         Capability::Kvm,
+        Capability::Wayland,
+        Capability::Dri,
+        Capability::Pipewire,
     ];
 
     /// Capabilities `vm` cannot honestly express (see the `postgres` note
     /// in the task brief on `SO_PEERCRED` not surviving into a VM; the same
     /// reasoning applies to a raw device node and a host daemon socket that
     /// only make sense inside a shared kernel namespace).
-    const VM_UNAVAILABLE: [Capability; 3] =
-        [Capability::NixDaemon, Capability::Postgres, Capability::Kvm];
+    const VM_UNAVAILABLE: [Capability; 6] = [
+        Capability::NixDaemon,
+        Capability::Postgres,
+        Capability::Kvm,
+        // A VM has no route to the host compositor, render node or audio
+        // daemon. Granting one there would be a policy the mechanism
+        // silently cannot honour, which is worse than refusing it.
+        Capability::Wayland,
+        Capability::Dri,
+        Capability::Pipewire,
+    ];
 
     #[must_use]
     pub fn parse(name: &str) -> Option<Capability> {
@@ -138,6 +173,9 @@ impl Capability {
             "postgres" => Capability::Postgres,
             "settings-ro" => Capability::SettingsRo,
             "kvm" => Capability::Kvm,
+            "wayland" => Capability::Wayland,
+            "dri" => Capability::Dri,
+            "pipewire" => Capability::Pipewire,
             _ => return None,
         })
     }
@@ -152,6 +190,9 @@ impl Capability {
             Capability::Postgres => "postgres",
             Capability::SettingsRo => "settings-ro",
             Capability::Kvm => "kvm",
+            Capability::Wayland => "wayland",
+            Capability::Dri => "dri",
+            Capability::Pipewire => "pipewire",
         }
     }
 
@@ -172,6 +213,9 @@ impl Capability {
             Capability::Postgres => "PostgreSQL",
             Capability::SettingsRo => "System settings (read)",
             Capability::Kvm => "Hardware virtualisation",
+            Capability::Wayland => "Display",
+            Capability::Dri => "Graphics acceleration",
+            Capability::Pipewire => "Microphone, camera and audio",
         }
     }
 
@@ -189,6 +233,9 @@ impl Capability {
             Capability::Postgres => "Query the local database over its Unix socket",
             Capability::SettingsRo => "Read this machine's settings, including its hostname and accounts",
             Capability::Kvm => "Use /dev/kvm to run a virtual machine",
+            Capability::Wayland => "Draw windows on screen and read the clipboard",
+            Capability::Dri => "Use the GPU directly for hardware acceleration",
+            Capability::Pipewire => "Play audio, and capture from the microphone and camera",
         }
     }
 }

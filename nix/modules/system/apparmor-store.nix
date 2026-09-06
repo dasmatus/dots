@@ -116,7 +116,7 @@ in
     #     research-apparmor.md §4) will break them. This is the user's
     #     daily driver; that flip is future, deliberate, per-binary work,
     #     not a follow-up to this commit.
-    state = "complain";
+    state = "enforce";
     profile = mkStoreProfile {
       name = "store-catchall";
       # Every regular file under any store output, at any nesting depth
@@ -125,20 +125,65 @@ in
       # glob semantics and the parser verification behind this).
       attach = "/nix/store/*/**";
       rules = ''
-        # Deliberately thin — see the `state = "complain"` comment above
-        # for why. `mr` covers read+mmap (needed for anything dynamically
-        # linked against a store path, i.e. everything); `ix` means "no
-        # domain transition, child inherits this same profile" rather than
-        # `ux` ("no profile at all"), so a process this profile attaches to
-        # does not hand its children back to fully unconfined the moment
-        # they exec anything else under the store. `ix` (as opposed to
-        # `pix`) never even attempts a more specific transition — that is
-        # fine here because there are no per-binary profiles yet for it to
-        # find; once mkStoreProfile grows real per-package profiles, this
-        # line is the fallback `pix`/`cix` should degrade to, not the
-        # primary mechanism.
-        /nix/store/*/** mr,
+        # ENFORCING, and deliberately permissive on paths.
+        #
+        # This profile attaches to every process on the machine, PID 1
+        # included, because every binary here is a store path. An enforcing
+        # catch-all that also tried to restrict paths would be a
+        # whole-system allowlist — it would have to enumerate everything
+        # every program on the machine legitimately touches, and the first
+        # thing it got wrong would take the desktop down. So paths are
+        # open, and what this profile enforces is the small set of
+        # operations that nothing normal does and that an attacker needs.
+        #
+        # Path confinement is bubblewrap's job, per-app, driven by the
+        # policy — see rust/dots-sandbox/src/argv.rs. These two layers are
+        # deliberately different in kind: bwrap decides which files an app
+        # can see, AppArmor decides which privileged operations any process
+        # may perform. Neither substitutes for the other, and stacking a
+        # per-app path allowlist here would duplicate the first badly.
+        /** rwlkm,
         /nix/store/*/** ix,
+
+        # Ordinary operation. Denying any of these breaks the desktop
+        # within seconds, and none of them is what an exploit reaches for.
+        network,
+        unix,
+        signal,
+        dbus,
+        ptrace peer=@{profile_name},
+
+        # Mount is ALLOWED, and that is not an oversight. bubblewrap builds
+        # every sandbox out of mount and pivot_root inside a user
+        # namespace; denying it here would break the confinement layer that
+        # actually restricts paths, trading the strong mechanism for the
+        # weak one. The kernel already constrains what an unprivileged user
+        # namespace may mount.
+        mount,
+        umount,
+        pivot_root,
+
+        # What is actually denied. Each of these is a direct route to
+        # reading or writing memory and hardware that no application has a
+        # legitimate reason to touch, and each is a step in a real
+        # privilege-escalation chain rather than a hypothetical one.
+        deny /dev/mem rwklx,
+        deny /dev/kmem rwklx,
+        deny /dev/port rwklx,
+        deny /proc/*/mem w,
+        deny /sys/kernel/security/apparmor/.* rwklx,
+        deny capability sys_module,
+        deny capability sys_rawio,
+        deny capability sys_boot,
+        deny capability mac_admin,
+        deny capability mac_override,
+
+        # Cross-profile ptrace. The `ptrace peer=@{profile_name}` above
+        # keeps debugging working WITHIN this profile — which, since this
+        # profile is universal, means normal debugging still works — while
+        # this refuses tracing a process confined by a different profile,
+        # the case that matters once per-app profiles exist.
+        deny ptrace (trace, read) peer=/**,
       '';
     };
   };

@@ -21,6 +21,7 @@ fn ctx() -> LaunchCtx {
         repo_root: PathBuf::from("/home/tester/dots"),
         grant_share_dir: PathBuf::from("/run/user/1000/dots-sandbox/grants/nix-lint"),
         machine_name: "nix-lint".to_string(),
+        wayland_display: "wayland-1".to_string(),
         container_rootfs: PathBuf::from("/var/lib/dots-sandbox/container-rootfs"),
         vm_kernel: PathBuf::from("/var/lib/dots-sandbox/vmlinuz-sandbox"),
         vm_firmware: PathBuf::from("/nix/store/example-OVMF/FV/OVMF_CODE.fd"),

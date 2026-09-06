@@ -4,5 +4,5 @@ Name=Broken
 Icon=broken
 Exec=broken
 X-Dots-Sandbox-AppId=broken-app
-X-Dots-Sandbox-Caps=net;wayland;
+X-Dots-Sandbox-Caps=net;telepathy;
 X-Dots-Sandbox-Tier=vm
