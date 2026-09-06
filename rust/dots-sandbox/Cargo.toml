@@ -25,6 +25,29 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 signal-hook = "0.3"
 libc = "0.2"
 
+# The D-Bus daemon (`dots-sandbox daemon`, src/daemon.rs). zbus rather than
+# a hand-rolled wire implementation: D-Bus's marshalling, name acquisition
+# and introspection are exactly the kind of protocol detail that is tedious
+# to get right and invisible when got wrong.
+#
+# Deliberately NOT on the launch path. `dots-sandbox run` never connects to
+# a bus, never waits for one, and works with the daemon stopped — a dead
+# daemon must not mean no app launches, which would be strictly worse than
+# having no daemon at all. The daemon owns the stateful half (the
+# permissions UI's reads, live grants, the audit log); `run` stays a
+# self-contained exec.
+#
+# zbus 5 defaults to async-io/smol rather than dragging in tokio, which
+# keeps the closure off a second async runtime this repo has no other use
+# for.
+zbus = "5"
+# `.next()` on zbus's signal stream. zbus re-exports `futures_core` (the
+# `Stream` trait) but not a `StreamExt`, and it already depends on
+# futures-lite itself — so taking it directly adds nothing to the closure
+# and avoids hand-rolling a `poll_fn` around a stream for one call site.
+futures-lite = "2"
+
+
 # The integration tests spawn the compiled binary and send it real signals, so
 # they need libc directly rather than through the library.
 [dev-dependencies]

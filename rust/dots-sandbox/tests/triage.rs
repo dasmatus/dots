@@ -224,6 +224,136 @@ fn an_apps_own_state_is_allowed_but_another_apps_is_not() {
     );
 }
 
+// --- /dev and /etc ---------------------------------------------------------
+
+#[test]
+fn a_sensor_device_is_blocked_and_named_for_what_it_grants() {
+    // The rationale has to say what the node really is. "/dev/input/event3
+    // was denied" tells a reader nothing; "keylogger" tells them everything
+    // they need to decide.
+    for (path, expected) in [
+        ("/dev/input/event3", "keylogger"),
+        ("/dev/video0", "camera"),
+        ("/dev/snd/pcmC0D0c", "microphone"),
+        ("/dev/uinput", "desktop"),
+        ("/dev/mem", "physical memory"),
+    ] {
+        let card = classify(&denial("open", Some(path), Some("r")), &ctx());
+        assert_eq!(card.verdict, Verdict::Block, "{path} must be blocked");
+        assert!(
+            card.rationale.contains(expected),
+            "{path} must say it grants {expected}, got: {}",
+            card.rationale
+        );
+    }
+}
+
+#[test]
+fn the_harmless_device_nodes_still_pass() {
+    // The sensitive-device rule sits ahead of the scratch rule, so this is
+    // the check that it did not swallow /dev/null on the way past.
+    for path in ["/dev/null", "/dev/urandom", "/dev/random"] {
+        assert_eq!(
+            classify(&denial("open", Some(path), Some("r")), &ctx()).verdict,
+            Verdict::Allow,
+            "{path} holds no user data and is opened by nearly everything"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_device_node_is_unclassified_rather_than_waved_through() {
+    // The kernel gains device classes faster than this table does, so an
+    // unfamiliar node must become a question, never a default allow.
+    let card = classify(
+        &denial("open", Some("/dev/some-new-thing"), Some("r")),
+        &ctx(),
+    );
+
+    assert_eq!(card.verdict, Verdict::Unclassified);
+    assert!(
+        card.provenance.contains("unrecognised-device"),
+        "an unknown /dev path should say it is a device, got {}",
+        card.provenance
+    );
+}
+
+#[test]
+fn the_snd_prefix_is_not_confused_with_the_sd_prefix() {
+    // Both are in the table. `/dev/snd/...` must match the audio entry, not
+    // the raw-block-device one, or the rationale tells the reader the wrong
+    // thing about what was accessed.
+    let card = classify(
+        &denial("open", Some("/dev/snd/controlC0"), Some("r")),
+        &ctx(),
+    );
+
+    assert!(
+        card.rationale.contains("microphone"),
+        "/dev/snd is audio, not a block device, got: {}",
+        card.rationale
+    );
+}
+
+#[test]
+fn sensitive_etc_paths_are_blocked() {
+    for path in [
+        "/etc/shadow",
+        "/etc/ssh/ssh_host_ed25519_key",
+        "/etc/sudoers",
+        "/etc/ssl/private/server.key",
+    ] {
+        assert_eq!(
+            classify(&denial("open", Some(path), Some("r")), &ctx()).verdict,
+            Verdict::Block,
+            "{path} is authentication material"
+        );
+    }
+}
+
+#[test]
+fn routine_etc_reads_are_allowed() {
+    for path in [
+        "/etc/hosts",
+        "/etc/resolv.conf",
+        "/etc/ssl/certs/ca-bundle.crt",
+    ] {
+        assert_eq!(
+            classify(&denial("open", Some(path), Some("r")), &ctx()).verdict,
+            Verdict::Allow,
+            "{path} is read by nearly every program and holds no secret"
+        );
+    }
+}
+
+#[test]
+fn an_unfamiliar_etc_path_is_a_question_not_an_assumption() {
+    // /etc is allowlisted rather than denylisted precisely for this: it
+    // holds resolv.conf and shadow side by side, so a denylist there fails
+    // open on whatever nobody thought to list.
+    let card = classify(
+        &denial("open", Some("/etc/some-app/config"), Some("r")),
+        &ctx(),
+    );
+
+    assert_eq!(card.verdict, Verdict::Unclassified);
+    assert!(card.provenance.contains("unrecognised-etc"));
+}
+
+#[test]
+fn a_write_under_etc_is_blocked_however_routine_the_file_looks() {
+    // /etc/hosts reads fine and is on the allowlist. Writing it redirects
+    // every name lookup on the machine, so the mask decides, not the path.
+    let card = classify(&denial("open", Some("/etc/hosts"), Some("w")), &ctx());
+
+    assert_eq!(
+        card.verdict,
+        Verdict::Block,
+        "writing /etc/hosts is system reconfiguration: {}",
+        card.rationale
+    );
+}
+
 #[test]
 fn an_unmatched_path_stays_unclassified() {
     // The outcome that must survive to the output rather than being quietly

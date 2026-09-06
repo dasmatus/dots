@@ -1,30 +1,47 @@
 {
   "version": 1,
-  "denyPaths": ["~/.ssh", "~/.config/rbw", "~/.local/share/rbw"],
+  "denyPaths": [
+    "~/.ssh",
+    "~/.config/rbw",
+    "~/.local/share/rbw"
+  ],
   "apps": {
     "default": {
-      "tier": "container",
-      "caps": { "repo-read": "allow" }
+      "tier": "bwrap",
+      "caps": {
+        "repo-read": "allow"
+      }
     },
     "nix-lint": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": {
         "repo-write": "allow",
         "nix-daemon": "allow",
         "net": "allow"
       },
-      "paths": [{ "path": "~/.cargo", "mode": "rw", "state": "allow" }]
+      "paths": [
+        {
+          "path": "~/.cargo",
+          "mode": "rw",
+          "state": "allow"
+        }
+      ]
     },
     "memory-derive": {
-      "tier": "container",
-      "caps": { "repo-read": "allow", "postgres": "allow" }
+      "tier": "bwrap",
+      "caps": {
+        "repo-read": "allow",
+        "postgres": "allow"
+      }
     },
     "memory-health": {
-      "tier": "container",
-      "caps": { "postgres": "allow" }
+      "tier": "bwrap",
+      "caps": {
+        "postgres": "allow"
+      }
     },
     "iso": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": {
         "repo-write": "allow",
         "nix-daemon": "allow",
@@ -33,7 +50,7 @@
       }
     },
     "iso-full": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": {
         "repo-write": "allow",
         "nix-daemon": "allow",
@@ -42,7 +59,7 @@
       }
     },
     "nix-smoke": {
-      "tier": "container",
+      "tier": "bwrap",
       "caps": {
         "repo-write": "allow",
         "nix-daemon": "allow",
@@ -51,16 +68,22 @@
       }
     },
     "clean": {
-      "tier": "container",
-      "caps": { "repo-write": "allow" }
+      "tier": "bwrap",
+      "caps": {
+        "repo-write": "allow"
+      }
     },
     "edupage-mcp": {
-      "tier": "container",
-      "caps": { "net": "allow" }
+      "tier": "bwrap",
+      "caps": {
+        "net": "allow"
+      }
     },
     "dots-memory-mcp": {
-      "tier": "container",
-      "caps": { "postgres": "allow" }
+      "tier": "bwrap",
+      "caps": {
+        "postgres": "allow"
+      }
     },
     "nix-smoke-interactive": {
       "unconfined": true,
@@ -79,16 +102,45 @@
       "reason": "needs /dev/uinput, the AT-SPI bus, whole-desktop input control"
     },
     "kitty": {
-      "unconfined": true,
-      "reason": "a terminal; whatever it launches inherits the sandbox anyway"
+      "tier": "bwrap",
+      "caps": {
+        "wayland": "allow",
+        "dri": "allow",
+        "repo-write": "allow",
+        "net": "allow"
+      }
     },
     "junction": {
-      "unconfined": true,
-      "reason": "exists to exec browsers; children would inherit confinement"
+      "tier": "bwrap",
+      "caps": {
+        "wayland": "allow",
+        "net": "allow"
+      }
     },
     "bitwarden": {
-      "unconfined": true,
-      "reason": "the secret broker other things connect to; \"only bitwarden.com\" is not expressible with an all-or-nothing network namespace"
+      "tier": "bwrap",
+      "caps": {
+        "wayland": "allow",
+        "dri": "allow",
+        "net": "allow"
+      }
+    },
+    "zed": {
+      "tier": "bwrap",
+      "caps": {
+        "wayland": "allow",
+        "dri": "allow",
+        "net": "allow",
+        "repo-write": "allow"
+      }
+    },
+    "claude-desktop": {
+      "tier": "bwrap",
+      "caps": {
+        "wayland": "allow",
+        "dri": "allow",
+        "net": "allow"
+      }
     }
   }
 }

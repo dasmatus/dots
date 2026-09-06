@@ -44,6 +44,10 @@ mod fixed_paths {
     /// itself needs to accelerate a nested VM; not meaningful for a `vm`-
     /// tier app, which gets its own acceleration via `--kvm=yes`.
     pub const KVM_DEVICE: &str = "/dev/kvm";
+
+    /// GPU render nodes. Bound with --dev-bind rather than --ro-bind: a
+    /// render node opened read-only cannot submit work.
+    pub const DRI_DIR: &str = "/dev/dri";
     /// Fixed in-sandbox mount point for the grant-share directory, present
     /// in every launch of either tier so the broker can add a bind under
     /// it on the host and have the sandbox see it appear, even before any
@@ -98,6 +102,15 @@ pub struct LaunchCtx {
     /// `auto`/`uefi` discovery relies on — so the launcher must resolve
     /// and pass an explicit path rather than relying on `--firmware=uefi`.
     pub vm_firmware: PathBuf,
+    /// `$WAYLAND_DISPLAY`, e.g. `wayland-1`. Used only by the `bwrap` tier,
+    /// which binds `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` when the `wayland`
+    /// capability is granted.
+    ///
+    /// Carried here rather than read inside `spawn_argv` for the same
+    /// reason every other path is: the translation stays pure. A session
+    /// with no compositor supplies an empty string, and the bind is
+    /// `--ro-bind-try`, so a missing socket is not fatal.
+    pub wayland_display: String,
     /// The program to run inside the sandbox.
     pub program: String,
     /// Arguments to `program`.
@@ -111,8 +124,188 @@ pub struct LaunchCtx {
 #[must_use]
 pub fn spawn_argv(resolved: &ResolvedPolicy, ctx: &LaunchCtx) -> Vec<String> {
     match resolved.tier {
+        Tier::Bwrap => bwrap_argv(resolved, ctx),
         Tier::Container => container_argv(resolved, ctx),
         Tier::Vm => vm_argv(resolved, ctx),
+    }
+}
+
+/// The `bwrap` tier: namespace confinement with no VM and no systemd spawn
+/// binary in the path.
+///
+/// Structured as deny-by-default. The sandbox starts with nothing —
+/// `--clearenv`, every namespace unshared, `$HOME` replaced by a tmpfs —
+/// and each granted capability adds exactly one thing back. That ordering
+/// is the whole safety argument: a capability this function forgets to
+/// handle results in an app that cannot do something, never in an app that
+/// can do something it was not granted.
+///
+/// `/nix/store` is bound read-only unconditionally, and is not a capability.
+/// Every binary on this system, including the program being launched, is a
+/// store path — a sandbox without it cannot `execve` at all. It is also
+/// world-readable and immutable by construction, so it holds nothing a
+/// policy would withhold.
+fn bwrap_argv(resolved: &ResolvedPolicy, ctx: &LaunchCtx) -> Vec<String> {
+    let mut argv = vec!["bwrap".to_string()];
+
+    // --die-with-parent first: without it, killing the launcher orphans the
+    // sandbox, which is exactly the failure `nix run .#<app>` must not
+    // have. launch.rs forwards signals, but a SIGKILL it cannot catch is
+    // precisely when this matters.
+    argv.push("--die-with-parent".to_string());
+    // No setuid binary inside can ever gain privilege, whatever else is
+    // bound in. This is the one flag that makes a read-only /nix/store
+    // bind safe to hand over wholesale.
+    argv.push("--unshare-user".to_string());
+    argv.push("--new-session".to_string());
+
+    argv.push("--ro-bind".to_string());
+    argv.push(fixed_paths::NIX_STORE.to_string());
+    argv.push(fixed_paths::NIX_STORE.to_string());
+
+    // A private /proc and /dev. Without --proc the guest sees the host's,
+    // which lists every process on the machine and defeats --unshare-pid.
+    argv.push("--proc".to_string());
+    argv.push("/proc".to_string());
+    argv.push("--dev".to_string());
+    argv.push("/dev".to_string());
+
+    argv.push("--unshare-pid".to_string());
+    argv.push("--unshare-ipc".to_string());
+    argv.push("--unshare-uts".to_string());
+    argv.push("--unshare-cgroup-try".to_string());
+
+    // The home directory is replaced rather than merely left unbound: an
+    // unbound path would still be visible from the host mount namespace
+    // this sandbox inherits. A tmpfs is what makes ~/.ssh unreachable
+    // rather than just unmentioned — verified against a planted canary.
+    argv.push("--tmpfs".to_string());
+    argv.push(ctx.home_dir.display().to_string());
+
+    // `net` is the one namespace that must be decided here rather than
+    // added later: a network namespace is fixed at clone time, so this is
+    // also why the UI says a network change needs a relaunch.
+    if state_of(resolved, Capability::Net) == PolicyState::Allow {
+        // Resolver configuration, without which a shared network stack is
+        // useless for anything but raw addresses.
+        for path in ["/etc/resolv.conf", "/etc/hosts", "/etc/ssl", "/etc/static"] {
+            argv.push("--ro-bind-try".to_string());
+            argv.push(path.to_string());
+            argv.push(path.to_string());
+        }
+    } else {
+        argv.push("--unshare-net".to_string());
+    }
+
+    if state_of(resolved, Capability::NixDaemon) == PolicyState::Allow {
+        argv.push("--bind".to_string());
+        argv.push(fixed_paths::NIX_DAEMON_SOCKET.to_string());
+        argv.push(fixed_paths::NIX_DAEMON_SOCKET.to_string());
+    }
+
+    match (
+        state_of(resolved, Capability::RepoWrite),
+        state_of(resolved, Capability::RepoRead),
+    ) {
+        (PolicyState::Allow, _) => {
+            argv.push("--bind".to_string());
+            argv.push(ctx.repo_root.display().to_string());
+            argv.push(ctx.repo_root.display().to_string());
+        }
+        (_, PolicyState::Allow) => {
+            argv.push("--ro-bind".to_string());
+            argv.push(ctx.repo_root.display().to_string());
+            argv.push(ctx.repo_root.display().to_string());
+        }
+        _ => {}
+    }
+
+    if state_of(resolved, Capability::Postgres) == PolicyState::Allow {
+        argv.push("--bind".to_string());
+        argv.push(fixed_paths::POSTGRES_SOCKET_DIR.to_string());
+        argv.push(fixed_paths::POSTGRES_SOCKET_DIR.to_string());
+    }
+    if state_of(resolved, Capability::SettingsRo) == PolicyState::Allow {
+        argv.push("--ro-bind".to_string());
+        argv.push(fixed_paths::SETTINGS_FILE.to_string());
+        argv.push(fixed_paths::SETTINGS_FILE.to_string());
+    }
+    if state_of(resolved, Capability::Kvm) == PolicyState::Allow {
+        argv.push("--dev-bind".to_string());
+        argv.push(fixed_paths::KVM_DEVICE.to_string());
+        argv.push(fixed_paths::KVM_DEVICE.to_string());
+    }
+
+    push_gui_binds(&mut argv, resolved, ctx);
+
+    // The grant share, mounted in both other tiers too. On this tier it can
+    // only ever be populated before launch — bwrap has no live-grant
+    // equivalent — but the mount point stays so the path an app looks at is
+    // the same on every tier.
+    argv.push("--bind".to_string());
+    argv.push(ctx.grant_share_dir.display().to_string());
+    argv.push(fixed_paths::GRANT_SHARE_MOUNT.to_string());
+
+    for grant in &resolved.paths {
+        if grant.state != PolicyState::Allow {
+            continue;
+        }
+        argv.push(
+            match grant.mode {
+                PathMode::Rw => "--bind",
+                PathMode::Ro => "--ro-bind",
+            }
+            .to_string(),
+        );
+        argv.push(grant.path.display().to_string());
+        argv.push(grant.path.display().to_string());
+    }
+
+    argv.push(ctx.program.clone());
+    argv.extend(ctx.args.iter().cloned());
+    argv
+}
+
+/// The GUI capabilities: compositor socket, render node, audio.
+///
+/// These exist only on the bwrap tier. A VM has no route to the host's
+/// compositor socket, render node or audio daemon, which is why the
+/// original plan deferred GUI confinement indefinitely — moving to a
+/// shared kernel is what turned it into three bind mounts.
+///
+/// All three live under `$XDG_RUNTIME_DIR`, and that directory is
+/// deliberately NOT bound wholesale. It also holds the session D-Bus
+/// socket and Hyprland's IPC socket, and either one is a one-line sandbox
+/// escape: `systemd --user` will start anything you ask it to, and
+/// `hyprctl dispatch exec` likewise. Binding each socket individually is
+/// what keeps those two out, and no capability here grants them.
+fn push_gui_binds(argv: &mut Vec<String>, resolved: &ResolvedPolicy, ctx: &LaunchCtx) {
+    if state_of(resolved, Capability::Wayland) == PolicyState::Allow {
+        let socket = ctx.runtime_dir.join(&ctx.wayland_display);
+        argv.push("--ro-bind-try".to_string());
+        argv.push(socket.display().to_string());
+        argv.push(socket.display().to_string());
+        argv.push("--setenv".to_string());
+        argv.push("WAYLAND_DISPLAY".to_string());
+        argv.push(ctx.wayland_display.clone());
+    }
+
+    if state_of(resolved, Capability::Dri) == PolicyState::Allow {
+        // --dev-bind, not --ro-bind: a render node opened read-only cannot
+        // submit work, so a read-only bind would look like a granted
+        // capability and behave like a denied one.
+        argv.push("--dev-bind-try".to_string());
+        argv.push(fixed_paths::DRI_DIR.to_string());
+        argv.push(fixed_paths::DRI_DIR.to_string());
+    }
+
+    if state_of(resolved, Capability::Pipewire) == PolicyState::Allow {
+        for socket in ["pipewire-0", "pulse"] {
+            let path = ctx.runtime_dir.join(socket);
+            argv.push("--bind-try".to_string());
+            argv.push(path.display().to_string());
+            argv.push(path.display().to_string());
+        }
     }
 }
 

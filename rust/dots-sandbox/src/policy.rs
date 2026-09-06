@@ -48,6 +48,25 @@ pub enum PolicyState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
+    /// Namespaces via `bubblewrap`, no VM and no systemd spawn binary.
+    ///
+    /// The only tier that actually confines on this host, and therefore
+    /// the default. `Container` and `Vm` both route through
+    /// `systemd-nsresourced`, which delegates a user namespace to an
+    /// unprivileged caller by installing a BPF LSM program — and this
+    /// systemd is built with BPF disabled, so nsresourced starts, claims
+    /// its Varlink socket, answers every readiness check, and cannot
+    /// perform the delegation. `systemd-nspawn` says so outright ("User-
+    /// scoped operation requires managed user namespaces"); `vmspawn`
+    /// reports it one layer down as "Failed to enter user namespace for
+    /// virtiofsd".
+    ///
+    /// What this tier gives up, relative to the other two: live grants.
+    /// `machinectl bind`'s mount propagation has no bwrap equivalent that
+    /// survives `pivot_root` (see the module docs on why `nsenter`+`mount`
+    /// and `setns` both fail), so a capability change applies on next
+    /// launch. The permissions UI already says exactly that on every row.
+    Bwrap,
     Container,
     Vm,
 }
@@ -55,6 +74,7 @@ pub enum Tier {
 impl fmt::Display for Tier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::Bwrap => "bwrap",
             Self::Container => "container",
             Self::Vm => "vm",
         })
@@ -87,11 +107,34 @@ pub enum Capability {
     Postgres,
     SettingsRo,
     Kvm,
+
+    // The three below exist only because the sandbox moved to bubblewrap.
+    // A VM cannot reach the host's compositor socket, render node or audio
+    // daemon — the original plan said as much and deferred GUI confinement
+    // indefinitely on that basis. Sharing the host kernel makes them
+    // ordinary bind mounts, which is what turned "GUI apps cannot be
+    // sandboxed here" into "GUI apps need three more capabilities".
+    /// The Wayland compositor socket, i.e. the ability to put a window on
+    /// screen and read the clipboard.
+    Wayland,
+    /// GPU render nodes under `/dev/dri`, for hardware acceleration.
+    ///
+    /// Separate from `wayland` because software rendering into a Wayland
+    /// surface is a real, safer configuration: an app can be allowed to
+    /// draw without being handed direct GPU access.
+    Dri,
+    /// The `PipeWire` socket: audio playback, and capture from the
+    /// microphone and camera.
+    ///
+    /// One capability rather than three because `PipeWire` hands them over
+    /// through a single socket — a per-device split would be a promise the
+    /// mechanism cannot keep, and the dashboard would be lying about it.
+    Pipewire,
 }
 
 impl Capability {
     /// Every capability this binary knows how to translate into argv.
-    pub const ALL: [Capability; 7] = [
+    pub const ALL: [Capability; 10] = [
         Capability::Net,
         Capability::NixDaemon,
         Capability::RepoRead,
@@ -99,14 +142,26 @@ impl Capability {
         Capability::Postgres,
         Capability::SettingsRo,
         Capability::Kvm,
+        Capability::Wayland,
+        Capability::Dri,
+        Capability::Pipewire,
     ];
 
     /// Capabilities `vm` cannot honestly express (see the `postgres` note
     /// in the task brief on `SO_PEERCRED` not surviving into a VM; the same
     /// reasoning applies to a raw device node and a host daemon socket that
     /// only make sense inside a shared kernel namespace).
-    const VM_UNAVAILABLE: [Capability; 3] =
-        [Capability::NixDaemon, Capability::Postgres, Capability::Kvm];
+    const VM_UNAVAILABLE: [Capability; 6] = [
+        Capability::NixDaemon,
+        Capability::Postgres,
+        Capability::Kvm,
+        // A VM has no route to the host compositor, render node or audio
+        // daemon. Granting one there would be a policy the mechanism
+        // silently cannot honour, which is worse than refusing it.
+        Capability::Wayland,
+        Capability::Dri,
+        Capability::Pipewire,
+    ];
 
     #[must_use]
     pub fn parse(name: &str) -> Option<Capability> {
@@ -118,6 +173,9 @@ impl Capability {
             "postgres" => Capability::Postgres,
             "settings-ro" => Capability::SettingsRo,
             "kvm" => Capability::Kvm,
+            "wayland" => Capability::Wayland,
+            "dri" => Capability::Dri,
+            "pipewire" => Capability::Pipewire,
             _ => return None,
         })
     }
@@ -132,6 +190,52 @@ impl Capability {
             Capability::Postgres => "postgres",
             Capability::SettingsRo => "settings-ro",
             Capability::Kvm => "kvm",
+            Capability::Wayland => "wayland",
+            Capability::Dri => "dri",
+            Capability::Pipewire => "pipewire",
+        }
+    }
+
+    /// The name a person reads in the permissions UI.
+    ///
+    /// Lives here, beside the variant, rather than in the QML that renders
+    /// it. A label table in the frontend is a second source of truth: it
+    /// drifts silently when a capability is added or renamed here, and the
+    /// page then shows a stale name, or omits the capability entirely, with
+    /// nothing failing to announce it.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Capability::Net => "Network",
+            Capability::NixDaemon => "Nix daemon",
+            Capability::RepoRead => "Repository (read)",
+            Capability::RepoWrite => "Repository (write)",
+            Capability::Postgres => "PostgreSQL",
+            Capability::SettingsRo => "System settings (read)",
+            Capability::Kvm => "Hardware virtualisation",
+            Capability::Wayland => "Display",
+            Capability::Dri => "Graphics acceleration",
+            Capability::Pipewire => "Microphone, camera and audio",
+        }
+    }
+
+    /// One line saying what granting this actually hands over.
+    ///
+    /// Phrased as the concrete access rather than the mechanism, because the
+    /// reader is deciding whether an app should have it, not implementing it.
+    #[must_use]
+    pub fn description(self) -> &'static str {
+        match self {
+            Capability::Net => "Reach the internet and services on the local network",
+            Capability::NixDaemon => "Build and install packages through the system Nix daemon",
+            Capability::RepoRead => "Read this dotfiles checkout",
+            Capability::RepoWrite => "Modify files in this dotfiles checkout",
+            Capability::Postgres => "Query the local database over its Unix socket",
+            Capability::SettingsRo => "Read this machine's settings, including its hostname and accounts",
+            Capability::Kvm => "Use /dev/kvm to run a virtual machine",
+            Capability::Wayland => "Draw windows on screen and read the clipboard",
+            Capability::Dri => "Use the GPU directly for hardware acceleration",
+            Capability::Pipewire => "Play audio, and capture from the microphone and camera",
         }
     }
 }

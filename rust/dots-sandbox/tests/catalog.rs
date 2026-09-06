@@ -271,6 +271,107 @@ fn an_unconfined_policy_only_app_appears_with_no_capabilities() {
     assert_eq!(entry.tier, None);
     assert!(entry.caps.is_empty());
     assert!(entry.state.is_empty());
+
+    // The reason travels with the exemption. `CatalogEntry` used to have no
+    // such field, so the `..` in the `Unconfined` match arm discarded it and
+    // every exempt app rendered as a bare "Unsandboxed" badge — which reads
+    // as an oversight rather than the deliberate decision it is. This
+    // assertion is the difference between the two.
+    assert_eq!(
+        entry.reason.as_deref(),
+        Some("a terminal; whatever it launches inherits the sandbox anyway"),
+        "an exempt app must say why it is exempt"
+    );
+}
+
+/// The counterpart: `reason` is meaningful only for an exemption, and a
+/// sandboxed app inventing one would be worse than the blank it replaced.
+#[test]
+fn a_sandboxed_app_carries_no_reason() {
+    let policy = policy_with_apps(vec![(
+        "zed",
+        sandboxed(Tier::Vm, &[(Capability::Net, PolicyState::Allow)]),
+    )]);
+
+    let catalog = build_catalog(&[], &policy);
+
+    assert_eq!(catalog.apps[0].reason, None);
+}
+
+/// The permissions page used to keep its own capability name+label table in
+/// policy.js, which drifted silently the moment a capability was renamed
+/// here. Publishing the vocabulary is what removed that second source of
+/// truth, so it has to be present, complete, and in `Capability::ALL`'s
+/// declaration order rather than sorted.
+#[test]
+fn the_catalog_publishes_the_capability_vocabulary_it_was_built_from() {
+    let catalog = build_catalog(&[], &empty_policy());
+
+    assert_eq!(
+        catalog
+            .capabilities
+            .iter()
+            .map(|cap| cap.name.as_str())
+            .collect::<Vec<_>>(),
+        Capability::ALL
+            .iter()
+            .map(|cap| cap.as_str())
+            .collect::<Vec<_>>(),
+        "every capability the binary knows, in declaration order"
+    );
+    assert!(
+        catalog
+            .capabilities
+            .iter()
+            .all(|cap| !cap.label.is_empty() && !cap.description.is_empty()),
+        "a capability with no label or description renders as a blank button"
+    );
+}
+
+/// The path-grant group carries its own descriptor, and is deliberately
+/// NOT an eighth capability.
+///
+/// A path grant has no `Capability` variant and never appears in an app's
+/// `caps`. Putting a pseudo-entry into `Capability::ALL` to give the UI a
+/// label would push something meaningless into `argv`'s translation path,
+/// so it travels as its own field instead — while still getting its label
+/// from here rather than from the QML, for the same reason the capability
+/// labels do.
+#[test]
+fn the_path_grant_group_has_a_descriptor_but_is_not_a_capability() {
+    let catalog = build_catalog(&[], &empty_policy());
+
+    assert_eq!(catalog.path_grants.name, "paths");
+    assert!(!catalog.path_grants.label.is_empty());
+    assert!(!catalog.path_grants.description.is_empty());
+    assert!(
+        !catalog
+            .capabilities
+            .iter()
+            .any(|cap| cap.name == catalog.path_grants.name),
+        "the path group must not also appear in the capability vocabulary"
+    );
+    assert!(
+        Capability::parse(&catalog.path_grants.name).is_none(),
+        "'paths' must not parse as a real capability"
+    );
+}
+
+/// `Capability::as_str()`'s values are argv-shaped — "settings-ro",
+/// "repo-read" — chosen for `spawn_argv` to read back, not for a person to
+/// read off a button. A label that is merely the raw name means the label
+/// table has stopped doing its job.
+#[test]
+fn no_capability_label_is_merely_its_argv_name() {
+    let catalog = build_catalog(&[], &empty_policy());
+
+    for cap in &catalog.capabilities {
+        assert_ne!(
+            cap.label, cap.name,
+            "{} needs a human label, not its argv spelling",
+            cap.name
+        );
+    }
 }
 
 /// A file's discovered app id and a policy-only app id can appear in the

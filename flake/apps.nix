@@ -67,7 +67,7 @@ let
     {
       name,
       target ? "iso",
-      sandboxed ? false,
+      sandboxed ? true,
     }:
     mkSandboxedApp {
       inherit name sandboxed;
@@ -99,7 +99,7 @@ let
     name: args:
     mkSandboxedApp {
       inherit name;
-      sandboxed = args.sandboxed or false;
+      sandboxed = args.sandboxed or true;
       appId = args.appId or name;
       app = {
         type = "app";
@@ -135,11 +135,25 @@ let
   # both route through it, which is what lets every app in this file gain
   # the mechanism without any of their ten `text` bodies changing.
   #
-  # `sandboxed` is an opt-in, false unless a call site sets it. Wrapping
-  # all ten apps in one commit turns one flawed wrapper into ten broken
-  # apps at once instead of one, so today only `default` and `clean` pass
-  # `sandboxed = true` — see the rollout note on each below for which apps
-  # that leaves for a follow-up, and why those two first.
+  # `sandboxed` now defaults to TRUE. A new app added to this file is
+  # confined without its author doing anything, and un-confining one takes
+  # a deliberate `sandboxed = false` that shows up in review.
+  #
+  # That inversion is the point. As an opt-in it stayed at two apps for the
+  # entire life of the feature, because nothing forced anyone to flip it —
+  # the staged rollout that existed so one flawed wrapper would break one
+  # app rather than ten quietly became the reason nine apps ran unconfined.
+  # The wrapper has since been exercised against a real confinement test: a
+  # planted secret unreadable, the network namespace unshared, and the one
+  # granted capability still working.
+  #
+  # There is no environment-variable bypass any more either — see the
+  # wrapper body below. Confinement is on by default with no way to opt out
+  # of it at run time.
+  #
+  # What remains unwrapped is unwrapped on purpose, not on schedule: the
+  # entries `isSandboxExempt` reads out of nix/data/sandbox-policy.json,
+  # each carrying its own reason.
   #
   # `appId` is looked up against the policy independently of `sandboxed`:
   # an app the policy already marks `unconfined` is never wrapped, no
@@ -164,33 +178,24 @@ let
             inherit name;
             runtimeInputs = [ self.packages.${pkgs.stdenv.hostPlatform.system}.dots-sandbox ];
             text = ''
-              # DOTS_SANDBOX=0 is the escape hatch for when the sandbox
-              # itself is what is broken: a policy file dots-sandbox still
-              # parses but resolves into nonsense, a capability-to-argv bug,
-              # a systemd-nspawn incompatibility on some host. None of that
-              # is something dots-sandbox can be trusted to notice about
-              # itself, so this check does NOT live inside dots-sandbox (say,
-              # as a flag `run_command` inspects in main.rs before doing
-              # anything else) — if it did, every one of those failure modes
-              # would have to be survived by the very code that might be the
-              # thing failing, before the bypass could even take effect.
-              # Checked here instead, in this wrapper, before dots-sandbox is
-              # invoked at all, the bypass keeps working even if dots-sandbox
-              # fails to build, panics on startup, or resolves a policy into
-              # something actively wrong — the only version of "bypass"
-              # actually worth having. A future "simplification" that moves
-              # this check into the binary quietly deletes the one thing
-              # this variable exists for.
+              # There is deliberately NO bypass here.
               #
-              # Exact-match "0" rather than a truthiness test: an unset,
-              # misspelled or otherwise ambiguous value stays sandboxed,
-              # because the safe failure direction for a security escape
-              # hatch is staying confined, not falling out of the sandbox by
-              # accident.
-              if [[ "''${DOTS_SANDBOX:-1}" == "0" ]]; then
-                exec "${app.program}" "$@"
-              fi
-
+              # This wrapper used to honour DOTS_SANDBOX=0, on the argument
+              # that a bypass must keep working when the sandbox itself is
+              # the broken thing. That argument is sound and it was
+              # overruled: an escape hatch anyone can set is also an escape
+              # hatch anything can set, and a confinement that a stray
+              # environment variable switches off is not confinement. The
+              # decision is "on by default, with no way of opting out", and
+              # a variable check here would be exactly the opt-out.
+              #
+              # The cost is real and worth stating plainly rather than
+              # discovering later: if dots-sandbox fails to build, panics on
+              # startup, or resolves a policy into something actively wrong,
+              # every wrapped app stops working and there is no environment
+              # variable that rescues it. The way out is `git revert` or
+              # running the underlying program directly — not a flag.
+              #
               # The defaults file ships from the Nix store, read-only
               # (${sandboxPolicyPath}). DOTS_SANDBOX_DEFAULTS lets it be
               # pointed elsewhere instead — how a real install relocates it,
@@ -199,21 +204,24 @@ let
               # unset one falls back to the store path.
               export DOTS_SANDBOX_DEFAULTS="''${DOTS_SANDBOX_DEFAULTS:-${sandboxPolicyPath}}"
 
-              # Absent or malformed policy must not brick every `nix run` on
-              # a dev machine — failing closed here is a far worse outcome
-              # than one app running unconfined. So this checks the file
-              # BEFORE ever invoking `dots-sandbox run`, rather than trying
-              # the sandboxed launch first and guessing from its exit code
-              # whether it failed because the policy was broken or because
-              # the wrapped program itself legitimately exited non-zero.
-              # Those two cases are indistinguishable after the fact, and
-              # treating a real failure as "policy must be broken, retry
-              # unconfined" would silently hand a capability-denied app full
-              # access on its very first denial — worse than either honest
-              # outcome on its own.
+              # A malformed policy now REFUSES to launch rather than running
+              # the app unconfined.
+              #
+              # This inverts the previous behaviour, and for the same reason
+              # the bypass above is gone: "degrade to unconfined" is an
+              # opt-out with extra steps, and it is the most dangerous kind,
+              # because it triggers exactly when something is already wrong
+              # and nobody is watching. A policy file that fails to parse
+              # would have silently handed every app full access.
+              #
+              # Still checked BEFORE `dots-sandbox run` rather than inferred
+              # from its exit code afterwards: a launch failure and a
+              # wrapped program's own non-zero exit are indistinguishable
+              # after the fact, so guessing between them is how a
+              # capability-denied app gets waved through on its first denial.
               if ! dots-sandbox policy validate "$DOTS_SANDBOX_DEFAULTS" >/dev/null; then
-                echo "dots-sandbox: policy at \$DOTS_SANDBOX_DEFAULTS ($DOTS_SANDBOX_DEFAULTS) is missing or invalid (see the diagnostic above); running '${appId}' unconfined" >&2
-                exec "${app.program}" "$@"
+                echo "dots-sandbox: policy at \$DOTS_SANDBOX_DEFAULTS ($DOTS_SANDBOX_DEFAULTS) is missing or invalid (see the diagnostic above); refusing to run '${appId}' rather than running it unconfined" >&2
+                exit 1
               fi
 
               # cdRepoRoot (above) walks upward from $PWD for flake.nix so
@@ -279,6 +287,7 @@ in
   # crate in the repo. Cargo is pinned in runtimeInputs so the dev shell need
   # not be on.
   nix-lint = mkShellApp "nix-lint" {
+    sandboxed = true;
     runtimeInputs = [
       pkgs.cargo
       pkgs.rustc
@@ -380,6 +389,7 @@ in
   # Mermaid document spliced in by hand would need to hand-escape every
   # quote in it instead of letting psql do that correctly.
   memory-derive = mkShellApp "memory-derive" {
+    sandboxed = true;
     runtimeInputs = [
       pkgs.postgresql_18
       self.packages.${pkgs.stdenv.hostPlatform.system}.dots-memory-derive
@@ -408,6 +418,7 @@ in
   # verdict text itself never contains that character — and the shell read
   # below splits it back out into a small report instead of a raw psql table.
   memory-health = mkShellApp "memory-health" {
+    sandboxed = true;
     runtimeInputs = [ pkgs.postgresql_18 ];
     text = ''
       ${cdRepoRoot}
@@ -433,8 +444,12 @@ in
     '';
   };
 
-  iso = mkIsoApp { name = "iso"; };
+  iso = mkIsoApp {
+    name = "iso";
+    sandboxed = true;
+  };
   iso-full = mkIsoApp {
+    sandboxed = true;
     name = "iso-full";
     target = "iso-full";
   };
@@ -451,6 +466,7 @@ in
   # through nix/modules/system/network.nix. That's a separate, pre-existing gap
   # in ci.yml, not something this fix touches.
   nix-smoke = mkShellApp "nix-smoke" {
+    sandboxed = true;
     text = ''
       ${cdRepoRoot}
       nix build -L --impure ".#checks.x86_64-linux.iso-boot" "$@"

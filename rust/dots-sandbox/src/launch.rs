@@ -30,28 +30,34 @@ use crate::policy::{self, PolicyFile, ResolvedApp};
 /// a window where this socket is absent.
 const NSRESOURCED_SOCKET: &str = "/run/systemd/userdb/io.systemd.NamespaceResource";
 
-/// Whether the host can actually run a sandbox right now.
+/// Whether the host can run the tier this policy asks for.
 ///
-/// Returns the reason it cannot, or `None` when it can.
-fn sandbox_runtime_unavailable() -> Option<String> {
-    // `DOTS_SANDBOX_REQUIRE_RUNTIME=1` suppresses the degradation and attempts
-    // the sandbox regardless, following the same injection convention as
-    // `$DOTS_SANDBOX_DEFAULTS` and friends. It can only ever make confinement
-    // stricter — forcing an attempt that then fails loudly — so unlike
-    // `DOTS_SANDBOX=0` it is not a way to get less isolation, and it is what
-    // lets the audit tests exercise the sandboxed path on a host whose
-    // nsresourced is not yet enabled.
-    if env::var_os("DOTS_SANDBOX_REQUIRE_RUNTIME").is_some_and(|value| value == "1") {
-        return None;
+/// Returns the reason it cannot, or `None` when it can. A caller that gets
+/// a reason must REFUSE, never fall back to running unconfined — see
+/// [`run`].
+fn tier_unavailable(tier: policy::Tier) -> Option<String> {
+    match tier {
+        // bubblewrap needs nothing but an unprivileged user namespace,
+        // which this kernel allows. It deliberately does NOT consult
+        // nsresourced: that daemon is only involved in the systemd spawn
+        // tiers, and checking it here was actively wrong — it made bwrap
+        // launches degrade on a condition bwrap does not care about.
+        policy::Tier::Bwrap => None,
+        policy::Tier::Container | policy::Tier::Vm => {
+            if !Path::new(NSRESOURCED_SOCKET).exists() {
+                return Some(format!(
+                    "{NSRESOURCED_SOCKET} is absent, so systemd-nsresourced is not \
+                     running and the {tier} tier cannot claim a UID range"
+                ));
+            }
+            // Present is not the same as usable. nsresourced delegates a
+            // namespace by installing a BPF LSM program, and a systemd
+            // built without BPF runs the daemon, answers Varlink, and
+            // cannot delegate — so every readiness check passes while the
+            // tier is dead. See tests/live_grant.rs for the measurements.
+            None
+        }
     }
-    if Path::new(NSRESOURCED_SOCKET).exists() {
-        return None;
-    }
-    Some(format!(
-        "{NSRESOURCED_SOCKET} is absent, so systemd-nsresourced is not running \
-         and systemd-nspawn cannot claim a UID range; enable the sandbox host \
-         module and rebuild to confine this app"
-    ))
 }
 
 /// What running the sandboxed app came to, once it has exited.
@@ -106,25 +112,28 @@ pub fn run(
             spawn_and_wait(&unconfined_argv(program, args))
         }
         ResolvedApp::Sandboxed(resolved) => {
-            // Degrade rather than break. A host that cannot start a sandbox
-            // must still run the app: failing closed here would mean every
-            // `nix run .#<app>` stops working the moment this wrapper lands
-            // and stays broken until the user rebuilds, which is a far worse
-            // outcome than an unconfined `clean`. The warning goes to stderr
-            // and the audit log so the degradation is loud rather than
-            // silent — an unconfined app that looks confined is the one
-            // failure this must never have.
-            if let Some(reason) = sandbox_runtime_unavailable() {
-                eprintln!("dots-sandbox: running {app_id} UNCONFINED: {reason}");
+            // REFUSE rather than degrade.
+            //
+            // This used to run the app unconfined with a warning, arguing
+            // that a host which cannot start a sandbox must still run the
+            // app. That was overruled: confinement is on by default with no
+            // opt-out, and "degrade to unconfined" is the most dangerous
+            // opt-out there is, because it fires exactly when something is
+            // already wrong and nobody is reading stderr. An app the policy
+            // says is sandboxed either runs sandboxed or does not run.
+            if let Some(reason) = tier_unavailable(resolved.tier) {
                 audit.log(&AuditEvent {
                     ts_ms: broker::now_ms(),
                     app_id,
                     kind: EventKind::Unconfined,
                     capability: None,
-                    outcome: "unconfined_runtime_unavailable",
+                    outcome: "refused_tier_unavailable",
                     detail: Some(&reason),
                 });
-                return spawn_and_wait(&unconfined_argv(program, args));
+                return Err(LaunchError::TierUnavailable {
+                    app_id: app_id.to_string(),
+                    reason,
+                });
             }
 
             // Every capability gets a decision and an audit line,
@@ -193,6 +202,27 @@ fn unconfined_argv(program: &str, args: &[String]) -> Vec<String> {
 /// Assembles the injected context `spawn_argv` needs. Kept out of
 /// `spawn_argv` itself (which stays pure, per the contract) — this is
 /// where the actual filesystem/environment access happens.
+/// Walk up from the working directory looking for a `flake.nix`.
+///
+/// Returns the first ancestor that has one, or `None` if the launcher was
+/// invoked from outside any flake checkout — in which case the caller falls
+/// back rather than binding a directory picked at random.
+///
+/// `flake.nix` rather than `.git`: the thing being bound is the flake this
+/// app was launched from, and a `.git` hit could be any unrelated
+/// repository the user happened to be sitting in.
+fn discover_repo_root() -> Option<PathBuf> {
+    let mut dir = env::current_dir().ok()?;
+    loop {
+        if dir.join("flake.nix").is_file() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
 fn build_ctx(
     app_id: &str,
     program: &str,
@@ -202,11 +232,25 @@ fn build_ctx(
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .ok_or(LaunchError::MissingEnv("XDG_RUNTIME_DIR"))?;
-    // Invented convention, not read anywhere else in this crate yet: an
-    // env var override for the dotfiles checkout, falling back to the
-    // common `~/dots` clone location.
-    let repo_root =
-        env::var_os("DOTS_SANDBOX_REPO_ROOT").map_or_else(|| home_dir.join("dots"), PathBuf::from);
+    // `$DOTS_SANDBOX_REPO_ROOT` wins; otherwise the checkout is discovered
+    // by walking up from the working directory for a `flake.nix`.
+    //
+    // The previous default was a bare `~/dots`, which is a guess about where
+    // someone cloned their dotfiles, and on this machine it is wrong — the
+    // checkout is under ~/Dokumente/codeberg/personal/dots. Every launch of
+    // a repo-touching app died on `Failed to parse --bind= argument
+    // /home/matus/dots: No such file or directory`, which is a confusing
+    // way to say "I looked in the wrong place". Discovery makes `nix run
+    // .#<app>` work from anywhere inside the checkout, which is where it is
+    // always run from; `~/dots` survives only as the last resort so the
+    // behaviour is never worse than it was.
+    let repo_root = env::var_os("DOTS_SANDBOX_REPO_ROOT")
+        .map(PathBuf::from)
+        .or_else(discover_repo_root)
+        .unwrap_or_else(|| home_dir.join("dots"));
+    // Empty when there is no compositor — a TTY login, a CI runner. The
+    // wayland bind is --ro-bind-try, so an absent socket is not fatal.
+    let wayland_display = env::var("WAYLAND_DISPLAY").unwrap_or_default();
     let machine_name = sanitize_machine_name(app_id);
     let grant_share_dir = runtime_dir
         .join("dots-sandbox")
@@ -240,6 +284,7 @@ fn build_ctx(
         repo_root,
         grant_share_dir,
         machine_name,
+        wayland_display,
         container_rootfs,
         vm_kernel,
         vm_firmware,
@@ -323,6 +368,10 @@ pub enum LaunchError {
     Spawn(io::Error),
     SignalSetup(io::Error),
     Wait(io::Error),
+    /// The policy says this app is sandboxed and the host cannot provide
+    /// that tier. Refusing, never degrading: an app the policy calls
+    /// sandboxed either runs sandboxed or does not run.
+    TierUnavailable { app_id: String, reason: String },
 }
 
 impl std::fmt::Display for LaunchError {
@@ -335,6 +384,12 @@ impl std::fmt::Display for LaunchError {
             Self::Spawn(err) => write!(f, "failed to spawn sandboxed command: {err}"),
             Self::SignalSetup(err) => write!(f, "failed to install signal forwarding: {err}"),
             Self::Wait(err) => write!(f, "failed to wait for sandboxed command: {err}"),
+            Self::TierUnavailable { app_id, reason } => write!(
+                f,
+                "refusing to run {app_id}: the policy says it is sandboxed and this \
+                 host cannot provide that ({reason}). Running it unconfined is not \
+                 an option this build offers."
+            ),
         }
     }
 }
@@ -346,7 +401,7 @@ impl std::error::Error for LaunchError {
             Self::Io(err) | Self::Spawn(err) | Self::SignalSetup(err) | Self::Wait(err) => {
                 Some(err)
             }
-            Self::MissingEnv(_) | Self::EmptyArgv => None,
+            Self::MissingEnv(_) | Self::EmptyArgv | Self::TierUnavailable { .. } => None,
         }
     }
 }

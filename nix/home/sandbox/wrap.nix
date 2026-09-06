@@ -161,21 +161,20 @@ let
         # `binaries = null` default — no need to know their names at Nix
         # eval time at all, only at build time inside postBuild below.
         #
-        # DOTS_SANDBOX=0 bypasses before `dots-sandbox` is ever invoked, and
-        # the exact-match "0" (not a truthiness test) — both for the exact
-        # reason `flake/apps.nix`'s `mkSandboxedApp` comment already gives
-        # at length: the bypass must survive `dots-sandbox` itself being the
-        # broken thing, and an ambiguous value must fail toward staying
-        # confined, not toward falling out of the sandbox by accident.
+        # There is deliberately NO bypass, matching `flake/apps.nix`'s
+        # `mkSandboxedApp`. This shim used to honour DOTS_SANDBOX=0 on the
+        # argument that an escape hatch must survive `dots-sandbox` itself
+        # being broken. That argument is sound and it was overruled:
+        # confinement a stray environment variable switches off is not
+        # confinement, and a hatch anyone can set is a hatch anything can
+        # set. On by default, no run-time opt-out.
+        #
         # `launch.rs` already forwards SIGINT/SIGTERM/SIGHUP and the child's
-        # own exit code, so this shim does no signal handling of its own —
-        # a trap here would only get in that forwarding's way.
+        # own exit code, so this shim does no signal handling of its own — a
+        # trap here would only get in that forwarding's way.
         shim = pkgs.writeShellScript "${appId}-dots-sandbox-shim" ''
           name="$(basename -- "$0")"
           original="${pkg}/bin/$name"
-          if [ "''${DOTS_SANDBOX:-1}" = "0" ]; then
-            exec "$original" "$@"
-          fi
           exec ${lib.escapeShellArg dotsSandboxExe} run --app ${lib.escapeShellArg appId} -- "$original" "$@"
         '';
 

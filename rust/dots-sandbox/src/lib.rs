@@ -37,6 +37,7 @@
 pub mod argv;
 pub mod broker;
 pub mod catalog;
+pub mod daemon;
 pub mod error;
 pub mod grants;
 pub mod launch;

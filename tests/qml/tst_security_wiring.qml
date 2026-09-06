@@ -88,8 +88,36 @@ TestCase {
     // that'll lead to apps that requested them"), reading the catalog
     // instead of `policy dump`. ---
 
-    function test_permissions_reads_catalog_json() {
-        verify(securitySource().indexOf('command: ["dots-sandbox", "catalog", "--json"]') !== -1, "the permissions list must be driven by dots-sandbox catalog --json, not policy dump");
+    function test_permissions_streams_the_catalog_from_the_daemon() {
+        const src = securitySource();
+
+        // `watch`, not `catalog --json`. The fetch version re-ran the
+        // binary on every read — a process spawn per repaint, and no way
+        // to notice a policy change without re-running it. `watch` holds
+        // one connection to org.dots.Sandbox1 and is pushed a fresh
+        // document when the policy actually changes.
+        verify(src.indexOf('command: ["dots-sandbox", "watch"]') !== -1,
+               "the permissions list must stream from dots-sandbox watch, not re-run catalog --json per read");
+
+        // SplitParser, not StdioCollector: the stream never ends, so
+        // `onStreamFinished` would fire only when the daemon died — which
+        // is exactly the case where the page must NOT be waiting for it.
+        verify(src.indexOf("stdout: SplitParser") !== -1,
+               "a never-ending stream needs a line parser; StdioCollector waits for an end that does not come");
+    }
+
+    // A malformed line must not blank the page.
+    //
+    // Clearing catalogSet on a truncated line would turn a transient glitch
+    // into "no app is sandboxed", which is the single most misleading thing
+    // this page can say. The last good document is kept instead.
+    function test_a_bad_line_keeps_the_last_good_catalog() {
+        const src = securitySource();
+        const parser = src.slice(src.indexOf("stdout: SplitParser"));
+        const handler = parser.slice(0, parser.indexOf("FileView"));
+
+        verify(handler.indexOf("root.catalogSet = null") === -1,
+               "a malformed line must not clear catalogSet — that renders as 'nothing is sandboxed'");
     }
 
     // The top level: one row per capability, each leading to its own apps
@@ -113,11 +141,73 @@ TestCase {
     // Exempt apps must appear, marked unsandboxed, at the permissions
     // section's own top level — an invisible exemption list is how a
     // permissions UI starts lying about what it controls.
+    // The last link in the reason's chain, and only the last link.
+    //
+    // A source scan can prove the page reads `.reason`; it cannot prove a
+    // real reason ever arrives there, and for a while none did — CatalogEntry
+    // had no such field, so this assertion passed against a row that always
+    // rendered blank. The two behavioural tests that close that gap are
+    // catalog.rs's `an_exempt_app_carries_the_policys_reason_for_exempting_it`
+    // (the binary emits it) and tst_sandbox_policy.qml's
+    // `test_unconfined_entries_carry_the_policys_reason` (Policy surfaces it).
+    // Read all three together; this one alone means very little.
     function test_exempt_apps_show_marked_unsandboxed_with_their_reason() {
         const src = securitySource();
         verify(src.indexOf("Policy.unconfinedEntries(root.catalogSet)") !== -1, "unconfined apps must come from Policy.unconfinedEntries");
         verify(src.indexOf('text: "No sandbox"') !== -1, "an exempt app's row must say it is unsandboxed, not just omit the usual controls");
         verify(src.indexOf("unconfinedRow.modelData.reason") !== -1, "an exempt app's row must show the policy's own reason string");
+    }
+
+    // Path grants must actually reach the page.
+    //
+    // `CatalogEntry.paths` was populated and read by nothing for a while:
+    // the capability-first restructuring dropped the rendering, and because
+    // no test asserted a path grant is ever shown, the permissions UI
+    // silently omitted part of what an app can reach. That is the specific
+    // failure this guards.
+    function test_path_grants_are_rendered_not_merely_collected() {
+        const src = securitySource();
+        verify(src.indexOf("Policy.pathGrantGroup(root.catalogSet)") !== -1,
+               "the top level must offer a path-grant group beside the capabilities");
+        verify(src.indexOf("Policy.appsWithPathGrants(root.catalogSet)") !== -1,
+               "drilling into path grants must list the apps that hold them");
+        verify(src.indexOf("modelData.modeLabel") !== -1,
+               "each grant must show whether it is read-only or writable, spelled out");
+    }
+
+    // The capability drill-in matches on an app's `caps`, where a path
+    // grant never appears — so if "paths" were not excluded there, the page
+    // would render an empty list under a heading promising otherwise.
+    function test_the_path_group_does_not_fall_into_the_capability_drill_in() {
+        const src = securitySource();
+        verify(src.indexOf('root.selectedCapability !== "paths"') !== -1,
+               "the capability drill-in must exclude the path group, which has its own view");
+        verify(src.indexOf('root.selectedCapability === "paths"') !== -1,
+               "the path group needs its own drill-in section");
+    }
+
+    // The capability vocabulary must come from the binary, never from a
+    // table in QML.
+    //
+    // policy.js used to carry its own `CAPABILITIES` array of name+label
+    // pairs mirroring policy.rs's `Capability::ALL`. That is a second source
+    // of truth: renaming or adding a capability in Rust left the QML stale,
+    // the page then showed an old name or silently omitted the capability,
+    // and nothing anywhere failed. `catalog --json` now publishes the
+    // vocabulary and policy.js reads it, so this guards the table not
+    // growing back.
+    function test_the_capability_vocabulary_is_not_restated_in_qml() {
+        const policySrc = readSource("../../nix/home/desktop/quickshell/qml/sandbox/policy.js");
+
+        verify(policySrc.indexOf("capabilityVocabulary") !== -1,
+               "policy.js must read the vocabulary the catalog published");
+
+        // The give-away shape: an argv-spelled capability name sitting next
+        // to a human label in the QML itself.
+        for (const name of ["net", "nix-daemon", "repo-read", "repo-write", "postgres", "settings-ro", "kvm"]) {
+            verify(policySrc.indexOf('{ name: "' + name + '", label:') === -1,
+                   "policy.js must not restate a label for '" + name + "' — that table drifts from policy.rs silently");
+        }
     }
 
     // Every capability toggle must be a real three-state control
