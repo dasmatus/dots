@@ -366,6 +366,172 @@ fn an_unmatched_path_stays_unclassified() {
     assert_eq!(card.verdict, Verdict::Unclassified);
 }
 
+// --- the stock-abstraction table ------------------------------------------
+//
+// One test per table family: each asserts the verdict, the provenance
+// string a reader greps for, and the `abstraction` field a proposal renders
+// its `include <abstractions/...>` line from.
+
+fn assert_covered_by(path: &str, mask: &str, name: &str) {
+    let card = classify(&denial("open", Some(path), Some(mask)), &ctx());
+
+    assert_eq!(card.verdict, Verdict::Allow, "{path} should be an allow");
+    assert_eq!(
+        card.provenance,
+        format!("heuristic:abstraction:{name}"),
+        "{path} should be attributed to {name}, got {}",
+        card.provenance
+    );
+    assert_eq!(
+        card.abstraction,
+        Some(name),
+        "{path} should carry {name} as its abstraction"
+    );
+}
+
+#[test]
+fn resolv_conf_is_covered_by_nameservice() {
+    assert_covered_by("/etc/resolv.conf", "r", "nameservice");
+}
+
+#[test]
+fn the_ca_bundle_is_covered_by_ssl_certs() {
+    assert_covered_by("/etc/ssl/certs/ca-bundle.crt", "r", "ssl_certs");
+}
+
+#[test]
+fn a_users_font_is_covered_by_fonts() {
+    assert_covered_by("/home/matus/.local/share/fonts/X.ttf", "r", "fonts");
+}
+
+#[test]
+fn the_wayland_socket_is_covered_by_wayland() {
+    assert_covered_by("/run/user/1000/wayland-1", "rw", "wayland");
+}
+
+#[test]
+fn the_pulse_cookie_is_covered_by_audio() {
+    assert_covered_by("/home/matus/.config/pulse/cookie", "r", "audio");
+}
+
+#[test]
+fn the_session_bus_is_covered_by_dbus_session_strict() {
+    assert_covered_by("/run/user/1000/bus", "rw", "dbus-session-strict");
+}
+
+#[test]
+fn a_tmp_write_is_covered_by_user_tmp() {
+    assert_covered_by("/tmp/x", "w", "user-tmp");
+}
+
+#[test]
+fn urandom_is_covered_by_base() {
+    assert_covered_by("/dev/urandom", "r", "base");
+}
+
+#[test]
+fn an_icon_theme_file_is_covered_by_freedesktop_org() {
+    assert_covered_by(
+        "/usr/share/icons/hicolor/index.theme",
+        "r",
+        "freedesktop.org",
+    );
+}
+
+#[test]
+fn blocks_outrank_abstractions() {
+    // Every one of these paths sits under a stock abstraction that grants
+    // exactly this access upstream: `ssl_keys` covers all of /etc/ssl
+    // including private keys, `authentication` grants /etc/shadow,
+    // `dri-common` grants /dev/dri/**, and `audio` itself grants /dev/snd
+    // upstream even though this table's `audio` entry never mentions it.
+    // None of those abstractions are table entries, and every one of these
+    // paths is caught by a Block rule first regardless. This is the test
+    // that pins the security argument.
+    for path in [
+        "/etc/ssl/private/server.key",
+        "/etc/shadow",
+        "/dev/dri/card0",
+        "/dev/snd/pcmC0D0c",
+        "/home/matus/.ssh/id_ed25519",
+    ] {
+        let card = classify(&denial("open", Some(path), Some("r")), &ctx());
+
+        assert_eq!(card.verdict, Verdict::Block, "{path} must be blocked");
+        assert_eq!(
+            card.abstraction, None,
+            "{path} must never be softened into an abstraction include"
+        );
+    }
+}
+
+#[test]
+fn a_write_under_a_read_only_abstraction_stays_a_question() {
+    // The real upstream `fonts` abstraction does grant rw here, but this
+    // table's `fonts` entry is marked read-only as a whole, so a write
+    // falls through to a question rather than inheriting an allow it was
+    // never actually checked against.
+    let card = classify(
+        &denial("open", Some("/home/matus/.cache/fontconfig/x"), Some("w")),
+        &ctx(),
+    );
+
+    assert_eq!(card.verdict, Verdict::Unclassified);
+}
+
+#[test]
+fn hyprland_ipc_is_blocked_as_an_escape() {
+    let card = classify(
+        &denial(
+            "open",
+            Some("/run/user/1000/hypr/abc123signature/.socket.sock"),
+            Some("rw"),
+        ),
+        &ctx(),
+    );
+
+    assert_eq!(card.verdict, Verdict::Block);
+    assert!(
+        card.provenance.contains("compositor-ipc"),
+        "the compositor's IPC socket must name itself as the escape hatch it is, got {}",
+        card.provenance
+    );
+}
+
+#[test]
+fn the_pipewire_socket_is_a_repo_local_allow() {
+    // The stock `audio` abstraction predates PipeWire, so no upstream
+    // abstraction can be named here even though this is exactly the kind
+    // of GUI-adjacent socket the table otherwise handles.
+    let card = classify(
+        &denial("open", Some("/run/user/1000/pipewire-0"), Some("rw")),
+        &ctx(),
+    );
+
+    assert_eq!(card.verdict, Verdict::Allow);
+    assert_eq!(card.abstraction, None);
+    assert!(
+        card.provenance.contains("pipewire-socket"),
+        "got {}",
+        card.provenance
+    );
+}
+
+#[test]
+fn runtime_residue_stays_scratch() {
+    // Documents the deliberate residue decision: a portal or agent socket
+    // under $XDG_RUNTIME_DIR that matches no abstraction and no other rule
+    // is still an allow, not a question, or the report would open with
+    // hundreds of these on every run.
+    let card = classify(
+        &denial("open", Some("/run/user/1000/doc"), Some("r")),
+        &ctx(),
+    );
+
+    assert_eq!(card.verdict, Verdict::Allow);
+    assert_eq!(card.provenance, "heuristic:scratch");
+}
+
 // --- the outbound search gate --------------------------------------------
 
 #[test]
@@ -561,5 +727,44 @@ fn every_proposal_says_where_its_verdict_came_from() {
             .starts_with("heuristic:"),
         "a table verdict must be labelled as one, got {}",
         report.proposals[0].classification.provenance
+    );
+}
+
+#[test]
+fn proposals_render_the_include_line() {
+    let denials = vec![
+        denial("open", Some("/etc/resolv.conf"), Some("r")),
+        denial("open", Some("/srv/weird/thing"), Some("w")),
+    ];
+
+    let report = assemble(&denials, &ctx());
+
+    let covered = report
+        .proposals
+        .iter()
+        .find(|p| p.path.as_deref() == Some("/etc/resolv.conf"))
+        .expect("the resolv.conf denial must produce a proposal");
+    let covered_json = serde_json::to_value(covered).expect("Proposal must serialise");
+    assert_eq!(
+        covered_json
+            .get("proposed_include")
+            .and_then(serde_json::Value::as_str),
+        Some("include <abstractions/nameservice>"),
+        "got {covered_json}"
+    );
+
+    let uncovered = report
+        .proposals
+        .iter()
+        .find(|p| p.path.as_deref() == Some("/srv/weird/thing"))
+        .expect("the /srv denial must produce a proposal too");
+    let uncovered_json = serde_json::to_value(uncovered).expect("Proposal must serialise");
+    assert!(
+        uncovered_json.get("abstraction").is_none(),
+        "a denial no abstraction covers must omit the key entirely, got {uncovered_json}"
+    );
+    assert!(
+        uncovered_json.get("proposed_include").is_none(),
+        "a denial no abstraction covers must have no include line, got {uncovered_json}"
     );
 }

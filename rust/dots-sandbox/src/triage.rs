@@ -10,10 +10,23 @@
 //! entry" is a reason a reader checks in a second where a classifier score is
 //! not.
 //!
-//! Rule *syntax* generation is deliberately not done here. `aa-logprof` and
-//! `aa-genprof` already turn denial logs into `AppArmor` rules, correctly, and
-//! both ship on this system. Asking a model to emit a security DSL would be
-//! inviting a hallucination into the one place it can do real damage.
+//! Where an allow is proposed, the heuristics name the stock upstream
+//! `AppArmor` abstraction whose `include` already covers the path, rather
+//! than inventing a repo-local allow reason. Upstream maintains those path
+//! sets; a reviewer audits `include <abstractions/fonts>` in a second, and
+//! cannot audit a hand-kept array of `/etc` paths at all. Blocks keep
+//! priority over the abstraction table both by ordering — every Block rule
+//! runs first — and by omission — an abstraction that grants what this repo
+//! blocks is simply never a table entry. See the comment above `ABSTRACTIONS`
+//! for the full argument.
+//!
+//! Rule *syntax* generation is otherwise deliberately not done here. Naming
+//! an existing abstraction file is not that: an `include <abstractions/x>`
+//! line names a file upstream already ships, it does not synthesise a
+//! security DSL. `aa-logprof` and `aa-genprof` already turn denial logs into
+//! from-scratch `AppArmor` rules, correctly, and both ship on this system.
+//! Asking a model to emit a security DSL would be inviting a hallucination
+//! into the one place it can do real damage.
 //!
 //! `Verdict::Unclassified` is a first-class outcome, not a failure. For a tool
 //! deciding what a program may touch, honest abstention beats a plausible
@@ -66,6 +79,12 @@ pub struct Classification {
     pub verdict: Verdict,
     pub provenance: String,
     pub rationale: String,
+    /// The stock abstraction whose `include` covers this allow, e.g.
+    /// "nameservice". `None` on every Block — a block is never softened
+    /// into an include — and on the repo-local allows that no upstream
+    /// abstraction covers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abstraction: Option<&'static str>,
 }
 
 impl Classification {
@@ -74,6 +93,20 @@ impl Classification {
             verdict,
             provenance: format!("heuristic:{rule}"),
             rationale: rationale.into(),
+            abstraction: None,
+        }
+    }
+
+    /// A stock `AppArmor` abstraction's `include` already covers this path.
+    ///
+    /// Always [`Verdict::Allow`]: an abstraction is data about an allow, not
+    /// a way to reach a block or an unclassified from here.
+    fn covered_by(name: &'static str, rationale: impl Into<String>) -> Self {
+        Self {
+            verdict: Verdict::Allow,
+            provenance: format!("heuristic:abstraction:{name}"),
+            rationale: rationale.into(),
+            abstraction: Some(name),
         }
     }
 }
@@ -172,27 +205,6 @@ const SENSITIVE_DEVICES: &[(&str, &str)] = &[
     ("/dev/nvme", "raw block devices"),
 ];
 
-/// Files under `/etc` that are routine to read and hold nothing secret.
-///
-/// Deliberately an allowlist rather than a denylist. `/etc` mixes
-/// `resolv.conf` with `shadow`, and a denylist there fails open — a file
-/// nobody thought to list is treated as harmless. This way an unfamiliar
-/// `/etc` path becomes a question rather than an assumption.
-const ROUTINE_ETC: &[&str] = &[
-    "/etc/hosts",
-    "/etc/resolv.conf",
-    "/etc/nsswitch.conf",
-    "/etc/localtime",
-    "/etc/machine-id",
-    "/etc/os-release",
-    "/etc/ssl/certs",
-    "/etc/pki",
-    "/etc/fonts",
-    "/etc/xdg",
-    "/etc/profile",
-    "/etc/zoneinfo",
-];
-
 /// `/etc` paths that are credential or authentication material.
 const SENSITIVE_ETC: &[(&str, &str)] = &[
     ("/etc/shadow", "hashed account passwords"),
@@ -203,6 +215,232 @@ const SENSITIVE_ETC: &[(&str, &str)] = &[
     ("/etc/nixos", "this machine's system configuration"),
     ("/etc/shadow-", "a hashed-password backup"),
 ];
+
+/// Where a covered path is anchored, before it is compared against a
+/// candidate.
+enum Anchor {
+    /// Absolute, compared exact-or-under.
+    Abs(&'static str),
+    /// Joined against `ctx.home`, same comparison.
+    Home(&'static str),
+    /// Joined against `ctx.runtime_dir`, same comparison.
+    Runtime(&'static str),
+    /// Joined against `ctx.runtime_dir`, then matched as an open string
+    /// prefix rather than a path component. The only entry that needs this
+    /// is the Wayland display socket: its name carries a display number
+    /// (`wayland-1`), so there is no fixed path component to anchor
+    /// `Path::starts_with` on, only a string prefix of the final component.
+    RuntimePrefix(&'static str),
+}
+
+impl Anchor {
+    /// Whether `candidate` sits under this anchor, resolved against `ctx`.
+    fn matches(&self, candidate: &Path, ctx: &TriageCtx) -> bool {
+        match self {
+            Self::Abs(prefix) => candidate.starts_with(prefix),
+            Self::Home(suffix) => candidate.starts_with(ctx.home.join(suffix)),
+            Self::Runtime(suffix) => candidate.starts_with(ctx.runtime_dir.join(suffix)),
+            Self::RuntimePrefix(prefix) => {
+                let anchored = format!("{}/{prefix}", ctx.runtime_dir.display());
+                candidate.to_str().is_some_and(|s| s.starts_with(&anchored))
+            }
+        }
+    }
+}
+
+/// One stock `AppArmor` abstraction a denial can be covered by, instead of a
+/// repo-invented per-path allow.
+struct AbstractionRule {
+    /// The `abstractions/<name>` file a reviewer can open and audit.
+    name: &'static str,
+    /// What including it buys, for the rationale line.
+    grants: &'static str,
+    covers: &'static [Anchor],
+    /// Whether the abstraction itself grants writes there. A write under a
+    /// rule with this `false` falls through to a question, never to an
+    /// allow — see "Mask handling" on [`abstraction_rule`].
+    allows_write: bool,
+}
+
+/// Stock abstractions whose `include` line already covers an allow, checked
+/// only after every Block rule above has had a chance to fire.
+///
+/// Priority over this table is enforced twice, on purpose, because ordering
+/// alone is a silent regression waiting for the next table edit:
+///
+/// 1. Ordering — every Block rule (`deny-paths`, `privileged-operation`,
+///    `credential-shape`, `sensitive-device`, `sensitive-etc`, `etc-write`,
+///    `compositor-ipc`) runs before this table is ever consulted, so a path
+///    an abstraction below would otherwise cover can still be blocked
+///    first.
+/// 2. Omission — some stock abstractions grant exactly what this repo
+///    blocks, and they are simply never entries here: `ssl_keys` covers all
+///    of `/etc/ssl/**` including private keys, `authentication` grants
+///    `/etc/shadow` and `/etc/gshadow`, `dri-common` grants `/dev/dri/**`,
+///    and `video` grants `/dev/video*`. The `audio` entry below is real but
+///    deliberately narrow: upstream's `audio` abstraction also grants
+///    `/dev/snd/*`, and this table's `audio` entry covers only the
+///    PulseAudio-compatibility config and socket paths, never that device
+///    node — `/dev/snd` stays a `sensitive-device` Block.
+///
+/// Belt and braces: if a future edit to this table ever added an entry
+/// naming one of the omitted abstractions above, ordering alone would not
+/// save it, because there is no Block rule for "this is a generic stock
+/// abstraction". Omission is what makes that mistake require a deliberate,
+/// reviewable addition instead of a table edit nobody thought twice about.
+///
+/// Verified against the real `${pkgs.apparmor-profiles}` abstraction files
+/// on this machine, not just their names. One entry below was narrowed
+/// during that check: `ssl_certs` only ever grants `/etc/pki/trust`
+/// upstream, not the whole `/etc/pki` tree (which also holds unrelated
+/// material such as `/etc/pki/tls/private`).
+const ABSTRACTIONS: &[AbstractionRule] = &[
+    AbstractionRule {
+        name: "nameservice",
+        grants: "name resolution: resolv.conf, hosts, nsswitch.conf and the rest of glibc's resolver inputs",
+        covers: &[
+            Anchor::Abs("/etc/resolv.conf"),
+            Anchor::Abs("/etc/hosts"),
+            Anchor::Abs("/etc/nsswitch.conf"),
+            Anchor::Abs("/etc/host.conf"),
+            Anchor::Abs("/etc/gai.conf"),
+            Anchor::Abs("/etc/services"),
+            Anchor::Abs("/etc/protocols"),
+            Anchor::Abs("/etc/passwd"),
+            Anchor::Abs("/etc/group"),
+        ],
+        allows_write: false,
+    },
+    AbstractionRule {
+        name: "ssl_certs",
+        grants: "the system CA trust store",
+        covers: &[
+            Anchor::Abs("/etc/ssl/certs"),
+            Anchor::Abs("/etc/ca-certificates"),
+            Anchor::Abs("/usr/share/ca-certificates"),
+            // Not the whole of `/etc/pki`: upstream only grants
+            // `/etc/pki/trust` and a `blacklist`/`blocklist` sibling, and
+            // the rest of that tree (e.g. `/etc/pki/tls/private`) is not
+            // covered by `ssl_certs` at all. The brief this table was
+            // drafted from named the whole directory; verifying against
+            // the real file caught the over-claim.
+            Anchor::Abs("/etc/pki/trust"),
+        ],
+        allows_write: false,
+    },
+    AbstractionRule {
+        name: "fonts",
+        grants: "system and per-user font directories and the fontconfig cache",
+        covers: &[
+            Anchor::Abs("/etc/fonts"),
+            Anchor::Abs("/usr/share/fonts"),
+            Anchor::Home(".fonts"),
+            Anchor::Home(".local/share/fonts"),
+            Anchor::Home(".cache/fontconfig"),
+            Anchor::Home(".config/fontconfig"),
+        ],
+        // Most of this is read-only upstream, but `~/.cache/fontconfig` is
+        // genuinely `rw` there. `allows_write` is one bool for the whole
+        // rule, so this stays `false` and a write to the cache directory
+        // falls through to a question rather than an allow — the
+        // conservative direction, never the permissive one.
+        allows_write: false,
+    },
+    AbstractionRule {
+        name: "wayland",
+        grants: "the compositor's display socket",
+        covers: &[Anchor::RuntimePrefix("wayland-")],
+        allows_write: true,
+    },
+    AbstractionRule {
+        name: "audio",
+        grants: "the PulseAudio-compatibility config and socket, never /dev/snd",
+        covers: &[Anchor::Home(".config/pulse"), Anchor::Runtime("pulse")],
+        allows_write: true,
+    },
+    AbstractionRule {
+        name: "dbus-session-strict",
+        grants: "the per-user session bus and the machine id it authenticates against",
+        covers: &[Anchor::Runtime("bus"), Anchor::Abs("/etc/machine-id")],
+        allows_write: true,
+    },
+    AbstractionRule {
+        name: "user-tmp",
+        grants: "scratch space under /tmp, /var/tmp and ~/tmp",
+        covers: &[
+            Anchor::Abs("/tmp"),
+            Anchor::Abs("/var/tmp"),
+            Anchor::Home("tmp"),
+        ],
+        allows_write: true,
+    },
+    AbstractionRule {
+        name: "base",
+        grants: "the null/zero/full/random device family, the classic /dev/log socket, and the timezone file",
+        covers: &[
+            Anchor::Abs("/dev/null"),
+            Anchor::Abs("/dev/zero"),
+            Anchor::Abs("/dev/full"),
+            Anchor::Abs("/dev/random"),
+            Anchor::Abs("/dev/urandom"),
+            Anchor::Abs("/dev/log"),
+            Anchor::Abs("/etc/localtime"),
+        ],
+        // Genuinely surprising: upstream only ever reads /etc/localtime,
+        // never writes it, so `true` here looks like an over-grant. It is
+        // safe only because the `etc-write` Block runs ahead of this table
+        // — a write to /etc/localtime is blocked long before a lookup
+        // could reach this entry, so this bool is never exercised for that
+        // path in the write direction.
+        allows_write: true,
+    },
+    AbstractionRule {
+        name: "freedesktop.org",
+        grants: "the desktop entry, icon and MIME databases",
+        covers: &[
+            Anchor::Abs("/usr/share/applications"),
+            Anchor::Abs("/usr/share/icons"),
+            Anchor::Abs("/usr/share/mime"),
+            Anchor::Home(".icons"),
+            Anchor::Home(".config/mimeapps.list"),
+        ],
+        allows_write: false,
+    },
+];
+
+/// Scan [`ABSTRACTIONS`] for a stock `include` that covers `path`.
+///
+/// First match wins, the same contract as [`classify`] itself.
+///
+/// Mask handling: an absent mask matches nothing here, same stance as the
+/// store-read rule below — silence is not evidence of a read. A mask that is
+/// evidence of a write matches only a rule with `allows_write = true`;
+/// otherwise the scan keeps going, and if nothing else matches, the path
+/// falls through the whole table to become a question in one of
+/// [`classify`]'s later steps rather than being waved past as an allow.
+fn abstraction_rule(path: &str, mask: Option<&str>, ctx: &TriageCtx) -> Option<Classification> {
+    let candidate = Path::new(path);
+    let read_only = mask_is_read_only(mask);
+    let evidenced_write = !read_only && mask.is_some_and(|m| !m.is_empty());
+
+    ABSTRACTIONS.iter().find_map(|rule| {
+        let covered = rule
+            .covers
+            .iter()
+            .any(|anchor| anchor.matches(candidate, ctx));
+        if covered && (read_only || (evidenced_write && rule.allows_write)) {
+            Some(Classification::covered_by(
+                rule.name,
+                format!(
+                    "{path} is covered by `include <abstractions/{}>`, which grants {}",
+                    rule.name, rule.grants
+                ),
+            ))
+        } else {
+            None
+        }
+    })
+}
 
 /// Classify one denial. First match wins, and the order is the contract.
 #[must_use]
@@ -261,14 +499,30 @@ pub fn classify(denial: &Denial, ctx: &TriageCtx) -> Classification {
         return card;
     }
 
+    // Only the Block halves: a sensitive /etc path, or a write to /etc at
+    // all. The routine-read leg used to live here too; it now has to reach
+    // the abstraction table below like every other read-only allow, so an
+    // unfamiliar /etc path gets a chance at a stock abstraction instead of
+    // an unauditable hand-kept list.
     if let Some(card) = etc_rule(path, denial.requested_mask.as_deref()) {
+        return card;
+    }
+
+    if let Some(card) = compositor_ipc_rule(path, ctx) {
+        return card;
+    }
+
+    if let Some(card) = abstraction_rule(path, denial.requested_mask.as_deref(), ctx) {
         return card;
     }
 
     // Read-only access to the store. Store paths are immutable and
     // world-readable by construction, so nothing there is a secret worth
     // withholding — but a *write* to one is never legitimate and falls
-    // through to Unclassified rather than being waved past.
+    // through to Unclassified rather than being waved past. No stock
+    // abstraction covers this either way: every upstream profile is
+    // written for an FHS `/usr`, `/etc`, `/var`, and none of them know
+    // `/nix/store` exists.
     if under(path, "/nix/store/") && mask_is_read_only(denial.requested_mask.as_deref()) {
         return Classification::heuristic(
             Verdict::Allow,
@@ -277,6 +531,8 @@ pub fn classify(denial: &Denial, ctx: &TriageCtx) -> Classification {
         );
     }
 
+    // The app's own per-app state directory. No stock abstraction can name
+    // an arbitrary app id, so this stays a repo-local allow.
     if let Some(app) = owning_app(path, ctx) {
         return Classification::heuristic(
             Verdict::Allow,
@@ -285,16 +541,21 @@ pub fn classify(denial: &Denial, ctx: &TriageCtx) -> Classification {
         );
     }
 
-    if under(path, "/tmp/")
-        || path == "/dev/null"
-        || path == "/dev/urandom"
-        || path == "/dev/random"
-        || starts_with_path(path, &ctx.runtime_dir)
-    {
+    if let Some(card) = pipewire_socket_rule(path, ctx) {
+        return card;
+    }
+
+    // Runtime-dir residue that matched no abstraction and no other rule
+    // above: portal sockets, agent sockets, and the like. Kept as its own
+    // allow rather than folded into Unclassified — reclassifying every
+    // such path under $XDG_RUNTIME_DIR as a question would flood the top
+    // of the sorted report and bury the questions that actually need a
+    // human.
+    if starts_with_path(path, &ctx.runtime_dir) {
         return Classification::heuristic(
             Verdict::Allow,
             "scratch",
-            "scratch or entropy path holding no durable user data",
+            "runtime-dir residue with no stock abstraction and no durable user data",
         );
     }
 
@@ -308,6 +569,18 @@ pub fn classify(denial: &Denial, ctx: &TriageCtx) -> Classification {
             Verdict::Unclassified,
             "unrecognised-device",
             "a device node with no entry in the table; a human decides what it grants",
+        );
+    }
+
+    // Anything else under /etc/: not sensitive, not a write (both were
+    // already Blocked above), and covered by no stock abstraction. A
+    // question, not an assumption — an /etc allowlist would fail open on
+    // whatever nobody thought to list.
+    if under(path, "/etc/") {
+        return Classification::heuristic(
+            Verdict::Unclassified,
+            "unrecognised-etc",
+            "an /etc path that is neither covered by a stock abstraction nor known to be sensitive",
         );
     }
 
@@ -340,13 +613,15 @@ fn device_rule(path: &str) -> Option<Classification> {
     None
 }
 
-/// The `/etc` rules.
+/// The `/etc` Block rules: a named sensitive path, or any write at all.
 ///
-/// Split three ways because `/etc` is not one kind of place: it holds
-/// `resolv.conf` next to `shadow`. Sensitive paths are named and blocked,
-/// a small allowlist of genuinely routine reads is allowed, and everything
-/// else stays unclassified rather than being assumed harmless — a denylist
-/// here would fail open on whatever nobody thought to list.
+/// Split from the read-only allow side on purpose. `/etc` is not one kind
+/// of place — it holds `resolv.conf` next to `shadow` — but naming what to
+/// block is a short, closed list, while naming what to allow is exactly the
+/// job the stock abstraction table exists for. This function only ever
+/// returns a Block or `None`; a read-only, non-sensitive `/etc` path falls
+/// through to the abstraction table (and, failing that, to
+/// `unrecognised-etc`) in [`classify`] instead of being decided here.
 fn etc_rule(path: &str, mask: Option<&str>) -> Option<Classification> {
     if let Some((_, what)) = SENSITIVE_ETC
         .iter()
@@ -364,8 +639,9 @@ fn etc_rule(path: &str, mask: Option<&str>) -> Option<Classification> {
     }
 
     // A write to /etc reconfigures the machine, however routine the file
-    // looks read-only: /etc/hosts is on the allowlist, and writing it
-    // redirects every name lookup on the system.
+    // looks read-only: /etc/hosts is covered by the nameservice
+    // abstraction below, and writing it redirects every name lookup on the
+    // system.
     if !mask_is_read_only(mask) {
         return Some(Classification::heuristic(
             Verdict::Block,
@@ -374,22 +650,50 @@ fn etc_rule(path: &str, mask: Option<&str>) -> Option<Classification> {
         ));
     }
 
-    if ROUTINE_ETC
-        .iter()
-        .any(|allowed| path == *allowed || path.starts_with(&format!("{allowed}/")))
-    {
+    None
+}
+
+/// Hyprland's IPC socket, blocked ahead of the abstraction table.
+///
+/// `hyprctl dispatch exec` runs arbitrary commands through it, so from a
+/// sandbox's perspective this socket is an escape hatch, not a resource —
+/// the same reasoning `argv.rs`'s `push_gui_binds` already gives for never
+/// binding it into a sandbox in the first place. A denial here means "let
+/// me leave the confinement", not "grant me one more path".
+fn compositor_ipc_rule(path: &str, ctx: &TriageCtx) -> Option<Classification> {
+    if starts_with_path(path, &ctx.runtime_dir.join("hypr")) {
         return Some(Classification::heuristic(
-            Verdict::Allow,
-            "routine-etc",
-            "a system configuration file that holds no secret and is read by nearly everything",
+            Verdict::Block,
+            "compositor-ipc",
+            "the compositor's IPC socket runs arbitrary commands via `hyprctl dispatch exec`, so it is an escape hatch rather than a resource",
         ));
     }
+    None
+}
 
-    Some(Classification::heuristic(
-        Verdict::Unclassified,
-        "unrecognised-etc",
-        "an /etc path that is neither on the routine allowlist nor known to be sensitive",
-    ))
+/// `PipeWire`'s native socket, a repo-local allow rather than a stock
+/// abstraction.
+///
+/// The stock `audio` abstraction predates `PipeWire` and only ever grants the
+/// PulseAudio-compatibility paths (see the `audio` entry in `ABSTRACTIONS`),
+/// never this socket, so there is no upstream `include` to name here.
+/// Mirrors the sandbox's own `pipewire` capability, which binds exactly
+/// this socket alongside `pulse`.
+fn pipewire_socket_rule(path: &str, ctx: &TriageCtx) -> Option<Classification> {
+    let is_pipewire_socket = starts_with_path(path, &ctx.runtime_dir)
+        && Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("pipewire-"));
+
+    if is_pipewire_socket {
+        return Some(Classification::heuristic(
+            Verdict::Allow,
+            "pipewire-socket",
+            "the native PipeWire socket, which the sandbox's own pipewire capability already exposes",
+        ));
+    }
+    None
 }
 
 /// Whether `path` sits under a literal directory prefix.
@@ -737,6 +1041,12 @@ pub struct Proposal {
     pub count: usize,
     #[serde(flatten)]
     pub classification: Classification,
+    /// `include <abstractions/nameservice>` when a stock abstraction
+    /// covers this denial; absent otherwise, so "no abstraction covers
+    /// it" is a missing key rather than an empty string a reader has to
+    /// interpret.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed_include: Option<String>,
 }
 
 /// The whole document `dots-sandbox triage --json` prints.
@@ -787,6 +1097,9 @@ pub fn assemble(denials: &[Denial], ctx: &TriageCtx) -> TriageReport {
                 comm: None,
             };
             let classification = classify(&denial, ctx);
+            let proposed_include = classification
+                .abstraction
+                .map(|name| format!("include <abstractions/{name}>"));
             Proposal {
                 profile: denial.profile,
                 operation: denial.operation,
@@ -794,6 +1107,7 @@ pub fn assemble(denials: &[Denial], ctx: &TriageCtx) -> TriageReport {
                 requested: denial.requested_mask,
                 count,
                 classification,
+                proposed_include,
             }
         })
         .collect();
