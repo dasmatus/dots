@@ -31,6 +31,19 @@
 # what `apparmor_parser` (re)loads on the next `nixos-rebuild switch` —
 # regenerates automatically whenever that path changes. There is no way to
 # get this property from a profile shipped as a plain file.
+#
+# The successor this file anticipates already exists, and it did not arrive
+# through `mkStoreProfile`: nix/modules/system/apparmor.nix hand-writes five
+# profiles aimed at the resolved ELF of brave, librewolf, claude-desktop, zed
+# and electron. It landed on the other side of the merge that brought this file
+# in, which is why the two were designed without knowledge of each other. They
+# coexist rather than compete: AppArmor attaches the most specific match, so
+# those five binaries run under their own profile and everything else in the
+# store falls through to the catch-all below. `mkStoreProfile` stays because it
+# is still the right shape for the next profile that wants a package path
+# interpolated rather than globbed — apparmor.nix deliberately globs instead,
+# since home-manager rewraps some of those packages under a different store
+# path than the system-side `pkgs.foo`.
 { pkgs, lib, ... }:
 let
   # Reusable generator: given a name, an attachment path (or glob) and a
