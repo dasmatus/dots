@@ -102,20 +102,21 @@
   #
   # `state` reads "complain", not "enforce": nothing in this repo enforces
   # any more. The two sibling modules (apparmor.nix, apparmor-store.nix) are
-  # already complain, and apparmor-store.nix's own header records what
-  # happened the one time store-catchall was enforced — `x` vanished for
-  # everything outside the store, so sudo/pkexec/unix_chkpwd/newuidmap under
-  # /run/wrappers/bin stopped running and greetd restart-looped into
-  # start-limit-hit. These stock profiles attach to FHS paths that do not
-  # exist on NixOS, so this particular flip changes no behaviour here today;
-  # it is stated as policy, not as a fix. The invariant this repo now holds
-  # is "no profile enforces until its denial log has been read", and a
-  # `state` string that reads `enforce` invites the next person to assume
-  # otherwise. Complain-mode profiles still log, and that log is what
-  # `dots-sandbox triage` consumes. The honesty argument above still holds
-  # under complain: a non-zero profile count is what keeps the dashboard
-  # from implying protection that is not there, whether or not that
-  # protection is currently switched on.
+  # already complain, and the commit that flipped store-catchall back to
+  # complain (`9b069e8`) records what happened the one time it was
+  # enforced — `x` vanished for everything outside the store, so
+  # sudo/pkexec/unix_chkpwd/newuidmap under /run/wrappers/bin stopped
+  # running and greetd restart-looped into start-limit-hit. These stock
+  # profiles attach to FHS paths that do not exist on NixOS, so this
+  # particular flip changes no behaviour here today; it is stated as
+  # policy, not as a fix. The invariant this repo now holds is "no profile
+  # enforces until its denial log has been read", and a `state` string
+  # that reads `enforce` invites the next person to assume otherwise.
+  # Complain-mode profiles still log, and that log is what `dots-sandbox
+  # triage` consumes. The honesty argument above still holds under
+  # complain: a non-zero profile count is what keeps the dashboard from
+  # implying protection that is not there, whether or not that protection
+  # is currently switched on.
   security.apparmor = {
     enable = true;
     packages = [ pkgs.apparmor-profiles ];
