@@ -259,15 +259,34 @@ let
               # -c` shim as the sandboxed command instead of the real
               # program directly, is what makes the bind-in and the
               # in-sandbox walk agree on where the checkout actually is.
-              # (This assumes the eventual container rootfs carries a `sh`
-              # on PATH; worth checking once that rootfs exists.)
+              #
+              # That shim is invoked by its absolute store path
+              # (${pkgs.runtimeShell}), not the bare name `sh`. The bwrap
+              # tier has no container rootfs — bwrap_argv (rust/dots-sandbox/
+              # src/argv.rs) binds only /nix/store (read-only), /proc, /dev
+              # and a tmpfs $HOME, never anything under /run or /usr the
+              # launcher's own PATH points at. A bare `sh` here is therefore
+              # not a style choice but a bug: bwrap resolves its argv[0] with
+              # execvp against that PATH, finds nothing bound there, and dies
+              # with "execvp sh: No such file or directory" before the app
+              # ever starts. The absolute path resolves because the store is
+              # the one thing every sandbox tier binds in, and it costs the
+              # closure nothing new — writeShellApplication already pulls in
+              # runtimeShell for every script's own shebang. Do not
+              # "simplify" this back to a bare `sh`.
               ${cdRepoRoot}
               export DOTS_SANDBOX_REPO_ROOT="''${DOTS_SANDBOX_REPO_ROOT:-$PWD}"
 
               # shellcheck disable=SC2016 # single-quoted on purpose: "$1"/
               # "$@" below must reach the INNER `sh -c`, not expand here.
+              #
+              # The trailing bare `sh` is argv[0] for that inner shell, a
+              # conventional placeholder consumed only as "$0" so that "$1"
+              # lands on the repo root — never looked up against PATH, so it
+              # carries none of the bug above. Left as `sh` rather than the
+              # absolute path for readability; it is a label, not a command.
               exec dots-sandbox run --app "${appId}" -- \
-                sh -c 'cd "$1" && shift && exec "$@"' sh \
+                ${pkgs.runtimeShell} -c 'cd "$1" && shift && exec "$@"' sh \
                 "$DOTS_SANDBOX_REPO_ROOT" "${app.program}" "$@"
             '';
           })
