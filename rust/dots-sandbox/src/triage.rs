@@ -225,11 +225,14 @@ enum Anchor {
     Home(&'static str),
     /// Joined against `ctx.runtime_dir`, same comparison.
     Runtime(&'static str),
-    /// Joined against `ctx.runtime_dir`, then matched as an open string
-    /// prefix rather than a path component. The only entry that needs this
-    /// is the Wayland display socket: its name carries a display number
-    /// (`wayland-1`), so there is no fixed path component to anchor
-    /// `Path::starts_with` on, only a string prefix of the final component.
+    /// Joined against `ctx.runtime_dir`, then matched as `<prefix>`
+    /// followed by at least one ASCII digit. This mirrors upstream's
+    /// `wayland-[0-9]*` glob exactly — one digit, then anything at all —
+    /// so `wayland-1` and `wayland-0extra` both match, same as upstream,
+    /// while `wayland-payload` does not. The only entry that needs this is
+    /// the Wayland display socket: its name carries a display number, so
+    /// there is no fixed path component to anchor `Path::starts_with` on,
+    /// only a string prefix of the final component.
     RuntimePrefix(&'static str),
 }
 
@@ -242,7 +245,16 @@ impl Anchor {
             Self::Runtime(suffix) => candidate.starts_with(ctx.runtime_dir.join(suffix)),
             Self::RuntimePrefix(prefix) => {
                 let anchored = format!("{}/{prefix}", ctx.runtime_dir.display());
-                candidate.to_str().is_some_and(|s| s.starts_with(&anchored))
+                // A bare string-prefix match would let
+                // `/run/user/1000/wayland-payload` through: it has the
+                // right prefix but no display number, and upstream's
+                // `wayland-[0-9]*` glob would not match it. Requiring the
+                // first character past the prefix to be a digit is what
+                // makes this the same test upstream runs.
+                candidate.to_str().is_some_and(|s| {
+                    s.strip_prefix(anchored.as_str())
+                        .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+                })
             }
         }
     }
@@ -680,8 +692,17 @@ fn compositor_ipc_rule(path: &str, ctx: &TriageCtx) -> Option<Classification> {
 /// Mirrors the sandbox's own `pipewire` capability, which binds exactly
 /// this socket alongside `pulse`.
 fn pipewire_socket_rule(path: &str, ctx: &TriageCtx) -> Option<Classification> {
-    let is_pipewire_socket = starts_with_path(path, &ctx.runtime_dir)
-        && Path::new(path)
+    let candidate = Path::new(path);
+    // A direct child of runtime_dir, not merely somewhere under it.
+    // `argv.rs`'s `push_gui_binds` only ever joins `ctx.runtime_dir` with a
+    // bare socket name — one path component, never a nested one — so a
+    // deeper path matching on basename alone would mislabel some other
+    // file as "the PipeWire socket" in the rationale. The verdict would
+    // not actually change (an unmatched runtime-dir path still reaches the
+    // `scratch` Allow leg below), but the rationale would be wrong about
+    // what it granted.
+    let is_pipewire_socket = candidate.parent() == Some(ctx.runtime_dir.as_path())
+        && candidate
             .file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.starts_with("pipewire-"));

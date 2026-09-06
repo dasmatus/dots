@@ -410,6 +410,24 @@ fn the_wayland_socket_is_covered_by_wayland() {
 }
 
 #[test]
+fn a_wayland_lookalike_with_no_display_number_is_not_covered_by_wayland() {
+    // Upstream's real glob is `wayland-[0-9]*`: one digit, then anything.
+    // A bare string-prefix match would wrongly cover this path too, even
+    // though upstream's own glob would never match it.
+    let card = classify(
+        &denial("open", Some("/run/user/1000/wayland-payload"), Some("rw")),
+        &ctx(),
+    );
+
+    assert_ne!(
+        card.abstraction,
+        Some("wayland"),
+        "wayland-payload carries no display number and must not be told \
+         it is covered by include <abstractions/wayland>, got {card:?}"
+    );
+}
+
+#[test]
 fn the_pulse_cookie_is_covered_by_audio() {
     assert_covered_by("/home/matus/.config/pulse/cookie", "r", "audio");
 }
@@ -513,6 +531,29 @@ fn the_pipewire_socket_is_a_repo_local_allow() {
     assert!(
         card.provenance.contains("pipewire-socket"),
         "got {}",
+        card.provenance
+    );
+}
+
+#[test]
+fn a_nested_pipewire_prefixed_path_is_not_labelled_the_pipewire_socket() {
+    // The sandbox's own bind (argv.rs's push_gui_binds) only ever joins
+    // runtime_dir with a bare socket name, one path component. A file two
+    // levels down that merely starts with "pipewire-" is not that socket,
+    // even though it still falls through to the scratch allow below.
+    let card = classify(
+        &denial(
+            "open",
+            Some("/run/user/1000/some-dir/pipewire-extra"),
+            Some("rw"),
+        ),
+        &ctx(),
+    );
+
+    assert!(
+        !card.provenance.contains("pipewire-socket"),
+        "a nested pipewire-prefixed path must not be labelled the PipeWire \
+         socket, got {}",
         card.provenance
     );
 }
