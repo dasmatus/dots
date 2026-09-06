@@ -161,9 +161,25 @@
     # Optional: silently drop packets rather than reject them.
     rejectPackets = false;
   };
-  # sudo → sudo-rs (memory-safe Rust reimplementation). The sudo-rs module
-  # asserts it can't coexist with security.sudo and mkDefault-disables it, so
-  # we drop the old sudo block and disable sudo explicitly here for clarity.
+  # Escalation is `run0` first, sudo-rs second.
+  #
+  # `run0` (a systemd-run alias, systemd >= 256) asks PID 1 to start the
+  # command as a transient unit and authenticates through polkit. It owns no
+  # setuid bit and inherits nothing from the calling shell — no environment,
+  # no ambient capabilities, a fresh PTY. That property is why it leads here
+  # rather than because it is newer: this machine has already had every
+  # setuid binary under /run/wrappers/bin stop working at once. Commit
+  # 9b069e8 records it — `store-catchall` went to enforce, execute vanished
+  # for everything outside the store, and sudo, su, pkexec, passwd and
+  # newuidmap all died together while greetd restart-looped. An escalation
+  # path that never touches /run/wrappers survives that class of failure.
+  #
+  # sudo-rs deliberately STAYS enabled underneath. run0 depends on polkit,
+  # dbus and a live PID 1 answering on the system bus, which is a longer
+  # chain than a setuid binary needs; if any link breaks, sudo-rs is the way
+  # back in. Two mechanisms with disjoint failure modes is the point. The day
+  # run0 has proven itself here, dropping sudo-rs is one line — but it is a
+  # separate, deliberate change, not a side effect of preferring run0.
   security = {
     protectKernelImage = true;
     sudo.enable = false;
@@ -176,6 +192,33 @@
       # switch to key-gated sudo (tap key instead of passwordless) instead.
       wheelNeedsPassword = false;
     };
+
+    # Without this, run0 would be strictly worse to use than the sudo-rs
+    # sitting next to it: `manage-units` defaults to auth_admin, so every
+    # escalation would prompt while `sudo` stayed passwordless, and nobody
+    # would reach for run0 twice.
+    #
+    # This grants no privilege that is not already granted. wheel has
+    # passwordless sudo-rs on this machine, i.e. unauthenticated root
+    # already; a rule that lets the same group manage units without
+    # re-authenticating hands over nothing new. State that plainly rather
+    # than pretending the rule is narrow: `manage-units` covers starting and
+    # stopping ANY system unit, not just the transient one run0 creates,
+    # because systemd exposes no run0-specific action to scope it to.
+    #
+    # The corollary is that flipping wheelNeedsPassword back to true does NOT
+    # by itself restore a password prompt everywhere — this rule has to go
+    # with it, or run0 remains the passwordless hole in an otherwise
+    # key-gated setup.
+    polkit.extraConfig = ''
+      // run0 (systemd-run) for wheel, without re-authenticating.
+      polkit.addRule(function(action, subject) {
+        if (action.id == "org.freedesktop.systemd1.manage-units" &&
+            subject.isInGroup("wheel")) {
+          return polkit.Result.YES;
+        }
+      });
+    '';
   };
   boot.tmp.useTmpfs = true;
 
