@@ -76,6 +76,9 @@ let
     "postgres"
     "settings-ro"
     "kvm"
+    "wayland"
+    "dri"
+    "pipewire"
   ];
 
   # `rust/dots-sandbox/src/policy.rs`'s `PathMode` enum — the same
