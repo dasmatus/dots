@@ -47,6 +47,7 @@
       "nvidia-x11"
       "nvidia-settings"
       "vscode-extension-fill-labs-dependi"
+      "cisco-packet-tracer"
       # Steam client + its unfree redistributable deps. `programs.steam.enable`
       # (nix/modules/desktop/steam.nix) puts `steam` (an FHS wrapper, pname "steam")
       # into systemPackages, which pulls `steam-unwrapped` — the actual
