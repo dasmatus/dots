@@ -14,6 +14,7 @@
   dotsSandbox,
   claudeDesktop,
   betterbird,
+  chromaleon,
   ...
 }:
 let
@@ -128,6 +129,7 @@ in
         dotsSandbox
         claudeDesktop
         betterbird
+        chromaleon
         ;
       dots = config.dots;
     };

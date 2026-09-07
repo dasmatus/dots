@@ -98,6 +98,7 @@ let
       # flake/packages.nix builds them from.)
       claudeDesktop = self.packages.${system}.claude-desktop;
       betterbird = self.packages.${system}.betterbird;
+      chromaleon = self.packages.${system}.chromaleon;
       dotsSandbox = self.packages.${system}.dots-sandbox;
       settingsMenu = self.packages.${system}.settings;
       aipageFirefox = aipagePackages.firefox;

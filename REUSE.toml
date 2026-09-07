@@ -27,6 +27,15 @@ precedence = "override"
 SPDX-FileCopyrightText = "Jari Vetoniemi and the bemenu contributors"
 SPDX-License-Identifier = "LGPL-3.0-or-later"
 
+# ChromaLeon patch. A derivative of upstream's extension.js/themeUtils.js, so
+# it carries their licence and not this repo's; every ChromaLeon source header
+# says GPL-3.0-or-later, which the bare GPLv3 LICENSE file does not narrow.
+[[annotations]]
+path = "nix/patches/chromaleon/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Fabiano Junior Lima Barbosa and the ChromaLeon contributors"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
 # Wallpapers downloaded from wallhaven. Their terms are set by whoever made
 # each image, so claiming any licence over them here would be wrong; this
 # records that the terms are not established rather than pretending they are.

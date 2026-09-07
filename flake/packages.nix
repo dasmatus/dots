@@ -25,6 +25,12 @@ self: {
   # repackages that the way nixpkgs' own thunderbird-bin repackages Mozilla's.
   # See nix/packages/betterbird.nix.
   betterbird = pkgs.callPackage ../nix/packages/betterbird.nix { };
+
+  # ChromaLeon, the wallpaper-accent GNOME Shell extension. Built here rather
+  # than taken from pkgs.gnomeExtensions because that generator fetches a
+  # prebuilt e.g.o zip with no rev or patch seam, and this one carries a patch.
+  # See nix/packages/chromaleon.nix.
+  chromaleon = pkgs.callPackage ../nix/packages/chromaleon.nix { };
   dots-installer = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-installer";
     version = "0.1.0";

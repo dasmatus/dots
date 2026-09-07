@@ -1,0 +1,140 @@
+Restore the icon theme the user actually had, instead of a hardcoded
+"Adwaita", when ChromaLeon stops overriding org.gnome.desktop.interface's
+icon-theme key.
+
+Both places that stop using the synthetic "ChromaLeon" theme -- extension.js's
+disable(), and themeUtils.js's updateIconPack() when recolor-folders is off --
+reset icon-theme to the LITERAL STRING "Adwaita", regardless of what the user
+had before ChromaLeon ever touched the key. That is upstream's bug for anyone
+not already on Adwaita; this repo just happens to reproduce it concretely,
+because nix/home/profiles/portable.nix declares Papirus-Dark.
+
+This is NOT the "make ChromaLeon recolor Papirus" change. That was investigated
+and rejected: ChromaLeon's icon engine is a find-and-replace over ~24 literal
+Adwaita hex fills, and Papirus-Dark shares none of them, ships no scalable/
+directory at all (fixed pixel-size dirs, every stanza Type=Fixed), and recolors
+folders by symlinking a pre-drawn variant rather than substituting a fill.
+Teaching it Papirus would be a second recoloring backend, not a bugfix, and
+this repo already implements that mechanism properly in
+nix/home/desktop/quickshell/qml/wallpaper/Icons.qml. See
+nix/packages/chromaleon.nix's header.
+
+FAILURE MODE IF DROPPED: nix/home/base/gnome-extensions.nix pins the icon
+toggles false, so this never fires from the declared config alone. But GNOME's
+Extensions app lets anyone flip recolor-folders on by hand, writing straight to
+ChromaLeon's gschema and bypassing home-manager, which only re-asserts declared
+keys on the next switch. The first time that happens, unpatched code swaps
+icon-theme from Papirus-Dark to the literal "Adwaita" the moment the toggle
+goes back off -- not back to Papirus-Dark, because upstream never recorded it.
+Nothing self-heals that key.
+
+Shipped as a real .patch rather than a postPatch substituteInPlace because it
+adds an instance field and threads a new parameter through a call site, neither
+of which a substitution can express -- and because a patch that stops applying
+fails the build at the rev bump that invalidated it, where a vanished
+substitution pattern would silently no-op.
+
+SPDX-License-Identifier: GPL-3.0-or-later
+(derivative of ChromaLeon's own GPL-3.0-or-later extension.js/themeUtils.js;
+see REUSE.toml's override block for nix/patches/chromaleon/**)
+
+--- a/extension.js
++++ b/extension.js
+@@ -43,6 +43,13 @@
+     this._cancellable = null;
+     this._opChain = Promise.resolve();
+     this._customStylesheet = null;
++    // Icon theme active before this extension ever touched the key. See the
++    // capture site in enable() for why this exists at all: upstream's
++    // disable() and updateIconPack() both reset unconditionally to the
++    // literal string "Adwaita", which is wrong on any desktop that wasn't
++    // using Adwaita to begin with (Papirus-Dark on this host, but the bug is
++    // general).
++    this._originalIconTheme = null;
+   }
+ 
+   enable() {
+@@ -57,6 +64,27 @@
+       schema_id: "org.gnome.desktop.interface",
+     });
+ 
++    // Capture whatever icon theme was active BEFORE this extension does
++    // anything to the key, so disable() and updateIconPack()'s
++    // recolor-folders-off path (utils/themeUtils.js) can hand the user back
++    // their own theme instead of upstream's hardcoded "Adwaita" -- which is
++    // wrong for any desktop that starts from something else (this host runs
++    // Papirus-Dark; nix/home/base/gnome-extensions.nix pins recolor-folders
++    // to false precisely because ChromaLeon's icon engine is a verified
++    // no-op there, but a manual prefs toggle can still flip it on at
++    // runtime, and that path must not evict Papirus-Dark permanently).
++    //
++    // Skip capturing when the stored value is already "ChromaLeon": that
++    // only happens when GNOME Shell restarts (or the extension is
++    // disabled/re-enabled) while ChromaLeon's own synthetic theme is still
++    // active, and re-capturing at that moment would immortalize
++    // "ChromaLeon" as its own restore target -- the exact bug this patch
++    // exists to remove, just moved one step later.
++    const currentIconTheme = this._interfaceSettings.get_string("icon-theme");
++    if (currentIconTheme !== "ChromaLeon") {
++      this._originalIconTheme = currentIconTheme;
++    }
++
+     this._bgSettings = new Gio.Settings({
+       schema_id: "org.gnome.desktop.background",
+     });
+@@ -260,7 +288,15 @@
+     }
+ 
+     if (this._interfaceSettings?.get_string("icon-theme") === "ChromaLeon") {
+-      this._interfaceSettings.set_string("icon-theme", "Adwaita");
++      // this._originalIconTheme || "Adwaita", NOT the bare literal upstream
++      // had here: this is the one line that decided this patch was needed
++      // at all. On a Papirus-Dark host, the literal would silently permanently
++      // swap the icon theme to Adwaita the very first time recolor-folders
++      // was ever toggled on and back off again.
++      this._interfaceSettings.set_string(
++        "icon-theme",
++        this._originalIconTheme || "Adwaita",
++      );
+     }
+ 
+     this._reloadGtkStylesheet();
+@@ -274,6 +310,7 @@
+     this._interfaceSettings = null;
+     this._a11ySettings = null;
+     this._savedColorScheme = null;
++    this._originalIconTheme = null;
+   }
+ 
+   _runOperation(fn) {
+@@ -374,6 +411,7 @@
+         iconApps,
+         morewaita,
+         gnomeColors,
++        this._originalIconTheme,
+         cancellable,
+       );
+     } catch (error) {
+--- a/utils/themeUtils.js
++++ b/utils/themeUtils.js
+@@ -494,6 +494,7 @@
+   iconApps,
+   morewaita,
+   gnomeColors,
++  originalIconTheme,
+   cancellable,
+ ) {
+   throwIfCancelled(cancellable);
+@@ -515,7 +516,12 @@
+   });
+ 
+   if (!iconFolders && settings.get_string("icon-theme") === "ChromaLeon") {
+-    settings.set_string("icon-theme", "Adwaita");
++    // Same fix as extension.js's disable(): restore the theme the caller
++    // remembered instead of the bare "Adwaita" upstream had here. This
++    // function is otherwise stateless, so the value has to arrive as a
++    // parameter (threaded from extension.js's this._originalIconTheme) --
++    // there is nothing in this module to remember it between calls.
++    settings.set_string("icon-theme", originalIconTheme || "Adwaita");
+     return;
+   }
