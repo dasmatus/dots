@@ -156,6 +156,32 @@ let
       # it fails as "the option `services.flatpak' does not exist".
       inputs.nix-flatpak.homeManagerModules.nix-flatpak
       ../nix/home/profiles/portable.nix
+      ../nix/home/foreign/nix-on-path.nix
+      # A function module rather than a line in the attrset below, because it
+      # has to read `config`: git's package here is
+      # `pkgs.git.override { withLibsecret = true; }`
+      # (nix/home/shell/git.nix), and plain `pkgs.git` is a DIFFERENT
+      # derivation without the credential helper this carve-out exists to
+      # deliver. Naming the option is the only way to get the right one.
+      (
+        { config, ... }:
+        {
+          # genericLinux above fixes XDG_DATA_DIRS so the host's shell SEES
+          # the profile's desktop entries and icons. It does nothing about
+          # PATH, and on secureblue ~/.nix-profile/bin is on no session PATH,
+          # so GLib discards every .desktop entry whose Exec or TryExec is a
+          # bare name it cannot resolve: installed, listed, and still absent
+          # from the app grid. See nix/home/foreign/nix-on-path.nix.
+          #
+          # Foreign-host-only, which is why it is imported here and not from
+          # portable.nix: on NixOS /usr/bin is empty and ~/.local/bin is on no
+          # PATH, so the same farm would shadow the system profile.
+          targets.foreignHost.localBin = {
+            enable = true;
+            nixWinsPackages = [ config.programs.git.package ];
+          };
+        }
+      )
       {
         home.username = settings.username;
         home.homeDirectory = "/home/${settings.username}";
