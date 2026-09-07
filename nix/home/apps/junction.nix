@@ -12,13 +12,18 @@
 # x-scheme-handler/http(s) (+ its x-junction scheme), not text/html — that's
 # fine, [Default Applications] entries don't require the type to appear in
 # the handler's MimeType line.
-{ pkgs, ... }:
+#
+# Junction is a FLATPAK now (re.sonny.Junction, declared in
+# nix/home/base/flatpaks.nix), so this module installs no package — it only
+# owns the mimeapps associations that make the chooser the default handler.
+# The desktop-entry id is unchanged: flatpak exports its entry under the app
+# id, `re.sonny.Junction.desktop`, which is exactly the name the nixpkgs
+# package used, so every association below keeps resolving.
+{ ... }:
 let
   junctionDesktop = "re.sonny.Junction.desktop";
 in
 {
-  home.packages = [ pkgs.junction ];
-
   xdg.mimeApps = {
     enable = true;
     defaultApplications = {

@@ -145,8 +145,19 @@ let
     + "\n";
 in
 {
+  # LibreWolf is a FLATPAK now (io.gitlab.librewolf-community, declared in
+  # nix/home/base/flatpaks.nix). `package = null` keeps this module doing the
+  # part that matters — rendering the arkenfox user.js, the SearXNG engine and
+  # the pinned extension XPIs into the profile — while installing nothing.
+  #
+  # Everything below is unchanged: the profile is still written to
+  # ~/.librewolf. The Flathub manifest runs the browser with
+  # `--persist=.librewolf`, so inside the sandbox that name resolves to
+  # ~/.var/app/io.gitlab.librewolf-community/.librewolf instead; the symlink
+  # at the bottom of this file bridges the two.
   programs.librewolf = {
     enable = true;
+    package = null;
     profiles.default = {
       isDefault = true;
       extraConfig = userJs;
@@ -177,4 +188,36 @@ in
       ];
     };
   };
+
+  # Write the profile straight INTO the flatpak's persisted directory instead
+  # of writing it to ~/.librewolf and symlinking.
+  #
+  # The symlink cannot be made to work, and not for a permissions reason. The
+  # Flathub manifest runs the browser with `--persist=.librewolf`, and flatpak
+  # REFUSES a symlink at a persist path outright:
+  #
+  #   F: Failed to create persist path .librewolf:
+  #      Symbolic link ".librewolf" not allowed to avoid sandbox escape
+  #
+  # That guard fires before any Context.filesystems grant is consulted, so no
+  # permission fixes it, and `mkOutOfStoreSymlink` has no variant that dodges
+  # it — being a symlink is the entire mechanism. The browser did not start at
+  # all: this was a hard failure, not a profile that came up empty.
+  #
+  # `configPath` is a real option on home-manager's mkFirefoxModule
+  # (modules/programs/firefox/mkFirefoxModule.nix), defaulting to
+  # `platforms.linux.configPath` = ".librewolf". Pointing it here makes the
+  # module emit profiles.ini, user.js, search.json.mozlz4 and the extensions/
+  # XPIs at the path flatpak already owns, so no symlink is involved. Inside
+  # the sandbox that directory IS ~/.librewolf, so nothing changes from the
+  # browser's point of view.
+  #
+  # The writability concern the previous comment raised does not apply:
+  # home-manager only symlinks the specific files it generates. The profile
+  # DIRECTORY is a real directory, so the session store, extension state and
+  # everything else LibreWolf rewrites are ordinary writable files beside
+  # them. What those per-file store symlinks do need is a sandbox that can
+  # read /nix/store — see the grant in nix/home/base/flatpaks.nix, which is
+  # required for this reason and not for the one its own comment gives.
+  programs.librewolf.configPath = ".var/app/io.gitlab.librewolf-community/.librewolf";
 }

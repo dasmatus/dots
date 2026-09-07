@@ -47,6 +47,68 @@
       url = "github:nix-community/haumea/v0.2.2";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # age-encrypted secrets. Used for exactly one thing: the git identity
+    # (secrets/git-identity.age, wired in nix/home/secrets/identity.nix). That
+    # identity used to be a plaintext string in nix/data/settings.nix, which
+    # put a real name and address in a public repo and in the world-readable
+    # Nix store.
+    #
+    # agenix rather than sops-nix because the trust root is already here:
+    # `dots-keys` (nix/home/apps/bitwarden.nix) exports the Bitwarden-vault SSH
+    # key, age speaks ssh-ed25519 natively, and that same key already signs
+    # commits and authenticates the Codeberg remote. One key to hold and
+    # rotate, no separate GPG or age identity to provision.
+    #
+    # NB agenix decrypts at ACTIVATION, never at evaluation, so it can only
+    # ever protect values a runtime consumer resolves for itself. Identity that
+    # an eval consumes (the Proton account's generated prefs, rbw's
+    # config.json, GECOS) cannot be hidden this way and is handled separately —
+    # see the "eval-time identity" block in nix/system/defaults.nix.
+    agenix = {
+      url = "github:ryantm/agenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # Declarative Flatpak, as a home-manager module (nix/home/base/flatpaks.nix).
+    # Every GUI app in the portable profile is a Flathub ref now rather than a
+    # nixpkgs derivation — see that file for the three apps that could not
+    # follow and why.
+    #
+    # The home-manager module installs into the USER flatpak installation
+    # (~/.local/share/flatpak), never the system one. That is what keeps this
+    # usable on a foreign host: no root, nothing written outside $HOME, and
+    # nothing that collides with a host distribution's own system-wide
+    # flatpaks.
+    #
+    # `uninstallUnmanaged` is deliberately left at its default (false)
+    # throughout: this profile is applied to machines that already have
+    # flatpaks installed by hand, and a module that removes everything it did
+    # not declare would delete them on the first switch.
+    nix-flatpak.url = "github:gmodena/nix-flatpak";
+
+    # devenv backs devShells.default (flake/devenv.nix), replacing the
+    # hand-rolled mkShell that used to live in flake/devshell.nix. It supplies
+    # the Rust toolchain, the dev scripts and the git hooks declaratively.
+    #
+    # It is not only a devShell input any more: nix/home/base/pkgs.nix calls
+    # `devenv.lib.mkConfig` on flake/languages.nix — the same module the dev
+    # shell imports — and installs the resulting toolchains into the user
+    # profile, so the compilers the shell offers and the compilers on the
+    # machine's PATH are one declaration rather than two lists kept in step by
+    # hand. That path is module-system evaluation only; no shell is built, so
+    # nothing below about `--no-pure-eval` applies to it.
+    #
+    # The entry point DID change: `nix develop --no-pure-eval`, or
+    # `nix run .#dev`, which is the same call spelled once. devenv discovers
+    # the checkout root from the environment, and pure flake evaluation hides
+    # it — a plain `nix develop` gets a shell whose state and git hooks point
+    # at a placeholder path (see flake/devenv.nix's `devenvRoot`, which exists
+    # so `nix flake check` can still evaluate this output at all).
+    devenv = {
+      url = "github:cachix/devenv";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # rycee's pre-packaged Firefox addons (Nix-pinned XPIs for the LibreWolf
     # profile in nix/home/apps/librewolf.nix) — the subflake, not the whole NUR.
     firefox-addons = {
@@ -133,6 +195,20 @@
         settings
         mkIso
         ;
+      # Standalone home-manager (flake/home.nix) — the non-NixOS build. It
+      # takes `nixpkgs` rather than the shared `pkgs` because it must apply
+      # its own allowUnfreePredicate to the instance it hands to
+      # home-manager; see that file's header for why a `nixpkgs.config` set
+      # inside the HM modules would be ignored instead.
+      homeConfigs = import ./flake/home.nix {
+        inherit
+          inputs
+          nixpkgs
+          system
+          settings
+          aipagePackages
+          ;
+      } self;
       # nixosConfigurations split into flake/nixos.nix (the installed system
       # + the two LiveISO closures). nixosConfigs also exports mkTokyonight
       # (a settings-parameterized builder) for tests/default.nix — it is NOT a
@@ -154,7 +230,12 @@
       # (this outputs attrset) so iso/iso-full can reach the LiveISO closures
       # built above.
       packages.${system} = import ./flake/packages.nix {
-        inherit pkgs aipagePackages pkgsClaude;
+        inherit
+          pkgs
+          aipagePackages
+          pkgsClaude
+          inputs
+          ;
       } self;
 
       # Task-runner apps — the retired Justfile, now nix-native. See
@@ -166,9 +247,14 @@
 
       formatter.${system} = pkgs.nixfmt-tree;
 
-      # Rust dev shell
-      devShells.${system} = import ./flake/devshell.nix {
-        inherit pkgs;
+      homeConfigurations = homeConfigs;
+
+      # Rust dev shell, built by devenv from flake/devenv.nix. Still exposed
+      # as devShells.default, so `nix develop` and direnv's `use flake` are
+      # unaffected by the move off mkShell.
+      devShells.${system}.default = inputs.devenv.lib.mkShell {
+        inherit inputs pkgs;
+        modules = [ ./flake/devenv.nix ];
       };
 
       # The cheap eval-only checks (settings, facter, fido-2fa, aipage) +

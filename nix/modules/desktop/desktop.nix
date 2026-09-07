@@ -180,10 +180,18 @@
 
             etc."brave/policies/managed/search.json".text = builtins.toJSON {
               DefaultSearchProviderEnabled = true;
-              DefaultSearchProviderName = "SearXNG";
-              DefaultSearchProviderKeyword = "sx";
-              DefaultSearchProviderSearchURL = "http://127.0.0.1:8888/search?q={searchTerms}";
-              DefaultSearchProviderSuggestURL = "http://127.0.0.1:8888/autocompleter?q={searchTerms}";
+              # DuckDuckGo, not the local SearXNG. The SearXNG URLs only
+              # resolve where nix/modules/services/searxng.nix is actually
+              # running; pointed at a host without it, every search in the
+              # address bar fails with connection-refused and there is no
+              # fallback, because a DefaultSearchProvider* policy set is
+              # mandatory rather than advisory. A public provider is the only
+              # value that is correct on both this repo's NixOS host and a
+              # foreign machine applying the same policy set.
+              DefaultSearchProviderName = "DuckDuckGo";
+              DefaultSearchProviderKeyword = "ddg";
+              DefaultSearchProviderSearchURL = "https://duckduckgo.com/?q={searchTerms}";
+              DefaultSearchProviderSuggestURL = "https://duckduckgo.com/ac/?q={searchTerms}&type=list";
             };
 
             etc."brave/policies/managed/extensions.json".text = builtins.toJSON {

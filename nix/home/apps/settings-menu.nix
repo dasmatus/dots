@@ -29,7 +29,29 @@
       Description = "Hyprland Polkit Authentication Agent";
       PartOf = [ "graphical-session.target" ];
       After = [ "graphical-session.target" ];
-      ConditionEnvironment = "WAYLAND_DISPLAY";
+      # HYPRLAND_INSTANCE_SIGNATURE, not WAYLAND_DISPLAY. This is Hyprland's
+      # polkit agent, but WAYLAND_DISPLAY is set under ANY Wayland
+      # compositor, so on the foreign GNOME host the portable profile targets
+      # the condition passed and systemd started it — where gnome-shell
+      # already provides a polkit agent, making this one both redundant and,
+      # as it turned out, broken: it exited 218/CAPABILITIES, hit the restart
+      # limit and left a permanently failed unit in `systemctl --user --failed`.
+      #
+      # 218 is EXIT_CAPABILITIES: systemd could not apply the unit's
+      # capability settings. Bisected on that host with transient units
+      # (`systemd-run --user --wait -p <directive>=yes /bin/true`) —
+      # ProtectClock and ProtectKernelLogs each return 218 alone, while
+      # ProtectHostname and ProtectControlGroups return 0. Both failing
+      # directives imply a CapabilityBoundingSet change (CAP_SYS_TIME /
+      # CAP_WAKE_ALARM and CAP_SYSLOG), which an unprivileged user manager
+      # cannot make on a kernel that restricts it.
+      #
+      # Those two are deliberately KEPT below rather than dropped: they do
+      # apply on the NixOS host this unit actually runs on, and weakening it
+      # there to accommodate a machine the unit should never have started on
+      # would be the wrong trade. If it ever must run under Hyprland on a
+      # capability-restricted host, those are the two to drop.
+      ConditionEnvironment = "HYPRLAND_INSTANCE_SIGNATURE";
     };
     Service = {
       # No bin/ in the package — upstream installs to libexec only, so

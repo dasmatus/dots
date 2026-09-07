@@ -12,10 +12,26 @@
   pkgs,
   lib,
   inputs,
+  dotsFlake,
 }:
 let
   hm = inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
+    # nix/home/sandbox/machined.nix destructures `dotsSandbox` (it puts the
+    # binary in home.packages and names it in the generated units), so the
+    # module cannot evaluate without it. Taken from the flake's own packages
+    # rather than rebuilt, which is what nix/modules/system/users.nix and
+    # flake/home.nix both do — the test then exercises the same derivation
+    # production uses.
+    #
+    # This argument was missing until `nix flake check` became runnable on a
+    # bare checkout: while nix/data/settings.nix was a symlink into
+    # /var/lib/dots, pure eval refused the whole flake, so nothing ever forced
+    # this test and it failed with "attribute 'dotsSandbox' missing" the first
+    # time anything did.
+    extraSpecialArgs = {
+      dotsSandbox = dotsFlake.packages.${pkgs.system}.dots-sandbox;
+    };
     modules = [
       {
         home.username = "sandbox-machined-test";

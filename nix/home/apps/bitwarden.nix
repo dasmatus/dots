@@ -31,14 +31,33 @@
 # push or signed commit (lock_timeout re-locks after an hour). Deliberate
 # trade-off for a key that never touches disk. Escape hatch while
 # un-bootstrapped: `git -c commit.gpgsign=false commit`.
-{ config, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  settings,
+  ...
+}:
 
 let
-  # User-owned values — not derivable from the repo. The Bitwarden account
-  # email is NOT assumed to equal the git/proton address.
-  bitwardenEmail = "Shadiness9530@pm.me";
+  # The Bitwarden account email is NOT assumed to equal the git or Proton
+  # address — three separate accounts. It comes from settings (empty by
+  # default) rather than the literal that used to sit here: this is a public
+  # repo, and an address written into it is in the clone history for good.
+  # Empty means the key is omitted from rbw's config entirely and rbw prompts
+  # on first use. See nix/system/defaults.nix's "eval-time identity" block for
+  # why this is a settings key and not an agenix secret — rbw's config.json is
+  # generated at evaluation, which agenix cannot reach.
+  bitwardenEmail = settings.bitwardenEmail;
 
-  gitEmail = config.programs.git.settings.user.email;
+  # The signing identity written into allowed_signers is read at RUNTIME from
+  # the decrypted agenix secret, not from the Nix config: since
+  # nix/home/shell/git.nix stopped setting user.email (it arrives through an
+  # `[include]`, see nix/home/secrets/identity.nix), there is no eval-time
+  # value left to interpolate — `config.programs.git.settings.user.email`
+  # would now be null. `git config --get` resolves the include chain the same
+  # way every other git command does, so this picks up the decrypted address.
+  gitConfigGet = "${pkgs.git}/bin/git config --get user.email";
   pubkeyFile = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
   # Mirrors nix/home/base/dots-repo.nix's repoRel — the legacy "gitlab" segment
   # is just a folder name now; the repo lives on codeberg.org/dasmatus/dots.
@@ -69,7 +88,12 @@ let
     printf '%s\n' "$keys" | head -n 1 > "${pubkeyFile}"
 
     mkdir -p "$HOME/.config/git"
-    printf '%s %s\n' "${gitEmail}" \
+    signer_email="$(${gitConfigGet} || true)"
+    if [ -z "$signer_email" ]; then
+      echo "dots-keys: git user.email is unset — the agenix git-identity secret is missing or undecrypted, so allowed_signers cannot be written (see nix/home/secrets/identity.nix)" >&2
+      exit 1
+    fi
+    printf '%s %s\n' "$signer_email" \
       "$(${pkgs.gawk}/bin/awk '{ print $1 " " $2 }' "${pubkeyFile}")" \
       > "$HOME/.config/git/allowed_signers"
 
@@ -99,7 +123,22 @@ let
   '';
 in
 {
-  programs.rbw = {
+  # Enabled only when an address is configured, and gated at `programs.rbw`
+  # rather than inside `settings`. home-manager's rbw module declares
+  # `settings.email` with NO default, so leaving it out is not "absent from
+  # config.json" — it is an evaluation error ("The option
+  # `programs.rbw.settings.email' was accessed but has no value defined") the
+  # moment the module renders that file. There is no way to express
+  # "unconfigured" from inside `settings`; the only lever is the module itself.
+  #
+  # Which is also the behaviour worth having. A config.json carrying
+  # `"email": ""` is worse than no config.json at all: rbw reads it as the
+  # configured account and stops prompting, leaving the vault permanently
+  # unreachable. With the module off there is simply no config, and `rbw
+  # login` asks for the address on first use. dots-keys below is unaffected —
+  # it calls `${pkgs.rbw}/bin/rbw` by absolute store path, so it never depended
+  # on this module to put the binary anywhere.
+  programs.rbw = lib.mkIf (bitwardenEmail != "") {
     enable = true;
     settings = {
       email = bitwardenEmail;

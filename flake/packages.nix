@@ -4,9 +4,18 @@
   pkgs,
   aipagePackages,
   pkgsClaude,
+  inputs,
   ...
 }:
 self: {
+  # The home-manager CLI, taken from THIS flake's home-manager input rather
+  # than from nixpkgs. `nix run .#home-switch` (flake/apps.nix) drives it to
+  # apply homeConfigurations on a non-NixOS host, where there is usually no
+  # `home-manager` on PATH at all — and where a nixpkgs-provided one could be
+  # a different version than the config in flake/home.nix was evaluated
+  # against, which is exactly the mismatch that produces activation errors
+  # about unknown options.
+  hm-cli = inputs.home-manager.packages.${pkgs.stdenv.hostPlatform.system}.home-manager;
   # Claude Desktop for Linux (beta) — repackaged from Anthropic's .deb, which
   # is the only distribution channel upstream offers. See nix/packages/claude-desktop.nix.
   claude-desktop = pkgsClaude.callPackage ../nix/packages/claude-desktop.nix { };

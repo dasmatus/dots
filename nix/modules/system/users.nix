@@ -82,9 +82,14 @@ in
   services.userborn.passwordFilesLocation = "/var/lib/nixos";
   users.users.${config.dots.username} = {
     isNormalUser = true;
-    # Pretty name (GECOS full-name field) — reuse the git identity so the
-    # login screen and `getent passwd` show the same name as `git user.name`.
-    description = config.dots.gitName;
+    # Pretty name (GECOS full-name field). This used to reuse the git identity
+    # (config.dots.gitName) so the login screen matched `git user.name`. The
+    # git identity is an agenix secret now (nix/home/secrets/identity.nix),
+    # resolved at activation and therefore unavailable to this eval — and
+    # GECOS lands in world-readable /etc/passwd anyway, so routing a hidden
+    # name here would only have un-hidden it. The login name is the one
+    # identifier this machine already publishes, so it is what gets shown.
+    description = config.dots.username;
     shell = pkgs.fish;
     initialHashedPassword = secrets.userHash or null;
     extraGroups = [
@@ -103,10 +108,13 @@ in
     # home modules need flake inputs too (nixvim module, haumea lib), plus
     # the in-flake aipage dists consumed by nix/home/{librewolf,brave}.nix
     # and the in-flake packages consumed across nix/home.
-    # `settings` is passed so nix/home/shell/git.nix can read the installer-collected
-    # git identity (settings.gitName / settings.gitEmail); the desktop choice
-    # in settings.desktop is NOT gated on the HM side — only the system-level
-    # desktop block in nix/modules/desktop/desktop.nix reads it. `dots` is the typed
+    # `settings` is passed for the eval-time identity keys
+    # (nix/home/proton/proton.nix's protonEmail/protonRealName,
+    # nix/home/apps/bitwarden.nix's bitwardenEmail) — the git identity is NOT
+    # among them any more, it is an agenix secret resolved at activation
+    # (nix/home/secrets/identity.nix). The desktop choice in settings.desktop
+    # is NOT gated on the HM side — only the system-level desktop block in
+    # nix/modules/desktop/desktop.nix reads it. `dots` is the typed
     # projection of the installer answers (nix/modules/dots.nix) so the HM-side
     # AI gating (nix/home/{claude,codex}.nix) and the dots-clone symlinks
     # (nix/home/base/dots-repo.nix) read the same values as the system modules.
@@ -123,7 +131,19 @@ in
         ;
       dots = config.dots;
     };
-    sharedModules = [ inputs.nixvim.homeModules.nixvim ];
+    # agenix's home-manager module is required by nix/home/secrets/identity.nix,
+    # which nix/home/profiles/portable.nix imports — so it is needed on BOTH
+    # entry points into that profile. flake/home.nix adds it to its own module
+    # list for the standalone build; this is the NixOS half of the same
+    # requirement.
+    sharedModules = [
+      inputs.nixvim.homeModules.nixvim
+      inputs.agenix.homeManagerModules.default
+      # Declarative Flatpak (nix/home/base/flatpaks.nix). The home-manager
+      # module drives the USER flatpak installation, so this stays on the HM
+      # side even on NixOS rather than becoming a system service.
+      inputs.nix-flatpak.homeManagerModules.nix-flatpak
+    ];
     users.${config.dots.username} = import ../../home;
   };
 }

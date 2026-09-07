@@ -43,28 +43,6 @@ jobs:
     runs-on: codeberg-medium
     steps:
       - uses: actions/checkout@v4
-      # nix/data/settings.nix is a tracked symlink to /var/lib/dots/settings.nix
-      # (cb4fe5e), written by the first-login dots-clone service on an
-      # installed target. A bare CI checkout has no such target, so pure
-      # eval dies importing it ("access to absolute path ... is forbidden
-      # in pure evaluation mode") for every flake output that touches
-      # nixosConfigurations. Materialize the same install-answer defaults
-      # the pre-cb4fe5e committed file used to carry, so this stays a real
-      # in-tree file for the run — same fix `--impure` gives locally on an
-      # installed machine, without weakening the pure-eval check here.
-      - name: Materialize nix/data/settings.nix defaults for a bare checkout
-        run: |
-          rm -f nix/data/settings.nix
-          cat > nix/data/settings.nix <<'EOF'
-          {
-            username = "ci";
-            hostname = "tokyonight";
-            disks = [ "/dev/nvme0n1" ];
-            swapSize = "32G";
-            gitName = "CI Runner";
-            gitEmail = "ci@localhost.invalid";
-          }
-          EOF
       # Determinate Nix's determinate-nixd runs automatic background GC by
       # default (targets 30 GB / 5-20% free disk, "urgent" mode below 5%), and
       # its deletion loop never re-checks GC temp roots added while a

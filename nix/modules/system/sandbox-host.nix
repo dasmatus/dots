@@ -68,8 +68,7 @@
       # wrong answer. Sorted names are stable across rebuilds and give every
       # user a block disjoint from every other's, which is the only property
       # the range actually has to have.
-      rangeFor =
-        index: name: "${name}:${toString (100000 + index * 65536)}:65536";
+      rangeFor = index: name: "${name}:${toString (100000 + index * 65536)}:65536";
 
       ranges = lib.concatStringsSep "\n" (
         lib.imap0 rangeFor (lib.sort (a: b: a < b) (lib.attrNames normalUsers))

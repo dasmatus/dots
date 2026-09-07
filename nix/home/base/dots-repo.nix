@@ -6,6 +6,10 @@
 # stashed by installer-tui at the configured state dir (options.dots.paths,
 # default /var/lib/dots) into the clone, so rebuilds/autoUpgrade read the
 # real hostname/user/hardware report instead of the committed placeholders.
+# These are COPIES, not symlinks: a symlink here made an absolute path
+# outside the flake an evaluation-time dependency, which pure eval refuses
+# to follow — see the header of nix/data/settings.nix for the four things
+# that broke. A copy is an ordinary in-tree file, so eval stays pure.
 # The local path keeps its legacy "gitlab" segment — it's just a folder name
 # now; the repo itself lives on codeberg.org/dasmatus/dots.
 {
@@ -23,9 +27,10 @@ let
   sshUrl = "ssh://git@codeberg.org/dasmatus/dots";
   repoRel = "Dokumente/codeberg/personal/dots";
   # Configured relatives of the install-answer stash (options.dots.paths):
-  # nix/<file> in the clone becomes a symlink to <stateDir>/<file>, so an
-  # edit in the stash (e.g. a re-run of nixos-facter) is reflected in
-  # rebuilds without re-cloning, and autoUpgrade always reads the live value.
+  # <stateDir>/<file> is copied over nix/data/<file> in the clone. Unlike the
+  # symlink this replaces, a later edit in the stash is NOT picked up
+  # automatically — re-run this unit (or re-copy by hand) after e.g. a fresh
+  # nixos-facter run. That is the deliberate trade for keeping eval pure.
   stateDir = dots.paths.stateDir;
   answerFiles = [
     dots.paths.settingsFile
@@ -57,17 +62,19 @@ let
     # attempted here, so this is safe before the SSH key exists.
     ${pkgs.git}/bin/git -C "$dest" remote set-url origin "${sshUrl}"
 
-    # Restore the machine-specific install answers as symlinks into the
+    # Restore the machine-specific install answers by copying them out of the
     # persisted stash (impermanence.nix bind-mounts /persist over
-    # ${stateDir}). Symlinks — not copies — so rebuilds read the live stashed
-    # values. The committed stubs these replace are tracked regular files;
-    # `git update-index --skip-worktree` hides the typechange (regular →
-    # symlink) so the clone's tree stays clean for autoUpgrade's git
-    # operations. `2>/dev/null || true` guards a not-yet-indexed path.
+    # ${stateDir}) over the committed in-tree defaults. `install -m` both
+    # replaces the destination and normalizes the mode, so the stash's
+    # 0600-root facter.json lands readable by the eval that follows — the
+    # permission failure that used to break `nix run .#iso-full` when that
+    # path was reached through a symlink. `git update-index --skip-worktree`
+    # then hides the resulting content change so the clone's tree stays clean
+    # for autoUpgrade's git operations; `2>/dev/null || true` guards a
+    # not-yet-indexed path.
     for f in ${lib.concatStringsSep " " answerFiles}; do
       if [ -e "${stateDir}/$f" ]; then
-        rm -f "$dest/nix/data/$f"
-        ln -s "${stateDir}/$f" "$dest/nix/data/$f"
+        install -m 0644 "${stateDir}/$f" "$dest/nix/data/$f"
         ${pkgs.git}/bin/git -C "$dest" update-index --skip-worktree "nix/data/$f" 2> /dev/null || true
       fi
     done

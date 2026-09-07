@@ -202,6 +202,11 @@ pkgs.testers.runNixOSTest {
         useUserPackages = true;
         users.${testUser} = {
           imports = [ ../nix/home/sandbox/machined.nix ];
+          # machined.nix destructures `dotsSandbox`; without it the module
+          # cannot evaluate ("attribute 'dotsSandbox' missing"). Same gap, and
+          # same reason it went unnoticed, as tests/sandbox-machined.nix — see
+          # that file's note.
+          _module.args.dotsSandbox = dotsSandbox;
           home.stateVersion = "26.05";
         };
       };

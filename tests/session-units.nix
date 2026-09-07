@@ -7,12 +7,13 @@
 # to read `.config` back out, then a battery of `assert`s over it.
 #
 # Built on a standalone home-manager configuration rather than
-# `nixosConfigurations.tokyonight` because the latter cannot evaluate here at
-# all: `nix/data/settings.nix` and `nix/data/facter.json` are symlinks into
-# `/var/lib/dots`, and `facter.json` is mode 0600 root-owned, so any
-# evaluation that walks through `nix/system/hosts.nix` dies with "Permission denied"
-# regardless of `--impure`. A standalone home-manager evaluation needs
-# neither file.
+# `nixosConfigurations.tokyonight`: the assertions below are all about the
+# home-manager side, and a standalone evaluation reaches them without building
+# a whole NixOS closure. (This was originally forced rather than chosen —
+# `nix/data/{settings.nix,facter.json}` were symlinks into `/var/lib/dots` with
+# `facter.json` mode 0600 root-owned, so anything walking through
+# `nix/system/hosts.nix` died with "Permission denied" regardless of
+# `--impure`. Both are ordinary in-tree files now.)
 #
 # `home.username`/`home.homeDirectory`/`home.stateVersion` below are
 # home-manager's evaluation minimums, given obviously-fake values with no
@@ -33,19 +34,29 @@ let
     # reference either.
     extraSpecialArgs = {
       dots.ai.ollama = false;
+      # nix/home/desktop/hyprland.nix destructures `settings`. The real
+      # defaults rather than a stub, so a key that module starts reading later
+      # resolves to the value production would see instead of a missing
+      # attribute — and so this stays one file to update, not two.
+      #
+      # Missing until now for the same reason as tests/sandbox-machined.nix:
+      # `nix flake check` could not evaluate this flake at all while
+      # nix/data/settings.nix was a symlink into /var/lib/dots, so nothing
+      # forced this harness and the gap sat unnoticed.
+      settings = import ../nix/system/defaults.nix;
     };
     modules = [
       {
         home.username = "session-units-test";
         home.homeDirectory = "/home/session-units-test";
         home.stateVersion = "26.05";
-        # Mirrors the one entry of nix/modules/system/core.nix's real
-        # allowUnfreePredicate that this harness's module set actually forces:
-        # nix/home/desktop/session/default.nix's `notes` exec default is
-        # `pkgs.obsidian`, forced while evaluating `dots.session.exec` for
-        # assertions 1-3 below. The production system gets this from
-        # useGlobalPkgs; a standalone evaluation needs it spelled out.
-        nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "obsidian" ];
+        # Kept, though nothing in this harness forces an unfree package any
+        # more: `notes` used to be `pkgs.obsidian` and is now a `flatpak run
+        # md.obsidian.Obsidian` string (nix/home/base/flatpaks.nix). An empty
+        # predicate would say "this evaluation needs no unfree allowance",
+        # which is true today and would silently stop being true the moment a
+        # module here reaches for one — so the hook stays, with nothing in it.
+        nixpkgs.config.allowUnfreePredicate = _pkg: false;
         # Mirrors the `qt` block in nix/home/default.nix, and is load-bearing
         # for assertion 6 rather than decoration: home-manager's own qt module
         # writes `systemd.user.sessionVariables.QT_QPA_PLATFORMTHEME` (`qt5ct`,
@@ -235,13 +246,12 @@ let
   # holds this very unit (`unit = hm.systemd.user.services.quickshell`) and
   # already asserts over its ExecStart, Install.WantedBy and
   # X-Restart-Triggers. That check reaches it through
-  # `self.nixosConfigurations.tokyonight`, and that path cannot evaluate on a
-  # bare checkout at all: nix/data/settings.nix is a tracked symlink into
-  # /var/lib/dots, which pure eval refuses to follow out of the flake, so
-  # `nix flake check` dies there and the assertion only ever fires in CI. This
-  # file's standalone home-manager eval has no such dependency and runs
-  # everywhere, which is where a guard against silently losing Papirus icons
-  # belongs.
+  # `self.nixosConfigurations.tokyonight`, which used to be unevaluatable on a
+  # bare checkout (nix/data/settings.nix was a tracked symlink into
+  # /var/lib/dots that pure eval refuses to follow out of the flake), so the
+  # assertion only ever fired in CI. That is fixed, but this file's standalone
+  # home-manager eval is still the cheaper and more direct home for a guard
+  # against silently losing Papirus icons.
   quickshellUnitPresent = cfg.systemd.user.services ? quickshell;
   quickshellEnv = lib.toList (cfg.systemd.user.services.quickshell.Service.Environment or [ ]);
 in
@@ -278,9 +288,7 @@ assert lib.assertMsg (screenshotUnits != { })
 assert lib.assertMsg quickshellUnitPresent
   "tests/session-units.nix: found no quickshell unit in the harness eval at all — check 8 would pass vacuously if nix/home/desktop/quickshell stopped being imported here or the unit were renamed.";
 assert lib.assertMsg (builtins.elem "QT_QPA_PLATFORMTHEME=gtk3" quickshellEnv) ''
-  tests/session-units.nix: the quickshell unit's Service.Environment is [ ${
-    lib.concatStringsSep " " quickshellEnv
-  } ], missing "QT_QPA_PLATFORMTHEME=gtk3".
+  tests/session-units.nix: the quickshell unit's Service.Environment is [ ${lib.concatStringsSep " " quickshellEnv} ], missing "QT_QPA_PLATFORMTHEME=gtk3".
   The session-wide QT_QPA_PLATFORMTHEME=qt5ct (check 6) never loads in
   quickshell's Qt6 process, so without this override every SystemTray and
   Quickshell.iconPath() icon falls back to hicolor instead of Papirus. It

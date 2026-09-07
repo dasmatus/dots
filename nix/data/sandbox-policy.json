@@ -85,6 +85,14 @@
         "postgres": "allow"
       }
     },
+    "dev": {
+      "unconfined": true,
+      "reason": "interactive dev shell; needs the real terminal and the user's writable checkout"
+    },
+    "home-switch": {
+      "unconfined": true,
+      "reason": "home-manager switch rewrites $HOME and drives the Nix daemon; confining it would deny the whole job"
+    },
     "nix-smoke-interactive": {
       "unconfined": true,
       "reason": "drops into the test driver's Python REPL; needs a real terminal"

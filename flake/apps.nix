@@ -28,41 +28,12 @@ let
   # was removed; the ISO boots through plain OVMF / firmware defaults. The
   # installed system uses systemd-boot + TPM2 auto-unlock (no UKI signing).
   #
-  # --impure: nix/data/settings.nix is a tracked symlink to
-  # /var/lib/dots/settings.nix, an absolute path outside the flake that pure
-  # eval refuses to follow. Only the nix-eval CI job works around this — it
-  # materializes an in-tree stub before any nix call runs there, and that
-  # stub is local to that one job. A real, installed checkout has no stub
-  # at all, so it needs --impure here instead.
-  #
-  # Cost: what --impure actually buys here is narrower than "the ISO now
-  # sees real machine settings". The ISO's own module set (nix/system/iso.nix +
-  # nix/modules/system/network.nix + the inline storeContents module below) only
-  # forces wifiBackend and reversePathFilter out of nix/data/settings.nix, both
-  # from nix/system/defaults.nix — the machine-identity keys (username, hostname,
-  # disks, swapSize, gitName, gitEmail, the ai* flags) belong to dots.nix,
-  # core.nix, maintenance.nix and flake/checks.nix, none of which the ISO
-  # imports. --impure mostly just buys eval permission to read the file at
-  # all; the parsed values it forces go unused.
-  #
-  # The store path still differs from CI's, but not because of those
-  # values: nix/system/iso.nix:42 embeds the flake source itself
-  # (environment.etc."dots".source = dotsSelf), and CI's stub swaps the
-  # tracked symlink for a regular file, which changes the git tree hash
-  # that source builds from. Editing /var/lib/dots/settings.nix locally
-  # would not move the ISO's store path at all — git tracks the symlink,
-  # not the target's bytes. Nix's eval cache is still skipped for this
-  # call regardless. Don't copy --impure onto some other call and assume
-  # this same story without re-deriving it.
-  #
-  # iso-full has a second, separate blocker --impure does not touch: it
-  # embeds nixosConfigurations.tokyonight.config.system.build.toplevel
-  # (flake/lib.nix), which reaches nix/system/hosts.nix's
-  # hardware.facter.reportPath = ./facter.json. That symlink is itself
-  # world-readable, but its target (/var/lib/dots/facter.json) is 0600
-  # root, so reading it fails on file permissions regardless of --impure
-  # — a permissions problem, not a purity one. Fixing it is out of scope,
-  # same as the brief already rules out touching nix/data/facter.json.
+  # Pure eval, no --impure. Both of the reasons this call used to need it are
+  # gone now that nix/data/{settings.nix,facter.json} are real in-tree files
+  # rather than committed symlinks into /var/lib/dots: pure eval no longer
+  # has an absolute path outside the flake to refuse, and iso-full no longer
+  # reaches a 0600-root facter.json through one (that was a permissions
+  # failure --impure never fixed anyway). See nix/data/settings.nix's header.
   mkIsoApp =
     {
       name,
@@ -83,7 +54,7 @@ let
             runtimeInputs = [ pkgs.nix ];
             text = ''
               ${cdRepoRoot}
-              nix build --impure .#${target} -o result-iso
+              nix build .#${target} -o result-iso
             '';
           })
           + "/bin/${name}";
@@ -323,7 +294,9 @@ in
       ${cdRepoRoot}
       echo "tokyonight-dots — nix run .#<app>"
       echo
+      echo "  dev                    enter the devenv dev shell (nix develop --no-pure-eval)"
       echo "  nix-lint               flake eval + cargo fmt/clippy/test for every crate"
+      echo "  home-switch            apply homeConfigurations (standalone home-manager, non-NixOS host)"
       echo "  iso                    build the LiveISO (plain, unsigned)"
       echo "  iso-full               same, with intel+amd system closures embedded"
       echo "  nix-smoke              NixOS VM test: boot the LiveISO under OVMF+TPM2"
@@ -332,6 +305,98 @@ in
       echo "  memory-derive          rebuild the agentmem 'derived' graph from this checkout"
       echo "  memory-health          check agentmem's reads-vs-writes kill criterion (design spec section 10)"
       echo "  clean                  remove local build/test leftovers"
+    '';
+  };
+
+  # Apply the standalone home-manager profile (flake/home.nix) on a non-NixOS
+  # host. The NixOS system has no use for this — there, home-manager runs as a
+  # NixOS module and `nixos-rebuild switch` applies the home profile as part of
+  # the system generation.
+  #
+  # The default ref is `.#"$USER"`, resolved at run time, NOT a bare `.#`.
+  # A bare `.#` would lean on home-manager's own attribute derivation, which
+  # tries "$USER@$(hostname -s)" first — the RUNNING host's name, which has no
+  # reason to equal `settings.hostname` (an install answer for the NixOS
+  # system, not a description of whatever host the portable profile is applied
+  # to). flake/home.nix exposes the configuration under the bare username too
+  # for exactly this case, so naming that key directly makes the default work
+  # on any host without depending on home-manager's fallback order. Pass an
+  # explicit `.#user@host` as the first argument to override.
+  #
+  # NOT sandboxed. The exemption is declared in nix/data/sandbox-policy.json
+  # (with its reason), not as a `sandboxed = false` here — same as
+  # nix-smoke-interactive and enroll-fido. mkSandboxedApp consults the policy
+  # directly, so the policy file stays the one place that says what runs
+  # unconfined; see its comment above.
+  home-switch = mkShellApp "home-switch" {
+    # coreutils for the `id -un` fallback below; writeShellApplication keeps
+    # the ambient PATH, but this app must not depend on the caller's.
+    runtimeInputs = [
+      pkgs.nix
+      pkgs.coreutils
+    ];
+    text = ''
+      ${cdRepoRoot}
+      # `nix run` the pinned home-manager from the flake's own lock rather
+      # than requiring a `home-manager` binary on PATH — on a foreign host
+      # there usually is not one, and an out-of-tree copy would apply a
+      # different home-manager version than the one this config was evaluated
+      # against.
+      # An explicit flake ref may be given as the first argument
+      # (`nix run .#home-switch -- .#other@host`); anything else is passed
+      # straight through to `home-manager switch`. Detected by the `#` rather
+      # than by position so a leading flag (`-n`, `-v`) is not mistaken for a
+      # ref and swallowed.
+      flake=".#''${USER:-$(id -un)}"
+      if [ "$#" -gt 0 ]; then
+        case "$1" in
+          *"#"*)
+            flake="$1"
+            shift
+            ;;
+        esac
+      fi
+
+      # First switch on a foreign host lands on top of dotfiles that host's
+      # own packages already wrote (~/.config/fish, ~/.config/git,
+      # ~/.config/kitty, the GTK settings.ini pair …). Home-manager REFUSES to
+      # overwrite an unmanaged file: it aborts activation at the first
+      # collision, so without a backup extension the run applies nothing and
+      # the only way forward is deleting host files by hand until it gets
+      # through. `-b backup` renames each collision to `<file>.backup`
+      # instead — reversible, and it leaves the host's own version recoverable
+      # rather than gone. Skipped when the caller supplies their own, since
+      # home-manager rejects the option twice.
+      backup=(-b backup)
+      for a in "$@"; do
+        case "$a" in
+          -b | --backup-extension)
+            backup=()
+            break
+            ;;
+        esac
+      done
+
+      exec nix run .#hm-cli -- switch "''${backup[@]}" --flake "$flake" "$@"
+    '';
+  };
+
+  # `nix develop --no-pure-eval`, spelled once. devenv reads the checkout root
+  # out of the environment, which pure flake evaluation does not expose, so the
+  # bare `nix develop` this repo used to document now yields a shell pointed at
+  # flake/devenv.nix's placeholder root — it opens, but its `.devenv` state and
+  # its git hooks go nowhere useful. Rather than leave that as a footgun spelled
+  # out only in a comment, this app is the entry point.
+  #
+  # Not sandboxed (nix/data/sandbox-policy.json): a dev shell whose whole
+  # purpose is running cargo against the user's writable checkout has nothing
+  # to gain from confinement, and `exec`ing an interactive shell needs the
+  # real terminal.
+  dev = mkShellApp "dev" {
+    runtimeInputs = [ pkgs.nix ];
+    text = ''
+      ${cdRepoRoot}
+      exec nix develop --no-pure-eval "$@"
     '';
   };
 
@@ -364,11 +429,12 @@ in
     text = ''
       ${cdRepoRoot}
 
-      # qmllint over the shell's QML, before the flake eval because it is the
-      # cheaper gate and because `nix flake check` cannot run on a bare
-      # checkout at all: nix/data/settings.nix is a symlink into /var/lib/dots,
-      # which pure eval refuses and CI works around by materialising a stub.
-      # Ordering it second would mean the QML is never linted locally.
+      # qmllint over the shell's QML, before the flake eval simply because it
+      # is the cheaper gate — fail on a QML typo without paying for a full
+      # evaluation first. (It also used to be the only gate that ran locally
+      # at all, back when nix/data/settings.nix was a symlink into
+      # /var/lib/dots and `nix flake check` could not evaluate a bare
+      # checkout; that is fixed, so this ordering is now just economy.)
       #
       # Neither Quickshell's modules nor Qt's own are on qmllint's default
       # import path, so both are passed with -I; without them every import is
@@ -522,7 +588,8 @@ in
   # Boot the ISO under OVMF + TPM2 (NixOS VM test). Pass args via
   # `nix run .#nix-smoke -- …`.
   #
-  # --impure: same nix/data/settings.nix symlink pure eval refuses to follow, see
+  # Pure eval — the nix/data/settings.nix symlink that forced --impure here is
+  # gone (real in-tree file now), see
   # mkIsoApp above. This is exactly the check the scheduled vm-boot CI job
   # runs — ci.yml:235 does `nix build -L ".#checks.x86_64-linux.${{
   # matrix.check }}"`, matrixed over iso-boot and limine-install-boot —
@@ -537,19 +604,20 @@ in
     runtimeInputs = [ pkgs.nix ];
     text = ''
       ${cdRepoRoot}
-      nix build -L --impure ".#checks.x86_64-linux.iso-boot" "$@"
+      nix build -L ".#checks.x86_64-linux.iso-boot" "$@"
     '';
   };
 
   # Debug the ISO boot test in the driver's interactive Python REPL
   # (.#checks.x86_64-linux.iso-boot.driverInteractive).
   #
-  # --impure: same nix/data/settings.nix symlink pure eval refuses to follow, see
+  # Pure eval — the nix/data/settings.nix symlink that forced --impure here is
+  # gone (real in-tree file now), see
   # mkIsoApp above.
   nix-smoke-interactive = mkShellApp "nix-smoke-interactive" {
     text = ''
       ${cdRepoRoot}
-      nix run --impure .#checks.x86_64-linux.iso-boot.driverInteractive
+      nix run .#checks.x86_64-linux.iso-boot.driverInteractive
     '';
   };
 

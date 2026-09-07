@@ -46,3 +46,15 @@ core.[0-9]*
 rust/beamenu-calc/target/
 rust/beamenu-status/target/
 rust/dots-osd/target/
+
+# devenv (flake/devenv.nix) working state. `.devenv/` holds the profile
+# symlink, process logs and the sqlite state devenv keeps per checkout;
+# `.devenv.flake.nix` is the wrapper flake it regenerates on every `nix
+# develop`. Both are derived from the tracked module and are per-machine, so
+# committing either would only produce conflicts.
+.devenv/
+.devenv.flake.nix
+# direnv's `use flake` cache, if enabled locally. Not required by anything in
+# this repo — listed because a stale committed copy pins an old store path and
+# is confusing to debug.
+.direnv/

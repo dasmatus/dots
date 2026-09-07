@@ -24,7 +24,14 @@ let
   # which an eval-only check or a Nix build sandbox can produce. See
   # tests/sandbox.nix for the full brief and why this could not be settled
   # any other way.
-  sandboxTest = import ./sandbox.nix { inherit pkgs lib inputs dotsFlake; };
+  sandboxTest = import ./sandbox.nix {
+    inherit
+      pkgs
+      lib
+      inputs
+      dotsFlake
+      ;
+  };
 
   # session-units — eval-only, costs nothing (no VM, no build): a standalone
   # home-manager evaluation checked with five `assert`s. Everything else in
@@ -44,7 +51,14 @@ let
   # proves nix/home/sandbox/machined.nix wires the user-scope machined units
   # (present, referencing pkgs.systemd, socket-enabled) rather than landing
   # inert. See tests/sandbox-machined.nix for what it guards.
-  sandboxMachinedTest = import ./sandbox-machined.nix { inherit pkgs lib inputs; };
+  sandboxMachinedTest = import ./sandbox-machined.nix {
+    inherit
+      pkgs
+      lib
+      inputs
+      dotsFlake
+      ;
+  };
 
   # limine-install-home — a lightweight runNixOSTest (no disko, no
   # nixos-install, no facter.json wall) pinning nix/modules/system/limine-install.nix's
@@ -69,8 +83,11 @@ let
     hostname = "test";
     disks = [ "/dev/vda" ];
     swapSize = "1G";
-    gitName = "Test User";
-    gitEmail = "test@example.com";
+    # No gitName/gitEmail: the git identity left `settings` entirely for an
+    # agenix secret (nix/home/secrets/identity.nix). The installer still writes
+    # both keys, which is why the settings_nix literal further down — a
+    # deliberate copy of rust/installer-tui's real output — still carries them;
+    # nothing reads them any more.
   };
   # The tokyonight closure built with test settings. Pre-substituted into the
   # installer VM via mountHostNixStore + extraDependencies so nixos-install
@@ -102,16 +119,53 @@ let
   # over `builtins.attrValues inputs` yields the full transitive closure;
   # `follows`-aliased sub-inputs (e.g. every input's nixpkgs follows the top
   # one) resolve to the same outPath and dedupe via lib.unique.
+  #
+  # The walk carries a VISITED SET, and that is a correctness requirement
+  # rather than an optimisation. `follows` can point a sub-input at an
+  # ANCESTOR of itself — devenv's bundled nix declares
+  # `nixpkgs-23-11 follows devenv` — which makes the input graph cyclic, not a
+  # tree. The plain recursion this replaces terminated only for as long as no
+  # such cycle happened to exist; the day devenv was added it became
+  # "stack overflow; max-call-depth exceeded" while evaluating
+  # `nodes.installer.system.extraDependencies`.
+  #
+  # The set is keyed on a CONTEXT-STRIPPED copy of each outPath, while the
+  # collected list keeps the originals. That split matters: these paths exist
+  # to be pulled into the VM's store through `system.extraDependencies`, which
+  # is exactly what string context does — deduping through
+  # `builtins.attrNames` would hand back bare strings and silently stop
+  # pulling anything in.
   flakeInputPaths =
     let
-      walk =
-        node:
-        [
-          node.outPath
-        ]
-        ++ builtins.concatMap walk (builtins.attrValues (node.inputs or { }));
+      step =
+        state: queue:
+        if queue == [ ] then
+          state
+        else
+          let
+            node = builtins.head queue;
+            rest = builtins.tail queue;
+          in
+          if !(builtins.isAttrs node) || !(node ? outPath) then
+            step state rest
+          else
+            let
+              key = builtins.unsafeDiscardStringContext (toString node.outPath);
+            in
+            if state.seen ? ${key} then
+              step state rest
+            else
+              step {
+                seen = state.seen // {
+                  ${key} = true;
+                };
+                paths = state.paths ++ [ node.outPath ];
+              } (builtins.attrValues (node.inputs or { }) ++ rest);
     in
-    lib.unique (builtins.concatMap walk (builtins.attrValues inputs));
+    (step {
+      seen = { };
+      paths = [ ];
+    } (builtins.attrValues inputs)).paths;
 
   # The aipage source FOD — the one eval-time realization the flake forces that
   # is NOT a flake input and NOT in the toplevel's runtime closure. nix/packages/aipage.nix

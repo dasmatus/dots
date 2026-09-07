@@ -1,26 +1,88 @@
-# Ex-flatpak GUI apps as native Home Manager packages (nix/modules/flatpak.nix
-# is gone — git history). Any GNOME core app still wanted is packaged
-# directly here: services.gnome.core-apps and nix/modules/desktop/desktop.nix, which
-# used to provide them, both went in 6c5ac98 and nothing replaced the option.
-# LibreWolf is managed by programs.librewolf (librewolf.nix). Attrs verified
-# against the pinned nixpkgs rev.
+# The packages that CANNOT be flatpaks, plus Haveno's AppImage wrapper.
 #
-# Dropped in the migration:
-#   - com.github.tchx84.Flatseal — flatpak permission manager, obsolete
-#   - org.virt_manager.virt-manager — already native system-wide
-#     (programs.virt-manager, nix/modules/system/virtualisation.nix)
-#   - io.github.mpobaschnig.Vaults — removed from nixpkgs 2026-07 over the
-#     fuse2 deprecation; gocryptfs/cryfs CLIs remain available if needed
-#   - com.ktechpit.torrhunt, io.github.justinrdonnelly.bouncer,
-#     io.gitlab.persiangolf.voicegen — Flathub-only, not in nixpkgs; would
-#     need out-of-tree packaging to keep
+# This file used to be the landing site of a flatpaks-to-nixpkgs migration —
+# "ex-flatpak GUI apps as native Home Manager packages". That direction is
+# reversed: every GUI app here is a Flathub ref again, declared in
+# nix/home/base/flatpaks.nix, and this file keeps only what Flathub has no
+# answer for. See that file's header for why (the portable profile targets a
+# Fedora Atomic host where Flatpak is the delivery mechanism, and a flatpak
+# brings its own sandbox on a host with no microvm host to launch into).
+#
+# What is left, and why each one stays:
+#
+#   - Command-line tools and language toolchains. Flatpak packages
+#     applications with desktop entries, not `cargo` and `ghc`; a flatpak'd
+#     compiler could not see the project it is asked to build. These are also
+#     what nix/home/apps/{nixvim,zed}.nix and the AI harnesses expect to find
+#     on PATH by bare name. The toolchains themselves are no longer LISTED
+#     here — they come from flake/languages.nix, the one devenv module
+#     `nix develop` builds its shell from; see `toolchains` below.
+#   - networkmanagerapplet — a session tray daemon, not an app.
+#   - haveno — no Flathub package exists (exchange.haveno.Haveno is 404,
+#     checked against the Flathub API). Upstream ships a signed AppImage,
+#     wrapped below.
+#
+# The three GUI exceptions that stay native for the same "no Flathub package"
+# reason are documented where they live: kitty (nix/home/apps/kitty.nix),
+# claude-desktop (nix/home/ai/claude-desktop.nix) and Haveno here.
 {
   pkgs,
   lib,
   dots,
+  inputs,
   ...
 }:
 let
+  # The language toolchains, evaluated out of the SAME devenv module
+  # flake/devenv.nix imports — see flake/languages.nix for what is in it and
+  # why. `mkConfig` runs devenv's module system and stops there; it does not
+  # build a shell, so nothing about `devenv.root`, the git hooks or
+  # `enterShell` is involved, and none of that file's assertions are forced.
+  #
+  # `pkgs` is this evaluation's own instance (the system one on NixOS via
+  # `useGlobalPkgs`, flake/home.nix's on a foreign host), not the flake's, so
+  # the toolchains are built from the same nixpkgs as everything else in the
+  # profile rather than a second instance that merely happens to agree.
+  #
+  # `config.packages` is devenv's public list of what the environment puts on
+  # PATH — but it is not only OUR packages: devenv's own top-level adds
+  # pkg-config unconditionally, and `processes` resolves a process manager
+  # (process-compose) whether or not anything declares a process. Those belong
+  # to `devenv up`, not to a user profile, so the baseline is evaluated once
+  # with no modules and subtracted, leaving exactly what flake/languages.nix
+  # contributed. Doing it by subtraction rather than by an exclusion list
+  # means a future devenv that adds something else to its baseline does not
+  # quietly grow the profile.
+  #
+  # (The baseline eval is module-system only — no derivations are built for it
+  # — and `subtractLists` compares derivations by output path, so this is a
+  # cheap set difference, not a rebuild.)
+  toolchains = inputs.devenv.lib.mkConfig {
+    inherit pkgs inputs;
+    modules = [ ../../../flake/languages.nix ];
+  };
+  devenvBaseline = inputs.devenv.lib.mkConfig {
+    inherit pkgs inputs;
+    modules = [ ];
+  };
+
+  # One derivation rather than splicing `toolchains.packages` straight into
+  # `home.packages`, for one concrete reason: devenv's language modules
+  # deliberately list overlapping packages (clang-tools comes from both
+  # `languages.c` and `languages.cplusplus`, clang from `cplusplus` and from
+  # the Rust linker driver), which costs nothing on a shell's PATH but is a
+  # hard error in home-manager's profile buildEnv, which does not ignore
+  # collisions. devenv builds its own profile with `ignoreCollisions` for the
+  # same reason; this is that, under a name that says where it came from.
+  #
+  # NB the join is how the profile is assembled, not a layer anything has to
+  # know about: an editor or script looking for `clangd` still finds
+  # ~/.nix-profile/bin/clangd exactly as before.
+  languageToolchains = pkgs.buildEnv {
+    name = "dots-language-toolchains";
+    paths = lib.subtractLists devenvBaseline.packages toolchains.packages;
+    ignoreCollisions = true;
+  };
   # The AppImage's own contents, unpacked. `wrapType2` uses this internally to
   # build the FHS root but discards everything outside the entrypoint, so the
   # desktop entry and icon it ships are otherwise thrown away — see
@@ -102,56 +164,52 @@ in
 {
   home.packages =
     (with pkgs; [
-      # GNOME-adjacent tools (ex flathub-verified)
-      dconf-editor
-      gnome-extension-manager
-      gnome-firmware
-      # apps (ex flathub-verified)
-      vesktop
-      carburetor
-      mpv
-      obsidian
+      # CLI tools. `omnix` and `scrot` have no desktop entry between them;
+      # `magick` is called by scripts, not clicked.
       omnix
-      # flathub tracked the fresh branch; plain `libreoffice` = still/LTS
-      libreoffice-still
-      # plain `onionshare` is the CLI-only build
-      onionshare-gui
-      # torbrowser-launcher was never packaged; nixpkgs builds the browser
-      tor-browser
-      keepassxc
-      simplex-chat-desktop
-      transmission_4-gtk
-      bleachbit
-      pika-backup
-      prismlauncher
-      signal-desktop
-      refine
       scrot
       imagemagick
-      ghc
-      rustc
-      clippy
-      cargo-expand
-      rust-analyzer
-      cargo
-      clang
-      # clangd, clang-format and clang-tidy. Kept next to clang so the two
-      # majors move together; a clangd ahead of the driver parses flags the
-      # driver never emits. This is also what puts clangd on PATH for the
-      # clangd-lsp plugin in nix/home/ai/claude.nix, which spawns it by bare name.
-      clang-tools
-      stack
       # nix/home/desktop/session/actions.nix's nm-applet daemon has run at session
       # start since forever, but nothing in this repo ever packaged it, so
       # the network tray icon has silently never actually appeared.
       networkmanagerapplet
+
+      # The Nerd Font this config's terminal and prompt already assume. It was
+      # never installed: nix/home/apps/kitty.nix asks for `font_family LilexNF`
+      # and nix/home/shell/fastfetch.nix's keys are Nerd Font private-use
+      # glyphs, but no font package existed anywhere in the tree, so
+      # `fc-list | grep -ci nerd` answered 0 and every one of those glyphs
+      # rendered as tofu.
+      #
+      # This is what flake/home.nix's `fonts.fontconfig.enable` is FOR — that
+      # option only points fontconfig at the home profile's share/fonts, and
+      # on a foreign host with nothing in it there was nothing to find. On
+      # NixOS the same package reaches fontconfig through
+      # nix/modules/system/core.nix's `fonts.packages`, so it belongs in this
+      # shared file rather than beside the enable.
+      #
+      # Only the one family, not the whole nerd-fonts set: nixpkgs split that
+      # attribute up precisely so a profile does not carry ~3 GB to get one
+      # typeface, and LilexNF is the only face this repo names.
+      nerd-fonts.lilex
     ])
-    ++ [ haveno ]
-    # Newelle's only purpose here is the ollama cloud chat front-end (the
-    # dconf custom_command below), so gate the package on the same
-    # dots.ai.ollama toggle — with ollama off there's no backend to talk to
-    # and Newelle would dead-launch with broken LLM settings.
-    ++ lib.optional dots.ai.ollama pkgs.newelle;
+    ++ [
+      # Rust, C/C++ and Haskell. This one entry is what the hand-written list
+      # of ghc / rustc / clippy / cargo-expand / rust-analyzer / cargo /
+      # clang / clang-tools / stack used to be, and it also absorbs the
+      # separate Haskell list that lived in nix/home/profiles/portable.nix.
+      # clang-tools is still inside it: a clangd ahead of the driver parses
+      # flags the driver never emits, so the two majors move together, and
+      # this is what puts clangd on PATH for the clangd-lsp plugin in
+      # nix/home/ai/claude.nix, which spawns it by bare name.
+      languageToolchains
+      haveno
+    ];
+  # Newelle is a flatpak now (io.github.qwersyk.Newelle, gated on the same
+  # dots.ai.ollama toggle in nix/home/base/flatpaks.nix). Its dconf settings
+  # stay here, below, because dconf is host state rather than app state — a
+  # flatpak reads the same dconf database through the settings portal, so the
+  # keys land where the app looks for them either way.
 
   # Newelle → ollama cloud model: the custom_command LLM handler feeds the
   # chat history ({0}, shell-quoted JSON) to `ollama run kimi-k3:cloud`, so

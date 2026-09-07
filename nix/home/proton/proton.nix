@@ -1,16 +1,13 @@
-# Proton stack: Mail Bridge (local IMAP/SMTP proxy), Thunderbird wired to
-# it, and the official Proton VPN GUI app.
+# Proton stack: Mail Bridge (the local IMAP/SMTP proxy) and the mail client
+# that talks to it.
 #
-# VPN: no declarative WireGuard here, even though Proton's dashboard offers
-# a per-device .conf (nmcli import). This is a public repo, and the
-# WireGuard PrivateKey/PresharedKey would either land in the world-readable
-# Nix store (the wireguard module's inline string options) or need
-# agenix/sops just to keep it out of git — more secrets machinery than
-# anything else in this repo carries. The GUI app (nixpkgs `proton-vpn`,
-# formerly `protonvpn-gui`) drives NetworkManager (already enabled,
-# nix/modules/desktop/desktop.nix) for both the tunnel and its kill switch, and
-# uses the GNOME AppIndicator extension (also already enabled there) for
-# its tray icon.
+# NO VPN. Proton VPN used to be here as a nixpkgs package plus a tray-docked
+# systemd user unit; both are gone. It is provisioned outside this repo on the
+# hosts that want it — secureblue ships a `ujust` recipe for it — and two
+# managers driving the same NetworkManager connections is a fight, not a
+# feature. Declarative WireGuard was never an option either: this is a public
+# repo, and the PrivateKey/PresharedKey would land in the world-readable Nix
+# store.
 #
 # One-time imperative steps this module cannot do for you:
 #   - Bridge has no unattended first login: run `protonmail-bridge --cli`
@@ -25,99 +22,91 @@
 #     first use of each.
 #   - Proton VPN GUI needs its own interactive login on first launch.
 {
+  config,
   pkgs,
   lib,
-  dots,
+  settings,
   betterbird,
   ...
 }:
 {
   services.protonmail-bridge.enable = true;
 
-  home.packages = [ pkgs.proton-vpn ];
-
-  # Start the VPN app with the session, minimised to the tray.
+  # No Proton VPN here at all — not a package, not a flatpak, not a unit. The
+  # VPN is provisioned outside this repo on the hosts that want it (secureblue
+  # exposes it as a `ujust` recipe), and a second, home-manager-managed copy
+  # would fight it over the same NetworkManager connections.
   #
-  # `--start-minimized` is a real upstream flag (proton/vpn/app/gtk/app.py adds
-  # it via add_main_option), but it only takes effect when the app has a tray
-  # indicator: app.py gates on `self._start_app_minimized and
-  # self.tray_indicator`, so with no StatusNotifierItem host it would open a
-  # normal window instead. Under Hyprland that host is waybar's `tray` module
-  # (nix/home/waybar.nix), which is why this waits for the graphical session
-  # rather than starting alongside it — waybar is launched from
-  # hyprland.start, not by systemd, so there is no unit to order against and
-  # the SNI watcher appears a moment after the session does.
-  #
-  # Restart=on-failure rather than always: a clean exit means the user quit the
-  # app deliberately, and respawning it then would be a nuisance.
-  systemd.user.services.protonvpn-app = {
-    Unit = {
-      Description = "Proton VPN, started minimised to the tray";
-      PartOf = [ "graphical-session.target" ];
-      After = [ "graphical-session.target" ];
-      # No tray host outside a Wayland/X session, so do not spawn a window.
-      ConditionEnvironment = [ "WAYLAND_DISPLAY" ];
-    };
-    Service = {
-      # The tray host has to be up before the app registers its item, and the
-      # only signal available is time. A few seconds is enough for waybar and
-      # cheap on a session that lasts hours.
-      ExecStartPre = "${pkgs.coreutils}/bin/sleep 5";
-      ExecStart = "${lib.getExe pkgs.proton-vpn} --start-minimized";
-      Restart = "on-failure";
-      RestartSec = 5;
-
-      # Only the seven directives with no plausible conflict with this
-      # unit's job. Held back on purpose: MemoryDenyWriteExecute (Python
-      # GTK apps commonly JIT via their bindings/typelib loading),
-      # RestrictAddressFamilies (this app monitors NetworkManager over
-      # D-Bus/netlink — could plausibly cut into route/link monitoring,
-      # untested here), ProtectHome/ProtectSystem (untested against
-      # wherever proton-vpn keeps its own state/config). Rationale for the
-      # seven that are safe matches mkUnit's baseline in
-      # session/default.nix: none of clock/hostname/kernel-log/cgroup/
-      # personality/realtime/setuid-setgid access is part of running a
-      # tray-docked VPN GUI.
-      ProtectClock = true;
-      ProtectHostname = true;
-      ProtectKernelLogs = true;
-      ProtectControlGroups = true;
-      LockPersonality = true;
-      RestrictRealtime = true;
-      RestrictSUIDSGID = true;
-    };
-    Install = {
-      WantedBy = [ "graphical-session.target" ];
-    };
-  };
+  # Proton Mail Bridge is a different matter and stays. Bridge is a background
+  # daemon that other applications connect to over 127.0.0.1:1143/1025 — it is
+  # a local server, not an app — and it must reach the login keyring to
+  # persist its session. Both of those are exactly what a flatpak sandbox
+  # exists to prevent, and `services.protonmail-bridge` above is a systemd
+  # user unit that has no flatpak equivalent regardless.
 
   # `net` plugin identity lives in beamenu.nix, which waybar.nix also
   # contributes to; these are the VPN and mail-bridge commands.
 
+  # Betterbird is the ONE GUI app in this profile that stays a Nix package
+  # while the rest became Flathub refs (nix/home/base/flatpaks.nix), and it is
+  # a deliberate exception rather than an oversight.
+  #
+  # Flathub does ship eu.betterbird.Betterbird. Taking it would cost the
+  # declarative profile: `programs.thunderbird.package` is typed `package`,
+  # not `nullOr package`, so the "configure but install nothing" trick that
+  # nix/home/apps/{librewolf,zed}.nix use is not expressible here — the module
+  # is either on and installing, or off and rendering nothing. Off would take
+  # nix/home/proton/proton-calendar.nix down with it, since that module's
+  # entire output is `programs.thunderbird.profiles.default.settings`: the
+  # calendar subscription, the .ics path, the refresh interval. That is a
+  # working feature with its own test (tests/proton-calendar.nix), traded for
+  # nothing but consistency.
+  #
+  # It is also the app where "use the distro's package" argues least: nixpkgs
+  # has no betterbird at all, so this repo builds its own
+  # (nix/packages/betterbird.nix). There is no nixpkgs-vs-Flathub duplication
+  # to remove here — only a local build to throw away.
+  #
+  # Still Betterbird rather than Thunderbird, for the original reason: the
+  # StatusNotifierItem tray icon is what keeps mail arriving with no window
+  # open (see nix/home/base/gnome-extensions.nix for the extension that makes
+  # that tray exist on GNOME).
   programs.thunderbird = {
     enable = true;
-    # Betterbird over Thunderbird for the StatusNotifierItem tray icon, which
-    # is what keeps mail arriving with no window open. Same profile format
-    # and same ~/.thunderbird path, so nothing downstream moves.
     package = betterbird;
     profiles.default.isDefault = true;
   };
 
-  # Identity comes from the installer answers, never a literal. This repo is
-  # public, and an address written here is an address in the clone history for
-  # good. dots.gitEmail/dots.gitName are bridged from
-  # /var/lib/dots/settings.nix by nix/modules/dots.nix, and nix/data/settings.nix is
-  # a tracked SYMLINK to that file, so git stores the link and not the contents.
-  # nix/home/shell/git.nix reads the same two values, which is what keeps the mail
-  # account and the commit identity from drifting.
+  # Identity comes from settings, never a literal — this repo is public, and an
+  # address written here is an address in the clone history for good. Both keys
+  # default to EMPTY in nix/system/defaults.nix, so a bare checkout carries no
+  # address at all; see that file's "eval-time identity" block for why these
+  # are settings rather than agenix secrets (Thunderbird's prefs are generated
+  # at evaluation, and agenix cannot produce an eval-time value).
   #
-  # This assumes the Proton address IS the git address, which holds here. Split
-  # them by pointing this at the protonEmail key (nix/system/defaults.nix) instead.
-  accounts.email.accounts.proton = {
+  # These used to be dots.gitEmail/dots.gitName, i.e. the *commit* identity
+  # reused as the mail account. That conflation is gone: the git identity is
+  # now an agenix secret resolved at runtime (nix/home/secrets/identity.nix)
+  # and has no eval-time representation to borrow. Keying the mail account off
+  # its own protonEmail/protonRealName is also simply more honest — a Proton
+  # address and a commit address are not the same fact.
+  # Defined only when an address is actually configured. `address` is typed
+  # `strMatching ".*@.*"`, so the empty default is not merely a blank account —
+  # it is a TYPE ERROR that stops the whole home configuration from evaluating.
+  # Without this guard a bare checkout of a public repo cannot be built at all,
+  # by anyone, which is the same class of breakage the settings.nix symlink
+  # used to cause and that this conversion exists to remove.
+  #
+  # Thunderbird stays enabled either way: a profile with no declared account is
+  # a working mail client waiting for one to be added in the UI, whereas
+  # disabling it would mean an unconfigured address silently uninstalls the
+  # mail client. Bridge likewise still runs — it is the thing you log into
+  # first, before there is any address to declare here.
+  accounts.email.accounts.proton = lib.mkIf (settings.protonEmail != "") {
     primary = true;
-    address = dots.gitEmail;
-    userName = dots.gitEmail;
-    realName = dots.gitName;
+    address = settings.protonEmail;
+    userName = settings.protonEmail;
+    realName = settings.protonRealName;
 
     # Bridge's own default ports/mode: STARTTLS on 1143 (IMAP) / 1025
     # (SMTP), not its alternate implicit-TLS 993/465 pairing.

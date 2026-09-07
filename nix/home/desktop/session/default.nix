@@ -47,6 +47,7 @@ let
   # against the pinned nixpkgs.
   qs = lib.getExe' pkgs.quickshell "qs";
   systemctl = lib.getExe' pkgs.systemd "systemctl";
+  flatpak = lib.getExe' pkgs.flatpak "flatpak";
 
   # The command line for every non-dispatch, non-`lock` action that has one.
   # Keyed by `name` (actions.nix's join key), never by `dispatch`. No
@@ -58,9 +59,20 @@ let
     nm-applet = "${lib.getExe pkgs.networkmanagerapplet} --indicator";
 
     # apps
+    #
+    # kitty is still a Nix package (no Flathub build exists — see
+    # nix/home/base/flatpaks.nix), so it keeps a store path. The other two are
+    # Flathub refs now and are launched through the flatpak client.
+    #
+    # `flatpak` is spelled as an absolute store path, not a bare name: these
+    # strings become systemd `ExecStart=` lines, and systemd requires the
+    # first token to be an absolute path — a bare `flatpak` fails the unit at
+    # load time, not at launch. The client is interchangeable; it drives
+    # whichever installation the ref lives in, and
+    # nix/home/base/flatpaks.nix populates the per-user one.
     terminal = lib.getExe config.programs.kitty.package;
-    notes = lib.getExe pkgs.obsidian;
-    editor = lib.getExe config.programs.zed-editor.package;
+    notes = "${flatpak} run md.obsidian.Obsidian";
+    editor = "${flatpak} run dev.zed.Zed";
 
     # actions — everything but `lock`, which has no unit at all (see below)
     launcher-toggle = "${qs} ipc call launcher toggle";

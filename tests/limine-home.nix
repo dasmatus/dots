@@ -10,13 +10,14 @@
 # neither of which is something to pin a regression test on.
 #
 # Deliberately does NOT go through flake/nixos.nix's mkTokyonight /
-# nixosConfigurations.tokyonight: both pull in nix/system/hosts.nix, which reads
-# nix/data/facter.json — a symlink into /var/lib/dots that a bare checkout
-# without that machine's install answers cannot read (see
-# tests/session-units.nix's comment for the identical wall). This test
-# imports nix/modules/system/limine-install.nix directly into a minimal machine
-# instead, so it evaluates and builds from a bare checkout with no
-# machine-specific state at all.
+# nixosConfigurations.tokyonight: both pull in nix/system/hosts.nix and the
+# whole system closure with it, which is far more evaluation than a probe over
+# one bootloader script needs. (Historically it was a hard wall, not just a
+# cost: nix/data/facter.json was a symlink into /var/lib/dots that a bare
+# checkout could not read. That is fixed — both files are real in-tree stubs
+# now — so this is a scoping choice today.) This test imports
+# nix/modules/system/limine-install.nix directly into a minimal machine, so it
+# evaluates and builds with no machine-specific state at all.
 #
 # nix/modules/system/limine-install.nix factors the hazard-1 conditional out of
 # installBootLoader's text into `ensureOwnedHome`, and exposes a standalone

@@ -2,7 +2,7 @@
 # *under* nix/data/settings.nix:
 #   settings = (import ./nix/system/defaults.nix) // (import ./nix/data/settings.nix);
 # The installer TUI (rust/installer-tui/src/config.rs::settings_nix) rewrites
-# the install answers (username/hostname/disks/swapSize/gitName/gitEmail)
+# the install answers (username/hostname/disks/swapSize)
 # into settings.nix on the target, so anything it does not write must live
 # here to survive an install — otherwise the installer would wipe it and the
 # modules that read settings.<key> would lose their values on the next
@@ -19,11 +19,13 @@
   # Desktop environment — consumed by nix/modules/desktop/desktop.nix. The whole
   # system-level desktop block is gated on this being "hyprland"; "none" (or
   # any other value) skips it. NOTE: the Home Manager side (nix/home) is not
-  # conditional on this — settings IS now passed to home-manager (users.nix
-  # extraSpecialArgs), but only nix/home/shell/git.nix consumes it (for the git
-  # identity); the home hyprland config is unconditional, so a non-"hyprland"
-  # value here leaves it in place. Wire HM gating separately if a second
-  # desktop is ever added.
+  # conditional on this — settings IS passed to home-manager (users.nix
+  # extraSpecialArgs, and flake/home.nix for the standalone build), and
+  # nix/home/proton/proton.nix and nix/home/apps/bitwarden.nix consume it; the
+  # home hyprland config is unconditional, so a non-"hyprland" value here
+  # leaves it in place. What actually keeps Hyprland off a foreign host is the
+  # profile split (nix/home/profiles/session.nix), not this key. Wire HM gating
+  # separately if a second desktop is ever added.
   desktop = "hyprland";
 
   # Boot knobs — consumed by nix/modules/system/boot.nix.
@@ -38,15 +40,41 @@
     "zswap.writeback=0"
   ];
 
+  # --- Eval-time identity ----------------------------------------------
+  # These three carry a real name or address and are consumed at EVALUATION
+  # time — the mail account's generated Thunderbird prefs, rbw's config.json,
+  # the GECOS field. That timing is why they are plain settings keys and not
+  # agenix secrets like the git identity is (nix/home/secrets/identity.nix):
+  # age decrypts during activation, so a decrypted value can never become a
+  # Nix string, and anything an eval consumes lands in the world-readable Nix
+  # store regardless of how it got there. agenix would hide these from git and
+  # then leak them to the store anyway — a false guarantee.
+  #
+  # So they default to EMPTY, and empty means "unconfigured": nothing
+  # identifying ships in this public repo. Fill them in on the machine (the
+  # settings panel writes nix/data/settings.nix, or edit it and
+  # `git update-index --skip-worktree nix/data/settings.nix` to keep the clone
+  # clean). The git identity — the one that is runtime-resolvable — stays in
+  # agenix and never appears here at all.
+  #
+  # Display name for the Proton mail account (accounts.email realName).
+  protonRealName = "";
+
+  # Bitwarden account email for `programs.rbw.settings.email`. NOT assumed to
+  # equal the Proton address: they are separate accounts. Empty leaves the key
+  # out of rbw's config entirely, so `rbw` prompts on first use.
+  bitwardenEmail = "";
+
   # Proton account address, edited from the settings panel (SUPER+comma) and
   # read back by its Proton page to seed both logins. Nothing on the Nix side
   # consumes it: the page reads it through `global-settings dump`, the same
   # path every other row uses. Empty by default because the installer never
   # asks for it, and an empty field is what tells the page it is unconfigured.
   #
-  # NB nix/home/proton/proton.nix carries the same address literally for the mail
-  # account. Bridging this key through nix/modules/dots.nix would collapse the
-  # two, at the cost of editing a working account, so they are separate.
+  # nix/home/proton/proton.nix now reads THIS key for the mail account's
+  # address and userName (it used to reuse dots.gitEmail, i.e. the commit
+  # identity). So the settings panel and the mail account finally agree on one
+  # value instead of two that could drift.
   protonEmail = "";
 
   # Git commit-signing key override, edited from the settings panel. Empty

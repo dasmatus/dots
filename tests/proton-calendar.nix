@@ -2,10 +2,12 @@
 # Eval-only, in the style of tests/session-units.nix: no VM, no activation,
 # just a standalone `home-manager.lib.homeManagerConfiguration` read back
 # through `.config` and checked with asserts. Same reason as that file for not
-# using `nixosConfigurations.tokyonight`: nix/data/settings.nix and nix/data/facter.json
-# are symlinks into /var/lib/dots and facter.json is mode 0600 root-owned, so
-# anything routed through nix/system/hosts.nix dies on permissions whatever
-# `--impure` is passed.
+# using `nixosConfigurations.tokyonight`: routing a home-manager assertion
+# through the full system closure buys nothing and costs a NixOS evaluation.
+# (It was also once impossible — nix/data/{settings.nix,facter.json} were
+# symlinks into /var/lib/dots with facter.json mode 0600 root-owned, so
+# nix/system/hosts.nix died on permissions whatever `--impure` was passed. Both
+# are real in-tree files now.)
 #
 # What this exists to catch is the profile path. nix/home/proton/proton.nix runs
 # Betterbird rather than Thunderbird (for its tray icon), and the calendar in
@@ -26,13 +28,16 @@
 let
   hm = inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
-    # nix/home/proton/proton.nix reads exactly these two, for the mail account's
-    # address and display name. Fake values: what matters here is that the
-    # module takes them from `dots` at all rather than from a literal.
+    # nix/home/proton/proton.nix reads exactly these two settings keys, for the
+    # mail account's address and display name. Fake values: what matters here
+    # is that the module takes them from `settings` at all rather than from a
+    # literal. Layered over the real defaults so a key the module starts
+    # reading later fails as a missing-attribute error here rather than
+    # silently resolving to something unintended.
     extraSpecialArgs = {
-      dots = {
-        gitEmail = "ada@example.com";
-        gitName = "Ada Lovelace";
+      settings = (import ../nix/system/defaults.nix) // {
+        protonEmail = "ada@example.com";
+        protonRealName = "Ada Lovelace";
       };
       # nix/home/proton/proton.nix takes the mail client as a module argument rather
       # than off pkgs, because nixpkgs has no betterbird and this repo keeps
@@ -91,9 +96,14 @@ let
   hasExporterTimer = cfg.systemd.user.timers ? "proton-calendar-export";
 
   # --- 5. The mail account carries no literal address. ----------------------
-  # The whole point of routing identity through `dots`: this repo is public.
+  # The whole point of routing identity through `settings`: this repo is
+  # public. These used to come from `dots.gitEmail`/`dots.gitName` — the commit
+  # identity, reused as the mail account. That identity is an agenix secret
+  # now (nix/home/secrets/identity.nix) with no eval-time value to borrow, so
+  # the mail account reads its own protonEmail/protonRealName keys, which
+  # default to empty in nix/system/defaults.nix.
   account = cfg.accounts.email.accounts.proton;
-  addressFromDots = account.address == "ada@example.com" && account.realName == "Ada Lovelace";
+  addressFromSettings = account.address == "ada@example.com" && account.realName == "Ada Lovelace";
 in
 assert lib.assertMsg profileAtExpectedPath ''
   tests/proton-calendar.nix: no generated profile at ${profilePath}.
@@ -118,11 +128,11 @@ assert lib.assertMsg (hasExporterService && hasExporterTimer) ''
   }.
   The registered calendar is a plain file; with nothing on a schedule to
   rewrite it, it is a snapshot that ages silently rather than a calendar.'';
-assert lib.assertMsg addressFromDots ''
+assert lib.assertMsg addressFromSettings ''
   tests/proton-calendar.nix: accounts.email.accounts.proton does not take its
-  address and realName from `dots`. This repo is public, and an address
-  written into nix/home/proton/proton.nix as a literal is in the clone history for
-  good.'';
+  address and realName from `settings` (protonEmail / protonRealName). This
+  repo is public, and an address written into nix/home/proton/proton.nix as a
+  literal is in the clone history for good.'';
 pkgs.writeText "proton-calendar-ok" ''
   profile-path-unmoved
   calendar-uri-matches-exporter

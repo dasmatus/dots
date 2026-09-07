@@ -28,6 +28,11 @@
 # Keep this in step with xtask when aipage's pipeline changes; the update
 # script (scripts/update-aipage.sh) warns on xtask drift.
 #
+# Toolchain: cargo/rustc and bun are NOT picked out of `pkgs` here — they come
+# from flake/languages.nix through `devenv.lib.mkConfig`, so this build, the
+# dev shell and the user profile compile with one declared toolchain. See the
+# `toolchains` binding below.
+#
 # Vendoring: cargo deps via `rustPlatform.fetchCargoVendor` (Cargo.lock is v4,
 # no git deps — only intra-workspace path deps, which live in `aipageSrc` and
 # are found via the workspace layout by `cargoSetupHook`); JS deps
@@ -38,8 +43,37 @@
 {
   pkgs,
   rustPlatform,
+  inputs,
 }:
 let
+  # The Rust and Bun toolchains this build compiles with, read out of
+  # flake/languages.nix — the same devenv module `nix develop` imports and
+  # nix/home/base/pkgs.nix installs into the user profile. Before this, the
+  # build named `pkgs.cargo`, `pkgs.rustc` and `pkgs.bun` directly, which meant
+  # aipage could silently be built by a different Rust than the one the repo
+  # declares for everything else.
+  #
+  # Only two PACKAGES are taken, not devenv's `config.packages`: a derivation
+  # wants the compilers it names in `nativeBuildInputs`, not a whole
+  # environment. `mkConfig` is module-system evaluation only — no shell is
+  # built and no assertion in that file is forced.
+  #
+  # `pkgs` here is flake/lib.nix's `pkgsBun` (the bun2nix-overlaid instance),
+  # so `bun` and the Rust toolchain come from the very instance the rest of
+  # this derivation is built against.
+  toolchains = inputs.devenv.lib.mkConfig {
+    inherit pkgs inputs;
+    modules = [ ../../flake/languages.nix ];
+  };
+
+  # `toolchainPackage` (rustc + cargo + clippy + rustfmt + rust-analyzer joined
+  # into one package), not the individual `toolchain.cargo` / `toolchain.rustc`
+  # attributes. Those two only track nixpkgs; `toolchainPackage` is the
+  # attribute that also follows a `languages.rust.channel` switch to a
+  # rust-overlay stable/nightly, which is exactly the change that must not
+  # leave this build on a different compiler from the dev shell.
+  rustToolchain = toolchains.languages.rust.toolchainPackage;
+  bun = toolchains.languages.javascript.bun.package;
   # Pin: codeberg.org/dasmatus/aipage main. Bump via scripts/update-aipage.sh.
   # `hash` is the narHash of the fetched tree (refreshed by the update script's
   # fakeHash→build→mismatch loop, same as the fetchCargoVendor hash below).
@@ -121,8 +155,7 @@ let
     src = aipageSrc;
 
     nativeBuildInputs = [
-      pkgs.cargo
-      pkgs.rustc
+      rustToolchain
       rustPlatform.cargoSetupHook
       pkgs.llvmPackages.lld # wasm32-unknown-unknown linker (nixpkgs rustc
       # delegates wasm linking to the system `lld`, not a self-contained
@@ -130,12 +163,32 @@ let
       # "linker `lld` not found").
       wasm-bindgen-cli
       pkgs.binaryen # `wasm-opt`
-      pkgs.bun
+      bun
       pkgs.bun2nix.hook # reads `bunDeps`, populates node_modules offline
       pkgs.dart-sass # `sass` binary — replaces `bunx sass`
     ];
 
     inherit cargoDeps bunDeps;
+
+    # `--backend=copyfile`, not bun's default `hardlink`. bun2nix's hook seeds
+    # BUN_INSTALL_CACHE_DIR with `cp -r` (no `-L`, despite its own comment
+    # claiming otherwise), so all 541 cache entries stay *symlinks* into
+    # per-package `bun-pkg-…` store paths. bun then hardlinks each package's
+    # files through those symlinks — i.e. link(2) whose resolved source is a
+    # root-owned, read-only /nix/store file. Linux refuses that with EPERM
+    # whenever `fs.protected_hardlinks=1` (the systemd default, so: Fedora and
+    # NixOS both) and the builder is neither the file's owner nor holds write
+    # access to it, and the install dies with 541 × "EPERM: Operation not
+    # permitted: failed to link package". Copying sidesteps store ownership
+    # entirely, and touches only the packages actually installed.
+    #
+    # Setting this *replaces* the hook's default flag array rather than
+    # appending to it, so `--linker=isolated` has to be repeated. And it has to
+    # be `bunInstallFlags`, not `bunInstallFlagsArray`: the latter would need
+    # `__structuredAttrs`; without it the list
+    # arrives as one space-joined string and `concatTo` passes it through as a
+    # single escaped argv entry. The plain `…Flags` string is word-split.
+    bunInstallFlags = "--linker=isolated --backend=copyfile";
 
     # Point the wasm32 target at the nix-store lld explicitly (belt-and-
     # suspenders alongside lld being on PATH via nativeBuildInputs).

@@ -12,7 +12,7 @@
 # read `config.dots.*` instead of hardcoding `settings.*` keys. Every bridge
 # uses mkDefault, so a direct `config.dots.* = …` assignment in another module
 # still wins over the installer/defaults values. The installer-written subset
-# (username, hostname, disks, swapSize, gitName, gitEmail + the three AI
+# (username, hostname, disks, swapSize + the three AI
 # toggles) and the path knobs are declared here; the user-editable defaults.nix
 # knobs (timezone, locale, desktop, boot, network) stay as `settings.*` reads
 # — they are NOT installer-managed, so they don't get dots options.
@@ -46,14 +46,6 @@ in
     swapSize = mkOption {
       type = types.str;
       description = "Swap size as a Nix string with unit, e.g. \"32G\" (installer-collected).";
-    };
-    gitName = mkOption {
-      type = types.str;
-      description = "Git user.name (installer-collected; also used as the GECOS full name).";
-    };
-    gitEmail = mkOption {
-      type = types.str;
-      description = "Git user.email (installer-collected).";
     };
 
     # --- AI tooling (toggled by the installer TUI "AI" screen) ---
@@ -122,8 +114,6 @@ in
     hostname = mkDefault settings.hostname;
     disks = mkDefault settings.disks;
     swapSize = mkDefault settings.swapSize;
-    gitName = mkDefault settings.gitName;
-    gitEmail = mkDefault settings.gitEmail;
     ai = {
       claude = mkDefault settings.aiClaude;
       codex = mkDefault settings.aiCodex;

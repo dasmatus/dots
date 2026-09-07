@@ -42,8 +42,23 @@
       cursor_shape = "beam";
       cursor_blink_interval = "0.5";
       cursor_stop_blinking_after = "0";
-      font_family = "LilexNF";
-      bold_font = "LilexNF";
+      # "Lilex Nerd Font Mono", not "LilexNF". The old value named a family
+      # nothing on this machine provides: nixpkgs' nerd-fonts.lilex
+      # (nix/home/base/pkgs.nix) registers "Lilex Nerd Font", "... Mono" and
+      # "... Propo"; the compact "LilexNF" spelling exists only in a
+      # differently-patched build. fontconfig does not fail on an unknown
+      # family, it SUBSTITUTES -- `fc-match LilexNF` answered
+      # NotoSans-Regular -- so kitty silently rendered in a proportional font
+      # carrying no Nerd Font glyphs, which is where the tofu came from. Two
+      # separate faults produced one symptom: no font package was installed at
+      # all, and this name would not have matched it even so.
+      #
+      # The Mono cut specifically: it is the fixed-advance one (fontconfig
+      # spacing 100) and a terminal needs one cell width. The bare
+      # "Lilex Nerd Font" and "... Propo" cuts use each glyph's natural
+      # advance, which suits a proportional UI and not a grid.
+      font_family = "Lilex Nerd Font Mono";
+      bold_font = "Lilex Nerd Font Mono";
       font_size = "12";
     };
     # Shift+Return sends ESC + CR, matching the Alacritty binding

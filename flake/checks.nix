@@ -20,8 +20,6 @@ in
       settings.hostname
       (builtins.concatStringsSep "," settings.disks)
       settings.swapSize
-      settings.gitName
-      settings.gitEmail
     ]
   );
   # The committed facter.json stub ({}) must leave every detection off,
@@ -178,11 +176,18 @@ in
         fetchurl = args: args;
       };
       allZeroSha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-      isBad = n: (raw.${n} ? hash) && (builtins.elem raw.${n}.hash [ "" allZeroSha256 ]);
+      isBad =
+        n:
+        (raw.${n} ? hash)
+        && (builtins.elem raw.${n}.hash [
+          ""
+          allZeroSha256
+        ]);
       bad = builtins.filter isBad (builtins.attrNames raw);
     in
     assert lib.assertMsg (bad == [ ]) (
-      "nix/packages/aipage-bun.nix has blank or all-zero hash entries: " + builtins.concatStringsSep ", " bad
+      "nix/packages/aipage-bun.nix has blank or all-zero hash entries: "
+      + builtins.concatStringsSep ", " bad
     );
     pkgs.writeText "aipage-bun-hashes-eval-ok" "no-blank-hashes";
   # Form-factor detection (nix/modules/system/form-factor.nix) — assert the
@@ -402,12 +407,52 @@ in
         dots-sandbox policy validate ${policyPath} | tee $out
       '';
 
+  # The standalone home-manager build (flake/home.nix), forced to EVALUATE but
+  # not to build. `.drvPath` is the whole trick: it demands that every module
+  # in nix/home/profiles/portable.nix type-checks, that every option assignment
+  # resolves, and that each specialArg the profile destructures
+  # (`dots`, `settings`, `wrapSandboxed`, the in-flake packages) is actually
+  # supplied — while stopping short of realising a closure of browsers, editors
+  # and a Haskell toolchain, which is not something `nix flake check` should
+  # ever pull.
+  #
+  # This gate exists because the standalone build has no other backstop. The
+  # NixOS side is covered transitively: nixosConfigurations.tokyonight forces
+  # the same home modules through several checks below. flake/home.nix
+  # reconstructs `pkgs`, the unfree predicate and the `dots` bridge by hand
+  # (see its header for why each one cannot be borrowed), and NOTHING else in
+  # this repo evaluates that reconstruction. Without this check its first
+  # consumer would be a `home-manager switch` on a foreign host — the worst
+  # place to discover a missing specialArg, since a failed activation there
+  # leaves a half-applied generation on a machine this repo does not otherwise
+  # manage.
+  #
+  # Keyed on the bare username rather than "user@host": flake/home.nix exposes
+  # both, but that alias is the one whose resolution does not depend on what
+  # the checking machine happens to be called.
+  home-standalone-eval =
+    let
+      hm = self.homeConfigurations.${settings.username};
+    in
+    # unsafeDiscardStringContext is load-bearing, not a lint silencer. A bare
+    # `.drvPath` carries a DrvDeep string context, and interpolating that into
+    # a file makes the check depend on the derivation AND its whole input
+    # closure being realised — i.e. `nix flake check` would build every
+    # package the profile installs, which is the opposite of what this gate is
+    # for. Dropping the context keeps the value (computing a drvPath at all
+    # requires the full module evaluation this check wants) while leaving the
+    # result a plain string.
+    pkgs.writeText "home-standalone-ok" (
+      builtins.unsafeDiscardStringContext hm.activationPackage.drvPath
+    );
+
   # nix/modules/services/agentmem.nix, guarded against the three ways it has already
   # broken at activation. Each of those reached a rebuild because parsing a
-  # module is not evaluating it, and `nix flake check` cannot run on a bare
-  # checkout here (nix/data/settings.nix is a symlink into /var/lib/dots), so on a
-  # workstation nothing forced these paths until switch time. In CI, where the
-  # settings stub exists, this is the gate that fires first.
+  # module is not evaluating it, and `nix flake check` used to be unrunnable on
+  # a bare checkout (nix/data/settings.nix was a symlink into /var/lib/dots), so
+  # on a workstation nothing forced these paths until switch time. That symlink
+  # is now a real in-tree file, so `nix flake check` runs anywhere and this is
+  # the gate that fires first, locally as well as in CI.
   agentmem-eval =
     let
       sys = self.nixosConfigurations.tokyonight.config;
@@ -577,6 +622,24 @@ in
     assert !(lib.hasInfix ''hl.exec_cmd("qs")'' lua);
     # But still reachable from the keybinds, which is a different code path
     # and must not be collateral damage of removing the start line.
-    assert lib.hasInfix "qs ipc call launcher toggle" lua;
+    #
+    # This is asserted in TWO halves because the keybind stopped calling `qs`
+    # directly: nix/home/desktop/session generates a `dots-<action>@` template
+    # unit per action, and the Hyprland bind starts that unit rather than
+    # running the command itself. So the lua carries a `systemctl --user start
+    # dots-launcher-toggle@…` line, and the ipc call lives one hop away in the
+    # unit's own ExecStart.
+    #
+    # The single `hasInfix … lua` this replaces was written against the older
+    # arrangement and had been false ever since — nothing caught it because
+    # `nix flake check` could not evaluate this flake at all while
+    # nix/data/settings.nix was a symlink into /var/lib/dots. Checking only the
+    # lua again would re-freeze the assertion against today's indirection;
+    # checking both ends keeps the original property ("the keybind still
+    # reaches the launcher") true across either shape.
+    assert lib.hasInfix "dots-launcher-toggle@" lua;
+    assert lib.hasInfix "qs ipc call launcher toggle" (
+      toString hm.systemd.user.services."dots-launcher-toggle@".Service.ExecStart
+    );
     pkgs.writeText "shell-service-eval-ok" execStart;
 }

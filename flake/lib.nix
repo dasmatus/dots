@@ -15,8 +15,13 @@ let
     inherit system;
     overlays = [ inputs.bun2nix.overlays.default ];
   };
+  # `inputs` is threaded in for one reason: aipage.nix reads its Rust and Bun
+  # toolchains out of flake/languages.nix through `inputs.devenv.lib.mkConfig`,
+  # so the extension is built by the same compilers the dev shell and the user
+  # profile carry. callPackage cannot supply it — there is no `pkgs.inputs`.
   aipagePackages = pkgsBun.callPackage ../nix/packages/aipage.nix {
     rustPlatform = pkgsBun.rustPlatform;
+    inherit inputs;
   };
   # nixpkgs that permits exactly one unfree package, for the Claude desktop
   # app. nix/modules/system/core.nix's allowUnfreePredicate governs the NixOS `pkgs`

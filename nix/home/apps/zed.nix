@@ -27,15 +27,26 @@
 # dockerfile-language-server. taplo (TOML) and vimls have no Zed equivalent
 # today — see the gaps noted inline.
 {
+  config,
   pkgs,
   lib,
   dots,
   ...
 }:
 {
+  # Zed is a FLATPAK now (dev.zed.Zed, declared in
+  # nix/home/base/flatpaks.nix). `package = null` is the home-manager
+  # firefox/zed-family idiom for "manage the configuration, install nothing":
+  # the module keeps rendering settings.json / keymap.json exactly as before,
+  # and the editor itself comes from Flathub.
+  #
+  # The rendered files still land in ~/.config/zed, which is NOT where a
+  # sandboxed Zed looks — see the `.var/app` symlink at the bottom of this
+  # file for how the two are joined, and nix/home/base/flatpaks.nix for the
+  # filesystem grant that makes the symlink resolve inside the sandbox.
   programs.zed-editor = {
     enable = true;
-    package = pkgs.zed-editor;
+    package = null;
 
     # Extensions are NOT installed by Nix. The module emits
     # `auto_install_extensions = { <id> = true; }` into settings.json, so Zed
@@ -62,24 +73,6 @@
 
       # Rust crate dependency review (replaces VSCodium's Dependi)
       "deps-language-server"
-    ];
-
-    # Binaries put on Zed's PATH (the module wraps zed-editor in a
-    # symlinkJoin + makeWrapper when this is non-empty). These are the LSP
-    # servers + formatters not bundled by Zed core or the extensions above.
-    # Neovim gets the same tools via nixvim extraPackages (nixvim.nix), so both
-    # editors share one toolchain — the reliability fix for "works in both".
-    # The Haskell toolchain (haskell-language-server-wrapper, fourmolu, stack,
-    # ghc) is intentionally NOT here: it's shell-useful, so it lives in
-    # home.packages (nix/home/default.nix) and reaches Zed via the Hyprland
-    # session PATH (Hyprland inherits the home-manager profile PATH, so a
-    # zeditor launched from the SUPER+Z bind sees these binaries).
-    extraPackages = with pkgs; [
-      nil # Nix LSP (the `nix` extension registers it; binary lives here)
-      nixfmt # Nix formatter (nil's formatting.command + external fallback)
-      clang-tools # clang-format for C/C++ formatting
-      stylua # Lua formatter
-      rustfmt # Rust formatter (rust-analyzer also runs it internally)
     ];
 
     # Written to ~/.config/zed/settings.json (jq-merged with manual edits by
@@ -349,4 +342,44 @@
       language_models.ollama.api_url = "http://localhost:11434";
     };
   };
+
+  # The LSP servers and formatters that used to be
+  # `programs.zed-editor.extraPackages`. That option wraps the zed binary in a
+  # symlinkJoin to put them on Zed's PATH — and it asserts a non-null
+  # `package`, so it is unavailable the moment Zed stops being installed by
+  # Nix. They move to the profile instead.
+  #
+  # Be clear about what that does and does not buy. On PATH they serve the
+  # shell and Neovim (nixvim.nix pins the same set, which is the "works in
+  # both editors" guarantee). Zed itself is sandboxed now, and a flatpak does
+  # NOT inherit the profile PATH — reaching these from inside it needs both
+  # the /nix/store grant in nix/home/base/flatpaks.nix and Zed being told
+  # where they are. Treat editor-side language support in the flatpak as
+  # something to verify per language server, not as something this list
+  # guarantees the way it used to.
+  #
+  # clang-tools (clang-format) and rustfmt are NOT here any more, and their
+  # absence is not a regression: both are inside the language toolchains
+  # nix/home/base/pkgs.nix installs from flake/languages.nix, so they are on
+  # PATH exactly as before. Listing them a second time would in fact break the
+  # build — home-manager's profile is a buildEnv that refuses collisions, and
+  # a bare `pkgs.rustfmt` beside the toolchain's own is two store paths
+  # claiming bin/rustfmt.
+  #
+  # What stays is the Nix and Lua tooling, which is not part of any toolchain
+  # declared there: devenv's `languages.nix` installs nixd, and this config
+  # deliberately disables nixd in favour of nil (see the `lsp` block above).
+  home.packages = with pkgs; [
+    nil # Nix LSP (the `nix` extension registers it; binary lives here)
+    nixfmt # Nix formatter (nil's formatting.command + external fallback)
+    stylua # Lua formatter
+  ];
+
+  # Join home-manager's ~/.config/zed to the per-app root the flatpak reads as
+  # $XDG_CONFIG_HOME. mkOutOfStoreSymlink (not a plain store symlink) because
+  # the target must stay a live path into $HOME that Zed can also write to —
+  # a store symlink would be read-only and Zed rewrites settings.json itself
+  # when a setting is changed in the UI.
+  home.file.".var/app/dev.zed.Zed/config/zed".source =
+    config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/.config/zed";
 }
