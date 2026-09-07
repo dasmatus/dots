@@ -293,27 +293,36 @@
       # unless ~/.librewolf is bound in. Read-write, because all three
       # rewrite their own profile constantly — search.json.mozlz4, message
       # indexes, settings.json edited from the UI.
+      # Firefox 67+ mints a NEW profile per installation and records it as
+      # [Install<hash>] in profiles.ini, ignoring Profile0's Default=1. Against
+      # a home-manager profile that is fatal in a quiet way: LibreWolf starts,
+      # looks configured, and is running a blank profile with none of the
+      # prefs or extensions.packages XPIs below. Observed here as nine
+      # throwaway <random>.default-default directories, one per launch, each
+      # containing only times.json.
+      #
+      # Making profiles.ini writable does NOT fix it — that only lets the
+      # dedicated-profile migration record its choice, which it then does.
+      # MOZ_LEGACY_PROFILES=1 is the documented switch that turns the
+      # migration off and restores "use the profile marked Default=1".
+      # Verified both ways on this host: without it, one new profile per
+      # launch and default/ stays empty; with it, zero new profiles, no
+      # installs.ini, no [Install] section, and default/ fills with the 38
+      # files a real session writes.
+      "io.gitlab.librewolf-community".Environment.MOZ_LEGACY_PROFILES = "1";
+
       "io.gitlab.librewolf-community".Context.filesystems = [
-        "~/.librewolf"
-        # The store, read-only -- required, and NOT for the same reason as
-        # Brave's grant above. `mkOutOfStoreSymlink` cannot emit a direct link:
-        # it works by placing a symlink IN the store whose target is the
-        # out-of-store path. So what actually lands at
-        # ~/.var/app/io.gitlab.librewolf-community/.librewolf is a three-hop
-        # chain whose first two hops are store paths:
-        #
-        #   .../.librewolf -> /nix/store/...-home-manager-files/.var/app/.../.librewolf
-        #                  -> /nix/store/...-hm_.librewolf
-        #                  -> /home/matus/.librewolf
-        #
-        # A flatpak resolves symlinks inside its OWN mount namespace, so
-        # granting just ~/.librewolf leaves hop 1 aimed at a /nix/store that is
-        # not mounted in there. LibreWolf does not error on an unreadable
-        # profile path -- it starts a fresh profile -- so the symptom is a
-        # browser with none of its prefs and none of the extensions.packages
-        # XPIs, and nothing in any log explaining it. The comment above about
-        # ~/.librewolf needing to be bound in is true but insufficient; it
-        # describes a one-hop link this mechanism never produces.
+        # No ~/.librewolf entry: the profile is not there any more. It lives in
+        # the flatpak's own persisted directory now (see configPath in
+        # nix/home/apps/librewolf.nix), which the sandbox always has, so the
+        # old grant pointed at a path that no longer exists.
+        # The store, read-only. Still required after the profile moved, but
+        # for a different reason than before: it is no longer a directory
+        # symlink that has to be traversed, it is the per-FILE symlinks inside
+        # the profile. home-manager writes user.js, search.json.mozlz4 and each
+        # extensions/*.xpi as links into /nix/store, and a flatpak resolves
+        # symlinks inside its own mount namespace, so without this the profile
+        # directory is present and every managed file in it is unreadable.
         "/nix/store:ro"
       ];
       # Zed also needs the code it edits, hence the second entry.
