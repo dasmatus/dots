@@ -1,9 +1,17 @@
-# Local SearXNG metasearch instance on 127.0.0.1:8888 — the default search
-# backend for every browser except Tor Browser (Brave policy in desktop.nix,
-# LibreWolf + Epiphany in nix/home) and for Claude Code through the searxng
-# MCP bridge (nix/home/ai/claude.nix). The consumers repeat the URL literally:
+# Local SearXNG metasearch instance on 127.0.0.1:8888 — the web-search
+# backend the AI harnesses reach through the searxng MCP bridge
+# (nix/home/ai/{claude,codex}.nix). The consumers repeat the URL literally:
 # the Home Manager side would need osConfig coupling to read it from here,
 # and the port below is the only place it is ever defined system-side.
+#
+# No browser DEFAULTS to it any more. This module is NixOS-only while the
+# browser configs are in the portable half of the home profile
+# (nix/home/profiles/portable.nix), so a browser pointed here searches into a
+# closed port on every foreign host — Brave's managed policy
+# (nix/modules/desktop/desktop.nix) and LibreWolf's engine list
+# (nix/home/apps/librewolf.nix) both name DuckDuckGo for that reason. What
+# LibreWolf keeps is the @sx alias, i.e. this instance on demand rather than
+# by default; see that file for the full reasoning.
 #
 # `dots-sandbox triage --assist`'s privacy-gated `searxng_search` tool
 # (nix/home/sandbox/triage.nix passes this same address through as

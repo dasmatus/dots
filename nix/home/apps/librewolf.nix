@@ -147,8 +147,8 @@ in
 {
   # LibreWolf is a FLATPAK now (io.gitlab.librewolf-community, declared in
   # nix/home/base/flatpaks.nix). `package = null` keeps this module doing the
-  # part that matters — rendering the arkenfox user.js, the SearXNG engine and
-  # the pinned extension XPIs into the profile — while installing nothing.
+  # part that matters — rendering the arkenfox user.js, the search engine list
+  # and the pinned extension XPIs into the profile — while installing nothing.
   #
   # Everything below is unchanged: the profile is still written to
   # ~/.librewolf. The Flathub manifest runs the browser with
@@ -162,16 +162,49 @@ in
       isDefault = true;
       extraConfig = userJs;
 
-      # Default search: the local SearXNG instance (nix/modules/services/searxng.nix).
+      # Default search: DuckDuckGo, through LibreWolf's OWN app-provided
+      # engine rather than a hand-written duckduckgo.com URL. `ddg` is the id
+      # LibreWolf ships it under, and its record is NOT upstream Firefox's:
+      # LibreWolf's search-config-v2.json (browser/omni.ja,
+      # defaults/settings/main/) names it "DuckDuckGo No-AI" and points it at
+      # https://noai.duckduckgo.com/ with suggestions on ac.duckduckgo.com.
+      # Naming the id inherits all of that, plus the icon; spelling out a
+      # duckduckgo.com template here would silently opt back INTO the AI
+      # results LibreWolf strips. It also puts the browser back on its own
+      # shipped default — that same file's defaultEngines record is
+      # globalDefault = globalDefaultPrivate = "ddg".
+      #
+      # Nothing has to be declared under `engines` for that: home-manager
+      # infers an id matching no entry there as app-provided
+      # (profiles/search.nix, `engineInput`) and emits it with
+      # `_isAppProvided = true`.
+      #
+      # It used to be the local SearXNG instance
+      # (nix/modules/services/searxng.nix), which only ever resolves on a host
+      # that is actually running it. This module sits in the PORTABLE half of
+      # the profile (nix/home/profiles/portable.nix), so it installs on
+      # foreign hosts too, where nothing listens on 127.0.0.1:8888 and every
+      # address-bar search died with connection-refused. That is the same
+      # reason the Brave policy in nix/modules/desktop/desktop.nix names a
+      # public provider; this is the browser that had been left behind.
+      #
+      # SearXNG stays declared but demoted — it is a real engine in the list,
+      # reachable on demand through @sx, and simply not what the address bar
+      # picks. Unlike Brave's mandatory policy set, a non-default engine that
+      # points at a dead port costs nothing until someone types the alias.
+      #
       # force is required — LibreWolf rewrites search.json.mozlz4 on every
       # launch, so a non-forced declarative config loses the race after the
       # first start. Engines are keyed by id since HM's search schema v7+;
       # `name` is the display name.
       search = {
         force = true;
-        default = "searxng";
-        privateDefault = "searxng";
-        order = [ "searxng" ];
+        default = "ddg";
+        privateDefault = "ddg";
+        order = [
+          "ddg"
+          "searxng"
+        ];
         engines.searxng = {
           name = "SearXNG";
           urls = [ { template = "http://127.0.0.1:8888/search?q={searchTerms}"; } ];
