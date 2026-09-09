@@ -118,3 +118,6 @@ See [`tests/README.md`](tests/README.md) for how the NixOS VM tests work.
 
 [`nix/README.md`](nix/README.md) has the module-by-module design notes, including
 what this repo's retired Gentoo installer used to do, kept around for history.
+
+[`AI-DECLARATION.md`](AI-DECLARATION.md) records how much of this repo an agent
+built, stage by stage.
