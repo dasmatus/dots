@@ -1,8 +1,0 @@
-{
-  "name": "dots-memory",
-  "version": "0.1.0",
-  "description": "Postgres-backed memory: recall on session start, a nudge on stop, and remember only as a visible tool call.",
-  "author": {
-    "name": "Matus"
-  }
-}

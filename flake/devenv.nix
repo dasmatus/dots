@@ -1,5 +1,5 @@
 # The dev shell for hacking on this repo's Rust crates (installer-tui,
-# settings-global, dots-sandbox, dots-memory-*), as a devenv module.
+# settings-global, dots-sandbox), as a devenv module.
 #
 # This replaces the hand-rolled `pkgs.mkShell` that used to live in
 # flake/devshell.nix. What the move buys, concretely:

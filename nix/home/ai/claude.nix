@@ -8,8 +8,6 @@
   lib,
   dots,
   claudeDesktop,
-  inputs,
-  wrapSandboxed,
   ...
 }:
 let
@@ -121,112 +119,6 @@ let
     sha256 = "1nj8hrvakcpvbi89gvpcj1szr2yr6531w86npyx56msj6683c61m";
   };
 
-  # dots-memory: the Postgres-backed memory plugin. Design:
-  # docs/superpowers/specs/2026-08-26-postgres-memory-plugin-design.md.
-  # The hook shells out to psql itself, rather than trusting the MCP
-  # server, so a dead cluster degrades the plugin to silence instead of a
-  # failed SessionStart/Stop: any psql failure means no stdout at all, and
-  # the script always exits 0. `basename` is done with pure parameter
-  # expansion (not the coreutils binary) so `postgresql_18` can stay the
-  # only runtimeInput.
-  dotsMemoryHook = pkgs.writeShellApplication {
-    name = "dots-memory-hook";
-    runtimeInputs = [ pkgs.postgresql_18 ];
-    text = ''
-      # Escapes backslashes, double quotes and newlines for one JSON
-      # string literal. No jq dependency for a single field.
-      json_escape() {
-        local s=$1
-        s=''${s//\\/\\\\}
-        s=''${s//\"/\\\"}
-        s=''${s//$'\n'/\\n}
-        printf '%s' "$s"
-      }
-
-      event="''${1:-}"
-      project_dir="''${CLAUDE_PROJECT_DIR:-$PWD}"
-      scope="''${project_dir##*/}"
-
-      case "$event" in
-        session-start)
-          if digest="$(psql -X -d matus -Atc \
-              "select agentmem.digest('$scope', 40, 6000)" 2>/dev/null)"; then
-            printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' \
-              "$(json_escape "$digest")"
-          fi
-          ;;
-        stop)
-          # Claude Code hands a hook its event JSON on stdin. An empty read
-          # delimiter takes the whole of it in one go, and the regex lifts out the
-          # one field that matters. Parsing it here keeps postgresql_18 the only
-          # runtimeInput, the same reason basename above avoids coreutils.
-          payload=""
-          if [ ! -t 0 ]; then
-            IFS= read -r -d "" payload || true
-          fi
-          # Claude Code re-runs Stop after its own nudge lands, and a session
-          # with nothing worth recording answers it the same way every time,
-          # so the nudge repeats until the block cap stops it. The binary
-          # asks a Stop hook to succeed quietly while this flag is set, which
-          # spends the nudge once per chain instead of once per turn.
-          active_re='"stop_hook_active"[[:space:]]*:[[:space:]]*true'
-          if [[ $payload =~ $active_re ]]; then
-            exit 0
-          fi
-          session=""
-          session_re='"session_id"[[:space:]]*:[[:space:]]*"([0-9a-fA-F-]{36})"'
-          if [[ $payload =~ $session_re ]]; then
-            session="''${BASH_REMATCH[1]}"
-          fi
-          # Without a session id there is nothing to ask the database about, and
-          # asserting "nothing was recorded" without having looked is precisely
-          # the bug this branch exists to fix. Stay quiet instead of guessing.
-          [ -n "$session" ] || exit 0
-          if wrote="$(psql -X -d matus -Atc \
-              "select agentmem.session_wrote('$session')" 2>/dev/null)" \
-              && [ "$wrote" = "f" ]; then
-            printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"nothing durable was recorded this session; if something was learned, call remember"}}\n'
-          fi
-          ;;
-      esac
-      exit 0
-    '';
-  };
-
-  # The checked-in tree under plugins/dots-memory/ stays diffable; this
-  # runCommand only adds `bin/` store symlinks on top, so `.mcp.json` and
-  # `hooks/hooks.json` can name `''${CLAUDE_PLUGIN_ROOT}/bin/<name>`
-  # without ever spelling out a store path. The plugin's own
-  # .claude-plugin/plugin.json suppresses Home Manager's synthesized
-  # manifest. `dots-memory-mcp` is plan 3's crate
-  # (rust/dots-memory-mcp); this derivation only symlinks the built
-  # binary in, it does not build it.
-  #
-  # The binary linked in is `wrapSandboxed`'s output, not the bare package —
-  # same "postgres" grant, same tier, and the same peer-auth-over-virtio-fs
-  # caveat `flake/apps.nix`'s `memory-derive`/`memory-health` already carry
-  # (nix/data/sandbox-policy.json's "dots-memory-mcp" entry): a real MCP
-  # server spawn, once per session rather than per turn, is the low-latency
-  # tolerance this mechanism needs, and a stateless stdio server has nothing
-  # left to lose from confinement beyond that one socket.
-  dotsMemoryPlugin = pkgs.runCommand "dots-memory-plugin" { } ''
-    cp -r ${../../../plugins/dots-memory} $out
-    chmod -R u+w $out
-    mkdir -p $out/bin
-    ln -s ${
-      lib.getExe (
-        wrapSandboxed {
-          appId = "dots-memory-mcp";
-          caps = [ "postgres" ];
-          tier = "container";
-        } inputs.self.packages.x86_64-linux.dots-memory-mcp
-      )
-    } $out/bin/dots-memory-mcp
-    ln -s ${dotsMemoryHook}/bin/dots-memory-hook $out/bin/dots-memory-hook
-    test -e $out/.claude-plugin/plugin.json
-    test -e $out/.mcp.json
-  '';
-
   # dots-skills — this repo's skills/ tree as a plugin, plus the hook payloads
   # generated from it. Defined in nix/packages/dots-skills.nix rather than here because
   # nix/packages/claude-desktop.nix needs the identical tree: the desktop app reads
@@ -253,13 +145,6 @@ in
     # from the marketplace plugins in settings.enabledPlugins below; the two
     # mechanisms coexist.
     plugins.pstack = "${pstackSrc}";
-
-    # dots-memory — see `dotsMemoryPlugin` above. Ships its own
-    # .claude-plugin/plugin.json, so no manifest is synthesized here
-    # either. Not in `settings.enabledPlugins`: that key names
-    # `<plugin>@<marketplace>` pairs for marketplace-sourced plugins, and
-    # this one is loaded straight from the store like pstack above.
-    plugins.dots-memory = "${dotsMemoryPlugin}";
 
     # dots-skills — see `dotsSkills` above. This replaces the bare
     # `skills = ../../skills` wiring rather than sitting beside it. Both routes
@@ -438,11 +323,13 @@ in
       # place the default survives a `home-manager switch`.
       model = "opus";
 
-      # Turn off auto-memory. Claude then neither reads nor writes
-      # ~/.claude/projects/*/memory, so nothing about a session leaks into
-      # the next one behind the user's back. Project context comes from
-      # CLAUDE.md and the skills above, which are versioned here.
-      autoMemoryEnabled = false;
+      # Auto-memory back on. The Postgres-backed memory plugin that used to
+      # own this job — a custom hook shelling out to psql, a schema of its
+      # own, a service to keep running — is retired; Claude's built-in
+      # ~/.claude/projects/*/memory read/write now carries session-to-session
+      # continuity instead, with no extra service and nothing versioned here
+      # to keep in sync with it.
+      autoMemoryEnabled = true;
     };
   };
 

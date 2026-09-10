@@ -1,5 +1,0 @@
-comment = 'pg_agentmem: content addressing, id slugification, and a strict Mermaid flowchart subset for the agentmem memory store'
-default_version = '0.1.0'
-module_pathname = '$libdir/pg_agentmem'
-relocatable = false
-superuser = false

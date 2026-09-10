@@ -27,19 +27,6 @@
         }
       ]
     },
-    "memory-derive": {
-      "tier": "bwrap",
-      "caps": {
-        "repo-read": "allow",
-        "postgres": "allow"
-      }
-    },
-    "memory-health": {
-      "tier": "bwrap",
-      "caps": {
-        "postgres": "allow"
-      }
-    },
     "iso": {
       "tier": "bwrap",
       "caps": {
@@ -77,12 +64,6 @@
       "tier": "bwrap",
       "caps": {
         "net": "allow"
-      }
-    },
-    "dots-memory-mcp": {
-      "tier": "bwrap",
-      "caps": {
-        "postgres": "allow"
       }
     },
     "dev": {

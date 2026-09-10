@@ -14,7 +14,6 @@ swtpm — no libvirt, no host packages, no root. Defined in
 | `userborn-reboot-login` | under userborn + mutable `/etc` (with `passwordFilesLocation` pinned to `/var/lib/nixos`), the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
 | `limine-install-home` | `nix/modules/system/limine-install.nix`'s HOME-provisioning fix (see [`limine-home.nix`](limine-home.nix)): with `$HOME` unset, or set to a directory a different user owns, the wrapper invokes the real `mktemp` binary and exports the owned temp dir it prints; with `$HOME` already owned by the caller, the wrapper leaves it alone |
 | `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting the TPM2-unlocked LUKS root reaches `multi-user.target` — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
-| `agentmem-postgres` | the agentmem cluster (`nix/modules/services/agentmem.nix`) is reachable over its unix socket by peer auth, a written row survives a real `nix/modules/system/impermanence.nix` reboot cycle (bind-mounted `/var/lib/postgresql` on a formatted `/persist` disk), `postgresqlBackup` produces a dump under the persisted parent, and that dump actually restores — known rows are written, backed up, truncated away, then brought back by replaying the dump as the postgres superuser |
 
 Also in `checks`: `nix-lint`-fast eval checks (`settings-eval`,
 `facter-*-eval`, `hm-activation-eval`, `shell-service-eval`) and the

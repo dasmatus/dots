@@ -302,8 +302,6 @@ in
       echo "  nix-smoke              NixOS VM test: boot the LiveISO under OVMF+TPM2"
       echo "  nix-smoke-interactive  test driver Python REPL"
       echo "  enroll-fido            enroll a FIDO2/U2F key as a mandatory 2FA factor"
-      echo "  memory-derive          rebuild the agentmem 'derived' graph from this checkout"
-      echo "  memory-health          check agentmem's reads-vs-writes kill criterion (design spec section 10)"
       echo "  clean                  remove local build/test leftovers"
     '';
   };
@@ -481,97 +479,12 @@ in
       cd ../settings-global && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ..
 
-      # pg_agentmem builds through buildPgrxExtension rather than plain
-      # cargo: it links against real PostgreSQL headers via bindgen.
-      # `cargo fmt --check` still runs directly (no server needed); the
-      # actual build gate is the flake package. Its #[pg_test] assertions
-      # (rust/pg-agentmem/tests/) are not part of this gate: `cargo pgrx
-      # test`'s own install step writes into postgresql.pg_config's
-      # reported --sharedir/--pkglibdir, which for a nixpkgs postgresql
-      # package is the immutable store output, so doCheck is false here —
-      # see flake/packages.nix for the same reasoning every other pgrx
-      # extension in nixpkgs already relies on.
-      cd pg-agentmem && cargo fmt --check && cd ..
-      nix build .#pg-agentmem --no-link
-
       # nix flake check --no-build only evaluates derivations, so it never
       # realizes dots-skills-primer and never runs dots-skills-primer.py's
       # asserts. Building it here is the only place in this gate that does.
       nix build .#dots-skills-primer --no-link
 
-      cd dots-memory-mcp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
-
-      cd dots-memory-derive && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
-
       cd dots-sandbox && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
-    '';
-  };
-
-  # Rebuild the `origin = 'derived'` half of the agentmem graph (design spec
-  # section 7, plan 5): the extractor prints Mermaid over this checkout's own
-  # structure, and agentmem.rebuild_derived swaps the `dots` scope's whole
-  # derived slice for it in one transaction, stamped with the commit read.
-  # Peer auth maps the OS user to both the database and role of the same
-  # name (agentmem.nix), so no connection string is needed beyond -U/-d.
-  #
-  # The call goes through a scratch -f script rather than -c: psql only
-  # performs :'var' interpolation when reading a script file (-f or
-  # interactive), never in -c's single-command mode, so a -c call with the
-  # Mermaid document spliced in by hand would need to hand-escape every
-  # quote in it instead of letting psql do that correctly.
-  memory-derive = mkShellApp "memory-derive" {
-    sandboxed = true;
-    runtimeInputs = [
-      pkgs.postgresql_18
-      self.packages.${pkgs.stdenv.hostPlatform.system}.dots-memory-derive
-    ];
-    text = ''
-      ${cdRepoRoot}
-      sha="$(git rev-parse HEAD)"
-      doc="$(dots-memory-derive .)"
-      db="$(id -un)"
-      script="$(mktemp)"
-      trap 'rm -f "$script"' EXIT
-      echo "SELECT agentmem.rebuild_derived('dots', :'doc', :'sha');" > "$script"
-      count="$(psql -U "$db" -d "$db" -v ON_ERROR_STOP=1 -v doc="$doc" -v sha="$sha" \
-        -tAf "$script")"
-      echo "rebuilt the derived graph: $count edges"
-    '';
-  };
-
-  # Render agentmem.health() (migration 0005) for a human, checking the kill
-  # criterion committed to in design spec section 10: this store gets deleted
-  # rather than tuned if reads never exceed writes within a month of the
-  # first stored row. Peer auth maps the OS user to both the database and
-  # role of the same name (agentmem.nix), so -U/-d is all a connection needs.
-  #
-  # -Atc emits one unaligned, unheaded row of '|'-joined columns — the
-  # verdict text itself never contains that character — and the shell read
-  # below splits it back out into a small report instead of a raw psql table.
-  memory-health = mkShellApp "memory-health" {
-    sandboxed = true;
-    runtimeInputs = [ pkgs.postgresql_18 ];
-    text = ''
-      ${cdRepoRoot}
-      db="$(id -un)"
-      row="$(psql -U "$db" -d "$db" -v ON_ERROR_STOP=1 -Atc "
-        SELECT reads || '|' || writes || '|' || coalesce(ratio::text, 'n/a')
-          || '|' || coalesce(oldest_fact_age::text, 'n/a')
-          || '|' || live_facts || '|' || superseded_facts || '|' || stale_facts
-          || '|' || verdict
-        FROM agentmem.health();
-      ")"
-      IFS='|' read -r reads writes ratio age live superseded stale verdict <<< "$row"
-      echo "agentmem health (last 30 days)"
-      echo "  reads:            $reads"
-      echo "  writes:           $writes"
-      echo "  reads/writes:     $ratio"
-      echo "  oldest fact age:  $age"
-      echo "  live facts:       $live"
-      echo "  superseded facts: $superseded"
-      echo "  stale facts:      $stale"
-      echo
-      echo "  verdict: $verdict"
     '';
   };
 
@@ -642,13 +555,13 @@ in
 
   # Remove local build/test leftovers (safe — all gitignored).
   #
-  # All 8 non-exempt apps in this file carry `sandboxed = true` and route
+  # All 6 non-exempt apps in this file carry `sandboxed = true` and route
   # through mkSandboxedApp (see its own comment for why the default
   # flipped to true for everyone at once, rather than staying an opt-in
-  # two apps picked up one at a time): default, nix-lint, memory-derive,
-  # memory-health, iso, iso-full, nix-smoke and this one. `rm -rf`
-  # touching the wrong tree is the one way this particular app could ever
-  # have anything to lose, and the sandbox is precisely what bounds that:
+  # two apps picked up one at a time): default, nix-lint, iso, iso-full,
+  # nix-smoke and this one. `rm -rf` touching the wrong tree is the one
+  # way this particular app could ever have anything to lose, and the
+  # sandbox is precisely what bounds that:
   # the policy grants `repo-write` and nothing else, so a confused
   # invocation can still only ever reach this checkout.
   #

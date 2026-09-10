@@ -24,7 +24,6 @@ let
         settings = s;
         aipageFirefox = inputs.self.packages.x86_64-linux.aipage-firefox;
         aipageChrome = inputs.self.packages.x86_64-linux.aipage-chrome;
-        pgAgentmem = inputs.self.packages.x86_64-linux.pg-agentmem;
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
         # The sandbox CLI. The Settings panel's Security page shells out to
         # `dots-sandbox report --json` and `dots-sandbox policy dump`, so the
@@ -46,7 +45,6 @@ let
         ../nix/modules/system/limine-install.nix
         ../nix/modules/system/network.nix
         ../nix/modules/services/searxng.nix
-        ../nix/modules/services/agentmem.nix
         ../nix/modules/system/virtualisation.nix
         ../nix/modules/system/sandbox-host.nix
         ../nix/modules/system/users.nix

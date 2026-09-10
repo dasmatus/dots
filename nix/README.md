@@ -78,14 +78,13 @@ nix/
   repo wants: the AIPage browser extension (with its generated bun2nix lockfile
   beside it), Betterbird, Claude Desktop, and the skills plugin. Each is reached
   through `callPackage` from `flake/packages.nix` or `flake/lib.nix`.
-- `modules/` — system configuration split by concern. `system/` is the machine
-  (`boot.nix`, `core.nix`, `hardening.nix`, `impermanence.nix`,
+- `modules/` — system configuration split by concern. `system/` is the
+  machine (`boot.nix`, `core.nix`, `hardening.nix`, `impermanence.nix`,
   `limine-install.nix`, `network.nix`, `users.nix`, `virtualisation.nix`,
-  `form-factor.nix`); `services/` is what keeps running (`agentmem.nix` and its
-  SQL migrations, `searxng.nix`, `maintenance.nix`); `desktop/` is the session
-  (`desktop.nix` for GNOME/GDM + Hyprland + pipewire, `steam.nix`). `dots.nix`
-  stays at the top: it is the options schema every other module reads, so it
-  belongs to none of the three.
+  `form-factor.nix`); `services/` is what keeps running (`searxng.nix`,
+  `maintenance.nix`); `desktop/` is the session (`desktop.nix` for GNOME/GDM +
+  Hyprland + pipewire, `steam.nix`). `dots.nix` stays at the top: it is the
+  options schema every other module reads, so it belongs to none of the three.
   The former `flatpak.nix` (declarative Flathub packages) is gone — every GUI app
   is native now (see `home/base/pkgs.nix`). The former `secureboot.nix`
   (lanzaboote + sbctl UKI signing) is gone — Secure Boot was removed in favor of

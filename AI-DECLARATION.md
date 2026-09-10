@@ -13,11 +13,8 @@ components:
   flake.lock: none
   nix/data/facter.json: none
   rust/settings-global/flake.lock: none
-  rust/dots-memory-derive/Cargo.lock: none
-  rust/dots-memory-mcp/Cargo.lock: none
   rust/dots-sandbox/Cargo.lock: none
   rust/installer-tui/Cargo.lock: none
-  rust/pg-agentmem/Cargo.lock: none
   rust/settings-global/Cargo.lock: none
 ---
 

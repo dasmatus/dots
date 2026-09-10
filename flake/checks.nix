@@ -340,9 +340,9 @@ in
       # launchable surface this repo actually offers: the flake's own
       # `nix run .#<app>` list, plus every other surface `wrapSandboxed`
       # confines outside that list — the quickshell pill bar's desktop
-      # launchers and the `home.packages` MCP servers (edupage-mcp,
-      # dots-memory-mcp) that ship no launcher at all. Nothing in Nix
-      # enumerates either set's app ids today, so the second half is a
+      # launchers and the `home.packages` MCP servers (edupage-mcp) that
+      # ship no launcher at all. Nothing in Nix enumerates either set's
+      # app ids today, so the second half is a
       # hand-kept list; a new sandboxed app — launcher or MCP server —
       # needs a line here as much as it needs one in the policy file.
       knownFlakeApps = builtins.attrNames self.apps.${system};
@@ -355,7 +355,6 @@ in
         "zed"
         "claude-desktop"
         "edupage-mcp"
-        "dots-memory-mcp"
       ];
       knownApps = knownFlakeApps ++ knownDesktopApps;
 
@@ -445,84 +444,6 @@ in
     pkgs.writeText "home-standalone-ok" (
       builtins.unsafeDiscardStringContext hm.activationPackage.drvPath
     );
-
-  # nix/modules/services/agentmem.nix, guarded against the three ways it has already
-  # broken at activation. Each of those reached a rebuild because parsing a
-  # module is not evaluating it, and `nix flake check` used to be unrunnable on
-  # a bare checkout (nix/data/settings.nix was a symlink into /var/lib/dots), so
-  # on a workstation nothing forced these paths until switch time. That symlink
-  # is now a real in-tree file, so `nix flake check` runs anywhere and this is
-  # the gate that fires first, locally as well as in CI.
-  agentmem-eval =
-    let
-      sys = self.nixosConfigurations.tokyonight.config;
-      migrate = sys.systemd.services.agentmem-migrate;
-      script = migrate.script;
-
-      # Everything after the extension install. `_migrations` has to land in
-      # there: the schema belongs to pg_agentmem, so creating the table before
-      # the extension exists is the ordering that fails.
-      afterExtension =
-        let
-          parts = lib.splitString "CREATE EXTENSION IF NOT EXISTS pg_agentmem" script;
-        in
-        if builtins.length parts >= 2 then builtins.elemAt parts 1 else "";
-
-      # Migration filenames must be 0001..000N with no gap and no repeat. Two
-      # agents once both produced a `0004`, under different names, and git
-      # merged all three with no textual conflict because the collision is in
-      # the sequence rather than in any line.
-      sqlNames = lib.sort (a: b: a < b) (
-        builtins.filter (lib.hasSuffix ".sql") (
-          builtins.attrNames (builtins.readDir ../nix/modules/services/agentmem/migrations)
-        )
-      );
-      prefixes = map (f: builtins.substring 0 4 f) sqlNames;
-      expected = lib.genList (i: lib.fixedWidthNumber 4 (i + 1)) (builtins.length sqlNames);
-    in
-    # Forcing finalPackage is the whole point of the next line: it is what
-    # evaluates the `extensions` list, and naming a contrib extension there
-    # (pg_trgm, unaccent) fails with "attribute 'pg_trgm' missing".
-    assert lib.hasPrefix "postgresql-and-plugins" sys.services.postgresql.finalPackage.name;
-    # Pinned major. The repo sets no system.stateVersion and autoupgrades
-    # daily, so an unpinned package moves psqlSchema and dataDir under a live
-    # cluster the moment nixpkgs gains a new major.
-    assert lib.hasPrefix "18." sys.services.postgresql.package.version;
-    assert !sys.services.postgresql.enableTCPIP;
-    # The runner is its own unit. `services.postgresql.postStart` is not an
-    # option at all, and referencing this config at all is what catches that.
-    assert migrate.serviceConfig.Type == "oneshot";
-    # postgres, because CREATE EXTENSION on LANGUAGE c needs superuser: a
-    # plain role gets "permission denied for language c".
-    assert migrate.serviceConfig.User == "postgres";
-    # But the migrations run with the session role set to the database owner,
-    # so the SECURITY DEFINER API functions carry the owner's rights and not
-    # a superuser's. Losing this line is a silent privilege escalation.
-    assert lib.hasInfix "PGOPTIONS=-crole=${sys.dots.username}" script;
-    # And the schema is handed back to that owner, because 0001 grants USAGE
-    # on it to the MCP role and a non-owner GRANT only warns.
-    assert lib.hasInfix "ALTER SCHEMA agentmem OWNER TO ${sys.dots.username}" script;
-    assert builtins.elem "postgresql.service" migrate.after;
-    assert builtins.elem "postgresql-setup.service" migrate.after;
-    # Ordering and ownership: install the extension, then the bookkeeping
-    # table, and never create the schema by hand. pgrx's #[pg_schema] emits
-    # its own CREATE SCHEMA, and an extension script may only skip an object
-    # the extension already owns, so a second creator blocks it permanently.
-    assert lib.hasInfix "_migrations" afterExtension;
-    assert !(lib.hasInfix "CREATE SCHEMA IF NOT EXISTS agentmem" script);
-    # A cluster left by the older bootstrap still carries an unowned schema,
-    # which no retry repairs, so the runner has to clear it first.
-    assert lib.hasInfix "DROP SCHEMA agentmem CASCADE" script;
-    assert prefixes == expected;
-    # State that outlives a reboot: root is a tmpfs, so without the
-    # persistence entry the cluster is re-initdb'd empty every boot, and the
-    # backup has to sit under that same persisted parent rather than the
-    # module default on /var/backup.
-    assert builtins.any (
-      d: (if builtins.isAttrs d then d.directory else d) == "/var/lib/postgresql"
-    ) sys.environment.persistence."/persist".directories;
-    assert lib.hasPrefix "/var/lib/postgresql/" sys.services.postgresqlBackup.location;
-    pkgs.writeText "agentmem-eval-ok" (builtins.concatStringsSep "\n" prefixes);
 
   # Every home.activation entry, guarded against ending the run early.
   # home-manager splices the whole DAG into one bash script, so an `exit` in
