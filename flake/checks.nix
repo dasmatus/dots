@@ -342,9 +342,9 @@ in
       # confines outside that list — the quickshell pill bar's desktop
       # launchers and the `home.packages` MCP servers (edupage-mcp) that
       # ship no launcher at all. Nothing in Nix enumerates either set's
-      # app ids today, so the second half is a
-      # hand-kept list; a new sandboxed app — launcher or MCP server —
-      # needs a line here as much as it needs one in the policy file.
+      # app ids today, so the second half is a hand-kept list; a new
+      # sandboxed app — launcher or MCP server — needs a line here as
+      # much as it needs one in the policy file.
       knownFlakeApps = builtins.attrNames self.apps.${system};
       knownDesktopApps = [
         "global-settings"

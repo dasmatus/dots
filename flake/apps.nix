@@ -277,7 +277,7 @@ let
       };
 in
 {
-  # All 8 non-exempt apps in this file carry `sandboxed = true` and route
+  # All 6 non-exempt apps in this file carry `sandboxed = true` and route
   # through mkSandboxedApp (see its own comment for the rollout's history,
   # and `clean`'s comment below for where the rollout actually stands
   # today). This one echoes text and touches nothing, so a wrapper bug

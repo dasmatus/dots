@@ -37,10 +37,10 @@ tells before the next session reads it back.
    instruction is a regression, not a fix.
 9. Re-read the file after editing. Confirm
    every original claim survived intact.
-10. Recover git-tracked targets from the
-    commit message. For the untracked
-    auto-memory file, `cp` it to a
-    `.orig` sibling before editing.
+10. Name what changed in the commit
+    message, to recover tracked targets.
+    `cp` the untracked auto-memory file to
+    `.orig` first; restore by copying it back.
 
 ## Rationalizations to reject
 
@@ -50,7 +50,6 @@ tells before the next session reads it back.
 | "Unslop is for docs, not memory" | Memory is prose Claude writes and later trusts. Same tells, same fix. |
 | "The CLAUDE.md symlink is the real file" | It resolves into `/nix/store`. Edit the Nix source, or the edit vanishes on rebuild. |
 | "A shorter rewrite is always safer" | Only if it keeps every claim. Length and content are separate checks. |
-| "AGENTS.md needs its own pass" | It is a symlink to `CLAUDE.md`. One edit covers both names. |
 
 ## Target audience
 
@@ -77,3 +76,4 @@ tells before the next session reads it back.
 - [ ] Every original claim still present
       after the rewrite?
 - [ ] Commit message names what changed?
+- [ ] `.orig` made before the edit?
