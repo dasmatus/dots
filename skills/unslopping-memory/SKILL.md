@@ -26,21 +26,21 @@ tells before the next session reads it back.
 5. `~/.claude/CLAUDE.md` comes from the
    `context` block in `nix/home/ai/claude.nix`.
    Edit that block, never the symlink.
-6. This repo's `CLAUDE.md` caps at 79 lines
-   and ends with `NO MORE STUFF BEYOND
-   THIS POINT`. It sits at 70 lines today.
-7. Enforce both the cap and that closing
-   line after every rewrite.
-8. Cut prose to fit the cap. Never push the
+6. Keep this repo's `CLAUDE.md` at or under
+   79 lines, with `NO MORE STUFF BEYOND
+   THIS POINT` as the last line, after
+   every rewrite.
+7. Cut prose to fit the cap. Never push the
    closing line further down.
-9. Treat memory as instructions, not prose.
+8. Treat memory as instructions, not prose.
    A cleaner sentence that changes the
    instruction is a regression, not a fix.
-10. Re-read the file after editing. Confirm
-    every original claim survived intact.
-11. Write the commit message from the diff,
-    naming what changed, so a bad rewrite
-    can be reverted.
+9. Re-read the file after editing. Confirm
+   every original claim survived intact.
+10. Recover git-tracked targets from the
+    commit message. For the untracked
+    auto-memory file, `cp` it to a
+    `.orig` sibling before editing.
 
 ## Rationalizations to reject
 
