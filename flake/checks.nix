@@ -563,4 +563,63 @@ in
       toString hm.systemd.user.services."dots-launcher-toggle@".Service.ExecStart
     );
     pkgs.writeText "shell-service-eval-ok" execStart;
+
+  # nix/home/ai/claude.nix's PostToolUse memory hook, run for real against
+  # fixtures rather than only eyeballed at eval time — the whole reason it
+  # moved out of a permission-rule `if` field (see the long comment on
+  # `hooks.PostToolUse` in that file) is that an `if` string cannot be
+  # trusted to fire at all, and every other check in this file proves
+  # config shape, not runtime behaviour. `hookCmd` is read out of the same
+  # evaluated home-manager config `hm-activation-eval`/`shell-service-eval`
+  # above already reach into, so this runs the literal store path Claude
+  # Code invokes, not a hand-rebuilt stand-in for it. Fixtures live under
+  # tests/fixtures/memory-hook/ rather than beside the module, per this
+  # repo's tests/ convention.
+  memory-hook-eval =
+    let
+      sys = self.nixosConfigurations.tokyonight.config;
+      hm = sys.home-manager.users.${sys.dots.username};
+      postToolUse = lib.head hm.programs.claude-code.settings.hooks.PostToolUse;
+      hookCmd = (lib.head postToolUse.hooks).command;
+      fixtures = ../tests/fixtures/memory-hook;
+      memoryPayload = "${fixtures}/memory-write.json";
+      ordinaryPayload = "${fixtures}/ordinary-write.json";
+      malformedPayload = "${fixtures}/malformed.json";
+      emptyPayload = "${fixtures}/empty.json";
+    in
+    # The matcher is the cheap tool-name pre-filter the hook still relies
+    # on; a change here would silently widen or narrow which tool calls
+    # ever reach the script at all.
+    assert postToolUse.matcher == "Write|Edit";
+    pkgs.runCommand "memory-hook-eval-ok" { } ''
+      mem_out="$(${hookCmd} < ${memoryPayload})"
+      if [ -z "$mem_out" ]; then
+        echo "memory-path payload produced no output" >&2
+        exit 1
+      fi
+      printf '%s' "$mem_out" | grep -q "unslopping-memory" || {
+        echo "memory-path output is missing the primer text: $mem_out" >&2
+        exit 1
+      }
+
+      src_out="$(${hookCmd} < ${ordinaryPayload})"
+      if [ -n "$src_out" ]; then
+        echo "ordinary source-file payload produced output: $src_out" >&2
+        exit 1
+      fi
+
+      ${hookCmd} < ${malformedPayload} > malformed.out
+      if [ -s malformed.out ]; then
+        echo "malformed payload produced output" >&2
+        exit 1
+      fi
+
+      ${hookCmd} < ${emptyPayload} > empty.out
+      if [ -s empty.out ]; then
+        echo "empty payload produced output" >&2
+        exit 1
+      fi
+
+      echo ok > $out
+    '';
 }

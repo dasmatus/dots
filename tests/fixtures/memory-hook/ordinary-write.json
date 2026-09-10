@@ -1,0 +1,15 @@
+{
+  "session_id": "22222222-2222-2222-2222-222222222222",
+  "cwd": "/var/home/matus/Dokumente/codeberg/personal/dots",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/var/home/matus/Dokumente/codeberg/personal/dots/nix/home/ai/claude.nix",
+    "old_string": "a",
+    "new_string": "b"
+  },
+  "tool_response": {
+    "filePath": "/var/home/matus/Dokumente/codeberg/personal/dots/nix/home/ai/claude.nix",
+    "success": true
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "session_id": "11111111-1111-1111-1111-111111111111",
+  "cwd": "/var/home/matus/Dokumente/codeberg/personal/dots",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/home/matus/.claude/projects/-var-home-matus-Dokumente-codeberg-personal-dots/memory/notes.md",
+    "content": "- decided to retire the postgres memory plugin\n"
+  },
+  "tool_response": {
+    "filePath": "/home/matus/.claude/projects/-var-home-matus-Dokumente-codeberg-personal-dots/memory/notes.md",
+    "success": true
+  }
+}

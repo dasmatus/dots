@@ -135,14 +135,63 @@ let
   # acting on it, so an order here would never reach the skill it exists
   # to trigger. builtins.toJSON keeps this string one Nix value away from
   # hand-escaped JSON.
+  # Wording is deliberately factual with one borrowed word: "trigger" is
+  # the primer's own vocabulary for a skill-matching condition, so stating
+  # the match in those terms lets the fact self-identify as a trigger match
+  # instead of leaving the model to infer the link on its own.
   memoryPrimer = pkgs.writeText "memory-primer.json" (
     builtins.toJSON {
       hookSpecificOutput = {
         hookEventName = "PostToolUse";
-        additionalContext = "A memory file was just written. The dots-skills:unslopping-memory skill covers exactly this case: it runs a prose-cleanup pass over memory files and enforces the CLAUDE.md line cap.";
+        additionalContext = "A memory file was just written. This matches the trigger condition of the dots-skills:unslopping-memory skill, which runs a prose-cleanup pass over memory files and enforces the CLAUDE.md line cap.";
       };
     }
   );
+
+  # Decides, in a script this file controls, whether a Write/Edit call
+  # touched an auto-memory file. See the long comment on `hooks.PostToolUse`
+  # below for why that decision cannot live in the hook's own `if` field.
+  # jq is the only runtimeInput, same "no hand-rolled JSON parsing" rule
+  # `dotsMemoryHook` used to follow (git show b6582b8^) for its one flat
+  # field; this payload has a field to descend into
+  # (`.tool_input.file_path`) rather than a whole string to escape, so a
+  # real parser earns its keep here where it did not there.
+  memoryHookScript = pkgs.writeShellApplication {
+    name = "claude-memory-hook";
+    runtimeInputs = [ pkgs.jq ];
+    text = ''
+      # Claude Code hands a hook its event JSON on stdin, once. `// empty`
+      # turns a missing or null field into the empty string rather than the
+      # literal "null", and `2>/dev/null || true` swallows a parse failure
+      # on a malformed or empty payload instead of tripping this script's
+      # `set -e` (writeShellApplication's default) — either way file_path
+      # ends up empty, and the case below already treats empty the same as
+      # "not a memory file". Degrading to silence on anything unexpected
+      # mirrors how `dotsMemoryHook` used to degrade to silence when its
+      # database was down: a hook that stays quiet is recoverable, one that
+      # errors is not.
+      file_path=$(jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+
+      # Auto-memory writes under ~/.claude/projects/<slug>/memory/, where
+      # <slug> is the project path with every "/" turned into a "-" — an
+      # arbitrary, unbounded number of path segments a permission-rule-style
+      # single-segment "*" cannot span (see `hooks.PostToolUse` below for
+      # the full story). A plain two-part substring test sidesteps segment
+      # counting entirely: "somewhere under .claude" plus "through a
+      # memory/ directory" is what auto-memory means regardless of how many
+      # segments sit in between, and it keeps matching if
+      # `autoMemoryDirectory` ever relocates the projects root, so long as
+      # the relocated tree still keeps a `memory/` leaf the way Claude
+      # Code's own docs show it would.
+      case "$file_path" in
+        *"/.claude/"*"/memory/"*)
+          cat ${memoryPrimer}
+          ;;
+      esac
+
+      exit 0
+    '';
+  };
 in
 {
   home.packages = [ ccbar ];
@@ -306,18 +355,48 @@ in
       # description to the task in front of it, so without a nudge from
       # outside it may just never come up. Auto-memory has no tool of its
       # own; it writes through ordinary Write/Edit calls, which is why the
-      # matcher below names those two instead of anything memory-specific.
-      # The `if` clause is what actually narrows it to memory files. See
-      # `memoryPrimer` above for why the payload states a fact instead of
-      # giving an order.
+      # matcher below names those two instead of anything memory-specific
+      # — that matcher is a cheap pre-filter on tool name and nothing more.
+      #
+      # The actual narrowing to memory files used to live in an `if` field
+      # here, and that was wrong on three independent counts, so it moved
+      # into `memoryHookScript` above instead:
+      #   1. Permission-rule syntax matches a bare `*` within one path
+      #      segment only; `**` is what spans directories. The real path
+      #      (~/.claude/projects/<slug>/memory/<file>.md) has several
+      #      segments before `memory`, which an unanchored `*/memory/*`
+      #      can never bridge — contrast the `Edit(.claude/**)` /
+      #      `Edit(/${config.home.homeDirectory}/.claude/**)` rules above,
+      #      which both need `**` for exactly this reason.
+      #   2. An unanchored pattern anchors to the project cwd, so
+      #      `*/memory/*` could only ever match under the current project
+      #      directory — never under ~/.claude/projects/ — which is why
+      #      the rules above spell the home directory out instead of
+      #      leaving it implicit.
+      #   3. Decisively: Claude Code's permission docs say file rules are
+      #      consulted for `Edit(path)` and `Read(path)` only, and that a
+      #      `Write(path)` rule is accepted but never consulted. A brand
+      #      new memory file's first write is a `Write` call, so the
+      #      `Write(...)` half of the old `if` was dead on arrival even
+      #      once the glob itself got fixed. That third point is what
+      #      rules `if` out entirely rather than just needing a better
+      #      glob: no permission-rule string can ever gate a `Write`, so
+      #      the decision has to live somewhere `if` cannot reach. Do not
+      #      "simplify" this back into an `if` clause — it would silently
+      #      stop firing on every memory file's first write, which is the
+      #      worst kind of broken: no error, no log, just a hook that
+      #      never runs.
+      #
+      # See `memoryPrimer` above for why the payload states a fact instead
+      # of giving an order, and `memoryHookScript` for how the file-path
+      # match itself works now.
       hooks.PostToolUse = [
         {
           matcher = "Write|Edit";
           hooks = [
             {
               type = "command";
-              "if" = "Write(*/memory/*) || Edit(*/memory/*)";
-              command = "cat ${memoryPrimer}";
+              command = "${memoryHookScript}/bin/claude-memory-hook";
             }
           ];
         }
