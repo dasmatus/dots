@@ -125,6 +125,24 @@ let
   # ~/.claude/skills on none of its surfaces, so the plugin is the only route
   # that reaches it.
   dotsSkills = pkgs.callPackage ../../packages/dots-skills.nix { };
+
+  # Payload for the PostToolUse hook below. Auto-memory has no tool of its
+  # own; it writes through the ordinary Write/Edit tools, so nothing marks
+  # a memory write as done except the hook firing right after it. The
+  # payload states a fact rather than an order. Claude Code's
+  # prompt-injection defenses treat additionalContext phrased as an
+  # imperative as a hijack attempt and show it to the user instead of
+  # acting on it, so an order here would never reach the skill it exists
+  # to trigger. builtins.toJSON keeps this string one Nix value away from
+  # hand-escaped JSON.
+  memoryPrimer = pkgs.writeText "memory-primer.json" (
+    builtins.toJSON {
+      hookSpecificOutput = {
+        hookEventName = "PostToolUse";
+        additionalContext = "A memory file was just written. The dots-skills:unslopping-memory skill covers exactly this case: it runs a prose-cleanup pass over memory files and enforces the CLAUDE.md line cap.";
+      };
+    }
+  );
 in
 {
   home.packages = [ ccbar ];
@@ -189,6 +207,11 @@ in
       when asked to operate GUI apps. It needs ydotoold + the AT-SPI bus +
       /dev/uinput group access at runtime; if a tool call fails, run
       `computer-use-linux doctor | jq .readiness` to see what's missing.
+
+      # Memory entries
+      A memory entry is a terse factual statement: what happened, what
+      changed, what was decided. No adjectives, no summary prose, and
+      nothing this file already says.
     '';
     settings = {
       ultracode = true;
@@ -273,6 +296,28 @@ in
             {
               type = "command";
               command = "cat ${dotsSkills.primer}/subagent-start.json";
+            }
+          ];
+        }
+      ];
+
+      # Guarantees dots-skills:unslopping-memory gets a chance to fire after
+      # every memory write. A skill only runs when the model matches its own
+      # description to the task in front of it, so without a nudge from
+      # outside it may just never come up. Auto-memory has no tool of its
+      # own; it writes through ordinary Write/Edit calls, which is why the
+      # matcher below names those two instead of anything memory-specific.
+      # The `if` clause is what actually narrows it to memory files. See
+      # `memoryPrimer` above for why the payload states a fact instead of
+      # giving an order.
+      hooks.PostToolUse = [
+        {
+          matcher = "Write|Edit";
+          hooks = [
+            {
+              type = "command";
+              "if" = "Write(*/memory/*) || Edit(*/memory/*)";
+              command = "cat ${memoryPrimer}";
             }
           ];
         }
