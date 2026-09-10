@@ -584,6 +584,14 @@ in
       fixtures = ../tests/fixtures/memory-hook;
       memoryPayload = "${fixtures}/memory-write.json";
       ordinaryPayload = "${fixtures}/ordinary-write.json";
+      # Sits on the script's `case` boundary on purpose: the path carries
+      # `/.claude/` but no `memory/` leaf, unlike ordinaryPayload above
+      # (which carries neither and so never probes the boundary at all).
+      # A future loosening of the match — say, dropping the second
+      # `*"/memory/"*` segment — turns this fixture into the first thing
+      # that wrongly fires, because it is the nearest real path to the
+      # actual pattern rather than an unrelated one.
+      claudeConfigPayload = "${fixtures}/claude-config-write.json";
       malformedPayload = "${fixtures}/malformed.json";
       emptyPayload = "${fixtures}/empty.json";
     in
@@ -591,6 +599,16 @@ in
     # on; a change here would silently widen or narrow which tool calls
     # ever reach the script at all.
     assert postToolUse.matcher == "Write|Edit";
+    # This check runs hookCmd directly, so an `if` field on the hook entry
+    # would never actually stop anything here — the runCommand below would
+    # keep passing even after such a regression. But Claude Code itself DOES
+    # consult file rules for `Edit(path)` (unlike the `Write(path)` case the
+    # move away from `if` was chiefly about — see the long comment on
+    # `hooks.PostToolUse` in claude.nix), so a re-added `if` would silently
+    # stop the hook firing on every edit to an already-existing memory file.
+    # Asserting the field's absence is what keeps that regression from
+    # hiding behind a check that only reads `.command`.
+    assert !((lib.head postToolUse.hooks) ? "if");
     pkgs.runCommand "memory-hook-eval-ok" { } ''
       mem_out="$(${hookCmd} < ${memoryPayload})"
       if [ -z "$mem_out" ]; then
@@ -605,6 +623,12 @@ in
       src_out="$(${hookCmd} < ${ordinaryPayload})"
       if [ -n "$src_out" ]; then
         echo "ordinary source-file payload produced output: $src_out" >&2
+        exit 1
+      fi
+
+      cfg_out="$(${hookCmd} < ${claudeConfigPayload})"
+      if [ -n "$cfg_out" ]; then
+        echo "claude-config (on the /.claude/ boundary, no memory/) payload produced output: $cfg_out" >&2
         exit 1
       fi
 

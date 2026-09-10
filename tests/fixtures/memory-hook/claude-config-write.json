@@ -1,0 +1,14 @@
+{
+  "session_id": "33333333-3333-3333-3333-333333333333",
+  "cwd": "/var/home/matus/Dokumente/codeberg/personal/dots",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/home/matus/.claude/settings.json",
+    "content": "{}\n"
+  },
+  "tool_response": {
+    "filePath": "/home/matus/.claude/settings.json",
+    "success": true
+  }
+}
