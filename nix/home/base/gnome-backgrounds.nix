@@ -1,7 +1,7 @@
 # The repo's own wallpapers, registered with GNOME's background chooser.
 #
 # Copying an image into ~/.local/share/backgrounds does NOT put it in the
-# chooser — that directory is only where GNOME Settings drops a copy of a
+# chooser. That directory is only where GNOME Settings drops a copy of a
 # picture you added by hand, which is why 31 files sat there while the grid in
 # Settings > Appearance still showed nothing but the stock set. The list the
 # panel actually renders is assembled by scanning every
@@ -13,12 +13,12 @@
 # a Fedora Atomic / secureblue desktop running GNOME. The session profile's
 # desktop is Hyprland, where the equivalent surface is quickshell's own picker
 # (nix/home/desktop/quickshell/qml/wallpaper/Picker.qml) and this file is inert
-# — an unread XML costs one small store path and nothing else.
+# on that side. An unread XML costs one small store path and nothing else.
 #
 # The <filename> entries point at the STORE copy of Wallpapers/, not at the
 # checkout. Coercing the directory once puts the whole tree at a single stable
 # path, so the chooser keeps working when the repo is moved, renamed or not yet
-# cloned — and the entries cannot rot into a half-broken grid the way absolute
+# cloned, and the entries cannot rot into a half-broken grid the way absolute
 # $HOME paths do. It also keeps evaluation pure: the tree is read with
 # builtins.readDir on a source path, never from the live filesystem, so no
 # --impure and no IFD. NB every file must be git-tracked to be visible to the
@@ -42,7 +42,7 @@ let
   # A RECURSIVE walk, because the tree is not flat: wh/ holds images
   # directly, while misc/ and night/ hold a further level of category
   # directories (misc/abstract, night/os, ...). A one-level scan silently
-  # yields only wh/ — 31 of the 65 tracked files — and the omission is
+  # yields only wh/, 31 of the 65 tracked files, and the omission is
   # invisible in the result, since a short list of wallpapers looks exactly
   # like a correct one.
   collect =

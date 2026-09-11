@@ -205,7 +205,7 @@ Scope {
     }
 
     // hyprctl keyword is a silent no-op under Hyprland 0.55+'s Lua parser, so
-    // the change goes through eval and the DSL — the same route
+    // the change goes through eval and the DSL, the same route
     // Watcher.qml's monitor apply takes.
     Process {
         id: touchpadApply

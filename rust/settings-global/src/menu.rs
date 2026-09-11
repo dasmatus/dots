@@ -14,7 +14,7 @@ use crate::settings::{
 /// What editing a row does. Every variant carries its own `default`: the
 /// value `value_json` reports when the key is absent from the store (a
 /// fresh install, or one predating this row). It must match whatever
-/// `nix/system/defaults.nix` gives that key — this table has no way to read
+/// `nix/system/defaults.nix` gives that key. This table has no way to read
 /// that file, so the two are kept in sync by convention, not by code.
 pub enum Action {
     /// A validated string value at `key`.
@@ -27,7 +27,7 @@ pub enum Action {
     /// A boolean value at `key`.
     Toggle { key: &'static str, default: bool },
     /// A validated integer value at `key`, bounded to `[min, max]` in steps
-    /// of `step` — the range a slider renders against. `validate` is an
+    /// of `step`. That's the range a slider renders against. `validate` is an
     /// extra hook for rules the range alone does not express; pass
     /// `|_| Ok(())` when the range is the whole rule.
     EditInt {
@@ -39,7 +39,7 @@ pub enum Action {
         step: i64,
         validate: fn(i64) -> Result<(), String>,
     },
-    /// A string value at `key` constrained to one of `options` — a
+    /// A string value at `key` constrained to one of `options`, a
     /// dropdown. `options` reaches the dump payload too, so the front end
     /// never keeps a second copy of the choices that could drift out of
     /// sync with this one.
@@ -81,7 +81,7 @@ impl Item {
     }
 
     /// The row's current value, typed to match `kind()`. A missing or
-    /// malformed stored value falls back to the row's own `default` — not
+    /// malformed stored value falls back to the row's own `default`, not
     /// that type's zero value, which would misreport a key like
     /// `wmGapsIn` (real default `5`) as `0` on any install that has never
     /// written it, the exact state every install is in before this row
@@ -108,7 +108,7 @@ impl Item {
 
 /// The menu, top to bottom.
 pub const ITEMS: &[Item] = &[
-    // gitName/gitEmail/hostname carry no nix/system/defaults.nix entry at all —
+    // gitName/gitEmail/hostname carry no nix/system/defaults.nix entry at all.
     // rust/installer-tui writes them at install time, unconditionally, so
     // there is no real default to mirror. "" documents "not yet answered"
     // rather than standing in for a value defaults.nix would supply.
@@ -244,6 +244,37 @@ pub const ITEMS: &[Item] = &[
             prompt: "Window layout",
             default: "dwindle",
             options: &["dwindle", "master"],
+        },
+    },
+    // The Session page's two rows. Seconds, and the sliders are bounded
+    // rather than free so the panel cannot produce the two values that would
+    // hurt: a timeout of zero, which ext-idle-notify-v1 reads as "idle
+    // immediately", and one long enough that a walked-away-from laptop is
+    // still open when someone else reaches it. A user who wants a value
+    // outside these bounds edits nix/system/defaults.nix, where the comment
+    // explaining what the pair does already lives.
+    Item {
+        label: "Blank screen after",
+        action: Action::EditInt {
+            key: "idleBlankTimeout",
+            prompt: "Blank screen after (seconds)",
+            default: 300,
+            min: 30,
+            max: 3600,
+            step: 30,
+            validate: |_| Ok(()),
+        },
+    },
+    Item {
+        label: "Lock session after",
+        action: Action::EditInt {
+            key: "idleLockTimeout",
+            prompt: "Lock session after (seconds)",
+            default: 600,
+            min: 60,
+            max: 3600,
+            step: 60,
+            validate: |_| Ok(()),
         },
     },
     Item {

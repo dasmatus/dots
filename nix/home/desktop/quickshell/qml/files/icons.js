@@ -7,11 +7,10 @@
 // which is the hex-literal-in-QML problem wearing a different hat.
 //
 // Codepoints are Nerd Font, written as `\u{...}` escapes the way
-// bar/Battery.qml writes its battery ramp. Every one below was checked
-// against the installed Lilex Nerd Font with
-// `fc-list ":charset=<cp>:family=Lilex Nerd Font"` before being added —
-// an unmapped codepoint renders as a tofu box, which no test can see and
-// qmllint does not know about.
+// bar/Battery.qml writes its battery ramp. Every one below was checked against
+// the installed Lilex Nerd Font with `fc-list ":charset=<cp>:family=Lilex Nerd
+// Font"` before being added. An unmapped codepoint renders as a tofu box,
+// which no test can see and qmllint does not know about.
 .pragma library
 
 var FOLDER = "\u{F024B}";

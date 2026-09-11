@@ -1,19 +1,19 @@
-# awww backend, chafa previews, preview-cache service, zellij-subagents skill — Implementation Plan
+# awww backend, chafa previews, preview-cache service, zellij-subagents skill implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the `swaybg` wallpaper backend with `awww` (animated transitions), add chafa in-TUI wallpaper previews, add a systemd user service that caches preview thumbnails, and add a Claude Code skill that runs each subagent as a live headless `claude -p` session in its own zellij pane.
 
-**Architecture:** All wallpaper logic stays in the single file `nix/home/wallpaper-tui.py` (reuses the config/state split, tint pipeline, and pytest harness in `tests/wallpaper_tui/`). `awww` is the renamed `swww` in this nixpkgs revision — same CLI, package `pkgs.awww`, binary `awww`, daemon `awww-daemon`, no `init` subcommand. Previews render via the `chafa` CLI → ANSI → a small SGR parser → Rich `Text` shown in a Textual `Static`. The preview cache is a `--cache-previews` mode of the same script, driven by a home-manager systemd user timer. The zellij skill is a project skill + a shell helper driving `zellij action`.
+**Architecture:** All wallpaper logic stays in the single file `nix/home/wallpaper-tui.py` (reuses the config/state split, tint pipeline, and pytest harness in `tests/wallpaper_tui/`). `awww` is the renamed `swww` in this nixpkgs revision. Same CLI, package `pkgs.awww`, binary `awww`, daemon `awww-daemon`, no `init` subcommand. Previews render via the `chafa` CLI → ANSI → a small SGR parser → Rich `Text` shown in a Textual `Static`. The preview cache is a `--cache-previews` mode of the same script, driven by a home-manager systemd user timer. The zellij skill is a project skill + a shell helper driving `zellij action`.
 
-**Tech Stack:** Nix/Home Manager, Python 3 (Textual, Pillow, Rich — Rich ships with Textual), pytest, `awww`/`awww-daemon`, `chafa`, zellij, headless `claude -p`.
+**Tech Stack:** Nix/Home Manager, Python 3 (Textual, Pillow, Rich, which ships with Textual), pytest, `awww`/`awww-daemon`, `chafa`, zellij, headless `claude -p`.
 
 ## Global Constraints
 
-- **No inline tests** — tests live under `tests/wallpaper_tui/` (repo rule). The script is loaded via the `wt` fixture in `tests/wallpaper_tui/conftest.py` (importlib, hyphen-name workaround).
-- **Comments:** top-level `//!`/`///`-style only in Rust; in Python, module docstring + `"""docstrings"""` per symbol, inline `//`-equivalent (`#`) only for "magic sorcery" — match the existing file's comment density.
+- **No inline tests.** Tests live under `tests/wallpaper_tui/` (repo rule). The script is loaded via the `wt` fixture in `tests/wallpaper_tui/conftest.py` (importlib, hyphen-name workaround).
+- **Comments:** top-level `//!`/`///`-style only in Rust; in Python, module docstring + `"""docstrings"""` per symbol, inline `//`-equivalent (`#`) only for "magic sorcery", matching the existing file's comment density.
 - **No Co-Authored-By / session-link doxxing** in commits or GitLab text.
-- **Package names:** `pkgs.awww` (not `pkgs.swww` — `swww` is a rename-warning alias), `pkgs.chafa`. Both verified present in this flake's nixpkgs.
+- **Package names:** `pkgs.awww` (not `pkgs.swww`, which is a rename-warning alias), `pkgs.chafa`. Both verified present in this flake's nixpkgs.
 - **awww CLI facts (verified via `awww img --help` in this flake):** no `init` subcommand; `awww img [OPTIONS] <IMAGE>`; `-o,--outputs` comma-separated (omit for all); `--resize no|crop|fit|stretch`; `--fill-color RRGGBBAA` (default `000000ff`); `--transition-type none|simple|fade|left|right|top|bottom|wipe|wave|grow|center|any|outer|random`; `--transition-duration <float>`. Daemon started via `awww-daemon`; `awww query` checks liveness; `awww kill` stops it.
 - **chafa CLI facts (verified):** `chafa --format=ansi --symbols=block --size=<cols>x<rows> --color-space=rgb --dither=ordered <img>` emits `ESC[?25l`/`ESC[?25h` (skip), `ESC[0m` (reset), and combined `ESC[38;2;r;g;b;48;2;r;g;bm` SGR runs before each UTF-8 block glyph.
 - **Rich API (verified in this flake's textual env):** `from rich.text import Text`, `from rich.style import Style`, `from rich.color import Color`; `Style(color=Color.from_rgb(r,g,b), bgcolor=Color.from_rgb(r,g,b))`; `Text.append(s, style=style)`. Textual `Static.update(rich_text)` renders a Rich `Text`.
@@ -23,15 +23,15 @@
 
 ## File Structure
 
-- **Modify** `nix/home/wallpaper-tui.py` — awww backend, chafa preview rendering + `Preview` widget, `cache_previews` + CLI flags. (Single file; all wallpaper logic co-located per existing convention.)
-- **Modify** `nix/home/wallpaper-tui.nix` — `pkgs.chafa` on PATH; `transitionType`/`transitionDuration`/`cacheInterval` options; systemd user service+timer; description text `swaybg`→`awww`.
-- **Modify** `nix/home/default.nix` — `pkgs.swaybg`→`pkgs.awww`; comment.
-- **Modify** `nix/home/desktop/hyprland.nix` — add `awww-daemon` to `hyprland.start` exec-once, before `wallpaper-tui --restore`.
-- **Modify** `nix/home/random_wp.nix` — error-message string `swaybg/gsettings`→`awww/gsettings`.
-- **Create** `tests/wallpaper_tui/test_awww_backend.py` — pure helpers for the awww backend.
-- **Create** `tests/wallpaper_tui/test_preview.py` — `ansi_to_textual` parser + `cache_previews`.
-- **Create** `.claude/skills/zellij-subagents/SKILL.md` — the skill.
-- **Create** `scripts/zellij-subagent.sh` — the pane-spawning helper.
+- **Modify** `nix/home/wallpaper-tui.py`, for the awww backend, chafa preview rendering + `Preview` widget, `cache_previews` + CLI flags. (Single file; all wallpaper logic co-located per existing convention.)
+- **Modify** `nix/home/wallpaper-tui.nix`, adding `pkgs.chafa` on PATH; `transitionType`/`transitionDuration`/`cacheInterval` options; systemd user service+timer; description text `swaybg`→`awww`.
+- **Modify** `nix/home/default.nix`, swapping `pkgs.swaybg`→`pkgs.awww`; update the comment.
+- **Modify** `nix/home/desktop/hyprland.nix`. Add `awww-daemon` to `hyprland.start` exec-once, before `wallpaper-tui --restore`.
+- **Modify** `nix/home/random_wp.nix`, updating the error-message string `swaybg/gsettings`→`awww/gsettings`.
+- **Create** `tests/wallpaper_tui/test_awww_backend.py`, pure helpers for the awww backend.
+- **Create** `tests/wallpaper_tui/test_preview.py`, covering the `ansi_to_textual` parser + `cache_previews`.
+- **Create** `.claude/skills/zellij-subagents/SKILL.md`, the skill.
+- **Create** `scripts/zellij-subagent.sh`, the pane-spawning helper.
 
 ---
 
@@ -132,7 +132,7 @@ def test_apply_wallpaper_empty_groups_noop(wt, monkeypatch):
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `just py-test`
-Expected: FAIL — `AttributeError: module 'wallpaper_tui' has no attribute 'map_resize'` (and `awww_img_args`, `_normalize_fill_color`).
+Expected: FAIL, `AttributeError: module 'wallpaper_tui' has no attribute 'map_resize'` (and `awww_img_args`, `_normalize_fill_color`).
 
 - [ ] **Step 3: Implement the awww backend in `wallpaper-tui.py`**
 
@@ -284,7 +284,7 @@ In the non-interactive `--output/--path` path in `main()` (the `apply_wallpaper(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `just py-test`
-Expected: PASS — all 6 new tests green; existing tint tests still green.
+Expected: PASS, all 6 new tests green; existing tint tests still green.
 
 - [ ] **Step 5: Wire the Nix options into `config.json`**
 
@@ -437,7 +437,7 @@ def test_ansi_to_textual_tolerates_unknown_sgr(wt):
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `just py-test`
-Expected: FAIL — `AttributeError: module 'wallpaper_tui' has no attribute 'ansi_to_textual'`.
+Expected: FAIL, `AttributeError: module 'wallpaper_tui' has no attribute 'ansi_to_textual'`.
 
 - [ ] **Step 3: Implement the parser + renderer**
 
@@ -457,8 +457,8 @@ def _apply_sgr(params, style):
     """Apply one SGR parameter list (``"38;2;r;g;b;48;2;r;g;b"``) to a Rich Style.
 
     Handles the subset chafa emits: 24-bit fg (``38;2;…``), 24-bit bg
-    (``48;2;…``), and ``0`` reset. Unknown params (bold, etc.) are tolerated —
-    the current colors are kept so a chafa version change can't break rendering.
+    (``48;2;…``), and ``0`` reset. Unknown params (bold, etc.) are tolerated.
+    The current colors are kept so a chafa version change can't break rendering.
     """
     from rich.style import Style
     from rich.color import Color
@@ -480,7 +480,7 @@ def _apply_sgr(params, style):
         elif p == "48" and k + 4 < len(parts) and parts[k + 1] == "2":
             bg = Color.from_rgb(int(parts[k + 2]), int(parts[k + 3]), int(parts[k + 4]))
             k += 4
-        # else: unknown SGR — ignore, keep current colors.
+        # else: unknown SGR, ignore and keep current colors.
         k += 1
     return Style(color=fg, bgcolor=bg)
 
@@ -550,7 +550,7 @@ def _thumb_for(path):
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `just py-test`
-Expected: PASS — 5 new parser tests green.
+Expected: PASS, 5 new parser tests green.
 
 - [ ] **Step 5: Add the `Preview` widget and wire it into the app**
 
@@ -646,7 +646,7 @@ Add a helper that (re)renders the preview for the current selection, and call it
             preview.show_path(path)
 ```
 
-Hook cursor moves: in `action_cursor_up` and `action_cursor_down`, append `self._refresh_preview()` at the end of each. In `on_list_view_selected`, the existing `self.action_apply()` stays; also call `self._refresh_preview()` first. After the app mounts, refresh once — add:
+Hook cursor moves: in `action_cursor_up` and `action_cursor_down`, append `self._refresh_preview()` at the end of each. In `on_list_view_selected`, the existing `self.action_apply()` stays; also call `self._refresh_preview()` first. After the app mounts, refresh once. Add:
 
 ```python
     def on_mount(self) -> None:
@@ -663,13 +663,13 @@ Add the toggle action:
 
     def refresh_layout(self):
         self.mutate_repetitive_widgets()
-        # Simplest robust toggle: relaunch the compose tree.
+        # Simplest reliable toggle: relaunch the compose tree.
         for child in list(self.children):
             child.remove()
         self.compose()
 ```
 
-> Note: the `refresh_layout` above is a sketch — if Textual's API makes full re-compose awkward, the minimal viable implementation is to always mount the `Horizontal(list, Preview)` and just `display = False/True` the `#preview` widget in `action_toggle_preview` (no re-compose). Prefer that simpler form:
+> Note: the `refresh_layout` above is a sketch. If Textual's API makes full re-compose awkward, the minimal viable implementation is to always mount the `Horizontal(list, Preview)` and just `display = False/True` the `#preview` widget in `action_toggle_preview` (no re-compose). Prefer that simpler form:
 
 ```python
     def action_toggle_preview(self):
@@ -684,7 +684,7 @@ Add the toggle action:
 
 - [ ] **Step 6: Add `pkgs.chafa` to the wrapper PATH in `wallpaper-tui.nix`**
 
-In `nix/home/wallpaper-tui.nix`, the `wallpaper-tui` wrapper `writeShellScriptBin` block — add chafa to the environment so the `chafa` subprocess resolves:
+In `nix/home/wallpaper-tui.nix`, the `wallpaper-tui` wrapper `writeShellScriptBin` block needs chafa added to the environment so the `chafa` subprocess resolves:
 
 ```nix
   wallpaper-tui =
@@ -759,7 +759,7 @@ def test_cache_previews_nonexistent_folder(wt, tmp_path):
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `just py-test`
-Expected: FAIL — `AttributeError: module 'wallpaper_tui' has no attribute 'cache_previews'`.
+Expected: FAIL, `AttributeError: module 'wallpaper_tui' has no attribute 'cache_previews'`.
 
 - [ ] **Step 3: Implement `cache_previews` + CLI**
 
@@ -793,7 +793,7 @@ def cache_previews(folder, recursive, out_dir, size=(320, 200)):
                 im.thumbnail(size)
                 im.save(thumb, "PNG")
             written += 1
-        except Exception as e:  # noqa: BLE001 — best-effort
+        except Exception as e:  # noqa: BLE001, best-effort
             print(f"wallpaper-tui: cache skip {p}: {e}", file=sys.stderr)
     return {"written": written, "skipped": skipped}
 ```
@@ -819,7 +819,7 @@ Add the handler in `main()` after the `--restore` block and before the `args.pat
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `just py-test`
-Expected: PASS — 3 new cache tests green.
+Expected: PASS, 3 new cache tests green.
 
 - [ ] **Step 5: Add the `cacheInterval` option + systemd service/timer in `wallpaper-tui.nix`**
 
@@ -910,7 +910,8 @@ mkdir -p "$(dirname "$result")"
 # a .done sentinel is touched when claude exits so the orchestrator can poll.
 # NB: omit --close-on-exit/-c (a value-less boolean meaning close-on-exit=true
 # on zellij 0.44.3; `--close-on-exit false` is a hard parse error). The default
-# (flag absent) keeps the pane open — the intended watchable-subagent behavior.
+# (flag absent) keeps the pane open. This is the intended watchable-subagent
+# behavior.
 zellij action new-pane \
   --name "$name" \
   -- bash -c "claude -p \"\$(cat '$prompt')\" > '$result'; touch '$result.done'"
@@ -944,7 +945,7 @@ the panes for the current orchestration.
 - The user is running inside a zellij session (`$ZELLIJ` is set), and
 - The user wants live visibility into each agent.
 
-If `$ZELLIJ` is unset, **do not** use this skill — fall back to the normal
+If `$ZELLIJ` is unset, **do not** use this skill. Fall back to the normal
 in-process `Agent` tool. Headless `claude -p` panes only make sense when there
 is a zellij session to attach panes to.
 
@@ -994,7 +995,7 @@ is a zellij session to attach panes to.
 - zellij CLI flags evolve; `zellij action new-pane --name` and
   `zellij action new-tab --name` are stable in zellij 0.40+.
   `--close-on-exit`/`-c` is a **boolean** flag (no value) meaning
-  close-on-exit=true — never pass `--close-on-exit false`; omit it to keep
+  close-on-exit=true. Never pass `--close-on-exit false`; omit it to keep
   panes open. If a flag is rejected, run `zellij action new-pane --help` and
   adjust.
 - Headless `claude -p` uses the user's normal auth/plan; each pane is a real
@@ -1034,11 +1035,11 @@ Expected: flake eval + fmt/clippy/test pass; no `swww` rename warning.
 - [ ] **Step 3: Confirm no stray `swaybg` references remain**
 
 Run: `grep -rn swaybg nix/ | grep -v '^nix/home/default.nix:#'`
-Expected: no matches (the only remaining `swaybg` mention is the historical comment in `default.nix` explaining the awww swap, which is fine — or remove it if it reads confusingly).
+Expected: no matches (the only remaining `swaybg` mention is the historical comment in `default.nix` explaining the awww swap, which is fine, or remove it if it reads confusingly).
 
 - [ ] **Step 4: Build the home config (smoke)**
 
-Run: `nix build .#homeConfigurations.matus.activationPackage --no-link 2>&1 | tail -20` (adjust the attr name to the actual one in `flake.nix` — check with `nix flake show .#` first)
+Run: `nix build .#homeConfigurations.matus.activationPackage --no-link 2>&1 | tail -20` (adjust the attr name to the actual one in `flake.nix`, checking with `nix flake show .#` first)
 Expected: builds; the new `awww`/`chafa` deps and systemd units resolve.
 
 - [ ] **Step 5: Commit any final fixes (if needed)**
@@ -1055,5 +1056,5 @@ git commit -m "fix(wallpaper): final lint/smoke corrections"
 ## Self-Review (author's checklist, run after writing)
 
 - **Spec coverage:** Part 2 (awww) → Task 1. Part 3 (chafa previews) → Task 2. Part 4 (cache service) → Task 3. Part 1 (zellij skill) → Task 4. Lint/smoke → Task 5. All four parts covered.
-- **Placeholder scan:** the `refresh_layout` sketch in Task 2 Step 5 is explicitly called out and replaced with the simpler `display` toggle — the engineer is told to use the simpler form and drop `refresh_layout`. No TBD/TODO elsewhere.
+- **Placeholder scan:** the `refresh_layout` sketch in Task 2 Step 5 is explicitly called out and replaced with the simpler `display` toggle. The engineer is told to use the simpler form and drop `refresh_layout`. No TBD/TODO elsewhere.
 - **Type consistency:** `apply_wallpaper(groups, transition_type, transition_duration) -> list` matches across Task 1's three callers. `ansi_to_textual`/`render_preview_ansi`/`_thumb_for`/`Preview` names match between Task 2 steps and Task 3's `cache_previews` (which uses `PREVIEW_CACHE` + `list_wallpapers`). `cache_previews(folder, recursive, out_dir, size=...)` signature matches the tests and the CLI handler.

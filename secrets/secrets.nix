@@ -1,4 +1,4 @@
-# agenix recipient list — read by the `agenix` CLI ONLY (`agenix -e`, `-r`),
+# agenix recipient list, read by the `agenix` CLI ONLY (`agenix -e`, `-r`),
 # never by the flake. `nix flake show` will not evaluate this file and nothing
 # imports it; it exists so `agenix` knows which public keys each .age file
 # under this directory must be encrypted to.
@@ -10,7 +10,7 @@
 # in git and decrypts it at *activation* time to a file outside the store.
 #
 # That timing is the whole design constraint. age decrypts during activation,
-# not during evaluation, so a decrypted value can never become a Nix string —
+# not during evaluation, so a decrypted value can never become a Nix string.
 # `user.name = <secret>` is impossible by construction. nix/home/secrets/identity.nix
 # therefore does not try: it points git's own `[include] path` at the
 # decrypted file and lets git read the identity at runtime. Nothing about the
@@ -34,7 +34,7 @@ let
   #
   # REPLACE THIS with the real public key before the first `agenix -e`. The
   # placeholder is not a valid recipient and age will refuse it, which is the
-  # intended failure — a silently-wrong recipient would produce a file only
+  # intended failure. A silently-wrong recipient would produce a file only
   # the wrong key can open.
   matus = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDcBIqNnSREQ6lFWulDaZUUnGI7MPmE831Gpg1mOwF45";
 in

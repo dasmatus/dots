@@ -1,5 +1,5 @@
 // Wallpaper accent extraction, ported from rust/wallpaper-tui/src/accent.rs's
-// `try_extract_accent_internal` — the Internal backend only. The crate's
+// `try_extract_accent_internal`, the Internal backend only. The crate's
 // default backend, Pywal, shells out to `wal` and stays a Rust-side concern;
 // nothing here reproduces it.
 //
@@ -13,7 +13,7 @@
 //
 // `accentFrom` takes whatever RGBA quad stream the caller hands it. Rust's
 // downsample to a 64x64 thumbnail (`DynamicImage::thumbnail`) is the canvas's
-// job, not this function's — see tst_accent.qml's drawImage — because the
+// job, not this function's. See tst_accent.qml's drawImage: the
 // bucket loop below only sums and counts; it is order- and size-independent
 // and does not care how many pixels it is given or where they came from.
 .pragma library
@@ -36,7 +36,7 @@ function isUsable(l, s) {
 }
 
 // config.rs's clamp_byte: `int(round(c * 255))` clamped to a byte. Math.round
-// is Rust's round-half-away-from-zero here too — the remap below only ever
+// is Rust's round-half-away-from-zero here too. The remap below only ever
 // produces values off `Hls.hlsToRgb`'s trig, which never land on an exact
 // half, so the two round functions cannot disagree in practice.
 function toByte(c) {
@@ -60,7 +60,7 @@ function hlsToHex(h, l, s) {
     return toHex(rgb.r, rgb.g, rgb.b);
 }
 
-// `pixels` is an RGBA quad stream — a Uint8ClampedArray straight off
+// `pixels` is an RGBA quad stream, a Uint8ClampedArray straight off
 // Canvas's getImageData, or anything else shaped like one. Four bytes per
 // pixel; alpha is ignored, since the source thumbnail is always opaque.
 function accentFrom(pixels) {
@@ -83,7 +83,7 @@ function accentFrom(pixels) {
     }
 
     // Rust's `Iterator::max_by` returns the LAST of equally-maximum
-    // elements, not the first — `>=` here (not `>`) is what keeps a tie
+    // elements, not the first. `>=` here (not `>`) is what keeps a tie
     // resolving to the same bin the Rust port would pick.
     let best = -1;
     for (let bin = 0; bin < BIN_COUNT; bin++) {

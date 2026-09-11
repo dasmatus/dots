@@ -11,8 +11,8 @@
 #
 # The menu runs as the user; only the root-owned file write re-execs the
 # binary under pkexec. pkexec needs a polkit *authentication agent* in the
-# session to show the password dialog — the system polkitd alone cannot
-# prompt, and nothing else in this config ships an agent — so
+# session to show the password dialog, and the system polkitd alone cannot
+# prompt, and nothing else in this config ships an agent, so
 # hyprpolkitagent rides along as a user service. The package ships this
 # exact unit, but HM only links units it declares itself, so it is restated
 # here with the store-path ExecStart.
@@ -32,14 +32,14 @@
       # HYPRLAND_INSTANCE_SIGNATURE, not WAYLAND_DISPLAY. This is Hyprland's
       # polkit agent, but WAYLAND_DISPLAY is set under ANY Wayland
       # compositor, so on the foreign GNOME host the portable profile targets
-      # the condition passed and systemd started it — where gnome-shell
+      # the condition passed and systemd started it, where gnome-shell
       # already provides a polkit agent, making this one both redundant and,
       # as it turned out, broken: it exited 218/CAPABILITIES, hit the restart
       # limit and left a permanently failed unit in `systemctl --user --failed`.
       #
       # 218 is EXIT_CAPABILITIES: systemd could not apply the unit's
       # capability settings. Bisected on that host with transient units
-      # (`systemd-run --user --wait -p <directive>=yes /bin/true`) —
+      # (`systemd-run --user --wait -p <directive>=yes /bin/true`).
       # ProtectClock and ProtectKernelLogs each return 218 alone, while
       # ProtectHostname and ProtectControlGroups return 0. Both failing
       # directives imply a CapabilityBoundingSet change (CAP_SYS_TIME /
@@ -54,7 +54,7 @@
       ConditionEnvironment = "HYPRLAND_INSTANCE_SIGNATURE";
     };
     Service = {
-      # No bin/ in the package — upstream installs to libexec only, so
+      # No bin/ in the package, since upstream installs to libexec only, so
       # lib.getExe (bin/hyprpolkitagent) would point at a missing path.
       ExecStart = "${pkgs.hyprpolkitagent}/libexec/hyprpolkitagent";
       Slice = "session.slice";
@@ -66,7 +66,7 @@
       # back on purpose: MemoryDenyWriteExecute (GTK/Qt dialog toolkits can
       # JIT), RestrictAddressFamilies (needs at least AF_UNIX for D-Bus,
       # untested here), ProtectHome/ProtectSystem (untested against
-      # whatever the toolkit reads from the user's theme config) — see
+      # whatever the toolkit reads from the user's theme config). See
       # mkUnit's baseline comment in session/default.nix for the per-
       # directive rationale, identical here: no clock/hostname/kernel-log/
       # cgroup/personality/realtime/setuid-setgid access is needed to draw

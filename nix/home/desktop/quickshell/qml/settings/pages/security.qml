@@ -1,8 +1,8 @@
 // The Security & privacy settings page: the privacy/hardware-security
 // dashboard on top, the Global permissions list below it. Loaded by
 // Settings.qml through a `Loader { source: "pages/security.qml" }`
-// (settings/Settings.qml's own content column) rather than an inline tag —
-// this file's name starts lowercase on purpose, matching the task brief's
+// (settings/Settings.qml's own content column) rather than an inline tag.
+// This file's name starts lowercase on purpose, matching the task brief's
 // exact path, and a lowercase filename cannot be a QML type name; loading it
 // by source URL sidesteps that entirely instead of adding a qmldir remap
 // nothing else here needed.
@@ -11,7 +11,7 @@
 //
 // - `dots-sandbox report --json` (rust/dots-sandbox/src/report.rs) already
 //   decides every card's status/detail/rows and sorts bad-first
-//   (`report::assemble`) — this file only draws `cards` in the order it
+//   (`report::assemble`). This file only draws `cards` in the order it
 //   receives them. If a judgement like "is TPM present AND Secure Boot off"
 //   ever seems tempting here, it belongs in that collector instead; see
 //   this task's own report for what was actually found missing there.
@@ -23,7 +23,7 @@
 //   whenever the policy changes.
 //
 //   Streamed rather than fetched because the fetch version re-ran the
-//   binary on every read — a process spawn per repaint, and no way to
+//   binary on every read, a process spawn per repaint, and no way to
 //   notice a change without re-running it. `watch` connects to the
 //   org.dots.Sandbox1 daemon once and stays connected. It is a pipe rather
 //   than a D-Bus call because Quickshell 0.3.0 exposes no generic D-Bus
@@ -31,8 +31,8 @@
 //   call interface), so this page cannot subscribe to the daemon itself.
 //
 //   Writes still go straight to ~/.config/dots-sandbox/overrides.json via
-//   FileView.setText — the identical idiom monitors/Arrange.qml already
-//   uses for its own overrides.json — for the same reason: QML cannot make
+//   FileView.setText, the identical idiom monitors/Arrange.qml already
+//   uses for its own overrides.json, for the same reason: QML cannot make
 //   the D-Bus call that would let the daemon do the write. The daemon stats
 //   that file before answering, so a write it did not make is still picked
 //   up rather than served from a stale cache.
@@ -40,12 +40,12 @@
 // The permissions list below groups by CAPABILITY first, same as an
 // Android permission manager: a row per capability `policy.rs` knows,
 // each showing how many apps requested it, opening onto exactly those
-// apps and their own three-way control — never the reverse (an app,
+// apps and their own three-way control, never the reverse (an app,
 // then its capabilities), which is what this page drew before.
 //
 // sandbox/policy.js carries every pure transform both this file and
 // sandbox/Prompt.qml need (status-to-colour-name, the capability grouping,
-// the overrides merge) — qmltestrunner cannot instantiate anything here
+// the overrides merge). qmltestrunner cannot instantiate anything here
 // (this file reaches Process and FileView, both Quickshell.Io types), so
 // that logic has to live somewhere the test runner can load on its own.
 pragma ComponentBehavior: Bound
@@ -63,7 +63,7 @@ import "../../sandbox/policy.js" as Policy
 Item {
     id: root
 
-    // `report --json`'s `cards` array, verbatim — see the module comment.
+    // `report --json`'s `cards` array, verbatim. See the module comment.
     // Empty until the first Process exits, which is also the honest state
     // for "nothing read yet" and "the binary is not on PATH", so no
     // separate loading flag exists to tell those apart from the page's own
@@ -71,7 +71,7 @@ Item {
     property var cards: []
 
     // `catalog --json`'s whole document (`{version, apps}`), or `null`
-    // before the first read / after a parse failure — including the
+    // before the first read / after a parse failure, including the
     // binary being entirely missing, which lands in the exact same catch
     // block as a malformed document (see catalogProc below). `null` rather
     // than `{}` so `Policy.catalogApps` (which already treats a missing
@@ -82,12 +82,12 @@ Item {
 
     // Which capability's own app list the permissions section is showing,
     // or "" for the top-level list of capabilities itself. Local page
-    // state only — this page is rebuilt fresh every time the Security tab
+    // state only. This page is rebuilt fresh every time the Security tab
     // is opened (Settings.qml's own Loader `active` binding), so there is
     // nothing to reset on the way out.
     property string selectedCapability: ""
 
-    // Feedback for the last capability write — cleared by the next
+    // Feedback for the last capability write, cleared by the next
     // successful read, same lifetime as Settings.qml's own `status` for the
     // dumped-fields form.
     property string writeStatus: ""
@@ -101,7 +101,7 @@ Item {
 
     Component.onCompleted: root.refresh()
 
-    // toneFor() only ever answers with one of these four names — see its
+    // toneFor() only ever answers with one of these four names. See its
     // own comment on why a `.pragma library` cannot reach Theme directly to
     // begin with, the exact reason bar/battery.js hands Battery.qml a name
     // instead of a colour.
@@ -149,15 +149,15 @@ Item {
     // actually changes.
     //
     // Why a pipe and not D-Bus directly: Quickshell 0.3.0 exposes no
-    // generic D-Bus client to QML — `Quickshell.DBusMenu` is the
-    // StatusNotifierItem tray-menu protocol, not a call interface — so this
+    // generic D-Bus client to QML. `Quickshell.DBusMenu` is the
+    // StatusNotifierItem tray-menu protocol, not a call interface, so this
     // page cannot subscribe to the daemon itself. Shelling out to `busctl
     // call` per read would have kept the spawn-per-repaint the daemon
     // exists to remove, so the direction is inverted: the daemon pushes,
     // this reads.
     //
     // SplitParser, not StdioCollector: the stream never ends, so
-    // `onStreamFinished` would fire only when the daemon died — i.e. never,
+    // `onStreamFinished` would fire only when the daemon died, i.e. never,
     // in the case that matters. `watch` emits one complete JSON document
     // per line precisely so a line split is the whole framing.
     Process {
@@ -198,13 +198,13 @@ Item {
     }
 
     // FileView.adapter's declared type is FileViewAdapter, which has no
-    // properties of its own — only the shape declared directly on the
-    // JsonAdapter instance above is known — so qmllint cannot resolve
+    // properties of its own. Only the shape declared directly on the
+    // JsonAdapter instance above is known, so qmllint cannot resolve
     // `overridesFile.adapter` as a type. monitors/Arrange.qml's own
     // `overridesRoot` property hits the exact same thing and resolves it
     // the exact same way: reading the adapter's declared properties inside
     // a property BINDING, never inside a plain function body, is what
-    // keeps qmllint from flagging it — a binding's right-hand side is
+    // keeps qmllint from flagging it. A binding's right-hand side is
     // resolved as `var` throughout rather than type-checked expression by
     // expression the way a function body's statements are. `apps`/
     // `denyPaths` get the same defensive normalization Arrange.qml's own
@@ -212,7 +212,7 @@ Item {
     // back Qt's V4Sequence wrapper for an array-typed property, not a
     // native JS array, so `instanceof Array` (true for both) is what tells
     // "a sequence, treat it as one" apart from "the file does not exist
-    // yet, keep the property's own QML default" — Array.isArray would
+    // yet, keep the property's own QML default". Array.isArray would
     // silently fail the first and discard a real, already-loaded document.
     readonly property var overridesRoot: {
         const apps = overridesFile.adapter.apps;
@@ -226,7 +226,7 @@ Item {
     // qmllint enable unresolved-type
 
     // The one write this page ever makes: one app, one capability, one new
-    // state — Policy.withCapabilityOverride folds it into whatever
+    // state. Policy.withCapabilityOverride folds it into whatever
     // overrides.json already holds rather than replacing the file outright.
     // `selectedCapability` is left untouched, so flipping a segment stays on
     // the same drill-in list rather than bouncing the user back to the top.
@@ -242,7 +242,7 @@ Item {
     // Restarting `catalogProc` is what forces that next read. Note this is
     // a stream, not a one-shot: cycling it drops the daemon connection and
     // reconnects, which is heavier than the old re-run and happens far less
-    // often — on a write, not on a repaint. A push from the daemon's own
+    // often, on a write, not on a repaint. A push from the daemon's own
     // PolicyChanged would be lighter still, but it only fires for writes
     // the daemon itself performed, and this is not one.
     function setCapability(appId: string, capability: string, state: string): void {
@@ -293,7 +293,7 @@ Item {
                 }
 
                 // Cards arrive already sorted bad-first
-                // (rust/dots-sandbox/src/report.rs's `assemble`) — a plain
+                // (rust/dots-sandbox/src/report.rs's `assemble`). A plain
                 // Repeater over them in order is what "leads with the bad
                 // cards" actually means here; re-sorting or filtering
                 // anything in this delegate would be the judgement logic
@@ -337,7 +337,7 @@ Item {
                                 }
 
                                 // common/Pill.qml, per the task brief's own
-                                // callout — the source design used tag
+                                // callout. The source design used tag
                                 // classes for exactly this, and status here
                                 // is the equivalent. Its colour is the ONE
                                 // piece of judgement this delegate performs,
@@ -370,9 +370,9 @@ Item {
                                 font.pointSize: Theme.settingsRowDescFontSize
                             }
 
-                            // Every row the collector attached — a fix
+                            // Every row the collector attached, a fix
                             // command (FIDO2's "nix run .#enroll-fido"), a
-                            // failing HSI attribute, a CPU mitigation line —
+                            // failing HSI attribute, a CPU mitigation line,
                             // drawn as a plain label/value pair, all of them,
                             // unconditionally: this page does not decide
                             // which rows are "worth" showing.
@@ -474,7 +474,7 @@ Item {
                 }
 
                 // Exempt apps: shown at this section's own top level,
-                // never behind a capability click — an unconfined app has
+                // never behind a capability click. An unconfined app has
                 // no capability list of its own to be filed under, and
                 // hiding it even one click deep is the same invisible-
                 // exemption problem the task brief's own callout warns
@@ -511,7 +511,7 @@ Item {
                                 spacing: 16
 
                                 // Most unconfined apps were never rewrapped
-                                // at all (wrap.nix returns them untouched —
+                                // at all (wrap.nix returns them untouched,
                                 // see the wrap-contract's own Piece 1 rule
                                 // 5), so there is usually no desktop entry
                                 // for the catalog to have sourced an icon
@@ -550,7 +550,7 @@ Item {
                                         // `catalog --json` does not surface
                                         // `ResolvedApp::Unconfined`'s reason
                                         // string yet (see Policy.unconfinedEntries'
-                                        // own comment) — hidden rather than
+                                        // own comment). Hidden rather than
                                         // shown blank, the honest degrade
                                         // until that one field lands.
                                         visible: text !== ""
@@ -582,7 +582,7 @@ Item {
 
                 // The permission-manager top level: one row per capability
                 // policy.rs knows, in its own declared order, each leading
-                // to the apps that requested it — the task brief's own
+                // to the apps that requested it. The task brief's own
                 // words, "make permission type buttons that'll lead to
                 // apps that requested them", rather than the app-then-
                 // capabilities shape this page drew before.
@@ -629,7 +629,7 @@ Item {
                     // restructuring dropped it from this page entirely for a
                     // while. It belongs at the top level for the same reason
                     // Android and iOS put filesystem access in the
-                    // permission list — someone scanning for "what can reach
+                    // permission list. Someone scanning for "what can reach
                     // my files" has to find the answer here, not three taps
                     // into an app they had to guess at first.
                     //
@@ -666,8 +666,8 @@ Item {
 
                 // Drilled into one capability: exactly the apps that
                 // requested it, each with the three-way Allow/Ask/Deny
-                // control the task brief's own non-negotiable calls out —
-                // a two-state toggle here would silently delete the "ask"
+                // control the task brief's own non-negotiable calls out.
+                // A two-state toggle here would silently delete the "ask"
                 // state, the state that makes an app prompt at all.
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -785,7 +785,7 @@ Item {
                 // path grant names a specific directory, so "editing" it
                 // means choosing a new path, which is a file picker and a
                 // validation pass this page does not have. Showing them
-                // read-only is the honest half — the page states what is
+                // read-only is the honest half: the page states what is
                 // granted without implying it can be changed here. The
                 // alternative, leaving them off the page as the first
                 // version of this restructuring did, meant the permissions

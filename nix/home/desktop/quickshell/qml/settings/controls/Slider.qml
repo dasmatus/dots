@@ -1,13 +1,13 @@
 // A continuous value between `from` and `to`, drawn as a filled track and a
-// round handle — the shape a volume or brightness row wants, neither of
-// which is a handful of named choices (Segmented.qml) or a long list
+// round handle. That is the shape a volume or brightness row wants, neither
+// of which is a handful of named choices (Segmented.qml) or a long list
 // (Select.qml).
 //
 // The whole track is the hit target, not just the handle: clicking anywhere
 // on it jumps the value straight there, same as a real slider, and dragging
 // after that press keeps tracking the pointer. The handle's `x` stays a
-// plain binding on `value` the entire time — nothing here ever assigns
-// `handle.x` directly — which is what a `drag.target` on the handle itself
+// plain binding on `value` the entire time. Nothing here ever assigns
+// `handle.x` directly, which is what a `drag.target` on the handle itself
 // cannot promise: Qt's drag machinery assigns the dragged item's position
 // imperatively, and an imperative assignment permanently breaks a binding
 // on the same property, leaving the handle stuck wherever the last drag put

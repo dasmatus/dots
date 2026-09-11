@@ -1,11 +1,11 @@
 // The sidebar's fixed places: Home plus whichever XDG user directories
 // this login actually has.
 //
-// Parsed from $XDG_CONFIG_HOME/user-dirs.dirs rather than hardcoded, for
-// two reasons. The names are localised — this login's Desktop is
-// "Schreibtisch" and its Public is "Öffentlich" — so an English literal
-// would point at directories that do not exist. And a user who moved or
-// deleted one should not get a sidebar row leading nowhere.
+// Parsed from $XDG_CONFIG_HOME/user-dirs.dirs rather than hardcoded, for two
+// reasons. The names are localised: this login's Desktop is "Schreibtisch" and
+// its Public is "Öffentlich", so an English literal would point at directories
+// that do not exist. And a user who moved or deleted one should not get a
+// sidebar row leading nowhere.
 //
 // Pure, so tests/qml/tst_files_places.qml drives it with captured file
 // contents and no filesystem.

@@ -1,4 +1,4 @@
-# Junction (GNOME Circle, github.com/sonnyp/Junction) — not a browser but a
+# Junction (GNOME Circle, github.com/sonnyp/Junction), not a browser but a
 # browser chooser: it registers as the default URL handler and pops up an
 # application picker for every clicked link, forwarding per click to Brave or
 # LibreWolf (both native modules next door). nixpkgs' junction 1.12 is a
@@ -9,12 +9,12 @@
 # Upstream's advice (`xdg-settings set default-web-browser
 # re.sonny.Junction.desktop`) writes exactly the entries below; xdg.mimeApps
 # declares them instead. Junction's .desktop only advertises
-# x-scheme-handler/http(s) (+ its x-junction scheme), not text/html — that's
-# fine, [Default Applications] entries don't require the type to appear in
-# the handler's MimeType line.
+# x-scheme-handler/http(s) (+ its x-junction scheme), not text/html. That's
+# fine, since [Default Applications] entries don't require the type to
+# appear in the handler's MimeType line.
 #
 # Junction is a FLATPAK now (re.sonny.Junction, declared in
-# nix/home/base/flatpaks.nix), so this module installs no package — it only
+# nix/home/base/flatpaks.nix), so this module installs no package. It only
 # owns the mimeapps associations that make the chooser the default handler.
 # The desktop-entry id is unchanged: flatpak exports its entry under the app
 # id, `re.sonny.Junction.desktop`, which is exactly the name the nixpkgs

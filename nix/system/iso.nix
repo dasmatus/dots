@@ -1,8 +1,8 @@
 # LiveISO: minimal installation CD + a cage kiosk session auto-launched on
-# tty1, running Quickshell's installer.qml (currently plan 0's placeholder —
+# tty1, running Quickshell's installer.qml (currently plan 0's placeholder,
 # the real install screens are a later migration plan) + this whole flake at
 # /etc/dots (read-only). The rust dots-installer TUI still ships as a package
-# on the ISO (its install logic — disko, nixos-install, secrets — has not
+# on the ISO (its install logic, namely disko, nixos-install, secrets, has not
 # moved yet) but nothing auto-launches it anymore; that happens once the
 # Quickshell screens can drive the same steps. The installer stages a
 # writable copy for nixos-install and stashes the install answers
@@ -26,7 +26,7 @@ let
   # the flake on the target, and by the time cage execs qs the ISO's /etc
   # overlay may not even be the source tree's current state (it's `dotsSelf`
   # at ISO-build time either way). The store path here is what `nix build
-  # .#quickshell-config` produces — Theme.qml generated, qmldir written,
+  # .#quickshell-config` produces, Theme.qml generated, qmldir written,
   # installer.qml copied in verbatim alongside it.
   quickshellConfig = dotsSelf.packages.x86_64-linux.quickshell-config;
 in
@@ -50,21 +50,21 @@ in
     pkgs.gptfdisk
     # disko's luks.nix (`_pkgs`, evaluated for every LUKS-typed device
     # regardless of config) puts `pkgs.openssl` on the generated
-    # destroy/format/mount script's PATH unconditionally — nix/system/disko.nix
+    # destroy/format/mount script's PATH unconditionally. nix/system/disko.nix
     # never triggers the one line that actually calls it (`openssl rand
     # -hex 32`, gated on `enrollFido2`, which we don't set; we pass our own
     # passwordFile instead), but PATH membership is still a build input the
     # script's derivation cannot be realised without, called or not. The
     # PATH= line disko emits resolves this to openssl's "bin" output
     # specifically (`lib.makeBinPath`-style selection, since only "bin"
-    # carries an actual bin/ dir) — a separate store path from the "out"
+    # carries an actual bin/ dir), a separate store path from the "out"
     # output something else in this closure already happens to pull in, so
     # having openssl elsewhere in the closure does not cover this. Without
     # it, `disko --mode destroy,format,mount` (the exact command
     # install.rs::plan() runs) has no way to realise that PATH entry on a
     # `.#iso-full` install with no network: nothing here provides a C
     # toolchain, so building openssl from source stalls on an
-    # unfetchable stdenv bootstrap chain — the same failure class as if
+    # unfetchable stdenv bootstrap chain, the same failure class as if
     # this package were entirely absent. Verified against the real
     # destroy-format-mount script's PATH= line and a `nix-store -q
     # --requisites` of a built `.#iso`: this is the only PATH entry in that
@@ -87,14 +87,14 @@ in
 
   # disko's cryptsetup-wrapping step (luks.nix, `runCommand … { nativeBuildInputs
   # = [ pkgs.makeWrapper ]; }`) needs pkgs.makeBinaryWrapper's setup-hook
-  # derivation at BUILD time to realise disko-destroy-format-mount at all — a
+  # derivation at BUILD time to realise disko-destroy-format-mount at all, a
   # separate requirement from the openssl.bin PATH entry above, and one no
   # existing package pulls in as a side effect. makeBinaryWrapper's own build
   # environment is the ordinary (cc-having) stdenv, not stdenvNoCC (which
   # installation-cd-minimal.nix's installation-device.nix already stages here
   # "for runCommand"), so without its output already valid, disko's in-VM
   # `nix build` falls back to compiling gcc/binutils from source through the
-  # full stdenv bootstrap chain — offline-unfetchable, same failure class as
+  # full stdenv bootstrap chain, offline-unfetchable, same failure class as
   # the openssl gap. Confirmed absent from a built `.#iso`'s closure (no
   # gcc-wrapper, no make-binary-wrapper-hook, no bash-static anywhere in it)
   # and confirmed as the fix: staging just this one derivation is what took a
@@ -135,8 +135,8 @@ in
     conflicts = [ "getty@tty1.service" ];
     unitConfig.ConditionPathExists = "/dev/tty1";
     serviceConfig = {
-      # `-s` allows VT switching (harmless here — nothing else owns a VT to
-      # switch to — but matches the upstream-documented invocation rather
+      # `-s` allows VT switching (harmless here, nothing else owns a VT to
+      # switch to, but matches the upstream-documented invocation rather
       # than an unflagged one). `qs -p` takes a single QML file directly, no
       # config-directory scan; installer.qml's own `import "."` still
       # resolves its siblings (Theme.qml, qmldir) because Quickshell adds a
@@ -145,22 +145,22 @@ in
       ExecStart = "${pkgs.cage}/bin/cage -s -- ${pkgs.quickshell}/bin/qs -p ${quickshellConfig}/installer.qml";
       # wlroots' default renderer (GLES2 via GBM/EGL) wants a DRM render
       # node backed by real GPU acceleration. The smoke-test VM is plain
-      # OVMF with no virtio-gpu — a KMS-capable scanout with no 3D behind
-      # it — so that render node never appears and cage would sit forever
+      # OVMF with no virtio-gpu, a KMS-capable scanout with no 3D behind
+      # it, so that render node never appears and cage would sit forever
       # waiting for a renderer that cannot exist. WLR_RENDERER=pixman moves
       # wlroots' own compositing (blitting client buffers to the output) onto
       # the CPU, sidestepping GBM/EGL entirely. WLR_BACKENDS=drm,libinput
-      # pins the output/input backends explicitly instead of autodetecting —
+      # pins the output/input backends explicitly instead of autodetecting,
       # on a bare VT with no seatd/Wayland/X11 parent session to nest under,
       # autodetection has nothing but drm+libinput to find anyway, but
       # spelling it out fails loudly instead of silently if that ever stops
       # being true. Quickshell's own Qt Quick content still renders through
-      # Mesa's llvmpipe (see environment.systemPackages above) — pixman only
+      # Mesa's llvmpipe (see environment.systemPackages above), pixman only
       # changes how cage composites what Quickshell hands it, not how
       # Quickshell draws it.
       # This is a system service, not a login session: nothing sets
       # XDG_RUNTIME_DIR for it, and cage refuses outright without one
-      # ("XDG_RUNTIME_DIR is not set in the environment", exit 1) — no
+      # ("XDG_RUNTIME_DIR is not set in the environment", exit 1). No
       # renderer is ever selected, so it crash-loops forever before any of
       # the GBM/EGL/pixman reasoning above even gets exercised.
       # RuntimeDirectory=dots-installer asks systemd to create
@@ -179,8 +179,8 @@ in
       StandardOutput = "tty";
       # journal+console duplicates stderr to the kernel console in addition
       # to the journal. tty1 is where StandardOutput already goes and where
-      # a human at the machine would look, but the smoke test — and any
-      # future automation — watches ttyS0, which is a *console*
+      # a human at the machine would look, but the smoke test, and any
+      # future automation, watches ttyS0, which is a *console*
       # (boot.kernelParams above), not a getty. Without this, a crash here
       # is a 50-times-repeated one-liner sitting in the journal where
       # nothing is ever asked to look, and the test just times out at

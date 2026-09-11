@@ -1,15 +1,15 @@
-// The install action list — install.rs::plan(), ported. Pure and
+// The install action list, install.rs::plan(), ported. Pure and
 // side-effect-free: planFor only builds the ordered list Runner.qml later
 // walks one Process at a time (Runner.qml, plan 3c). Nothing here touches a
-// disk, a network socket or the filesystem — the oracle for this port is a
+// disk, a network socket or the filesystem. The oracle for this port is a
 // fixture (tests/qml/fixtures/install-plan.json) captured from install.rs's
-// own `plan()` via a temporary `--dump-plan` flag (added, run once, reverted
-// — see tst_installer.qml's header), not a hand-transcription of the Rust
+// own `plan()` via a temporary `--dump-plan` flag (added, run once, reverted;
+// see tst_installer.qml's header), not a hand-transcription of the Rust
 // source: that source builds several of these commands from `format!`
 // strings with backslash line-continuations, and hand-copying those correctly
 // is exactly the kind of transcription mistake an oracle fixture avoids.
 //
-// Each entry is a flattened `{title, action}` pair — `action.kind` is one of
+// Each entry is a flattened `{title, action}` pair. `action.kind` is one of
 // install.rs's three `Action` variants (`WriteFile`, `Command`,
 // `WriteSecrets`), carrying that variant's fields under camelCase names.
 // `Command.capture` is `"Stream"` or `"RecoveryKey"`, install.rs's `Capture`
@@ -17,15 +17,15 @@
 .pragma library
 .import "config.js" as Config
 
-/// The plaintext LUKS keyfile install.rs writes and later shreds —
+/// The plaintext LUKS keyfile install.rs writes and later shreds,
 /// install.rs::LUKS_PASSFILE.
 const LUKS_PASSFILE = "/tmp/dots-luks-pass";
-/// The root LV in the `tokyonightvg` VG disko.nix builds — TPM2/recovery
-/// enrollment targets this, not a GPT partition by-partlabel —
+/// The root LV in the `tokyonightvg` VG disko.nix builds. TPM2/recovery
+/// enrollment targets this, not a GPT partition by-partlabel;
 /// install.rs::LUKS_DEVICE.
 const LUKS_DEVICE = "/dev/tokyonightvg/root";
 /// Writable staging copy of the flake the ISO's read-only /etc/dots is
-/// copied into before `nixos-install` reads it — install.rs::STAGED_FLAKE.
+/// copied into before `nixos-install` reads it, install.rs::STAGED_FLAKE.
 const STAGED_FLAKE = "/tmp/dots-flake";
 
 function command(program, args, capture) {
@@ -38,7 +38,7 @@ function command(program, args, capture) {
     };
 }
 
-/// The full install sequence — install.rs::plan(). `flakeSrc`/`mnt` default
+/// The full install sequence, install.rs::plan(). `flakeSrc`/`mnt` default
 /// to the same constants `run_dry`/`run_real` hardcode ("/etc/dots", "/mnt");
 /// a caller only overrides them in a test.
 function planFor(cfg, flakeSrc = "/etc/dots", mnt = "/mnt") {
@@ -79,7 +79,7 @@ function planFor(cfg, flakeSrc = "/etc/dots", mnt = "/mnt") {
                 kind: "WriteFile",
                 path: `${STAGED_FLAKE}/nix/data/settings.nix`,
                 contents: Config.settingsNix(cfg),
-                mode: 420 // 0o644 — install.rs::plan()'s settings.nix mode
+                mode: 420 // 0o644; install.rs::plan()'s settings.nix mode
             }
         },
         {
@@ -94,7 +94,7 @@ function planFor(cfg, flakeSrc = "/etc/dots", mnt = "/mnt") {
             title: "Stash install answers on target",
             // Machine-specific answers for the first-login dots-clone
             // service, mirrored onto the persistent /persist subvol
-            // (bind-mounted to /var/lib/dots — the root is a tmpfs wiped
+            // (bind-mounted to /var/lib/dots; the root is a tmpfs wiped
             // each boot). secrets.nix is intentionally omitted: install-time
             // only, never restored into the user's clean clone.
             action: command("sh", ["-c", `mkdir -p ${mnt}/persist/var/lib/dots/nix && cp ${STAGED_FLAKE}/nix/data/facter.json ${mnt}/persist/var/lib/dots/ && cp ${STAGED_FLAKE}/nix/data/settings.nix ${mnt}/persist/var/lib/dots/`], "Stream")
@@ -113,7 +113,7 @@ function planFor(cfg, flakeSrc = "/etc/dots", mnt = "/mnt") {
         },
         {
             title: "Enroll recovery key",
-            // The ONLY action carrying RecoveryKey capture — that line is
+            // The ONLY action carrying RecoveryKey capture: that line is
             // the LUKS recovery key; losing it locks the user out of their
             // own disk, so nothing else may share this capture mode.
             action: command("systemd-cryptenroll", [unlock, "--recovery-key", LUKS_DEVICE], "RecoveryKey")

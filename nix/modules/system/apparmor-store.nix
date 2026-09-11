@@ -70,6 +70,43 @@ let
   # own rust/dots-sandbox), leaving this off is not a hardening choice, it
   # is a guaranteed-breakage footgun — see research-apparmor.md §4 on user
   # namespaces for the exact mechanism.
+  #
+  # `mediate_deleted` is included unconditionally too, for a reason that has
+  # nothing to do with confinement and everything to do with a profile
+  # merely being ATTACHED. The store-catchall below attaches to
+  # `/nix/store/*/**`, which includes systemd-logind's own binary, and on
+  # systemd >=258 (this nixpkgs pin carries 261.1) a profile attached to
+  # logind that lacks this flag breaks logind's own `rename()`-based atomic
+  # write of its `RuntimeDirectory=` files — logind logs
+  # `Failed to move '/run/systemd/seats/seat0' into place: No such file or
+  # directory`, `libseat` can then never open a seat, Aquamarine's DRM
+  # backend fails, and Hyprland aborts with `CBackend::create() failed!`
+  # before a session ever starts. This happens EVEN IN COMPLAIN MODE:
+  # complain mode only changes whether a denied operation is blocked, and
+  # `mediate_deleted` is not about denial at all — it changes whether
+  # AppArmor mediates operations on deleted/renamed inodes in the first
+  # place, a distinction complain/enforce does not touch. So the repo's
+  # usual "complain mode confines nothing, therefore it's harmless" argument
+  # (see the state="complain" comment below) does not cover this flag, and
+  # this bug reproduced with the catch-all in complain mode, confirmed by a
+  # controlled, single-variable experiment in `tests/session-boot.nix`:
+  # adding exactly this flag (nothing else changed) took assertion 2 (the
+  # session reaching `graphical-session.target`) from a hard Hyprland crash
+  # to a clean pass in ~37s, with zero "Failed to move" lines anywhere in
+  # the run's log — the run then failed at assertion 3 on the unrelated
+  # Quickshell/Hyprland ordering race that file's own header documents
+  # separately, which is expected and orthogonal to this flag.
+  # Upstream: `systemd/systemd#39012`, resolved for apparmor.d profiles by
+  # `roddhjav/apparmor.d#867` adding exactly this flag. That fix is also
+  # already in this repo: `nix/modules/system/apparmor.nix`'s five
+  # hand-written profiles have carried `mediate_deleted` since they were
+  # written, independently of this file — this brings `mkStoreProfile` in
+  # line with a call this codebase already made once. Unconditional, not
+  # store-catchall-only `extraFlags`, by the same logic as
+  # `attach_disconnected` above: any future `mkStoreProfile` profile that
+  # attaches to a systemd-managed binary (not just the catch-all) inherits
+  # the identical rename()-mediation gap the moment it exists, and there is
+  # no reason to make the next author rediscover this the hard way.
   mkStoreProfile =
     {
       name,
@@ -78,7 +115,10 @@ let
       extraFlags ? [ ],
     }:
     let
-      flags = [ "attach_disconnected" ] ++ extraFlags;
+      flags = [
+        "attach_disconnected"
+        "mediate_deleted"
+      ] ++ extraFlags;
     in
     ''
       #include <tunables/global>

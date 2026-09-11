@@ -1,6 +1,7 @@
-// A sidebar section title — Places, Bookmarks or Devices. Sidebar.qml used
-// to hand-roll all three separately, which is how their margins could (and
-// did) drift apart; factored here so a style or spacing change lands once.
+// A sidebar section title, one of Places, Bookmarks or Devices. Sidebar.qml
+// used to hand-roll all three separately, which is how their margins could
+// (and did) drift apart; factored here so a style or spacing change lands
+// once.
 import QtQuick
 import QtQuick.Layouts
 import ".."

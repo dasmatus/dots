@@ -10,21 +10,21 @@
 //
 // FloatingWindow, not PanelWindow: Quickshell backs PanelWindow with the
 // zwlr_layer_shell_v1 Wayland protocol, and cage does not implement it (its
-// compositor only ever calls wlr_xdg_shell_create and wlr_xwayland_create —
+// compositor only ever calls wlr_xdg_shell_create and wlr_xwayland_create;
 // grep cage's source for layer_shell and it comes back empty). A
 // PanelWindow root here would never be mapped and the ISO would boot to a
 // blank screen. It needs no anchors: cage maximizes the single toplevel it
 // is handed, so implicitWidth/implicitHeight below are only the pre-maximize
 // fallback, never the on-screen size. Do not change this back to PanelWindow
-// to match the rest of the tree — the rest of the tree runs under Hyprland,
+// to match the rest of the tree: the rest of the tree runs under Hyprland,
 // which does implement layer-shell; this file runs under cage, which does
 // not.
 //
 // implicitWidth/implicitHeight, not width/height: FloatingWindow logs
 // "Setting `height` is deprecated. Set `implicitHeight` instead." (and the
-// same for width) the moment cage maps it — a runtime warning `qmllint`
-// cannot see because it never runs the file, only type-checks it. A clean
-// lint is not a clean run.
+// same for width) the moment cage maps it. This is a runtime warning
+// `qmllint` cannot see because it never runs the file, only type-checks it.
+// A clean lint is not a clean run.
 //
 // No Hyprland import: cage has no workspaces or focused-window signal to
 // read. No `common`: the shared Panel component is a bordered, padded box
@@ -59,7 +59,7 @@ ShellRoot {
         // reads and writes in place (a plain JS object, not QML properties:
         // `InstallConfig` in config.rs is passed around the same way, one
         // struct threaded through every `Screen` arm). `wizard` is the one
-        // piece of state that never reaches settings.nix — the unconfirmed
+        // piece of state that never reaches settings.nix: the unconfirmed
         // password app.rs keeps in `pending_password` rather than on
         // `InstallConfig` until UserPasswordConfirm agrees with it.
         property var cfg: Config.defaults()
@@ -78,9 +78,9 @@ ShellRoot {
 
         // Swaps the StackView's current screen for a freshly built one.
         // `replaceCurrentItem` (not push/pop): app.rs's `Screen` transitions
-        // are arbitrary jumps in an enum, not a linear history — Confirm's
+        // are arbitrary jumps in an enum, not a linear history. Confirm's
         // Esc target depends on `disk_auto`, not on "whatever was on top of
-        // the stack" — so nothing here should accumulate a back-stack.
+        // the stack", so nothing here should accumulate a back-stack.
         // `props` seeds the handful of values that do not live on `cfg` or
         // `wizard` (a carried SSID, a carried error message) as one-shot
         // initial property values, exactly like main.rs threading state
@@ -305,8 +305,8 @@ ShellRoot {
             }
         }
 
-        // Excludes the live medium disko.nix must never be offered to erase
-        // — disks.rs::live_medium_disk. `findmnt` names the device /iso is
+        // Excludes the live medium disko.nix must never be offered to erase,
+        // disks.rs::live_medium_disk. `findmnt` names the device /iso is
         // mounted from; a missing /iso (e.g. this dev sandbox) just skips
         // the exclusion; the pipeline still finishes either way.
         Process {

@@ -1,4 +1,4 @@
-# TUI fullscreen redraw — design
+# TUI fullscreen redraw design
 
 **Date:** 2026-07-28
 **Status:** Implemented
@@ -11,13 +11,13 @@ All three TUI apps render through the `abstracttui` engine, which uses a
 bytes changed since the previous frame, wrapped in DEC-2026 synchronized
 output, inside an alternate screen buffer with the cursor hidden. This is
 sophisticated and byte-efficient, but it has one failure mode: the damage
-contract trusts the terminal to keep every cell the engine ever painted. When
-that assumption breaks **externally** — a stray `printf '\033c'`, Cmd+K in
-Terminal.app, an emulator glitch, scrollback bleed, a tmux pane switch with no
-focus redraw — model-side damage cannot heal the screen, because a repaint that
-produces byte-identical cells emits **nothing** (the diff correctly suppresses
-equal cells). The loss is permanent: stale artifacts persist until something
-else damages those cells.
+contract trusts the terminal to keep every cell the engine ever painted. That
+assumption can break externally: a stray `printf '\033c'`, Cmd+K in
+Terminal.app, an emulator glitch, scrollback bleed, or a tmux pane switch with
+no focus redraw. When it does, model-side damage cannot heal the screen,
+because a repaint that produces byte-identical cells emits **nothing** (the
+diff correctly suppresses equal cells). The loss is permanent: stale artifacts
+persist until something else damages those cells.
 
 The user observed this as "stale artifacts / desync" and asked for Claude-Code
 -style fullscreen rendering: **rewrite the console properly on each draw** so
@@ -28,14 +28,14 @@ the screen always converges to the correct state.
 - `abstracttui::app::request_full_redraw()` is the engine's own self-healing
   verb ("the Ctrl+L class"). It poisons the previous-frame cell model,
   invalidates the presenter (virtual cursor + pen), damages every layer, and
-  re-places protocol images, so the next frame re-emits **every** cell — a
+  re-places protocol images, so the next frame re-emits **every** cell, a
   true full rewrite on that draw, still wrapped in DEC-2026 sync (tear-free).
 - `abstracttui::app::set_redraw_on_focus_gained(true)` triggers the same
   resync on every DEC-1004 FocusGained. Default OFF. The driver already
   resyncs automatically on resize and suspend/resume.
 - `Turn::idle` is `events == 0` and **independent of whether a frame
   rendered**. So forcing a full redraw every turn does **not** cause a busy
-  spin — an idle turn with no input still reports `idle = true`, and the
+  spin. An idle turn with no input still reports `idle = true`, and the
   existing `if turn.idle { wait_until(poll) }` pace still blocks.
 - The engine enters alt-screen, hides the cursor, enables DEC-1004 focus
   events, and uses DEC-2026 sync output by default (`EnterOptions::default()`).
@@ -48,7 +48,7 @@ the screen always converges to the correct state.
 
 ## Approach chosen
 
-**C — full-frame rewrite every draw**, applied uniformly to all three apps.
+**C: full-frame rewrite every draw**, applied uniformly to all three apps.
 
 At the top of every loop iteration, immediately before `Driver::turn()`, call
 `abstracttui::app::request_full_redraw()`. Every rendered frame becomes a
@@ -62,7 +62,7 @@ machinery (not bypassing it). Any desync self-heals on the very next draw.
   sequences. The installer's target is tty1, so A alone is insufficient there.
 - **B (periodic ~1 s resync)** is the byte-frugal middle ground, but the user
   explicitly chose C (every frame) for uniform "always converges" behavior.
-- **C** is the most expensive but the most robust: zero-latency convergence,
+- **C** is the most expensive but the most resilient: zero-latency convergence,
   no dependence on terminal focus reporting.
 
 ### Accepted cost
@@ -70,9 +70,10 @@ machinery (not bypassing it). Any desync self-heals on the very next draw.
 - Text apps (`installer-tui`, `hyprmon`): ~screen-size bytes per draw, at the
   idle-poll cadence (~20 fps with the default 50 ms idle interval) and per
   input event when active. Negligible locally, modest over SSH.
-- `wallpaper-tui`: every draw also re-uploads the preview image — kitty:
-  `release` + full base64 PNG re-transmit; iTerm2/sixel: re-emit pixels. At
-  ~20 fps idle this is ~MB/s over SSH. **Accepted per the explicit decision**
+- `wallpaper-tui`: every draw also re-uploads the preview image. For kitty
+  that means `release` plus a full base64 PNG re-transmit; for iTerm2/sixel it
+  re-emits pixels. At ~20 fps idle this is ~MB/s over SSH. **Accepted per the
+  explicit decision**
   ("C everywhere, accept image re-upload"). The `DOTS_TUI_IDLE_MS` tunable is
   the escape valve for slow links.
 
@@ -86,20 +87,20 @@ One-line addition at the top of the existing loop:
 abstracttui::app::request_full_redraw();
 ```
 
-before `driver.turn(&mut engine, &mut term)?;`. No structural change — the
+before `driver.turn(&mut engine, &mut term)?;`. No structural change. The
 existing `if turn.idle { driver.wait_until(... poll) }` pace still blocks on
 idle (the `Turn::idle` insight above). The worker-drain / Fx-tick / dispatch
 logic is unchanged.
 
 Both apps also gain:
 
-- `install_panic_hook()` — installs a `std::panic::set_hook` that calls
+- `install_panic_hook()`, which installs a `std::panic::set_hook` that calls
   `abstracttui::term::emergency_restore()` then chains the previous hook, so a
   crash in the loop never leaves the controlling tty in raw mode / alt screen
   / hidden cursor. Called once after `Driver::new` arms the EMERGENCY slot.
-- `idle_interval()` — reads `DOTS_TUI_IDLE_MS` (default 50 ms, clamped ≥ 1) and
-  returns the idle poll `Duration`. The idle interval doubles as the cadence
-  at which an idle screen is fully repainted.
+- `idle_interval()`, which reads `DOTS_TUI_IDLE_MS` (default 50 ms, clamped ≥ 1)
+  and returns the idle poll `Duration`. The idle interval doubles as the
+  cadence at which an idle screen is fully repainted.
 
 ### `hyprmon` (was `App::run`)
 
@@ -152,11 +153,11 @@ Each test mounts a view, drives the engine, and asserts the full-redraw
 contract:
 
 1. The initial frame emits a non-empty full screen of bytes.
-2. An idle, unchanged turn (no `request_full_redraw`) emits **zero** bytes —
+2. An idle, unchanged turn (no `request_full_redraw`) emits **zero** bytes,
    proving the diff normally suppresses identical cells.
 3. The same unchanged state preceded by `request_full_redraw()` emits a
-   non-empty full frame again — proving the forced full rewrite.
-4. The full rewrite reproduces the same screen content — the desync-healing
+   non-empty full frame again, proving the forced full rewrite.
+4. The full rewrite reproduces the same screen content, the desync-healing
    property (re-emitting every cell overwrites whatever the terminal held).
 
 `installer-tui` and `wallpaper-tui` mount their real `ui::root_view`;

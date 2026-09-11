@@ -2,18 +2,19 @@
 // wallpaper accent.
 //
 // Papirus does not encode folder colour as a hex to find-and-replace the
-// way MoreWaita's Adwaita-blue family used to (see git history — that SVG
-// rewrite is gone): it ships one prebuilt SVG per named folder colour and
-// points the plain icon name at one of them by symlink. So retint() no
-// longer reads or rewrites any SVG bytes — it resolves the nearest colour
-// NAME (Tint.nearestPapirusColor) and re-points symlinks in a thin theme
-// that otherwise inherits everything else from the store's Papirus-Dark.
+// way MoreWaita's Adwaita-blue family used to (see git history for that
+// SVG rewrite, now gone): it ships one prebuilt SVG per named folder
+// colour and points the plain icon name at one of them by symlink. So
+// retint() no longer reads or rewrites any SVG bytes. It resolves the
+// nearest colour NAME (Tint.nearestPapirusColor) and re-points symlinks in
+// a thin theme that otherwise inherits everything else from the store's
+// Papirus-Dark.
 //
 // Theme.papirusBase (a Papirus-Dark store path) is read-only, so this seeds
 // $XDG_DATA_HOME/icons/Papirus-Tint by copying out just the
-// Theme.papirusTintSizes <size>/places directories — the same list
-// tree.nix generates Theme.papirusTintIndex's own Directories key from, so
-// the two cannot drift apart — rather than the whole theme; every other
+// Theme.papirusTintSizes <size>/places directories, rather than the whole
+// theme. That's the same list tree.nix generates Theme.papirusTintIndex's
+// own Directories key from, so the two cannot drift apart. Every other
 // icon resolves through that index's Inherits=Papirus-Dark,Papirus,hicolor.
 // `cp -aL`, not `cp -a`: Papirus-Dark/<size> is itself a symlink to
 // ../Papirus/<size> (shared with the light variant), so a link-preserving
@@ -23,14 +24,14 @@
 //
 // The seed is guarded on a stamp file holding the source store path, not on
 // `test -d`: a `test -d` guard is why the old MoreWaita-Tint tree was
-// seeded exactly once and never re-checked afterwards — a Papirus version
+// seeded exactly once and never re-checked afterwards. A Papirus version
 // bump has to re-seed, and only comparing against the path actually seeded
 // from (not just "does dst already exist") catches that.
 //
 // Recolouring goes through upstream's own papirus-folders rather than an
 // open-coded symlink loop. Verified against a scratch copy under /tmp (not
 // the live ~/.local/share/icons) before committing to it: `--theme <path>`
-// accepts a bare directory — Papirus-Tint's name is inferred from the
+// accepts a bare directory, and Papirus-Tint's name is inferred from the
 // path's own basename, so papirus-folders' DEFAULT_COLORS map, which is
 // keyed by theme name, never comes into play, because it is only consulted
 // by the revert/-D path, never by -C; `-C <colour> -o` symlinks both the
@@ -42,12 +43,12 @@
 // reached; only the following `--set`, which would recreate that file with
 // `theme=... color=...`, is what `-o` actually skips (papirus-folders
 // 220-232). So every retint() call still removes a stray keep file rather
-// than leaving one behind — harmless, since nothing downstream of this
-// file ever reads that config back.
+// than leaving one behind. That's harmless, since nothing downstream of
+// this file ever reads that config back.
 //
 // The rebuild branch of the seed stages into a sibling `$dst.new` and only
 // `rm -rf`s the live `$dst` once that sibling is fully populated, right
-// before the one `mv` that swaps it in — it never rewrites `$dst` in
+// before the one `mv` that swaps it in. It never rewrites `$dst` in
 // place. This is the one place in the pipeline that can destroy a
 // previously working tree (a version bump means the stamp mismatches, so
 // `$dst` gets rebuilt, not just created), so a `cp`/`mkdir` failure partway
@@ -55,8 +56,8 @@
 // altogether; staging means the live tree is never in a worse state than
 // "unchanged" until the very last, all-but-guaranteed-to-succeed step.
 //
-// Every step downstream of a failure is skipped, and retinted() — which
-// Picker.qml treats as "the theme has been applied" — never fires past
+// Every step downstream of a failure is skipped, and retinted(), which
+// Picker.qml treats as "the theme has been applied", never fires past
 // one: see each Process's own onExited below for why.
 pragma ComponentBehavior: Bound
 
@@ -86,14 +87,14 @@ Item {
         // Every path (and the size list) travels in argv (positional
         // $1/$2/$3/$4), never interpolated into the script text, so none of
         // them can break the quoting no matter what a future store path or
-        // XDG override happens to contain — see this file's own header for
+        // XDG override happens to contain. See this file's own header for
         // why the guard, the copy and the staged rebuild are shaped the way
         // they are. `set -e` plus the EXIT trap is what makes the staging
         // actually safe: any failing step (a `mkdir`, a `cp`) aborts the
         // script immediately, the trap removes the half-built `$dst.new`
         // on the way out, and `$dst` itself is never touched until the
-        // `rm -rf "$dst" && mv "$tmp" "$dst"` pair right at the end — by
-        // which point everything that could fail already has not.
+        // `rm -rf "$dst" && mv "$tmp" "$dst"` pair right at the end. By
+        // that point, everything that could fail already has not.
         ensureTree.command = ["sh", "-c", `
 set -e
 src=$1; dst=$2; idx=$3; sizes=$4
@@ -135,9 +136,9 @@ fi
             // defensible because its `test -d` guard meant the tree was
             // seeded once and never destroyed, so "the seed step ran" was
             // always true from the second retint() onward. This seed can
-            // rebuild — and, per the header above, stages that rebuild
-            // rather than doing it in place — but a caller still has no
-            // business being told the theme changed when it didn't.
+            // rebuild. Per the header above, it stages that rebuild rather
+            // than doing it in place, but a caller still has no business
+            // being told the theme changed when it didn't.
             if (exitCode !== 0)
                 return;
             recolor.running = true;
@@ -169,16 +170,16 @@ fi
     // reads (index.theme and all); only the name and location differ from
     // the store's Papirus-Dark. So the switch is one write, no new theme
     // spec needed, and this Process itself never checks that the directory
-    // named here exists — GNOME falls back to visually rendering whatever
-    // it last found if it doesn't, the write itself never errors either
-    // way. It IS gated on the two Process steps above having both
+    // named here exists. GNOME falls back to visually rendering whatever
+    // it last found if it doesn't, and the write itself never errors
+    // either way. It IS gated on the two Process steps above having both
     // succeeded, though (see their onExited handlers and the header
-    // comment) — that guard is about not lying to the caller, not about
+    // comment). That guard is about not lying to the caller, not about
     // dconf needing the directory to be there.
     //
     // dconf write, not gsettings set: this session has dconf on PATH (the
     // dconf.enable HM option, plus the NixOS module) but no gsettings
-    // binary anywhere in either profile — glib's gsettings only exists as a
+    // binary anywhere in either profile. glib's gsettings only exists as a
     // transitive build output nobody links into $PATH. dconf writes the
     // same key gsettings would through the schema, just spelled as a
     // GVariant string literal (the quotes inside the argument are part of
@@ -191,9 +192,9 @@ fi
         // qmllint disable signal-handler-parameters
         onExited: (exitCode, exitStatus) => {
             // retinted() means "the theme has been applied" to
-            // Picker.qml, so — closing out the same contract the two
-            // Process handlers above start — it only fires once dconf has
-            // actually recorded the change, not merely been asked to.
+            // Picker.qml. Closing out the same contract the two Process
+            // handlers above start, it only fires once dconf has actually
+            // recorded the change, not merely been asked to.
             if (exitCode === 0)
                 root.retinted();
         }

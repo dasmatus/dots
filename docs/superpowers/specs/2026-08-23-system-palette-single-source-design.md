@@ -51,7 +51,7 @@ Hyprland's borders are a sixth value again: `hyprland.nix:159-162` declares
 the wallpaper accent.
 
 84 colour sources were catalogued across `nix/`, `rust/` and standalone theme
-assets. Only two standalone theme files exist — `nix/home/eww/eww.scss` and
+assets. Only two standalone theme files exist: `nix/home/eww/eww.scss` and
 `nix/home/rofi/tokyonight.rasi`. Everything else is a hex literal inside Nix or
 Rust.
 
@@ -63,7 +63,7 @@ checks.**
 1. **Hyprland border tinting is a no-op.** `tint.rs:152-172` emits
    `hyprctl keyword general:col.active_border`. `hyprland.nix:39` sets
    `configType = "lua"`, and Hyprland 0.55+ retired the hyprlang `keyword` IPC
-   for the Lua parser — the call exits 0 and changes nothing. `hyprmon` already
+   for the Lua parser, so the call exits 0 and changes nothing. `hyprmon` already
    documents this (`runner.rs:7-9`) and was migrated to
    `hyprctl eval 'hl.monitor({...})'`; `wallpaper-tui` was missed.
    `tint.rs:417` discards the result with `let _ =`.
@@ -77,9 +77,9 @@ checks.**
    ever uses, and `programs.beamenu.accent` has no effect on it at all.
 
 3. **The icon theme is generated and never selected.** `tint.rs:341-355` shells
-   out to `gsettings`, which is on no profile on this system — not
+   out to `gsettings`, which is on no profile on this system, not
    `/run/current-system/sw/bin`, not `~/.nix-profile/bin`, not
-   `/etc/profiles/per-user/matus/bin` — and `wallpaper-tui.nix:50` puts only
+   `/etc/profiles/per-user/matus/bin`, and `wallpaper-tui.nix:50` puts only
    `pywal` on PATH. The MoreWaita-Tint tree is recoloured per-SVG on every
    accent change (`tint.rs:450`) and then discarded.
 
@@ -94,7 +94,7 @@ checks.**
 - `"Lilex Nerd Font"` is hardcoded in ~10 files; beamenu-canvas independently
   uses Manrope/JetBrains Mono.
 - `installer-tui/src/ui.rs` and `wallpaper-tui/src/ui.rs` each carry their own
-  Tokyo Night `Rgba` table. `hyprmon` has no colours at all — nothing calls
+  Tokyo Night `Rgba` table. `hyprmon` has no colours at all. Nothing calls
   `provide_theme`, so it renders in `abstracttui`'s defaults.
 
 ## Architecture
@@ -114,8 +114,8 @@ rust/palette.json          neutrals + ramp, fonts, metrics, fallback accent
 ### The reload seam
 
 `nix/home/default.nix:159-164` already has Nix-managed GTK CSS `@import` a
-runtime-written fragment. That pattern — **static structure from Nix, colour
-from a mutable fragment** — is the whole design, generalised from its single
+runtime-written fragment. That pattern, **static structure from Nix, colour
+from a mutable fragment**, is the whole design, generalised from its single
 current use to every store-blocked surface:
 
 | Surface | Seam |
@@ -142,7 +142,7 @@ change), the writer already exists (`apply_tint`), the seam already exists
 beamenu, beamenu-canvas and the settings menu need **no** new mechanism.
 `beamenu.nix:10-14` records that the resident-scratchpad machinery was dropped
 because "layer-shell plus cairo starts in tens of milliseconds, so SUPER+D just
-runs the binary" — every invocation is a fresh process reading config at
+runs the binary". Every invocation is a fresh process reading config at
 startup. Merging the tint fragment over the store config makes them hot by
 construction.
 
@@ -184,7 +184,7 @@ Two things about this shape are deliberate:
 - **The canvas keeps its distinct typography.** beamenu-canvas is a WebKit
   surface using Manrope/JetBrains Mono rather than the desktop's Lilex. Naming
   those as roles in the palette file de-duplicates the strings without forcing
-  them to converge — the divergence becomes a declared choice rather than an
+  them to converge. The divergence becomes a declared choice rather than an
   accident of a second hardcoded list. Collapsing them to Lilex is a separate
   decision, not implied by this work.
 - **`beamenu` is an app-scoped section.** Layout metrics are not system colours,
@@ -208,7 +208,7 @@ sourceRoot = "source/beamenu";
 
 `cargoLock.lockFile` stays an eval-time path and is unaffected. The exact
 `sourceRoot` / `cargoRoot` form is to be verified against a real `nix build`
-rather than assumed — this is the least certain part of the design.
+rather than assumed. This is the least certain part of the design.
 
 ## Phases
 
@@ -229,14 +229,14 @@ work, so every phase gates on explicit per-crate `cargo test` and per-package
 `nix build --impure` instead:
 
 - `flake/apps.nix:81` runs `nix build .#abstracttui`, but `flake/packages.nix`
-  defines no such package — the gate dies before reaching any Rust crate.
+  defines no such package, so the gate dies before reaching any Rust crate.
 - `flake/apps.nix:82-85` lints only `installer-tui`, `wallpaper-tui`, `hyprmon`
   and `settings-global`. **`beamenu` and `beamenu-canvas` are absent**, so the
   two crates this work centres on have no fmt/clippy/test gate at all.
 
 **Each phase gets its own implementation plan.** The five together are too large
-for one plan to stay useful — phase 1 alone spans three crates, a Nix module and
-`flake/packages.nix`. Phases 1 and 2 are independent of each other; 3 depends on
+for one plan to stay useful, since phase 1 alone spans three crates, a Nix
+module and `flake/packages.nix`. Phases 1 and 2 are independent of each other; 3 depends on
 1 for the palette file and on 2 for a working border path; 4 depends on 3's
 writer; 5 is cleanup and depends on 1.
 
@@ -249,8 +249,8 @@ directory, not inline.
   Nix-rendered `config.json` contains every key its consumers read would have
   caught bug 2 at build time. This is the single most valuable test here.
 - `beamenu-canvas/tests/theme.rs` already asserts all eleven canvas literals, so
-  it becomes a free regression gate on the palette indirection — its values
-  change to Tokyo Night's in the same commit that redirects them.
+  it becomes a free regression gate on the palette indirection, and its
+  values change to Tokyo Night's in the same commit that redirects them.
 - A new `rust/beamenu/tests/palette.rs` asserting the eight launcher slots
   resolve correctly, and that a non-default accent moves `selected_background`
   and `heading` with it.
@@ -288,6 +288,6 @@ directory, not inline.
 ## Out of scope
 
 - Swapping the xdg-desktop-portal backend.
-- Removing rofi entirely — it stays as a rendering dependency of the settings
-  menu and dunst's dmenu.
+- Removing rofi entirely, since it stays as a rendering dependency of the
+  settings menu and dunst's dmenu.
 - Cursor theme (`XCURSOR_THEME=Adwaita`), which needs a session restart.

@@ -36,7 +36,7 @@ Scope {
     // a QML binding does not re-evaluate because time passed, so a comparator
     // calling Date.now() would get a different answer on each keystroke that
     // happened to re-run it and a different one again on the keystroke that
-    // did not — two rows a few hours apart could swap places mid-typing for no
+    // did not. Two rows a few hours apart could swap places mid-typing for no
     // reason the typist did anything to cause. One stamp per open is stable
     // for as long as the window is up, which is the only interval that has to
     // be self-consistent.
@@ -44,7 +44,7 @@ Scope {
 
     // The pill bar's own selection: "" is its All state. Released by every
     // query edit (see the TextInput's onTextChanged below) rather than kept
-    // across one — rust/beamenu/tests/pills.rs named this
+    // across one; rust/beamenu/tests/pills.rs named this
     // editing_the_query_releases_the_engaged_provider for a reason: a pill
     // chosen while browsing must not silently keep hiding rows a fresh
     // search matches in other providers.
@@ -64,7 +64,7 @@ Scope {
     // property cannot hold both states at once.
     property var drill: null
 
-    // Same rule as onSelectedPillChanged above — a different list means the
+    // Same rule as onSelectedPillChanged above: a different list means the
     // old index means nothing.
     onDrillChanged: root.selected = 0
 
@@ -78,7 +78,7 @@ Scope {
     // preview" test, just no longer scoped to files alone.
     readonly property string previewPath: root.results[root.selected]?.path ?? ""
 
-    // One entry per app in the visible list that has desktop actions — the
+    // One entry per app in the visible list that has desktop actions: the
     // capsules that used to sit on the rows themselves, gathered into the pill
     // bar. Each carries the name its capsule needs (a count alone, several
     // rows away from the app it counts, reads as a number about nothing), the
@@ -90,7 +90,7 @@ Scope {
     // rows the list does not have is a control that cannot keep its word.
     //
     // Empty while drilled. The list is then one app's own actions, which carry
-    // no actionCount of their own, so this would come out empty anyway — but
+    // no actionCount of their own, so this would come out empty anyway, but
     // saying so is what keeps a later provider that does put actionCount on an
     // action row from growing a second bar of capsules underneath the pill
     // that already stands for the drill itself.
@@ -112,13 +112,13 @@ Scope {
     readonly property var focusedScreen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? null
 
     // Every provider's rows for the current query, concatenated in registry
-    // order and never reordered — a prefixed query is already exactly one
+    // order and never reordered: a prefixed query is already exactly one
     // provider's own list. This, not `unfilteredResults` below, is what the
     // pill bar's left-to-right order comes from: `unfilteredResults` sorts by
     // prefix match and then title, which would otherwise make the bar itself
     // reorder under the pointer as scores change between keystrokes. beamenu's
     // own rule for this list was "nothing may carry an index across a change
-    // in the visible set" — a pill bar that visibly reshuffles is that rule
+    // in the visible set", a pill bar that visibly reshuffles is that rule
     // broken in a way you can see rather than crash on. Pill *counts* are a
     // separate question, answered where `pills` is computed below.
     readonly property var ambientRows: {
@@ -142,7 +142,7 @@ Scope {
         // Files are prefixed like the rest of them now, rather than mixed
         // into the ambient list. Typing three characters of anything used to
         // be enough to put a directory listing next to the applications, on a
-        // query that was almost never about a file — and the provider that
+        // query that was almost never about a file, and the provider that
         // answered it is the one provider that costs a process to ask.
         if (text.startsWith("f "))
             return providers.fileRows(text.slice(2).trim());
@@ -159,7 +159,7 @@ Scope {
     // (ambientRows above), so only the ambient case has anything left to sort.
     //
     // Rank.order does the sorting and returns a new array, which is what keeps
-    // `ambientRows` — a shared reference `pills` also reads — from being
+    // `ambientRows`, a shared reference `pills` also reads, from being
     // reordered as a side effect of rendering the list.
     //
     // Prefix matches still come first, so typing "bra" reaches Brave before
@@ -181,7 +181,7 @@ Scope {
         return Rank.order(root.ambientRows, providers.frecencyRecords, needle, root.rankNow).slice(0, 50);
     }
 
-    // One pill per provider present in the query's rows — item.rs's
+    // One pill per provider present in the query's rows, item.rs's
     // contract. Order comes from ambientRows (registry order) so the bar's
     // left-to-right order stays put across a keystroke instead of reshuffling
     // with scores; counts come from unfilteredResults, the exact list
@@ -190,7 +190,7 @@ Scope {
     // pushed past unfilteredResults' 50-row cap keep a nonzero pill that
     // delivered fewer rows than promised, or none at all.
     // While drilled into an app the bar carries exactly one pill, named after
-    // that app, standing in for the provider pills it replaces — it is the
+    // that app, standing in for the provider pills it replaces; it is the
     // visible answer to "why is this list only four rows". The sentinel id no
     // provider can produce keeps it from ever colliding with a real one:
     // providerOf only ever returns a row's own provider string or "other".
@@ -227,7 +227,7 @@ Scope {
     }
 
     // Cycles the pill bar with Tab/Shift+Tab, the keyboard half of "let the
-    // pointer drive the pills too" — clicking a Pill (below) is the other
+    // pointer drive the pills too", clicking a Pill (below) is the other
     // half. Wraps through "" (All) the same way `move()` wraps the row
     // selection, and resets which row is highlighted since the list under a
     // new pill is a different list.
@@ -236,8 +236,8 @@ Scope {
     // can promise the row under them has actions.
     //
     // `origin` is the row index being left behind. Both callers have already
-    // put root.selected on the row in question — the keyboard path reads it to
-    // find the row at all, the click path assigns it first — so capturing it
+    // put root.selected on the row in question: the keyboard path reads it to
+    // find the row at all, the click path assigns it first, so capturing it
     // here needs no extra parameter.
     // Returns whether it actually drilled, so a key handler can decline the
     // keystroke when there was nothing to open rather than swallowing it.
@@ -256,7 +256,7 @@ Scope {
 
     // Restores the row the drill was opened from. The assignment to `drill`
     // fires onDrillChanged, which zeroes the selection for the incoming list,
-    // so `selected` is put back afterwards rather than before — otherwise the
+    // so `selected` is put back afterwards rather than before: otherwise the
     // handler would overwrite it and backing out would always land on the
     // first row of a list you had already scrolled past.
     //
@@ -311,7 +311,7 @@ Scope {
         // Recorded before run(), not after: run() hands off to execDetached or
         // a singleton and this function does not get to see whether that
         // worked. "The user chose this row" is the fact worth ranking on
-        // anyway — a launch that fails is still a launch that was wanted.
+        // anyway: a launch that fails is still a launch that was wanted.
         //
         // Rows from providers that opted out of ranking carry no key and are
         // skipped, so this stays a no-op for files, clipboard and the rest.
@@ -455,7 +455,7 @@ Scope {
                             root.selected = 0;
 
                             // Editing the query releases whichever pill was
-                            // engaged while browsing — beamenu's own rule
+                            // engaged while browsing, beamenu's own rule
                             // (rust/beamenu/tests/pills.rs:
                             // editing_the_query_releases_the_engaged_provider).
                             // Without this, typing further after clicking a
@@ -480,7 +480,7 @@ Scope {
                             // query used to spawn fd as soon as it reached
                             // three characters, so typing an app's name paid
                             // for a filesystem search nobody asked for and
-                            // then showed the results next to the app — the
+                            // then showed the results next to the app; the
                             // provider's own rule about not costing a process
                             // per keystroke, finally applied to whether the
                             // search should happen at all rather than only to
@@ -509,7 +509,7 @@ Scope {
                         Keys.onBacktabPressed: root.cyclePill(-1)
 
                         // Right drills in, but only with the caret already at
-                        // the end of the query — which is where it sits while
+                        // the end of the query, which is where it sits while
                         // typing. Anywhere else the arrow is being used to
                         // move through text that was typed, and stealing it
                         // would make the field impossible to edit.
@@ -522,7 +522,7 @@ Scope {
                             // Declined too when the highlighted row has no
                             // actions to open. Qt marks the event accepted
                             // before calling this handler, so keeping it
-                            // would eat a keystroke that did nothing —
+                            // would eat a keystroke that did nothing,
                             // noticeable with a selection active, where Right
                             // is what collapses it.
                             if (!root.drillInto(root.results[root.selected]))
@@ -530,7 +530,7 @@ Scope {
                         }
 
                         // Left is the way back out, and only means that while
-                        // drilled — otherwise it is an ordinary caret move.
+                        // drilled; otherwise it is an ordinary caret move.
                         // No caret guard on this side: any edit releases the
                         // drill anyway, so there is no state where the caret
                         // matters and the drill is still up.
@@ -557,7 +557,7 @@ Scope {
 
                     // The filter pill bar (rust/beamenu/src/item.rs: "every
                     // provider owns exactly one pill"). Built from the shared
-                    // capsule primitive rather than a second implementation —
+                    // capsule primitive rather than a second implementation:
                     // Tab/Shift+Tab cycle it from the keyboard, and each Pill's
                     // own MouseArea (see common/Pill.qml) lets the pointer
                     // drive it too.
@@ -565,7 +565,7 @@ Scope {
                     // Not every capsule in here is a filter. The drill-in
                     // capsules after the Repeater used to sit one per app row,
                     // which put the launcher's only non-filter controls in the
-                    // one place the eye is reading names — so the bar now
+                    // one place the eye is reading names, so the bar now
                     // carries every control acting on the list and the list
                     // carries only the list.
                     //
@@ -574,14 +574,14 @@ Scope {
                     // and by the time an empty query has matched enough apps
                     // with desktop actions to fill several lines of capsules,
                     // that height comes straight out of the result list below
-                    // it — the panel grew taller not because there was more to
+                    // it: the panel grew taller not because there was more to
                     // read but because the labelling strip above the list had
                     // nowhere sideways left to go. A single row never costs the
                     // list anything: it is exactly one Pill tall no matter how
                     // many capsules it holds, and the ones that do not fit are
                     // reached by scrolling sideways instead. The reading order
-                    // this trades away — wrapped rows read left-to-right, top-
-                    // to-bottom like text — was never load-bearing here: the
+                    // this trades away (wrapped rows read left-to-right, top-
+                    // to-bottom like text) was never load-bearing here: the
                     // bar already reads left-to-right in the one order that
                     // matters, the registry order ambientRows guarantees
                     // (see `pills` above), and that is unchanged by putting
@@ -592,7 +592,7 @@ Scope {
                         Layout.fillWidth: true
                         Layout.leftMargin: 14
                         Layout.rightMargin: 14
-                        // One Pill tall, always — there is no multi-row cap
+                        // One Pill tall, always: there is no multi-row cap
                         // left to shrink toward, so a two-pill bar and a bar
                         // scrolling past a dozen capsules cost the panel the
                         // exact same height. The no-pills case is not this
@@ -605,7 +605,7 @@ Scope {
 
                         // pillRow is content-sized now (a Row, not a
                         // width-bound Flow), so the viewport's contentWidth
-                        // follows it rather than the other way around — see
+                        // follows it rather than the other way around; see
                         // the note on pillRow below for why that direction
                         // matters.
                         contentWidth: pillRow.implicitWidth
@@ -613,20 +613,20 @@ Scope {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         // Vertical drags/flicks over the bar must never
-                        // rubber-band it — there is nothing above or below to
-                        // reveal — so only the horizontal axis is live.
+                        // rubber-band it: there is nothing above or below to
+                        // reveal, so only the horizontal axis is live.
                         flickableDirection: Flickable.HorizontalFlick
 
                         // Scrolls `item` into the viewport along the bar's one
                         // axis. Called from the provider pill delegate's
-                        // onActiveChanged below — Tab/Shift+Tab drive `active`
+                        // onActiveChanged below: Tab/Shift+Tab drive `active`
                         // through root.selectedPill, and without this a
                         // keyboard cycle can select a pill the viewport never
                         // shows, leaving no visible sign the key was heard.
                         //
                         // Programmatic contentX is NOT bounded by
-                        // boundsBehavior — StopAtBounds only governs drags and
-                        // flicks — so both branches below are clamped
+                        // boundsBehavior (StopAtBounds only governs drags and
+                        // flicks), so both branches below are clamped
                         // explicitly. Without the clamp, an item near either
                         // end of a short content run could push contentX
                         // negative or past the scrollable range and leave the
@@ -635,8 +635,8 @@ Scope {
                         /// Moves the bar to `x`, clamped to what there is to scroll.
                         ///
                         /// The one place the scrollable range is written down.
-                        /// Three callers move this bar — ensureVisible below, the
-                        /// contentWidth clamp and the wheel handler — and each of
+                        /// Three callers move this bar (ensureVisible below, the
+                        /// contentWidth clamp and the wheel handler), and each of
                         /// them open-coding the same Math.max/Math.min pair is
                         /// three places for a later change to the range to miss.
                         function scrollTo(x: real): void {
@@ -651,7 +651,7 @@ Scope {
                         }
 
                         // Parks the bar at its left edge whenever cycling
-                        // returns to All (root.selectedPill === "") — the one
+                        // returns to All (root.selectedPill === ""), the one
                         // state that activates no delegate, so ensureVisible
                         // above never runs for it on its own.
                         //
@@ -664,7 +664,7 @@ Scope {
                         // resets it either: the onContentWidthChanged clamp
                         // below only pulls contentX back inside the new range,
                         // it never returns a wheel-scrolled bar to its left
-                        // edge. That is deliberate — a bar you scrolled by hand
+                        // edge. That is deliberate: a bar you scrolled by hand
                         // keeping its place across a keystroke is the smaller
                         // surprise of the two.
                         Connections {
@@ -676,10 +676,10 @@ Scope {
                             }
                         }
 
-                        // A rebuilt, shorter pill set — a query that now
+                        // A rebuilt, shorter pill set (a query that now
                         // matches fewer providers, or drilling back out to a
                         // bar with far fewer action capsules than the one
-                        // before it — can leave contentX pointing past the new
+                        // before it) can leave contentX pointing past the new
                         // contentWidth. Nothing else re-clamps on that
                         // specific change, so it is pinned here rather than
                         // folded into ensureVisible, which only runs when a
@@ -689,7 +689,7 @@ Scope {
                         // The only path by which a vertical wheel reaches this
                         // horizontally-scrolling bar. WheelHandler defaults to
                         // orientation: Qt.Vertical, so it is offered only
-                        // events that carry a vertical delta — a pure
+                        // events that carry a vertical delta; a pure
                         // horizontal delta (a touchpad's own sideways swipe)
                         // is never delivered to it at all, and needs no
                         // handling here: Flickable's native HorizontalFlick
@@ -699,7 +699,7 @@ Scope {
                         // either swallow their clicks or need
                         // propagateComposedEvents contortions to avoid it,
                         // where a pointer handler is delivered before an
-                        // Item's own handling and claims wheel events alone —
+                        // Item's own handling and claims wheel events alone;
                         // pill clicks stay untouched by construction.
                         //
                         // `target: null` says out loud what the default
@@ -712,7 +712,7 @@ Scope {
                         // neighbours (activeTimeout, rotationScale, orientation,
                         // blocking) that all carry an initialiser. So this
                         // handler drives nothing by itself and exists only for
-                        // its `wheel` signal — the line is defensive, and an
+                        // its `wheel` signal; the line is defensive, and an
                         // earlier draft of this comment claiming it stopped the
                         // bar visibly rotating was simply wrong.
                         WheelHandler {
@@ -730,7 +730,7 @@ Scope {
                             // pillScroll.width to know where to wrap, but a
                             // Row sizes itself to its children, and pinning it
                             // to the viewport's width here would fight the
-                            // content-sized contentWidth binding above —
+                            // content-sized contentWidth binding above:
                             // pillRow.implicitWidth feeding contentWidth while
                             // pillRow.width itself is clamped to that same
                             // viewport is a binding loop.
@@ -798,16 +798,16 @@ Scope {
                             }
 
                             // The way into each app's desktop actions, beside the
-                            // provider pills because that is what drilling in is
-                            // — a filter that happens to be scoped to one app
+                            // provider pills because that is what drilling in is:
+                            // a filter that happens to be scoped to one app
                             // instead of one provider. Built from the same shared
                             // capsule for the same reason.
                             //
                             // Deliberately a second Repeater rather than more
                             // entries in root.pills. cyclePill walks that list, so
                             // folding these in would put Tab on capsules that
-                            // filter nothing, and pillsFor's contract — one pill
-                            // per provider — would stop being true of the thing it
+                            // filter nothing, and pillsFor's contract (one pill
+                            // per provider) would stop being true of the thing it
                             // builds.
                             Repeater {
                                 model: root.actionPills
@@ -833,7 +833,7 @@ Scope {
 
                                     // The app's own Papirus icon, the same
                                     // Quickshell.iconPath lookup ResultRow's
-                                    // list rows already resolve — this capsule
+                                    // list rows already resolve; this capsule
                                     // used to sit ON that row, so it earns the
                                     // same icon the row it replaced would have
                                     // shown. Sized to Theme.barIconSize rather
@@ -877,8 +877,8 @@ Scope {
                                         // beside it: Pill routes both into its
                                         // internal `Row { id: layout }`, which
                                         // manages only the horizontal axis and
-                                        // otherwise leaves children top-aligned
-                                        // — without this the ~13px label would
+                                        // otherwise leaves children top-aligned;
+                                        // without this the ~13px label would
                                         // sit flush with the top of the now
                                         // 20px-tall row instead of beside its
                                         // icon's middle. Qt 6 forbids
@@ -958,7 +958,7 @@ Scope {
                 }
 
                 // Invisible for every row that carries no path, and an
-                // invisible item is left out of a RowLayout entirely — which
+                // invisible item is left out of a RowLayout entirely, which
                 // is what keeps the column from reserving space it cannot use.
                 PreviewPane {
                     Layout.preferredWidth: Theme.launcherPreviewWidth

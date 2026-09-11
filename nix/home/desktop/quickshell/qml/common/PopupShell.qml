@@ -1,14 +1,14 @@
 // The mechanics shared by every popup that opens at a point and closes on
 // an outside click: files/Menu.qml's right-click menu today, and a
-// path-segment dropdown due to land beside it. Both want the same panel —
+// path-segment dropdown due to land beside it. Both want the same panel,
 // clamped inside the parent, flipped above the anchor point when there is
-// no room to open downward — and the same way of closing, so this holds
+// no room to open downward, and the same way of closing, so this holds
 // that half and leaves the row content, and how tall it ends up, to the
 // caller: `content` and `panelHeight` do for a popup what `Panel.qml`'s own
 // `content` and the caller-computed `height` do for a fixed-position one.
 //
 // The `MouseArea` behind the panel is the part worth explaining: the click
-// that dismisses a popup almost always lands somewhere else entirely — on
+// that dismisses a popup almost always lands somewhere else entirely, on
 // the pane row a right-click menu was opened over, in Menu.qml's case.
 // Without a full-size area behind the panel catching that click first, it
 // would fall through to whatever the popup was covering, and closing the

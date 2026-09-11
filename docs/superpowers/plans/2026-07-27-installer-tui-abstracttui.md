@@ -1,22 +1,22 @@
-# installer-tui → abstracttui Migration Implementation Plan
+# installer-tui → abstracttui migration implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rewrite `installer-tui`'s entire TUI layer (event loop, view, key-event type) from `ratatui`+`crossterm` onto `abstracttui 0.2.x`, add tasteful animations, and keep the existing pure state machine + its test suite green.
 
-**Architecture:** Approach A from the design spec — keep `App` (`app.rs`) as the pure, testable state machine; hold it in one `abstracttui` `Signal<App>`; build the View tree in a `dyn_view` reactive region that projects `App` onto abstracttui widgets; route engine key events into `App::handle_key`; drain worker `mpsc` channels each custom-loop iteration. A small `fx.rs` overlay adds `anim`-driven transitions, gated by `DOTS_NO_ANIM`.
+**Architecture:** Approach A from the design spec. Keep `App` (`app.rs`) as the pure, testable state machine; hold it in one `abstracttui` `Signal<App>`; build the View tree in a `dyn_view` reactive region that projects `App` onto abstracttui widgets; route engine key events into `App::handle_key`; drain worker `mpsc` channels each custom-loop iteration. A small `fx.rs` overlay adds `anim`-driven transitions, gated by `DOTS_NO_ANIM`.
 
 **Tech Stack:** Rust 2021, `abstracttui = "0.2"`, existing non-TUI modules (`config`, `disks`, `net`, `install`), `mpsc` + `std::thread` worker pattern (unchanged).
 
 ## Global Constraints
 
-- Non-TUI modules (`config.rs`, `disks.rs`, `net.rs`, `install.rs`) are **untouched** — no logic, no signature changes. Their tests must stay green.
-- `App`'s public fields and `Screen` enum stay public and structurally identical — `tests/app.rs` sets fields directly (`app.screen = …`, `app.wifi_networks = …`).
+- Non-TUI modules (`config.rs`, `disks.rs`, `net.rs`, `install.rs`) are **untouched**. No logic, no signature changes. Their tests must stay green.
+- `App`'s public fields and `Screen` enum stay public and structurally identical. `tests/app.rs` sets fields directly (`app.screen = …`, `app.wifi_networks = …`).
 - `App::handle_key` stays a pure transition function; only its parameter type changes (`crossterm::event::KeyEvent` → `crate::input::KeyEvent`). All test call sites (`key(KeyCode::Char(c))`, `KeyEvent::from(code)`) keep working.
-- No inline tests — new tests go in `tests/` per the repo rule.
+- No inline tests. New tests go in `tests/` per the repo rule.
 - Comments: top-level (`//!`) and per-symbol (`///`) only; inline `//` only for "magic sorcery".
 - No `Co-Authored-By`/session-link in commits (per project CLAUDE.md).
-- `abstracttui 0.2.x` is brand-new (published 2026-07-26); exact widget signatures are confirmed empirically by the Task 0 spike and recorded in `docs/superpowers/refs/abstracttui-api.md`. When a task's code block disagrees with that reference, **the reference wins** — adjust the code so `cargo check` passes.
+- `abstracttui 0.2.x` is brand-new (published 2026-07-26); exact widget signatures are confirmed empirically by the Task 0 spike and recorded in `docs/superpowers/refs/abstracttui-api.md`. When a task's code block disagrees with that reference, **the reference wins**. Adjust the code so `cargo check` passes.
 - Formatting: `cargo fmt --all`; lints: `cargo clippy -- -W clippy::all -W clippy::perf -W clippy::pedantic` must be clean before each commit.
 
 ---
@@ -41,15 +41,15 @@
 
 ### Task 0: API spike + authoritative reference
 
-**Goal:** Build a throwaway example that compiles and runs headless against the real `abstracttui 0.2.x` crate, exercising every API the migration needs, and paste the confirmed signatures into `docs/superpowers/refs/abstracttui-api.md`. This task is the source of truth for all later tasks — the compiler, not docs.rs summaries, decides the API.
+**Goal:** Build a throwaway example that compiles and runs headless against the real `abstracttui 0.2.x` crate, exercising every API the migration needs, and paste the confirmed signatures into `docs/superpowers/refs/abstracttui-api.md`. This task is the source of truth for all later tasks. The compiler, not docs.rs summaries, decides the API.
 
 **Files:**
 - Create: `rust/installer-tui/examples/spike.rs`
 - Create: `docs/superpowers/refs/abstracttui-api.md`
-- Modify: `rust/installer-tui/Cargo.toml` (add `abstracttui = "0.2"`; keep `ratatui`/`crossterm` for now — removed in Task 1)
+- Modify: `rust/installer-tui/Cargo.toml` (add `abstracttui = "0.2"`; keep `ratatui`/`crossterm` for now. Removed in Task 1)
 
 **Interfaces:**
-- Produces: `docs/superpowers/refs/abstracttui-api.md` — every signature later tasks reference.
+- Produces: `docs/superpowers/refs/abstracttui-api.md`, every signature later tasks reference.
 - Produces: a compiling `examples/spike.rs` proving the signatures.
 
 - [ ] **Step 1: Add abstracttui to Cargo.toml**
@@ -68,12 +68,12 @@ name = "spike"
 
 - [ ] **Step 2: Write the spike example**
 
-`rust/installer-tui/examples/spike.rs` — exercise: `App::new(Size{...})` + `mount` + custom loop using `app.pump(...)`/`app.draw(...)` + `app.quit_requested()`; `Scope::signal` + `Signal::{get,set,update}`; `dyn_view(Style, || View)`; `Element::new().style(Style::row().gap(1)).focusable().on_event(|_cx, ev| if let UiEvent::Key(k) = ev { if k.key == Key::Char('q') { quit } }).child(...).build()`; the widget constructors `Block::new`, `List::new`, `Progress::new`, `Spinner::new`, `RichTextView::new` (find the real constructors — try the documented idiom, the compiler corrects you); `Image` with `ImageFit`/`ImageAlign` on a `Bitmap::from_pixels(w,h,px)` built from a 2×2 RGBA buffer (construct `Rgba` — try `Rgba::new(r,g,b,a)` then tuple-struct fallback); `Tween::new(0.0f32,1.0,ms(200)).with_easing(Easing::EaseOut).sample(ms(100))` and `Transition::new(0.0, ms(100), Easing::Linear).set_target(1.0, ms(0)).tick(ms(50)).value()`; headless `CaptureTerm` + `driver.turn(&mut app, &mut term)` + `assert_snapshot`.
+`rust/installer-tui/examples/spike.rs`. Exercise: `App::new(Size{...})` + `mount` + custom loop using `app.pump(...)`/`app.draw(...)` + `app.quit_requested()`; `Scope::signal` + `Signal::{get,set,update}`; `dyn_view(Style, || View)`; `Element::new().style(Style::row().gap(1)).focusable().on_event(|_cx, ev| if let UiEvent::Key(k) = ev { if k.key == Key::Char('q') { quit } }).child(...).build()`; the widget constructors `Block::new`, `List::new`, `Progress::new`, `Spinner::new`, `RichTextView::new` (find the real constructors by trying the documented idiom, the compiler corrects you); `Image` with `ImageFit`/`ImageAlign` on a `Bitmap::from_pixels(w,h,px)` built from a 2×2 RGBA buffer (construct `Rgba` by trying `Rgba::new(r,g,b,a)`, then the tuple-struct fallback); `Tween::new(0.0f32,1.0,ms(200)).with_easing(Easing::EaseOut).sample(ms(100))` and `Transition::new(0.0, ms(100), Easing::Linear).set_target(1.0, ms(0)).tick(ms(50)).value()`; headless `CaptureTerm` + `driver.turn(&mut app, &mut term)` + `assert_snapshot`.
 
 ```rust
 //! Throwaway abstracttui API probe. Delete after the migration lands.
 use abstracttui::prelude::*;
-// Confirm exact imports needed (engine types not in prelude) — add here:
+// Confirm exact imports needed (engine types not in prelude). Add here:
 // use abstracttui::app::App; use abstracttui::gfx::Bitmap; use abstracttui::base::Rgba;
 // use abstracttui::anim::{Tween, Transition, Easing, Clock}; use abstracttui::testing::CaptureTerm;
 
@@ -94,7 +94,7 @@ This stub is intentional: the *work* of this task is iterating against `cargo ru
 - [ ] **Step 3: Iterate until `cargo run --example spike` works headless**
 
 Run: `cd rust/installer-tui && cargo run --example spike`
-Expected: compiles, runs without a real terminal (drive `CaptureTerm` for the headless path, or exit 0 immediately for the live path). Use the docs.rs **source-view** URLs (`/src/abstracttui/...`) to read exact signatures — they are static HTML, unlike the JS-rendered struct pages.
+Expected: compiles, runs without a real terminal (drive `CaptureTerm` for the headless path, or exit 0 immediately for the live path). Use the docs.rs **source-view** URLs (`/src/abstracttui/...`) to read exact signatures. They are static HTML, unlike the JS-rendered struct pages.
 
 - [ ] **Step 4: Record confirmed signatures into the reference doc**
 
@@ -126,17 +126,17 @@ git commit -m "feat(installer-tui): abstracttui API spike + reference"
 
 ### Task 1: Dependency swap + `input` shim + state-machine type fix
 
-**Goal:** Remove `ratatui`/`crossterm`, introduce the engine-agnostic `input` shim, switch `App::handle_key` to it, and fix `tests/app.rs` with a 2-line `use` swap — so the state-machine test suite is green again on the new deps.
+**Goal:** Remove `ratatui`/`crossterm`, introduce the engine-agnostic `input` shim, switch `App::handle_key` to it, and fix `tests/app.rs` with a 2-line `use` swap, so the state-machine test suite is green again on the new deps.
 
 **Files:**
 - Modify: `rust/installer-tui/Cargo.toml`
 - Create: `rust/installer-tui/src/input.rs`
-- Modify: `rust/installer-tui/src/app.rs` (lines 4, 123, 193-area imports only — logic unchanged)
+- Modify: `rust/installer-tui/src/app.rs` (lines 4, 123, 193-area imports only, logic unchanged)
 - Modify: `rust/installer-tui/src/lib.rs`
 - Modify: `rust/installer-tui/tests/app.rs` (lines 3, 9-11)
 
 **Interfaces:**
-- Consumes: `docs/superpowers/refs/abstracttui-api.md` (not needed yet — no abstracttui code in this task).
+- Consumes: `docs/superpowers/refs/abstracttui-api.md` (not needed yet, no abstracttui code in this task).
 - Produces: `pub mod input; pub use input::{KeyCode, KeyEvent};` exported from `dots_installer`. `App::handle_key(&mut self, key: input::KeyEvent)`.
 
 - [ ] **Step 1: Write the failing test edit (test currently won't compile after dep removal)**
@@ -151,7 +151,7 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 ```
 
-(All call sites — `key(KeyCode::Char(c))`, `key(KeyCode::Enter)`, etc. — stay byte-identical.)
+(All call sites, such as `key(KeyCode::Char(c))`, `key(KeyCode::Enter)`, etc., stay byte-identical.)
 
 - [ ] **Step 2: Write the `input` shim**
 
@@ -195,11 +195,11 @@ impl From<KeyCode> for KeyEvent {
 In `rust/installer-tui/src/app.rs`:
 - Remove `use crossterm::event::{KeyCode, KeyEvent};` (line 4).
 - Add `use crate::input::{KeyCode, KeyEvent};`.
-- Change `pub fn handle_key(&mut self, key: KeyEvent)` to `pub fn handle_key(&mut self, key: crate::input::KeyEvent)` — but since both are now `crate::input::KeyEvent` via the `use`, the signature text `key: KeyEvent` already refers to the right type. No body changes.
+- Change `pub fn handle_key(&mut self, key: KeyEvent)` to `pub fn handle_key(&mut self, key: crate::input::KeyEvent)`. But since both are now `crate::input::KeyEvent` via the `use`, the signature text `key: KeyEvent` already refers to the right type. No body changes.
 
 - [ ] **Step 4: Export `input` from the lib**
 
-`rust/installer-tui/src/lib.rs` — add `pub mod input;` (keep existing `pub mod app;` etc.).
+`rust/installer-tui/src/lib.rs`. Add `pub mod input;` (keep existing `pub mod app;` etc.).
 
 - [ ] **Step 5: Swap Cargo.toml deps**
 
@@ -210,17 +210,17 @@ serde_json = "1"
 anyhow = "1"
 ```
 
-(Drop `ratatui` and `crossterm`.) Remove the `[[example]]` block from Task 0 if you don't want it shipped — but keeping `examples/spike.rs` is harmless; leave it.
+(Drop `ratatui` and `crossterm`.) Remove the `[[example]]` block from Task 0 if you don't want it shipped, but keeping `examples/spike.rs` is harmless; leave it.
 
-- [ ] **Step 6: Run the state-machine tests — must pass**
+- [ ] **Step 6: Run the state-machine tests, must pass**
 
 Run: `cd rust/installer-tui && cargo test --test app`
-Expected: PASS — all ~70 `handle_key` call sites compile and behave identically.
+Expected: PASS, all ~70 `handle_key` call sites compile and behave identically.
 
-- [ ] **Step 7: Confirm the rest still compiles (ui.rs/main.rs will be broken — expected)**
+- [ ] **Step 7: Confirm the rest still compiles (ui.rs/main.rs will be broken, expected)**
 
 Run: `cd rust/installer-tui && cargo check`
-Expected: FAIL only in `ui.rs` and `main.rs` (still reference `ratatui`/`crossterm`). That's fine — they're rewritten in Tasks 3-7. Do **not** commit a green `cargo check` yet; commit after the test passes.
+Expected: FAIL only in `ui.rs` and `main.rs` (still reference `ratatui`/`crossterm`). That's fine. They're rewritten in Tasks 3-7. Do **not** commit a green `cargo check` yet; commit after the test passes.
 
 - [ ] **Step 8: Commit**
 
@@ -234,7 +234,7 @@ git commit -m "refactor(installer-tui): engine-agnostic input shim, drop ratatui
 
 ### Task 2: `fx` animation overlay skeleton
 
-**Goal:** Create `src/fx.rs` with the animation primitives the UI will use, gated by `DOTS_NO_ANIM`, and unit-test the tween/transition math with `Clock::fixed` — no UI wiring yet.
+**Goal:** Create `src/fx.rs` with the animation primitives the UI will use, gated by `DOTS_NO_ANIM`, and unit-test the tween/transition math with `Clock::fixed`. No UI wiring yet.
 
 **Files:**
 - Create: `rust/installer-tui/src/fx.rs`
@@ -281,16 +281,16 @@ fn animations_enabled_respects_env() {
 }
 ```
 
-Adjust the exact `Clock::fixed` / `now(ms)` API to match the reference doc — the spike (Task 0) confirmed the real `Clock` surface. If `Clock::fixed` doesn't take `ms`-args the way shown, use the confirmed form and update the test to match; the *property* under test (ease-out front-loads, clamps at 1, shake settles) is the contract.
+Adjust the exact `Clock::fixed` / `now(ms)` API to match the reference doc. The spike (Task 0) confirmed the real `Clock` API. If `Clock::fixed` doesn't take `ms`-args the way shown, use the confirmed form and update the test to match; the *property* under test (ease-out front-loads, clamps at 1, shake settles) is the contract.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd rust/installer-tui && cargo test --test fx`
-Expected: FAIL — `dots_installer::fx` doesn't exist.
+Expected: FAIL, `dots_installer::fx` doesn't exist.
 
 - [ ] **Step 3: Implement `fx.rs`**
 
-`rust/installer-tui/src/fx.rs` — use the `Tween`/`Transition`/`Easing`/`Clock`/`FrameRequester` signatures confirmed in the reference. The shape:
+`rust/installer-tui/src/fx.rs`. Use the `Tween`/`Transition`/`Easing`/`Clock`/`FrameRequester` signatures confirmed in the reference. The shape:
 
 ```rust
 //! Animation overlay for the installer TUI. All motion is opt-in and
@@ -362,9 +362,9 @@ git commit -m "feat(installer-tui): fx animation overlay skeleton (DOTS_NO_ANIM-
 
 ---
 
-### Task 3: `ui.rs` — wizard text screens
+### Task 3: `ui.rs`, wizard text screens
 
-**Goal:** Rewrite `ui.rs` from scratch as an abstracttui View projection. Start with the text-only wizard screens (Welcome, Hostname, Username, GitName, GitEmail, RootPassword*, UserPassword*, Confirm) — centered `Block` + `RichTextView` prompt + a styled input line with a cursor glyph, plus the error line. Verify with a headless render test.
+**Goal:** Rewrite `ui.rs` from scratch as an abstracttui View projection. Start with the text-only wizard screens (Welcome, Hostname, Username, GitName, GitEmail, RootPassword*, UserPassword*, Confirm) using a centered `Block` + `RichTextView` prompt + a styled input line with a cursor glyph, plus the error line. Verify with a headless render test.
 
 **Files:**
 - Modify: `rust/installer-tui/src/ui.rs` (full rewrite, starting fresh)
@@ -372,7 +372,7 @@ git commit -m "feat(installer-tui): fx animation overlay skeleton (DOTS_NO_ANIM-
 
 **Interfaces:**
 - Consumes: `App`, `Screen` from `crate::app`; `input` not needed here; widget + `Style` + `dyn_view` + `Scope`/`Signal` signatures from `docs/superpowers/refs/abstracttui-api.md`; the Tokyonight palette constants from the old `ui.rs` (keep them, ported to `render::Rgba`/theme tokens).
-- Produces: `pub fn root_view(cx: Scope, app: Signal<App>) -> View` — the root component. `pub mod palette` (Tokyonight colors as `Rgba` consts / theme tokens).
+- Produces: `pub fn root_view(cx: Scope, app: Signal<App>) -> View`, the root component. `pub mod palette` (Tokyonight colors as `Rgba` consts / theme tokens).
 
 - [ ] **Step 1: Write the failing headless render test for the Welcome screen**
 
@@ -400,19 +400,19 @@ fn welcome_screen_renders_title_and_hint() {
 }
 ```
 
-`App` is `Clone`? It currently isn't derived. Add `#[derive(Debug, Clone)]` to `App` in `app.rs` (it owns only `Clone`able fields — verify). The test clones `App` into the signal. Implement `todo_harness_from_reference()` using the `CaptureTerm` + `driver.turn`/`app.pump` + `assert_snapshot` API confirmed in the reference; if reading raw rendered text has a documented accessor, use it, else compare via `assert_snapshot` against a golden (with `UPDATE_GOLDENS=1` to seed).
+`App` is `Clone`? It currently isn't derived. Add `#[derive(Debug, Clone)]` to `App` in `app.rs` (it owns only `Clone`able fields, but verify). The test clones `App` into the signal. Implement `todo_harness_from_reference()` using the `CaptureTerm` + `driver.turn`/`app.pump` + `assert_snapshot` API confirmed in the reference; if reading raw rendered text has a documented accessor, use it, else compare via `assert_snapshot` against a golden (with `UPDATE_GOLDENS=1` to seed).
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd rust/installer-tui && cargo test --test view -- welcome_screen_renders_title_and_hint`
-Expected: FAIL — `ui::root_view` doesn't exist / harness stub.
+Expected: FAIL, `ui::root_view` doesn't exist / harness stub.
 
 - [ ] **Step 3: Port the palette and write `root_view` + the text screens**
 
-`rust/installer-tui/src/ui.rs` — start with:
+`rust/installer-tui/src/ui.rs`, starting with:
 
 ```rust
-//! abstracttui view. Pure projection of &App onto a View tree — no I/O.
+//! abstracttui view. Pure projection of &App onto a View tree. No I/O.
 //! Reactivity comes from `dyn_view` re-reading the `Signal<App>` on change.
 use abstracttui::prelude::*;
 use crate::app::{App, Screen};
@@ -448,7 +448,7 @@ pub fn root_view(cx: Scope, app: Signal<App>, fx: Signal<ScreenFx>) -> View {
 }
 ```
 
-Then implement `wizard_view(&App) -> View`: a centered `Block` (title from the match in the old `ui.rs`, bottom hint) containing a `RichTextView` built from the prompt lines, the input line `> {shown}█` in CYAN, and the error line in RED. Use `input_lines(prompt, input, mask)` ported to return `RichText`/spans. Center via `Style` absolute positioning or margin-auto per the reference's confirmed centering idiom. For the text screens the `title`/`hint`/`prompt` strings are copied **verbatim** from the old `ui.rs` `match` arms (Welcome, Hostname, Username, GitName, GitEmail, RootPassword, RootPasswordConfirm, UserPassword, UserPasswordConfirm, Confirm) — preserve every string.
+Then implement `wizard_view(&App) -> View`: a centered `Block` (title from the match in the old `ui.rs`, bottom hint) containing a `RichTextView` built from the prompt lines, the input line `> {shown}█` in CYAN, and the error line in RED. Use `input_lines(prompt, input, mask)` ported to return `RichText`/spans. Center via `Style` absolute positioning or margin-auto per the reference's confirmed centering idiom. For the text screens the `title`/`hint`/`prompt` strings are copied **verbatim** from the old `ui.rs` `match` arms (Welcome, Hostname, Username, GitName, GitEmail, RootPassword, RootPasswordConfirm, UserPassword, UserPasswordConfirm, Confirm). Preserve every string.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -491,7 +491,7 @@ git commit -m "feat(installer-tui): abstracttui view for wizard text screens"
 
 ---
 
-### Task 4: `ui.rs` — Network / DiskSelect / WifiPassword / WifiConnecting
+### Task 4: `ui.rs`, Network / DiskSelect / WifiPassword / WifiConnecting
 
 **Goal:** Add the interactive-list screens using abstracttui's `List` widget (Network's Wi-Fi list, DiskSelect's multi-select with `[x]`/`[ ]`) and the `Spinner`-driven busy states. Keep ASCII markers for raw-tty1 safety.
 
@@ -542,7 +542,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement the list screens**
 
-Extend `wizard_view`'s match with `Screen::Network => network_view(&a)`, `Screen::DiskSelect => disk_select_view(&a)`, `Screen::WifiConnecting => wifi_connecting_view(&a)`, `Screen::WifiPassword => input_lines(...)` (already a text screen — uses the input-line helper from Task 3). `network_view` builds a `List` from `app.wifi_networks` with the selected index highlighted (`app.wifi_selected`); render signal bars via `n.signal_bars()`; show `Spinner` when `app.net_busy.is_some()`. `disk_select_view` builds a `List` of disks with `[x]`/`[ ]` markers from `app.picked` (ASCII — not a unicode checkbox, for raw-VT font safety) and `▶`/` ` cursor from `app.selected`. `wifi_connecting_view` shows the connecting message + a `Spinner`. Copy all prompt/hint strings verbatim from the old `ui.rs`.
+Extend `wizard_view`'s match with `Screen::Network => network_view(&a)`, `Screen::DiskSelect => disk_select_view(&a)`, `Screen::WifiConnecting => wifi_connecting_view(&a)`, `Screen::WifiPassword => input_lines(...)` (already a text screen, uses the input-line helper from Task 3). `network_view` builds a `List` from `app.wifi_networks` with the selected index highlighted (`app.wifi_selected`); render signal bars via `n.signal_bars()`; show `Spinner` when `app.net_busy.is_some()`. `disk_select_view` builds a `List` of disks with `[x]`/`[ ]` markers from `app.picked` (ASCII, not a unicode checkbox, for raw-VT font safety) and `▶`/` ` cursor from `app.selected`. `wifi_connecting_view` shows the connecting message + a `Spinner`. Copy all prompt/hint strings verbatim from the old `ui.rs`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -559,7 +559,7 @@ git commit -m "feat(installer-tui): abstracttui List+Spinner for Network/DiskSel
 
 ---
 
-### Task 5: `ui.rs` — Installing / Failed / Done
+### Task 5: `ui.rs`, Installing / Failed / Done
 
 **Goal:** Add the `Installing` screen (animated `Progress` + log tail `Feed`/`RichTextView`), `Failed`, and `Done`. Wire `ScreenFx` retargets (progress eased; done burst) without full animation polish yet (Task 6 does polish).
 
@@ -612,7 +612,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement the three screens**
 
-`installing_view` splits vertically (flexbox `Style::column`): a `Progress` bar (ratio = `current_step/total_steps`, label `step {i}/{n} — {step_title}`) and a log tail `Feed`/`RichTextView` showing the last N lines of `app.log` in DIM. `failed_view` shows `app.error` in RED + the Ctrl+Alt+F2 hint + log tail. `done_view` shows the recovery key in YELLOW bold + the reboot hint. `root_view` passes `fx` into `installing_view` so the progress ratio can be eased (read `fx.progress_ratio()` if `animations_enabled()`, else the raw ratio) — but the *retarget* calls happen in `main.rs` (Task 7) when install events arrive; here just read the value. Copy all strings verbatim from the old `ui.rs`.
+`installing_view` splits vertically (flexbox `Style::column`): a `Progress` bar (ratio = `current_step/total_steps`, label `step {i}/{n} — {step_title}`) and a log tail `Feed`/`RichTextView` showing the last N lines of `app.log` in DIM. `failed_view` shows `app.error` in RED + the Ctrl+Alt+F2 hint + log tail. `done_view` shows the recovery key in YELLOW bold + the reboot hint. `root_view` passes `fx` into `installing_view` so the progress ratio can be eased (read `fx.progress_ratio()` if `animations_enabled()`, else the raw ratio), but the *retarget* calls happen in `main.rs` (Task 7) when install events arrive; here just read the value. Copy all strings verbatim from the old `ui.rs`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -671,7 +671,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Wire the animations**
 
-In `root_view`, keep a `Signal<Screen>` (`last_screen`) and a `Signal<Option<String>>` (`last_error`) in the root scope. Inside the `dyn_view` closure, compare `a.screen` to `last_screen.get()`; on change call `fx.get().retarget_screen(...)` and update `last_screen`. Compare `a.error` to `last_error`; when a new `Some` appears call `fx.get().shake()` and update `last_error`. In `wizard_view`, apply `fx.screen_offset()` as a horizontal translate on the centered panel (via `Style` absolute x offset or a draw-closure translate per the reference) and reduce opacity for the fade (if the paint `Style` supports an alpha/attr; else skip fade and keep only the slide — confirm in the reference). In `installing_view`, use `fx.progress_ratio()` for the `Progress` fill. On `Screen::Done` entry, fire `fx.burst_done()` (a one-shot `particles::Burst` overlay via `Overlays`). All wrapped in `if animations_enabled()`.
+In `root_view`, keep a `Signal<Screen>` (`last_screen`) and a `Signal<Option<String>>` (`last_error`) in the root scope. Inside the `dyn_view` closure, compare `a.screen` to `last_screen.get()`; on change call `fx.get().retarget_screen(...)` and update `last_screen`. Compare `a.error` to `last_error`; when a new `Some` appears call `fx.get().shake()` and update `last_error`. In `wizard_view`, apply `fx.screen_offset()` as a horizontal translate on the centered panel (via `Style` absolute x offset or a draw-closure translate per the reference) and reduce opacity for the fade (if the paint `Style` supports an alpha/attr; else skip fade and keep only the slide, confirm in the reference). In `installing_view`, use `fx.progress_ratio()` for the `Progress` fill. On `Screen::Done` entry, fire `fx.burst_done()` (a one-shot `particles::Burst` overlay via `Overlays`). All wrapped in `if animations_enabled()`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -688,13 +688,13 @@ git commit -m "feat(installer-tui): wire screen slide/fade, eased progress, erro
 
 ---
 
-### Task 7: `main.rs` — runtime + custom loop + worker bridge + reboot
+### Task 7: `main.rs`, runtime + custom loop + worker bridge + reboot
 
 **Goal:** Replace the ratatui/crossterm event loop with an abstracttui runtime: build `App`, wrap in `Signal<App>`, mount `root_view`, run a custom loop that drains the install/net `mpsc` channels into `on_install_event`/`on_net_event`, dispatches `pending_net_op`/`start_install` to worker threads, feeds engine key events into `handle_key`, and quits via `quitter` when `should_quit`. Reboot side effects unchanged.
 
 **Files:**
 - Modify: `rust/installer-tui/src/main.rs` (full rewrite)
-- (No new test — this is wiring; the end-to-end smoke is manual via `DOTS_INSTALLER_DRY_RUN`.)
+- (No new test. This is wiring; the end-to-end smoke is manual via `DOTS_INSTALLER_DRY_RUN`.)
 
 **Interfaces:**
 - Consumes: `App::new`/`mount`/custom-loop pump/`quitter`/`quit_requested` from the reference; `ui::root_view`; `fx::ScreenFx`; `install::run`/`net::run_op` (unchanged signatures); `input::KeyEvent` conversion from abstracttui `UiEvent::Key`.
@@ -726,7 +726,7 @@ fn run(mut app_state: app::App) -> anyhow::Result<()> {
 
     // abstracttui owns raw mode + alt screen + its own panic hook.
     let mut engine = App::new(viewport_80x24_or_detected());     // reference: Size constructor
-    let cx = /* root scope from engine — reference */ todo_root_scope();
+    let cx = /* root scope from engine, see reference */ todo_root_scope();
     let app_sig = cx.signal(app_state.clone());
     let fx_sig = cx.signal(ScreenFx::new(/* Clock::real() */ todo_clock()));
     engine.mount(ui::root_view(cx, app_sig, fx_sig))?;
@@ -753,7 +753,7 @@ fn run(mut app_state: app::App) -> anyhow::Result<()> {
         // 3. publish state to the view
         app_sig.set(app_state.clone());
         // 4. advance the engine one step (input + effects + layout + render).
-        //    Per docs/superpowers/refs/abstracttui-api.md §Runtime — use the
+        //    Per docs/superpowers/refs/abstracttui-api.md §Runtime, use the
         //    confirmed pump/turn call with a short timeout so worker results
         //    land within ~100 ms even with no key input.
         todo_pump_one_step(&mut engine); // reference: app.pump(...) / driver.turn(...)
@@ -796,7 +796,7 @@ Expected: PASS (first full green `cargo check` since Task 1).
 - [ ] **Step 3: Manual smoke test (dry run)**
 
 Run: `cd rust/installer-tui && DOTS_INSTALLER_DRY_RUN=1 cargo run`
-Expected: the wizard renders; you can walk Welcome → Network (skip with `s`) → Hostname → … → Confirm (type `ERASE`) → Installing (install::run will fail harmlessly under DRY_RUN / no disks) → q/Esc exits cleanly, terminal restored, **no reboot**. If `install::run` errors, it lands on the Failed screen — that's fine, the loop still drains and quits on `q`.
+Expected: the wizard renders; you can walk Welcome → Network (skip with `s`) → Hostname → … → Confirm (type `ERASE`) → Installing (install::run will fail harmlessly under DRY_RUN / no disks) → q/Esc exits cleanly, terminal restored, **no reboot**. If `install::run` errors, it lands on the Failed screen. That's fine, the loop still drains and quits on `q`.
 
 - [ ] **Step 4: Run the full test suite**
 
@@ -822,7 +822,7 @@ git commit -m "feat(installer-tui): abstracttui runtime + custom loop + mpsc wor
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: a green, comprehensive `tests/view.rs`.
+- Produces: a green `tests/view.rs` covering every screen.
 
 - [ ] **Step 1: Consolidate the test suite**
 
@@ -845,7 +845,7 @@ git commit -m "test(installer-tui): full headless render + animation suite"
 
 ## Notes for the executor
 
-- The spike (Task 0) is non-negotiable: every `todo_*` and "confirm from the reference" in later tasks resolves against `docs/superpowers/refs/abstracttui-api.md`, which the spike produced and the compiler verified. Do **not** guess signatures — if the reference is silent, extend the spike and update the reference.
-- `cargo check` after Task 1 will be red in `ui.rs`/`main.rs` until Tasks 3-7 land — that's expected. Commit Task 1 after `cargo test --test app` passes, not after a full green `cargo check`.
-- Preserve every user-visible string from the old `ui.rs` verbatim (titles, hints, prompts, error messages) — the render tests assert on them.
+- The spike (Task 0) is non-negotiable: every `todo_*` and "confirm from the reference" in later tasks resolves against `docs/superpowers/refs/abstracttui-api.md`, which the spike produced and the compiler verified. Do **not** guess signatures. If the reference is silent, extend the spike and update the reference.
+- `cargo check` after Task 1 will be red in `ui.rs`/`main.rs` until Tasks 3-7 land. That's expected. Commit Task 1 after `cargo test --test app` passes, not after a full green `cargo check`.
+- Preserve every user-visible string from the old `ui.rs` verbatim (titles, hints, prompts, error messages). The render tests assert on them.
 - Keep `examples/spike.rs` in the repo until the migration is fully green; it's a useful regression probe. Remove it in a final cleanup commit if desired.

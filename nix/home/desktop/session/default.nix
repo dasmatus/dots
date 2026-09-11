@@ -2,13 +2,13 @@
 # publishes, per action, the command a window manager binds to reach it.
 # After this module lands, no WM module needs to know a command line, only a
 # unit name (daemon/startup) or a `dots.session.commands.<name>` string
-# (app/action) — that indirection is the whole point of the change; see
+# (app/action). That indirection is the whole point of the change; see
 # ./actions.nix's header for why the table itself carries no command field.
 #
 # This module is WM-agnostic on purpose: it takes no WM-specific argument and
 # reaches for no WM-specific package, so it evaluates on its own with no
-# tiling WM in scope at all. Four `execDefaults` entries this table describes
-# — `reload` and the three `screenshot-*` actions — are Hyprland-only, and are
+# tiling WM in scope at all. Four `execDefaults` entries this table describes,
+# `reload` and the three `screenshot-*` actions, are Hyprland-only, and are
 # therefore not defined here; see the `exec` option's description below for
 # where they actually come from.
 #
@@ -17,13 +17,13 @@
 # `actions.nix` otherwise tables. `nix/home/desktop/quickshell/default.nix` owns its
 # own `systemd.user.services.quickshell` outside this table, carrying an
 # `X-Restart-Triggers = [ "${tree}" ]` that ties its restart to the built QML
-# tree rather than to a package bump — this generator's `mkUnit` has no
+# tree rather than to a package bump. This generator's `mkUnit` has no
 # concept of a per-unit restart trigger, only the blanket `PartOf`/`After`
 # every row gets, so absorbing quickshell here would silently drop that and
 # leave the shell serving stale QML after a config-only rebuild. hyprmon and
 # wallpaper-tui, which used to back the `hyprmon-apply` and
 # `wallpaper-restore` rows below (the latter via `config.programs.wallpaper-
-# tui.finalPackage`), are gone outright — deleted on `main` in favour of QML —
+# tui.finalPackage`), are gone outright, deleted on `main` in favour of QML,
 # rather than ported, so neither name appears in this module any more.
 {
   config,
@@ -43,7 +43,7 @@ let
 
   # Repeated store-path lookups, named once. `qs` needs `getExe'` rather
   # than `getExe` because quickshell's `meta.mainProgram` is "quickshell"
-  # (the qs binary is a second executable in the same package) — verified
+  # (the qs binary is a second executable in the same package). Verified
   # against the pinned nixpkgs.
   qs = lib.getExe' pkgs.quickshell "qs";
   systemctl = lib.getExe' pkgs.systemd "systemctl";
@@ -56,17 +56,16 @@ let
   execDefaults = {
     # daemons
     awww-daemon = lib.getExe' pkgs.awww "awww-daemon";
-    nm-applet = "${lib.getExe pkgs.networkmanagerapplet} --indicator";
 
     # apps
     #
-    # kitty is still a Nix package (no Flathub build exists — see
+    # kitty is still a Nix package (no Flathub build exists; see
     # nix/home/base/flatpaks.nix), so it keeps a store path. The other two are
     # Flathub refs now and are launched through the flatpak client.
     #
     # `flatpak` is spelled as an absolute store path, not a bare name: these
     # strings become systemd `ExecStart=` lines, and systemd requires the
-    # first token to be an absolute path — a bare `flatpak` fails the unit at
+    # first token to be an absolute path. A bare `flatpak` fails the unit at
     # load time, not at launch. The client is interchangeable; it drives
     # whichever installation the ref lives in, and
     # nix/home/base/flatpaks.nix populates the per-user one.
@@ -74,7 +73,7 @@ let
     notes = "${flatpak} run md.obsidian.Obsidian";
     editor = "${flatpak} run dev.zed.Zed";
 
-    # actions — everything but `lock`, which has no unit at all (see below)
+    # actions: everything but `lock`, which has no unit at all (see below)
     launcher-toggle = "${qs} ipc call launcher toggle";
     file-manager = "${qs} ipc call files toggle";
     cheatsheet-toggle = "${qs} ipc call cheatsheet toggle";
@@ -87,7 +86,7 @@ let
     #
     # The binds keep their keys on purpose. Folding a surface into Settings
     # and then making the user navigate to it would cost a keystroke every
-    # time — consolidation that charges the user for the tidying is not worth
+    # time. Consolidation that charges the user for the tidying is not worth
     # having, which is why Settings grew `openAt` rather than these binds
     # becoming a plain `toggle`.
     wallpaper-toggle = "${qs} ipc call settings openAt wallpaper";
@@ -102,7 +101,7 @@ let
     brightness-down = "${qs} ipc call osd brightnessDown";
   };
 
-  # `commands` defaults: daemon/startup get no entry — nothing binds them,
+  # `commands` defaults: daemon/startup get no entry. Nothing binds them,
   # `graphical-session.target` starts them. app/action get the
   # `$RANDOM`-suffixed instance start below, EXCEPT `lock`, which has no unit
   # to start at all.
@@ -144,7 +143,7 @@ let
     # own `qt` module already owns that key, and nix/home/default.nix enables it
     # (`platformTheme.name = "qtct"`, `style.name = "kvantum"`), so the qt module
     # writes `qt5ct` into this very attrset. Defining it here too is a hard eval
-    # conflict, not a shadowed default — the module system refuses to pick a
+    # conflict, not a shadowed default. The module system refuses to pick a
     # winner and the rebuild dies. It only became an error when this table
     # absorbed the value: it used to be a Hyprland `env` entry, which is
     # compositor environment rather than `systemd.user.sessionVariables`, so the
@@ -174,13 +173,13 @@ let
   # until the next login. Every `daemon`/`startup` action below is instead a
   # systemd --user unit `WantedBy = [ "graphical-session.target" ]`, so
   # home-manager activation's `sd-switch` now restarts any of them that are
-  # active and whose unit file changed — `awww-daemon` and `nm-applet`
-  # included, mid-session, on an otherwise unrelated package bump. This is
-  # deliberate: a declarative unit taking effect the moment `home-manager
+  # active and whose unit file changed, `awww-daemon` included, mid-session,
+  # on an otherwise unrelated package bump. This is deliberate: a
+  # declarative unit taking effect the moment `home-manager
   # switch` runs is the point of making it a unit at all, not a regression to
   # route around. Anyone who wants a specific unit left alone across a switch
   # instead has `X-SwitchMethod` (sd-switch's own escape hatch, set in a
-  # unit's `[Install]`/`[Service]` section) available to reach for — nothing
+  # unit's `[Install]`/`[Service]` section) available to reach for. Nothing
   # here sets it on any unit, since the repo's other WantedBy-graphical-
   # session units (`protonvpn-app.service`) already restart on switch too
   # with no opt-out, and picking a unit to exempt is a call for whoever owns
@@ -199,7 +198,7 @@ let
         Slice = if isDaemonLike a then "session.slice" else "app-graphical.slice";
 
         # Baseline sandboxing applied to every daemon/startup/app/action unit
-        # this generator emits (awww-daemon, nm-applet, and all eighteen
+        # this generator emits (awww-daemon and all eighteen
         # `dots-<action>@` templates, including the three screenshot units
         # hyprland.nix layers a KillMode override onto). Each directive here
         # blocks one narrow kernel/namespace surface none of these processes
@@ -225,10 +224,10 @@ let
         # Left out deliberately: MemoryDenyWriteExecute (quickshell's own
         # unit is JIT-heavy and lives outside this generator, but some
         # actions.nix entries launch general-purpose GUI apps whose
-        # toolkits may JIT too — untested here), RestrictAddressFamilies
+        # toolkits may JIT too, untested here), RestrictAddressFamilies
         # and ProtectHome/ProtectSystem (several entries, e.g. the file
-        # manager and editor, need real filesystem and network access) —
-        # see files-index.nix and the individually-hardened units for
+        # manager and editor, need real filesystem and network access).
+        # See files-index.nix and the individually-hardened units for
         # where those apply instead.
         ProtectClock = true;
         ProtectHostname = true;
@@ -253,12 +252,12 @@ let
       # `app`/`action` units are templates (`dots-<name>@.service`, see
       # `unitName`): nothing ever wants them by name, the WM starts a fresh
       # instance itself via `commands`, so they get no [Install] section at
-      # all — home-manager drops an empty section from the rendered unit.
+      # all. home-manager drops an empty section from the rendered unit.
       Install.WantedBy = [ "graphical-session.target" ];
     };
 
-  # `%i` — the template instance specifier systemd substitutes into a
-  # `dots-<name>@.service` unit — is a nonce and is deliberately unused in
+  # `%i`, the template instance specifier systemd substitutes into a
+  # `dots-<name>@.service` unit, is a nonce and is deliberately unused in
   # every one of these unit bodies: every instance runs the identical
   # ExecStart, and it is the `$RANDOM` suffix in `commandDefaults` above that
   # turns each `systemctl start` into a distinct instance rather than a
@@ -281,13 +280,13 @@ in
       # NOT `default = execDefaults` here: an option's own inline `default`
       # is the *weakest* possible definition in the module system (priority
       # 1500, below even `lib.mkDefault`'s 1000) and a whole ATTRSET is one
-      # definition, not a bag of independently-prioritised keys — so the
+      # definition, not a bag of independently-prioritised keys. So the
       # moment any other module gives `dots.session.exec` a plain value at
       # all, that plain value wins outright and the inline default is
       # discarded WHOLESALE, including keys the other module never
       # mentioned. `execDefaults` is instead assigned below, in this
       # module's own `config`, at the same ordinary priority a second
-      # contributor uses — verified with a standalone `lib.evalModules`
+      # contributor uses. Verified with a standalone `lib.evalModules`
       # probe: two plain per-module attrsets to the same `attrsOf` option
       # merge by key, but an inline `default` competing against a plain
       # value from elsewhere does not.
@@ -300,7 +299,7 @@ in
         module does not supply: they are Hyprland-only commands (`hyprctl
         reload`, and hyprshot, which speaks Hyprland's own IPC), so
         nix/home/desktop/hyprland.nix contributes them directly as its own ordinary
-        assignment to this same `attrsOf str` option — see the comment on
+        assignment to this same `attrsOf str` option. See the comment on
         `default` above for why that has to be a plain assignment on both
         sides rather than living in either module's inline `default`. A
         second WM module (e.g. a future sway.nix) does the same for
@@ -328,11 +327,11 @@ in
         Portable session variables, fed to `systemd.user.sessionVariables`
         so the systemd user manager (and anything it launches, e.g. a
         unit-started Obsidian or Zed) sees the same environment as a
-        compositor child — without this, such a process falls back to
+        compositor child. Without this, such a process falls back to
         XWayland. `nix/home/desktop/hyprland.nix` reads this option for its own
         `settings.env` and adds the two per-WM variables itself, so the two
         lists can never drift out of step; `XDG_CURRENT_DESKTOP`/
-        `XDG_SESSION_DESKTOP` are intentionally not here — both are always
+        `XDG_SESSION_DESKTOP` are intentionally not here. Both are always
         "Hyprland", so they belong to the WM module.
       '';
     };
@@ -356,7 +355,7 @@ in
       }
     ];
 
-    # A plain assignment, not the `exec` option's inline `default` — see the
+    # A plain assignment, not the `exec` option's inline `default`. See the
     # comment on that option for why: this has to compete at the same
     # priority as nix/home/desktop/hyprland.nix's own `dots.session.exec` assignment
     # for the two to merge by key instead of one replacing the other whole.

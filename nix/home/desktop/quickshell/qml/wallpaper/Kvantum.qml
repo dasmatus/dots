@@ -1,11 +1,11 @@
 // Recolors the Catppuccin Kvantum (Qt) theme to the current wallpaper
-// accent — tint.rs's tint_kvantum_tree + recolor_kvantum_text +
-// select_kvantum, ported the way Icons.qml ports the icon side: the
+// accent. Ports tint.rs's tint_kvantum_tree + recolor_kvantum_text +
+// select_kvantum the way Icons.qml ports the icon side: the
 // Nix-store base ships read-only, so this cp -r's it into a writable copy
 // before touching it.
 //
 // Kvantum finds a theme by directory name matching both its .kvconfig and
-// its .svg (`<X>/<X>.kvconfig`, `<X>/<X>.svg`) — not by content — so the
+// its .svg (`<X>/<X>.kvconfig`, `<X>/<X>.svg`), not by content. So the
 // base theme's own files (catppuccin-frappe-blue.kvconfig/.svg) are
 // renamed to WallpaperTint.* as part of the same copy step, before
 // recolorKvantumText ever runs on them.
@@ -31,7 +31,7 @@ Item {
     readonly property string dest: root.configHome + "/Kvantum/WallpaperTint"
     readonly property string selectFile: root.configHome + "/Kvantum/kvantum.kvconfig"
     // Theme.kvantumBase is always a Nix store path, so it never ends in
-    // "/" — the segment after the last "/" is always the theme's own file
+    // "/". The segment after the last "/" is always the theme's own file
     // base name (e.g. "catppuccin-frappe-blue").
     readonly property string baseName: Theme.kvantumBase.slice(Theme.kvantumBase.lastIndexOf("/") + 1)
 
@@ -45,8 +45,8 @@ Item {
         root.pendingLight = accentLight;
 
         // Every path travels in argv, not interpolated into the script
-        // text (see Icons.qml's own ensureTree for why). `test -d` failing
-        // — a missing or unreadable kvantumBase — short-circuits the whole
+        // text (see Icons.qml's own ensureTree for why). `test -d` failing,
+        // on a missing or unreadable kvantumBase, short-circuits the whole
         // `&&` chain before anything is written: this target is skipped,
         // nothing downstream of this Process ever runs, and no other tint
         // target is affected.
@@ -85,10 +85,11 @@ Item {
     // Written through FileView, not a spawned `sh -c printf '%s' "$1"` the
     // way Icons.qml's per-icon writeSvg is: that puts the whole recolored
     // file in a single argv entry, which is fine for a ~1KB icon SVG but
-    // silently fails to even spawn for the Kvantum theme's ~150KB SVG —
-    // found by diffing this file's own output against the expected accent
-    // and finding the pristine, un-recolored bytes still there with no error
-    // surfaced anywhere but a QProcess "Process failed to start" log line.
+    // silently fails to even spawn for the Kvantum theme's ~150KB SVG.
+    // Found by diffing this file's own output against the expected accent
+    // and finding the pristine, un-recolored bytes still there, with no
+    // error surfaced anywhere but a QProcess "Process failed to start" log
+    // line.
     FileView {
         id: kvconfigWriter
 
@@ -119,8 +120,8 @@ Item {
     }
 
     // Points Kvantum at the freshly-tinted theme. Only takes effect for an
-    // app started afterward — same live-reload limitation Icons.qml's
-    // dconf write has — so this runs unconditionally rather than guarding
+    // app started afterward, the same live-reload limitation Icons.qml's
+    // dconf write has, so this runs unconditionally rather than guarding
     // on retint() having run first.
     Process {
         id: selectTheme

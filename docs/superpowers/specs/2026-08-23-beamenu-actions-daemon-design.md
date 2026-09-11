@@ -2,7 +2,7 @@
 
 Goal (set via `/goal`, 2026-08-23): add Raycast-style actions for plugins,
 port every custom desktop utility into beamenu, and rewrite beamenu as a
-systemd user daemon — with the app-runner window remaining exactly as it is.
+systemd user daemon. The app-runner window remains exactly as it is.
 
 ## Current state (what this builds on)
 
@@ -28,16 +28,16 @@ systemd user daemon — with the app-runner window remaining exactly as it is.
 - `view::Menu` is `!Send`/`!Sync`; `bm_init()` is once-per-process
   (`rust/beamenu/src/view.rs:146-198`).
 
-## Part A — actions for plugins
+## Part A: actions for plugins
 
 Chosen approach: extend the existing manifest/`alt_actions` machinery.
-(Rejected: a C-side overlay panel patch — the frame stack already renders
+(Rejected: a C-side overlay panel patch. The frame stack already renders
 panels and the patch series should stay minimal.)
 
 1. `Command` gains `#[serde(default)] actions: Vec<CommandAction>` in BOTH
    parsers (`rust/beamenu/src/providers/plugins.rs`,
    `rust/beamenu-canvas/src/manifest.rs`). `CommandAction` is
-   `{id, title, mode, ui (default Log), exec}` — a command minus nesting.
+   `{id, title, mode, ui (default Log), exec}`, a command minus nesting.
    Absent field ⇒ empty ⇒ byte-identical behaviour for existing manifests.
 2. `PluginProvider::item` maps each action through the same
    `Mode → Action` translation it already applies to the command itself,
@@ -55,10 +55,10 @@ Tests: `rust/beamenu/tests/plugins.rs` (parse default/empty, mode mapping,
 `{query}` expansion inside actions, view action indirection);
 `rust/beamenu-canvas/tests/manifest.rs` (actions parse + lookup fallback).
 
-## Part B — port custom utilities
+## Part B: port custom utilities
 
 Everything lands as declarative `programs.beamenu.plugins` manifests (plus
-Part A actions) — no new Rust. Inventory from the 2026-08-23 sweep:
+Part A actions). No new Rust. Inventory from the 2026-08-23 sweep:
 
 | Plugin (keyword) | Command | Mode / exec |
 |---|---|---|
@@ -74,7 +74,7 @@ Part A actions) — no new Rust. Inventory from the 2026-08-23 sweep:
 
 Placement: `wallpaper` in `nix/home/wallpaper-tui.nix`, `monitors` in
 `nix/home/hyprmon.nix`, `net` in `nix/home/proton/proton.nix` or `waybar.nix`
-sibling, `dots` in `nix/home/beamenu.nix` — each module declares its own
+sibling, `dots` in `nix/home/beamenu.nix`. Each module declares its own
 plugin next to the tool it ships, the way `settings-menu.nix` already does.
 Gate each on the respective module being enabled. Update
 `nix/home/desktop/keybinds.nix` cheat-sheet text if wording changes.
@@ -86,19 +86,19 @@ desktop utilities), `dots-clone` (first-login oneshot), `installer-tui`
 (LiveISO only), waybar pills as *renderers* (their functionality gets
 launcher commands; the bar keeps polling).
 
-## Part C — systemd user daemon
+## Part C: systemd user daemon
 
 Chosen approach: one resident daemon that owns the UI thread and shows the
-same window on demand. (Rejected: systemd socket activation — cold start
-defeats the warm-cache purpose and the daemon needs the Wayland session
-anyway. Rejected: daemon that forks a fresh UI process per show — keeps the
-scan-per-launch cost and adds a second process model for nothing.)
+same window on demand. (Rejected: systemd socket activation. Cold start
+defeats the warm-cache purpose, and the daemon needs the Wayland session
+anyway. Rejected: daemon that forks a fresh UI process per show. It keeps
+the scan-per-launch cost and adds a second process model for nothing.)
 
 Transport: the **session D-Bus**, not a private socket. It is the bus every
 other desktop service on this system already sits on, it gives us
 introspection and a name-ownership check for free (`busctl --user`,
 `gdbus`), systemd can wait on the name with `Type=dbus`, and it removes
-the stale-socket-file problem entirely — name ownership dies with the
+the stale-socket-file problem entirely, because name ownership dies with the
 process. zbus is pure Rust, so it adds no C dependency and no
 `buildInputs`, the same reasoning already recorded for the AT-SPI bridge
 at `nix/home/ai/computer-use-linux-pkg.nix:6-7`. beamenu uses
@@ -108,24 +108,24 @@ no hash update.
 Interface `dev.dots.Beamenu1` at `/dev/dots/Beamenu`, well-known name
 `dev.dots.Beamenu`:
 
-- `Show()` — open the launcher. Idempotent: a second call while the panel
+- `Show()`: open the launcher. Idempotent: a second call while the panel
   is up returns Ok without queuing, because that is a double keypress, not
   a request to reopen later.
-- `RunCommand(s id)` — the `--command` path. Errors with
+- `RunCommand(s id)`: the `--command` path. Errors with
   `org.freedesktop.DBus.Error.InvalidArgs` naming the id when unknown.
-- `Reload()` — discard cached config/manifests before the next show.
+- `Reload()`: discard cached config/manifests before the next show.
 - Read-only properties `Visible: b`, `Apps: u`, `Providers: u`,
-  `Version: s` — a status surface that costs no method and that
+  `Version: s`. This is a status surface that costs no method and that
   `busctl --user introspect` renders on its own.
 
-CLI surface (`rust/beamenu/src/main.rs`) — argv unchanged:
+CLI surface (`rust/beamenu/src/main.rs`), argv unchanged:
 
 - `beamenu` (no args, the SUPER+Space bind): call `Show()`; on any bus or
   call failure fall back to today's in-process one-shot `run()`, so the
   launcher still works with no daemon, no session bus, or a crashed
   service. Window UX identical.
-- `beamenu --daemon`: now the full daemon — warm state, bus name, the
-  clipboard watcher thread (absorbed from `daemon::watch`), the UI loop.
+- `beamenu --daemon`: now the full daemon, with warm state, bus name, the
+  clipboard watcher thread (absorbed from `daemon::watch`), and the UI loop.
 - `beamenu --command <id>`: call `RunCommand`, same fallback.
   `--list-commands` stays local and never touches the bus.
 
@@ -135,9 +135,9 @@ the menu on dismiss, returns to the receiver. zbus's blocking object
 server owns its own thread and dispatches method calls there. `Show` and
 `Reload` are fire-and-forget sends onto the channel, so a method call
 never blocks for as long as the panel is open. `RunCommand` needs no `App`
-state — only `system::command_for` and the configured terminal, published
-as an `Arc<RwLock<String>>` the UI thread refreshes — so it dispatches
-directly on the bus thread with no cross-thread wait at all. `Visible`,
+state. It needs only `system::command_for` and the configured terminal,
+published as an `Arc<RwLock<String>>` the UI thread refreshes, so it
+dispatches directly on the bus thread with no cross-thread wait at all. `Visible`,
 `Apps` and `Providers` are atomics the UI thread stores after each
 refresh. Clipboard watcher is a third thread (same logic, same jsonl
 file, still the single writer), restarted with a delay if `wl-paste` dies.
@@ -146,8 +146,8 @@ Warm state and staleness rules (preserving one-shot semantics):
 
 - Apps index + icon-path cache: built at startup, revalidated per `show`
   by mtime-checking the XDG desktop-file dirs (rescan only on change).
-  Per-*show* revalidation, not per-keystroke — that alone removes the
-  hot-path IO. No inotify dependency in v1.
+  Per-*show* revalidation, not per-keystroke, removes the hot-path IO on
+  its own. No inotify dependency in v1.
 - `config.json`, plugin manifests, snippets, quicklinks: re-read per
   `show` (small files; keeps HM switches taking effect like today).
 - Frecency: in-memory, write-through on activation, as today.
@@ -165,19 +165,19 @@ readiness signal a private socket could not give us.
 Known risk, spiked first: repeated `bm_menu_new`/free cycles in one
 process (renderer registry + Wayland globals in patched bemenu were only
 ever exercised once per process). Verified by soak under nested headless
-Hyprland, per the established headless-testing practice — never on the
+Hyprland, per the established headless-testing practice. Never on the
 live session.
 
 Outcome: the create/free path itself is clean (300 cycles, 1500
 `set_items` calls, RSS flat). But the soak could not call
 `bm_menu_render`, because `pump` reaches it only on the far side of a
-blocking key poll — so it proved lifecycle safety and nothing about
+blocking key poll, so it proved lifecycle safety and nothing about
 drawing. The end-to-end run found what it had missed: **3444 kB leaked
 per rendered show**, dead flat and linear across twelve cycles.
 
 Cause: `create_buffer` mmaps the shm region and hands the pointer to
 cairo, but `struct buffer` never recorded it, so `destroy_buffer` could
-not `munmap` and did not. Upstream never had to care — bemenu draws one
+not `munmap` and did not. Upstream never had to care. Bemenu draws one
 window and exits. Fixed by `nix/patches/beamenu/07-unmap-shm-buffers.patch`,
 which stores the pointer and length and unmaps after the cairo surface is
 gone. Re-measured: 26640 kB after the first show, 26656 kB after twelve.
@@ -189,7 +189,7 @@ ran, and the real check is the end-to-end one.
 
 Tests: `rust/beamenu/tests/` for mtime revalidation decision logic and for
 request handling driven directly against the interface type, no bus
-required — the D-Bus methods are thin wrappers over functions that take
+required. The D-Bus methods are thin wrappers over functions that take
 plain arguments, which is what keeps them testable. Bus-level behaviour
 (name ownership, introspection, a real `Show`) is verified end to end
 under the nested headless compositor rather than in `cargo test`, since a

@@ -1,16 +1,15 @@
-// app.rs::Screen::Ai — three toggles over settings.aiClaude/aiCodex/aiOllama
+// app.rs::Screen::Ai: three toggles over settings.aiClaude/aiCodex/aiOllama
 // (bridged to options.dots.ai.* by nix/modules/dots.nix), all defaulting on.
-// Up/Down moves the cursor, Space flips the toggle under it, Enter commits
-// and continues, Esc returns to GitEmail — the same four keys app.rs wires.
+// Up/Down moves the cursor, Space flips the toggle under it, Enter commits and
+// continues, Esc returns to GitEmail, the same four keys app.rs wires.
 //
 // Local `claude`/`codex`/`ollama` properties mirror `cfg.aiClaude` et al.
 // rather than toggling the shared `cfg` object's fields directly: `cfg` is a
-// plain JS object passed by reference, and mutating one of its fields in
-// place raises no QML property-change signal, so the checkbox glyph below
-// would never repaint. These are real QML properties instead, and
-// `commitAndNext` is what writes them back onto `cfg` — once, on the way out,
-// the same moment app.rs's Enter arm is the only one that matters to
-// settings_nix.
+// plain JS object passed by reference, and mutating one of its fields in place
+// raises no QML property-change signal, so the checkbox glyph below would
+// never repaint. These are real QML properties instead, and `commitAndNext` is
+// what writes them back onto `cfg`, once, on the way out, the same moment
+// app.rs's Enter arm is the only one that matters to settings_nix.
 pragma ComponentBehavior: Bound
 
 import QtQuick

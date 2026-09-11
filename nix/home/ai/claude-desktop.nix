@@ -67,9 +67,9 @@ in
     # anything landing outside the registry root, so a store symlink is
     # dropped with "Skipping plugin with invalid path". And the registry is
     # keyed by the signed-in account and org UUIDs, which are discovered by
-    # globbing rather than spelled out — writing personal account identifiers
+    # globbing rather than spelled out. Writing personal account identifiers
     # into a repo that gets published is not worth the two saved lines, and
-    # globbing additionally survives signing in as a different account.
+    # globbing also keeps working after signing in as a different account.
     #
     # Unverified where it matters: on a machine that has never installed a
     # desktop plugin, neither registry file exists, so the shape written below
@@ -95,8 +95,8 @@ in
           run mkdir -p "$plugins/dots-skills"
           run cp -r --no-preserve=mode ${claudeDesktop.skillsPlugin}/. "$plugins/dots-skills"/
 
-          # Both registry files are the app's own mutable state — it rewrites
-          # them whenever a plugin is installed or toggled — so they are merged
+          # Both registry files are the app's own mutable state. It rewrites
+          # them whenever a plugin is installed or toggled, so they are merged
           # into rather than owned. A read-only store symlink here would make
           # the app's next write fail.
           [ -f "$reg" ] || echo '{"plugins":{}}' > "$reg"

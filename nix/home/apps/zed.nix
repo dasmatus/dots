@@ -1,9 +1,9 @@
-# Zed (https://zed.dev) — the GUI code editor that replaces VSCodium
+# Zed (https://zed.dev), the GUI code editor that replaces VSCodium
 # (nix/home/vscode.nix, removed). Wired to launch on SUPER+Z from
 # nix/home/desktop/hyprland.nix, and surfaced in the keybind cheatsheet
 # (nix/home/desktop/keybinds.nix).
 #
-# HM module namespace is `programs.zed-editor` (NOT `programs.zed` — there is
+# HM module namespace is `programs.zed-editor` (NOT `programs.zed`, there is
 # no `programs.zed` at the locked home-manager rev 39411a8e). The nixpkgs
 # package is `zed-editor` and its binary is `zeditor` (meta.mainProgram), which
 # is what the Hyprland SUPER+Z bind execs. `defaultEditor` is deliberately left
@@ -16,7 +16,7 @@
 #                          (the plain variant == Neovim tokyonight "night")
 #   - vscode-neovim      → Zed's BUILT-IN `vim_mode` (no extension)
 #   - continue.continue  → Zed's NATIVE Agent panel (Anthropic + ollama); no
-#                          Continue extension — native covers it
+#                          Continue extension, since native covers it
 #   - fill-labs.dependi  → `deps-language-server` Zed extension (Cargo.toml
 #                          version inlays + outdated/yanked diagnostics)
 #   - rust-analyzer      → Zed built-in LSP (not an extension)
@@ -25,7 +25,7 @@
 # yaml-language-server, json-language-server, vscode-css-language-server,
 # vscode-html-language-server, marksman, texlab, docker-language-server,
 # dockerfile-language-server. taplo (TOML) and vimls have no Zed equivalent
-# today — see the gaps noted inline.
+# today. See the gaps noted inline.
 {
   config,
   pkgs,
@@ -41,7 +41,7 @@
   # and the editor itself comes from Flathub.
   #
   # The rendered files still land in ~/.config/zed, which is NOT where a
-  # sandboxed Zed looks — see the `.var/app` symlink at the bottom of this
+  # sandboxed Zed looks. See the `.var/app` symlink at the bottom of this
   # file for how the two are joined, and nix/home/base/flatpaks.nix for the
   # filesystem grant that makes the symlink resolve inside the sandbox.
   programs.zed-editor = {
@@ -77,7 +77,7 @@
 
     # Written to ~/.config/zed/settings.json (jq-merged with manual edits by
     # default via mutableUserSettings=true, so in-app setting tweaks survive a
-    # rebuild — static Nix values win on conflict). The `// lib.optionalAttrs`
+    # rebuild, and static Nix values win on conflict). The `// lib.optionalAttrs`
     # tail (not `lib.mkIf` inside the literal) gates the ollama block: mkIf is a
     # definition-level merge marker the module system only unwraps at a
     # definition's top value, so nesting it inside this freeform JSON attrset
@@ -130,8 +130,8 @@
         # Haskell: the `haskell` extension registers the `hls` server and reads
         # lsp.hls.binary, falling back to haskell-language-server-wrapper on
         # PATH. Point it at the wrapper explicitly (it probes stack.yaml /
-        # cabal.project and dispatches to haskell-language-server-<ghc>) — the
-        # wrapper + fourmolu come from home.packages (nix/home/default.nix),
+        # cabal.project and dispatches to haskell-language-server-<ghc>), and
+        # the wrapper + fourmolu come from home.packages (nix/home/default.nix),
         # shared with Neovim so both editors dispatch identically.
         hls.binary = {
           path = "haskell-language-server-wrapper";
@@ -142,8 +142,8 @@
       # Per-language config. `language_servers` is an array of ids: a bare id
       # enables a server, `!id` disables it, and the sentinel `"..."` (always
       # last) keeps Zed's other defaults for that language. Only languages where
-      # we change the default server set or set a formatter are listed —
-      # built-in-default languages (Rust, C, C++, Go, Bash, YAML, JSON, CSS, JS,
+      # we change the default server set or set a formatter are listed.
+      # Built-in-default languages (Rust, C, C++, Go, Bash, YAML, JSON, CSS, JS,
       # TS) keep Zed's defaults unless a formatter is set here.
       languages = {
         # Nix: nil (parity with nixvim nil_ls), nixd disabled, nixfmt via nil.
@@ -226,7 +226,7 @@
         # Haskell: hls (from the `haskell` extension) + fourmolu formatter.
         # fourmolu reads the buffer on stdin; --stdin-input-path lets it infer
         # the module name from {buffer_path} (the absolute path Zed substitutes).
-        # hls needs the project buildable for full diagnostics — run
+        # hls needs the project buildable for full diagnostics. Run
         # `stack build` / `cabal build` once first so it can resolve the graph.
         Haskell = {
           language_servers = [
@@ -252,7 +252,7 @@
         ];
 
         # HTML: vscode-html-language-server (from the `html` extension) +
-        # prettier (Zed's built-in prettier runner — no external binary needed).
+        # prettier (Zed's built-in prettier runner, no external binary needed).
         HTML = {
           language_servers = [
             "vscode-html-language-server"
@@ -332,12 +332,12 @@
     }
     // lib.optionalAttrs dots.ai.ollama {
       # Native Agent panel (replaces VSCodium's Continue extension).
-      # Anthropic Claude is built-in — the API key is read from
+      # Anthropic Claude is built-in, and the API key is read from
       # ANTHROPIC_API_KEY or set via the UI (stored in the system keychain,
       # never in settings.json), so no static config is needed for it.
       # Ollama (local) only needs an api_url and is gated on the same
       # dots.ai.ollama toggle the rest of the repo uses (e.g. Newelle in
-      # pkgs.nix) — with ollama off there's no backend, so the whole
+      # pkgs.nix), and with ollama off there's no backend, so the whole
       # language_models key is absent rather than left empty.
       language_models.ollama.api_url = "http://localhost:11434";
     };
@@ -345,14 +345,14 @@
 
   # The LSP servers and formatters that used to be
   # `programs.zed-editor.extraPackages`. That option wraps the zed binary in a
-  # symlinkJoin to put them on Zed's PATH — and it asserts a non-null
+  # symlinkJoin to put them on Zed's PATH, and it asserts a non-null
   # `package`, so it is unavailable the moment Zed stops being installed by
   # Nix. They move to the profile instead.
   #
   # Be clear about what that does and does not buy. On PATH they serve the
   # shell and Neovim (nixvim.nix pins the same set, which is the "works in
   # both editors" guarantee). Zed itself is sandboxed now, and a flatpak does
-  # NOT inherit the profile PATH — reaching these from inside it needs both
+  # NOT inherit the profile PATH, so reaching these from inside it needs both
   # the /nix/store grant in nix/home/base/flatpaks.nix and Zed being told
   # where they are. Treat editor-side language support in the flatpak as
   # something to verify per language server, not as something this list
@@ -362,7 +362,8 @@
   # absence is not a regression: both are inside the language toolchains
   # nix/home/base/pkgs.nix installs from flake/languages.nix, so they are on
   # PATH exactly as before. Listing them a second time would in fact break the
-  # build — home-manager's profile is a buildEnv that refuses collisions, and
+  # build, since home-manager's profile is a buildEnv that refuses collisions,
+  # and
   # a bare `pkgs.rustfmt` beside the toolchain's own is two store paths
   # claiming bin/rustfmt.
   #
@@ -377,8 +378,8 @@
 
   # Join home-manager's ~/.config/zed to the per-app root the flatpak reads as
   # $XDG_CONFIG_HOME. mkOutOfStoreSymlink (not a plain store symlink) because
-  # the target must stay a live path into $HOME that Zed can also write to —
-  # a store symlink would be read-only and Zed rewrites settings.json itself
+  # the target must stay a live path into $HOME that Zed can also write to,
+  # since a store symlink would be read-only and Zed rewrites settings.json itself
   # when a setting is changed in the UI.
   home.file.".var/app/dev.zed.Zed/config/zed".source =
     config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/.config/zed";

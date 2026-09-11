@@ -6,8 +6,8 @@
 //
 // beamenu did all of this in a sidecar process, because reading a 40 MB image
 // on the launcher's own thread would have frozen the keyboard. QML gives that
-// away for nothing — Image decodes asynchronously and Process is already
-// non-blocking — so the pane is a delegate here rather than a second program.
+// away for nothing: Image decodes asynchronously and Process is already
+// non-blocking, so the pane is a delegate here rather than a second program.
 .pragma library
 
 // fd prints directories with a trailing slash and files without one, so the

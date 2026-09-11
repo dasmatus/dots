@@ -11,8 +11,8 @@
 #
 # Only the PORTABLE half of the profile is installed: see
 # nix/home/profiles/portable.nix and its session.nix counterpart for where the
-# line falls and why (runtime coupling — a Hyprland seat and the microvm
-# sandbox host — not module hygiene).
+# line falls and why (runtime coupling — a Hyprland seat, which a foreign
+# host has no compositor to hand out — not module hygiene).
 {
   inputs,
   nixpkgs,
@@ -99,40 +99,9 @@ let
       claudeDesktop = self.packages.${system}.claude-desktop;
       betterbird = self.packages.${system}.betterbird;
       chromaleon = self.packages.${system}.chromaleon;
-      dotsSandbox = self.packages.${system}.dots-sandbox;
       settingsMenu = self.packages.${system}.settings;
       aipageFirefox = aipagePackages.firefox;
       aipageChrome = aipagePackages.chrome;
-
-      # ---------------------------------------------------------------------
-      # SECURITY-RELEVANT DOWNGRADE. Read before adding modules here.
-      #
-      # On NixOS this argument is `nix/home/sandbox/wrap.nix`'s real
-      # `wrapSandboxed`, exposed through `_module.args`. It rewrites a
-      # package's binaries and .desktop entries to launch through
-      # `dots-sandbox run`, which boots the app into a microvm — the mechanism
-      # behind this repo's "no app is unsandboxed" property.
-      #
-      # That module is in the session profile, not the portable one, because
-      # its host side (nix/modules/system/sandbox-host.nix) is a NixOS module.
-      # A foreign host has no microvm host to launch into, so the real wrapper
-      # here would not sandbox anything — it would produce apps that fail at
-      # launch, every one of them, since the wrapper IS each app's entry point.
-      #
-      # So the standalone build substitutes the identity function: packages are
-      # installed unwrapped and run with ordinary user privileges, exactly like
-      # any other distribution's packages. The consumers
-      # (nix/home/ai/{claude,edupage-mcp}.nix) need the argument to exist; they
-      # do not require it to confine anything.
-      #
-      # The honest summary: `homeConfigurations` gives you this repo's programs
-      # and configuration, NOT its sandboxing. Do not read a home-manager
-      # switch here as equivalent to running the NixOS system.
-      #
-      # It ignores the spec attrset (appId/caps/tier) rather than asserting on
-      # it, so a module that starts declaring a new capability keeps evaluating
-      # here instead of breaking a build that was never going to enforce it.
-      wrapSandboxed = _spec: pkg: pkg;
     };
 
     modules = [

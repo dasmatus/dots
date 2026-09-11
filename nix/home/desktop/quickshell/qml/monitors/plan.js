@@ -7,7 +7,7 @@
 // The crate's render() emits `hyprctl keyword monitor ...`, kept there only
 // for its own tests/logging; render() here is spec.rs's render_lua()
 // instead, because that legacy keyword is the one Hyprland 0.55+ silently
-// no-ops under the Lua parser (rust/hyprmon/src/runner.rs) — the live path
+// no-ops under the Lua parser (rust/hyprmon/src/runner.rs). The live path
 // this port has to match is `hyprctl eval 'hl.monitor({...})'`.
 .pragma library
 
@@ -64,7 +64,7 @@ function ruleMatches(rule, monitor) {
 
 // The single-monitor slice of matcher.rs's match_monitors: first rule in
 // list order whose name/description regexes (each optional, both must hold
-// when present) match, or null if none does. match_monitors additionally
+// when present) match, or null if none does. match_monitors also
 // drops non-matching monitors from its output list; planFor below does that
 // part by simply skipping a null result per monitor.
 function matchRule(monitor, rules) {
@@ -79,7 +79,7 @@ function matchRule(monitor, rules) {
 // Rust's str::split_once: the substring before/after the FIRST occurrence of
 // sep, or null when sep never appears. JS's String.split has no one-split
 // form, and a naive split('x').length===2 check would disagree with Rust on
-// a string with more than one 'x' (e.g. a stray "1920x1080x60" mode) — this
+// a string with more than one 'x' (e.g. a stray "1920x1080x60" mode); this
 // takes the same first slice Rust's split_once does either way.
 function splitOnce(s, sep) {
     const i = s.indexOf(sep);
@@ -107,7 +107,7 @@ function parseI64(s) {
 }
 
 // Rust's f64::from_str: a plain decimal (optionally signed/exponent), never
-// something like "60.00Hz" — which matters because that IS the shape real
+// something like "60.00Hz", which matters because that IS the shape real
 // hyprctl reports in availableModes (see maxRefreshAt below); a lax
 // parseFloat would silently accept the "Hz" suffix's leading digits.
 function parseFloatStrict(s) {
@@ -182,7 +182,7 @@ function roundUpRefresh(r) {
 // Highest refresh the monitor advertises for resolution w×h, read from
 // availableModes entries of the form WxH@R (parseMode strips a trailing Hz
 // first, so this matches real hyprctl output, not just hand-built
-// fixtures). null when no mode matches at that resolution — the case
+// fixtures). null when no mode matches at that resolution, the case
 // refreshFor's live-refresh fallback below exists for.
 function maxRefreshAt(modes, w, h) {
     let best = null;
@@ -200,7 +200,7 @@ function maxRefreshAt(modes, w, h) {
 // Refresh rate (integer Hz, rounded up) to append to a WxH or preferred
 // resolution: the highest rate the monitor advertises for that resolution,
 // falling back to the live refresh when no mode matches. The fallback is the
-// NVIDIA workaround — the proprietary driver doesn't populate availableModes
+// NVIDIA workaround: the proprietary driver doesn't populate availableModes
 // over wlr-output-management the way KMS drivers do, so without it a rule
 // like `2560x1200` (no explicit refresh) would land on Hyprland's fractional
 // default (e.g. 59.95 Hz) instead of the intended 60.
@@ -264,7 +264,7 @@ function renderScale(s) {
 
 // The token the vrr enum ("off"/"left"/"right"/"auto", the lowercase form
 // rules.json and overrides.json actually spell it) renders as, or null for
-// "off" — Hyprland's Lua vrr field takes 0/1/2/3, and 0 (off) is the
+// "off". Hyprland's Lua vrr field takes 0/1/2/3, and 0 (off) is the
 // implicit default, so it's never emitted as an explicit field either.
 function vrrToken(vrr) {
     switch (vrr) {
@@ -315,7 +315,7 @@ function layoutMatched(matched) {
 // Match every monitor against rules, plan the survivors into a horizontal
 // layout, apply overrides last, and return the resulting specs. Unmatched
 // monitors are silently dropped (matcher.rs's match_monitors behaviour)
-// rather than emitted as "disabled" — an empty result is a no-op for the
+// rather than emitted as "disabled": an empty result is a no-op for the
 // caller, not a command to switch anything off. overrides is optional so
 // Task 2's rows (which never touch it) still pass unmodified.
 function planFor(monitors, rules, overrides) {
@@ -331,7 +331,7 @@ function planFor(monitors, rules, overrides) {
 
 // Find the override entry that applies to monitor, or null. Name pins take
 // priority over description fallbacks; within each pass the first matching
-// entry in list order wins — overrides.rs's match_override.
+// entry in list order wins, overrides.rs's match_override.
 function matchOverride(monitor, overrides) {
     const entries = (overrides && overrides.entries) || [];
     const byName = entries.find(e => e.name === monitor.name);
@@ -384,8 +384,8 @@ function luaNumber(s) {
     return Number.isNaN(n) ? s : String(n);
 }
 
-// Render a spec as the Lua table argument to `hyprctl eval 'hl.monitor({...})'`
-// — see this file's header for why this is the only render the port keeps.
+// Render a spec as the Lua table argument to `hyprctl eval 'hl.monitor({...})'`.
+// See this file's header for why this is the only render the port keeps.
 function render(spec) {
     const fields = [
         `output=${luaString(spec.name)}`,

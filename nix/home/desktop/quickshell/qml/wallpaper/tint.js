@@ -1,7 +1,7 @@
 // Per-target accent tint writers, plus the Papirus nearest-colour lookup.
 // Pure (string/array in -> string/array out): nothing here touches the
 // filesystem, spawns a process or repaints the live desktop the way
-// tint.rs's tree tinters and apply_tint_ctx orchestrator do — those stay in
+// tint.rs's tree tinters and apply_tint_ctx orchestrator do. Those stay in
 // the crate, which still owns the wallpaper.
 //
 // rofiRasiText, gtkCss, hyprlandBorderCommands, recolorKvantumText and the
@@ -24,8 +24,8 @@
 var KVANTUM_ACCENT_HEXES = ["#8caaee", "#839edd", "#98b2ef"];
 
 // None of '#' or a hex digit is a regex metacharacter today, but the hex
-// family above is data, not a literal pattern chosen for this code —
-// escaping keeps a future accent format change (e.g. an 8-char literal) from
+// family above is data, not a literal pattern chosen for this code.
+// Escaping keeps a future accent format change (e.g. an 8-char literal) from
 // silently turning into a broken RegExp instead of a loud one.
 function escapeRegExp(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -48,8 +48,8 @@ function hexToRgb(hex) {
 // +Infinity, so the two disagree on negative halves (Math.round(-0.5) is 0,
 // not -1). clampByte's input never actually goes negative for any accent
 // this file is fed, but rgb_to_hex's doc calls out the rounding rule by name,
-// so matching it exactly here — rather than relying on the difference never
-// being reachable — is what keeps this a faithful port instead of a
+// so matching it exactly here, rather than relying on the difference never
+// being reachable, is what keeps this a faithful port instead of a
 // look-alike one.
 function roundHalfAwayFromZero(x) {
     return x < 0 ? -Math.round(-x) : Math.round(x);
@@ -94,7 +94,7 @@ function rofiRasiText(base, accent, accentDark) {
 }
 
 // `@define-color` overrides loaded after the Tokyonight theme import. This
-// GENERATES a stylesheet from scratch — unlike rofiRasiText it does not
+// GENERATES a stylesheet from scratch. Unlike rofiRasiText it does not
 // rewrite a base string, because GTK's own base theme already ships the
 // selectors this only needs to override. version is 3 or 4; accentLight is
 // accepted for signature parity with tint.rs's gtk_css but unused, because
@@ -117,7 +117,7 @@ function gtkCss(accent, accentDark, accentLight, version) {
 
 // `hyprctl eval` argv setting both border colors through one
 // `hl.config({...})` call with flat dotted string keys, e.g.
-// `["general.col.active_border"]` — the HL.ConfigKey vocabulary
+// `["general.col.active_border"]`. That's the HL.ConfigKey vocabulary
 // `hl.get_config` reads back, not the nested `HL.ConfigOpt` shape
 // `hl.config`'s own declared parameter type uses (both apply at runtime; the
 // flat form needs no intermediate table construction). Deliberately never
@@ -160,7 +160,7 @@ function recolorKvantumText(text, accent, accentDark, accentLight) {
 }
 
 // Below this saturation a colour reads as black/grey/white rather than any
-// particular hue, so its hue is meaningless to compare against — hexToHls's
+// particular hue, so its hue is meaningless to compare against. hexToHls's
 // own achromatic branch always answers h=0 for such a colour (see hls.js),
 // which would otherwise make it look deceptively "hue-close" to red. Sits in
 // the gap papirus-colors.json actually has between its four fully-achromatic
@@ -170,7 +170,7 @@ function recolorKvantumText(text, accent, accentDark, accentLight) {
 var ACHROMATIC_SATURATION_THRESHOLD = 0.1;
 
 // Hue wraps at 1.0, so h=0.02 and h=0.98 are 0.04 apart on the colour
-// wheel, not the 0.96 a plain subtraction would read — going the other way
+// wheel, not the 0.96 a plain subtraction would read. Going the other way
 // around the circle is shorter whenever the direct gap exceeds half a turn.
 function circularHueDistance(a, b) {
     const d = Math.abs(a - b);
@@ -181,13 +181,13 @@ function circularHueDistance(a, b) {
 // Icons.qml can symlink to a prebuilt colour variant instead of rewriting
 // SVGs the way MoreWaita's retint() used to. `colors` is name -> hex
 // (papirus-colors.json, parsed by the caller) and stays a parameter rather
-// than a module-level table so this function stays pure and callers —
-// including tests — can supply their own fixture table without depending on
+// than a module-level table so this function stays pure and callers,
+// including tests, can supply their own fixture table without depending on
 // the live Papirus package.
 //
 // Candidates are first split by ACHROMATIC_SATURATION_THRESHOLD into an
 // achromatic bucket and a chromatic one, and only the bucket matching the
-// accent's own classification is searched — symmetrically, so a vivid
+// accent's own classification is searched, symmetrically, so a vivid
 // accent can never land on grey (hue would be a false match, per the
 // threshold's own comment) and a near-grey accent can never be dragged onto
 // a vivid hue by hue arithmetic that is meaningless for it. If a caller's
@@ -195,11 +195,11 @@ function circularHueDistance(a, b) {
 // full table rather than returning nothing.
 //
 // The chromatic and achromatic buckets are then scored on different single
-// axes — see the loop below for why.
+// axes. See the loop below for why.
 //
 // Ties (equal distance) resolve to whichever candidate's key comes first in
 // `colors`'s own iteration order, because the scan keeps the first minimum
-// it finds and only replaces it on a strictly smaller distance — so the
+// it finds and only replaces it on a strictly smaller distance. So the
 // same table and input always return the same name.
 function nearestPapirusColor(accentHex, colors) {
     const accentHls = hexToHls(accentHex);
@@ -214,7 +214,7 @@ function nearestPapirusColor(accentHex, colors) {
     for (const entry of candidates) {
         // accent.js's accentFrom pins EVERY accent it produces onto a fixed
         // lightness and saturation (hlsToHex(hue, 0.62, 0.55), see
-        // accent.js) — only hue ever varies. So for the chromatic bucket, a
+        // accent.js). Only hue ever varies. So for the chromatic bucket, a
         // distance built on dl/ds is not scoring the accent against a
         // candidate; it is scoring each candidate against a constant that
         // is the same for every call, which swamps the one term (hue) that
@@ -223,8 +223,8 @@ function nearestPapirusColor(accentHex, colors) {
         // matches reality here. The achromatic bucket has the opposite
         // problem: hue is meaningless there (hexToHls's achromatic branch
         // always answers h=0, so every achromatic candidate would tie on
-        // hue), so it is scored on lightness instead — the one axis that
-        // still tells black, grey and white apart.
+        // hue), so it is scored on lightness instead. That's the one axis
+        // that still tells black, grey and white apart.
         const distance = accentIsAchromatic
             ? Math.abs(accentHls.l - entry.hls.l)
             : circularHueDistance(accentHls.h, entry.hls.h);

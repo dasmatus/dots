@@ -1,4 +1,4 @@
-# edupage-mcp — MCP server for Edupage, the school information system used
+# edupage-mcp: MCP server for Edupage, the school information system used
 # across central Europe (github.com/mhlavac/edupage-mcp): timetables,
 # grades, homework, messages. Upstream publishes no PyPI release and no
 # tag, and its own setup instructions are `uv run --directory
@@ -6,7 +6,7 @@
 # that clones imperatively and resolves dependencies over the network at
 # spawn. Both halves are therefore built from source here: edupage-api off
 # PyPI (absent from nixpkgs), and the server off a pinned GitHub rev. The
-# MCP SDK itself is nixpkgs' python3Packages.mcp — the same one
+# MCP SDK itself is nixpkgs' python3Packages.mcp, the same one
 # nix/home/ai/claude.nix builds its searxng bridge against.
 #
 # Both packages are GPL-3.0-or-later. The server is its own process
@@ -28,7 +28,7 @@
 # = "/run/secrets/x"`, which modules/lib/mcp.nix turns into a generated
 # wrapper that reads the file at startup. Two things rule it out here. It
 # resolves a plaintext file rather than a keyring, and it is wired to
-# `programs.mcp.servers` alone — the claude-code module puts its own
+# `programs.mcp.servers` alone. The claude-code module puts its own
 # cfg.mcpServers through addType and nothing else, so a file ref on this
 # option is serialised into .mcp.json verbatim as {"file": "..."} rather
 # than resolved. That fails silently instead of erroring, which is the
@@ -43,8 +43,8 @@
 # the `login` service only, and this box logs in through regreet/greetd,
 # so the collection can still be locked on a fresh boot. That matters more
 # than a stray dialog would suggest. secret-tool has no way to decline an
-# unlock prompt — `lookup` unlocks unconditionally, and only `search`
-# takes `--unlock` — and libsecret resolves the prompt through a plain
+# unlock prompt: `lookup` unlocks unconditionally, and only `search`
+# takes `--unlock`, and libsecret resolves the prompt through a plain
 # g_main_loop_run with no deadline and no cancellable, so an unanswered
 # dialog blocks the caller for as long as it goes unanswered. The wrapper
 # below caps every lookup at ten seconds for exactly that reason; without
@@ -58,7 +58,6 @@
   lib,
   pkgs,
   dots,
-  wrapSandboxed,
   ...
 }:
 let
@@ -99,7 +98,7 @@ let
 
   # The server itself. rev pinned to mhlavac/edupage-mcp main HEAD at
   # adoption time and bumped deliberately, the same way claude.nix pins
-  # pstackSrc — there is no upstream tag to track. pyproject.toml declares
+  # pstackSrc, since there is no upstream tag to track. pyproject.toml declares
   # `edupage-mcp = "edupage_mcp:main"` under [project.scripts], so
   # buildPythonApplication yields a real bin/edupage-mcp and upstream's
   # `python -m edupage_mcp` invocation is unnecessary.
@@ -134,7 +133,7 @@ let
 
   # Keyring shim: the actual `command` Claude Code spawns. Every lookup is
   # bounded and its failure swallowed, because the server has to come up
-  # either way — a dead stdio handshake takes the whole MCP connection down
+  # either way, since a dead stdio handshake takes the whole MCP connection down
   # with it, while an empty credential only leaves the `login` tool as the
   # way in. server.py gates its startup auto-login on `if username and
   # password and subdomain`, and Python reads "" as false, so exporting
@@ -144,9 +143,10 @@ let
   # makes secret-tool exit non-zero immediately, which `|| true` handles;
   # a *locked* collection instead makes it block on a Secret Service unlock
   # prompt, and libsecret's synchronous lookup carries no deadline of its
-  # own and no flag to decline the prompt. An unattended spawn — cold boot,
-  # dialog opening behind another window, nobody watching — would hang
-  # before the exec and wedge the MCP connection with no output at all.
+  # own and no flag to decline the prompt. An unattended spawn, whether from
+  # a cold boot, a dialog opening behind another window, or nobody watching,
+  # would hang before the exec and wedge the MCP connection with no output
+  # at all.
   # Ten seconds is deliberately far too short to type a password into that
   # dialog: bounded startup without auto-login beats an indefinite hang.
   # Unlock the keyring and reconnect the server to pick the credentials up.
@@ -208,26 +208,13 @@ in
   config = lib.mkIf dots.ai.claude {
     home.packages = [ edupage-keyring ];
 
-    # Wrapped rather than installed straight: this process only ever needs
-    # the school's remote API over the open internet (a real "net" grant, not
-    # a loopback service dots-sandbox's VM boundary would strand — unlike,
-    # say, a bridge that only serves 127.0.0.1). The secret-tool keyring
-    # lookup above talks to the Secret Service over the session D-Bus, which
-    # a systemd-vmspawn boundary does not carry through; that degrades to the
-    # wrapper's own already-designed fallback (empty credentials, `login`
-    # tool as the way in) rather than a hard failure, which is why the
-    # tradeoff is worth taking rather than routing around. See
-    # nix/home/sandbox/wrap.nix and nix/data/sandbox-policy.json's "edupage-mcp"
-    # entry.
+    # Runs unwrapped (Phase E, ruling R3, retired the per-app sandbox — see
+    # git history): a stdio MCP server the user's own Claude Code spawns is a
+    # developer tool talking to the school's remote API, not untrusted input
+    # needing confinement.
     programs.claude-code.mcpServers.edupage = {
       type = "stdio";
-      command = lib.getExe (
-        wrapSandboxed {
-          appId = "edupage-mcp";
-          caps = [ "net" ];
-          tier = "container";
-        } edupage-mcp-keyring
-      );
+      command = lib.getExe edupage-mcp-keyring;
     };
   };
 }

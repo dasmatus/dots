@@ -12,27 +12,11 @@
   lib,
   iso,
   mkTokyonight,
+  tokyonightModules,
   dotsFlake,
   inputs,
 }:
 let
-  # sandbox — a real pkgs.testers.runNixOSTest (unlike sandboxMachinedTest
-  # above): the previously-unsettled question of whether `machinectl --user
-  # bind` actually works against a user-scope machine needs
-  # `systemd-nsresourced` genuinely running, a real unprivileged
-  # `systemd-nspawn` machine, and a real `machinectl` invocation -- none of
-  # which an eval-only check or a Nix build sandbox can produce. See
-  # tests/sandbox.nix for the full brief and why this could not be settled
-  # any other way.
-  sandboxTest = import ./sandbox.nix {
-    inherit
-      pkgs
-      lib
-      inputs
-      dotsFlake
-      ;
-  };
-
   # session-units — eval-only, costs nothing (no VM, no build): a standalone
   # home-manager evaluation checked with five `assert`s. Everything else in
   # this file is a heavy `pkgs.testers.runNixOSTest`; this one is here so
@@ -47,16 +31,22 @@ let
   # profile at ~/.thunderbird. See tests/proton-calendar.nix.
   protonCalendarTest = import ./proton-calendar.nix { inherit pkgs lib inputs; };
 
-  # sandbox-machined — eval-only for the same reason as sessionUnitsTest:
-  # proves nix/home/sandbox/machined.nix wires the user-scope machined units
-  # (present, referencing pkgs.systemd, socket-enabled) rather than landing
-  # inert. See tests/sandbox-machined.nix for what it guards.
-  sandboxMachinedTest = import ./sandbox-machined.nix {
+  # session-boot — the Phase 0 boot oracle: a real Hyprland/UWSM/Quickshell
+  # session, on tokyonightModules (flake/nixos.nix's disk-independent half
+  # of tokyonight's own module list — self-syncing by construction, see
+  # that file's header) standing in for nixosConfigurations.tokyonight's
+  # disk/boot-chain modules (see tests/session-boot.nix's header for why
+  # extendModules over the real config was rejected instead). This is the
+  # gate every later hardening phase (XWayland removal, kernel lockdown,
+  # AppArmor enforcement) has to keep green — see
+  # docs/superpowers/specs/2026-09-08-hardening-design.md.
+  sessionBootTest = import ./session-boot.nix {
     inherit
       pkgs
       lib
       inputs
       dotsFlake
+      tokyonightModules
       ;
   };
 
@@ -66,6 +56,21 @@ let
   # tests/limine-home.nix for what it guards and why it needs a VM rather
   # than an eval-only check.
   limineHomeTest = import ./limine-home.nix { inherit pkgs lib; };
+
+  # flatpak / flatpak-overrides — Phase E's own verification gate (the
+  # global Flatpak deny, a per-app grant re-opening it, and AppArmor
+  # enforcement on the two native holdouts). Two checks at two different
+  # cost tiers; see tests/flatpak.nix's own header for why the split and for
+  # what each one does and does not prove.
+  flatpakTests = import ./flatpak.nix {
+    inherit
+      pkgs
+      lib
+      inputs
+      tokyonightModules
+      dotsFlake
+      ;
+  };
 
   # Precomputed `mkpasswd -m yescrypt --stdin` of the literal "test" — the same
   # path the installer's WriteSecrets step uses (rust/installer-tui/src/install.rs).
@@ -629,10 +634,12 @@ in
   # Eval-only — no VM, no build. See the comment on sessionUnitsTest above.
   session-units = sessionUnitsTest;
   proton-calendar = protonCalendarTest;
-  sandbox-machined = sandboxMachinedTest;
-  sandbox = sandboxTest;
+  # A real runNixOSTest, unlike session-units above — see sessionBootTest's
+  # own comment and tests/session-boot.nix's header.
+  session-boot = sessionBootTest;
   iso-boot = isoBootTest;
   userborn-reboot-login = userbornRebootLogin;
   limine-install-home = limineHomeTest;
   limine-install-boot = limineInstallBootTest;
 }
+// flatpakTests

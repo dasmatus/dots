@@ -8,8 +8,8 @@
 //
 // A "row descriptor" is a plain object, never a live SettingsRow instance:
 // { id, pageId, groupId, title, description, keywords }. Settings.qml builds
-// one per SettingsRow it renders — real ones for Identity, none yet for the
-// still-stubbed pages — and hands the flat array here on every keystroke.
+// one per SettingsRow it renders, real ones for Identity, none yet for the
+// still-stubbed pages, and hands the flat array here on every keystroke.
 // Nothing in this file reaches back into QML to read a property off a
 // component, which is what keeps it instantiable with no compositor, no
 // Theme and no Settings.qml at all.
@@ -17,7 +17,7 @@
 
 // Whether one row matches an already-trimmed, already-lowercased needle. An
 // empty needle matches every row, which is what lets search() below answer
-// "no query yet" without a separate branch for it — matchedIds ends up the
+// "no query yet" without a separate branch for it. matchedIds ends up the
 // full row list on its own.
 function rowMatches(row, needle) {
     if (needle === "")
@@ -32,7 +32,7 @@ function rowMatches(row, needle) {
 //
 // Groups and pages are derived from the rows themselves rather than passed
 // in as separate lists, on purpose: a group or page that owns no rows at
-// all — every one of today's still-stubbed nav pages — never appears in
+// all, every one of today's still-stubbed nav pages, never appears in
 // either output and so can never be mistaken for a group a real search
 // emptied out. Settings.qml tells the two apart by checking its own static
 // page list instead, which is exactly the distinction the stubbed pages'
@@ -58,8 +58,8 @@ function search(rows, query) {
         visibleGroupIds: Array.from(matchedGroupIds),
         visiblePageIds: Array.from(matchedPageIds),
         // Only a real query can produce the empty state. An empty query
-        // against an empty row list — browsing a stubbed page with the
-        // search field untouched — is "nothing to search", not "nothing
+        // against an empty row list, browsing a stubbed page with the
+        // search field untouched, is "nothing to search", not "nothing
         // found", and must not draw the same "no settings match" message.
         empty: needle !== "" && matchedIds.length === 0
     };

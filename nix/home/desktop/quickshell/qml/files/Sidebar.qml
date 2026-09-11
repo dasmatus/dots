@@ -35,13 +35,13 @@ Rectangle {
 
     // This panel's real neighbour, through the RowLayout's margins in
     // Files.qml, is the window's own Theme.bg, and bgDarker against it
-    // computes to only ~1.05:1 — barely a seam. Left as-is anyway: the
+    // computes to only ~1.05:1, barely a seam. Left as-is anyway: the
     // "Places"/"Bookmarks"/"Devices" headers below default to Theme.muted,
-    // which reads at 4.32:1 against this bgDarker fill; lifting the panel
-    // to the lighter `raised` token to fix the window seam would drop that
-    // to 2.28:1, the same order of regression a sibling task's fix
-    // introduced on Pane.qml's muted columns — and these headers, unlike
-    // an inactive tab's label, are on screen every time this panel is.
+    // which reads at 4.32:1 against this bgDarker fill; lifting the panel to
+    // the lighter `raised` token to fix the window seam would drop that to
+    // 2.28:1, the same order of regression a sibling task's fix introduced on
+    // Pane.qml's muted columns. These headers, unlike an inactive tab's label,
+    // are on screen every time this panel is.
     color: Theme.bgDarker
     radius: Theme.filesRadius
 
@@ -64,7 +64,7 @@ Rectangle {
 
     // The same file every GTK file manager reads, so a bookmark added here
     // shows up there and the other way round. nix/home/default.nix declares
-    // it, which makes the path a read-only nix-store symlink — this only
+    // it, which makes the path a read-only nix-store symlink. This only
     // ever reads it, and a new bookmark is a home-manager edit.
     FileView {
         path: `${root.configHome}/gtk-3.0/bookmarks`

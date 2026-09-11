@@ -2,9 +2,9 @@
 # from nixpkgs (declarative, offline-ready) via the `lsp` + `plugins.lspconfig`
 # modules (migrated off the deprecated `plugins.lsp`) with a broad curated
 # server set so common filetypes have their server in the closure already.
-# mason.nvim + mason-lspconfig are wired (via extraPlugins — nixvim ships no
-# module for them) as a *supplement*: any server not in the nixpkgs set can be
-# downloaded on demand (`:Mason` / `:LspInstall`) and auto-enabled —
+# mason.nvim + mason-lspconfig are wired (via extraPlugins, since nixvim ships
+# no module for them) as a *supplement*: any server not in the nixpkgs set can
+# be downloaded on demand (`:Mason` / `:LspInstall`) and auto-enabled.
 # mason-lspconfig v2 calls vim.lsp.enable() for installed servers, the same
 # API the declarative block uses. Mason only manages what it installs, so it
 # never double-enables a server already provided declaratively from nixpkgs.
@@ -21,7 +21,7 @@
     viAlias = true;
     vimAlias = true;
     luaLoader.enable = true;
-    # reuse the host pkgs — keeps the system allowUnfreePredicate
+    # reuse the host pkgs, which keeps the system allowUnfreePredicate
     # (presence.nvim) instead of nixvim instantiating its own nixpkgs
     nixpkgs.useGlobalPackages = true;
 
@@ -102,9 +102,10 @@
         '';
         options.desc = "Format buffer";
       }
-      # zellij-nav.nvim: seamless split/pane navigation. Ctrl-h/j/k/l move
-      # between Neovim splits, and at a pane edge hand off to the adjacent
-      # zellij pane (Left/Right also cross tabs). Works because zellij's
+      # zellij-nav.nvim: split/pane navigation across the Neovim/zellij
+      # boundary. Ctrl-h/j/k/l move between Neovim splits, and at a pane
+      # edge hand off to the adjacent zellij pane (Left/Right also cross
+      # tabs). Works because zellij's
       # default pane-nav keys are Alt-h/j/k/l, so Ctrl-h/j/k/l pass through
       # to the editor. The ZellijNavigate* commands are created by setup()
       # below; outside zellij they fall back to plain `wincmd` split nav.
@@ -398,7 +399,7 @@
     # LSP servers via nixvim's top-level `lsp` module (drives Neovim 0.11+
     # `vim.lsp.enable()` / `vim.lsp.config()`). "Auto-install" here is
     # declarative: each enabled server's nixpkgs package is already in the
-    # Neovim closure, so opening a filetype just works — no Mason, no runtime
+    # Neovim closure, so opening a filetype just works: no Mason, no runtime
     # downloads. Rust is handled by rustaceanvim above, not listed here.
     # Keymaps stay empty (parity with the prior `plugins.lsp` config, which
     # also set none); add `lsp.keymaps` for gd/gr/K/rename bindings.
@@ -416,7 +417,7 @@
       ts_ls.enable = true;
       gopls.enable = true;
       # Haskell: hls ships GHC in its closure, so opening a .hs just works
-      # (no Mason, no project-local install) — matches the declarative model
+      # (no Mason, no project-local install), matching the declarative model
       # used by every other server here.
       hls.enable = true;
       bashls.enable = true;
@@ -461,7 +462,7 @@
       fourmolu
       # Mason runtime deps: its install scripts fetch/unpack prebuilt server
       # binaries. unzip + wget cover the common path; some servers also need
-      # nodejs/python3 — add those here if a `:LspInstall` ever fails on NixOS.
+      # nodejs/python3. Add those here if a `:LspInstall` ever fails on NixOS.
       unzip
       wget
     ];
@@ -489,7 +490,7 @@
       -- by the declarative `lsp.servers.*` block. `:Mason` opens the browser,
       -- `:LspInstall <name>` downloads + enables a server (mason-lspconfig v2
       -- auto-calls vim.lsp.enable() for installed servers). ensure_installed
-      -- is left empty — add server names there to auto-install on startup.
+      -- is left empty. Add server names there to auto-install on startup.
       require("mason").setup()
       require("mason-lspconfig").setup({
         ensure_installed = {},

@@ -37,8 +37,8 @@ fn animations_enabled_respects_env() {
 #[test]
 fn progress_retarget_eases_toward_target() {
     let mut fx = ScreenFx::new(Clock::fixed());
-    // Retarget to 1.0; at t=0 the eased value is still ~0 (EaseOut starts slow
-    // is false — EaseOut front-loads, so by the midpoint it's already > 0.5).
+    // Retarget to 1.0; at t=0 the eased value is still ~0. EaseOut doesn't
+    // start slow, it front-loads, so by the midpoint it's already > 0.5.
     fx.retarget_progress_force(1.0);
     fx.advance(Duration::ZERO);
     assert!(

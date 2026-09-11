@@ -9,12 +9,12 @@
 // instead of guessing where `ls` put a column this time.
 //
 // One line per entry is the format's contract, and a name containing a raw
-// newline or tab byte defeats it: the captured text is indistinguishable
-// from two entries, or from an extra field, by the time it reaches this
-// file. Nothing downstream trusts `name` as a shell token either way —
-// join() below and Pane.qml's argv both carry it as plain string data,
-// never through a shell — so that split is a display artifact on an
-// astronomically rare filename, not a parsing crash or an injection.
+// newline or tab byte defeats it: the captured text is indistinguishable from
+// two entries, or from an extra field, by the time it reaches this file.
+// Nothing downstream trusts `name` as a shell token either way: join() below
+// and Pane.qml's argv both carry it as plain string data, never through a
+// shell. So that split is a display artifact on an astronomically rare
+// filename, not a parsing crash or an injection.
 //
 // Sorting lives here rather than in the `find` call because `find` has no
 // equivalent of `ls --group-directories-first`, and a comparator in this
@@ -90,10 +90,10 @@ function sortEntries(entries) {
     });
 }
 
-// Powers of 1024 with one decimal above the kilobyte, which is what every
-// file manager this replaces shows. A directory has no meaningful size of
-// its own here — `find` reports the size of the directory inode, not of
-// its contents — so it gets a dash rather than a misleading 4.0 KB.
+// Powers of 1024 with one decimal above the kilobyte, which is what every file
+// manager this replaces shows. A directory has no meaningful size of its own
+// here: `find` reports the size of the directory inode, not of its contents.
+// So it gets a dash rather than a misleading 4.0 KB.
 function formatSize(entry) {
     if (entry.isDir)
         return "—";

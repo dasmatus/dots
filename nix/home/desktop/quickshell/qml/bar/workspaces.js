@@ -4,7 +4,7 @@
 // Split out of Workspaces.qml so tests/qml can reach it: resolving an actual
 // icon needs DesktopEntries, a Quickshell singleton a `.pragma library`
 // script cannot import (it has no import statements of its own) and
-// qmltestrunner cannot load anyway — see that file's own header. The cap
+// qmltestrunner cannot load anyway. See that file's own header. The cap
 // arithmetic underneath it is plain integer math over a count, so it does
 // not have to share that fate.
 .pragma library

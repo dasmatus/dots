@@ -7,7 +7,7 @@
 # 0.00-0.11s for a grep over the index. Building it costs 1.47s.
 #
 # The output is byte-for-byte the format files/files.js's searchArgv
-# already emitted — `%Y\t%s\t%T@\t%P` — because files/index.js hands it
+# already emitted, `%Y\t%s\t%T@\t%P`, because files/index.js hands it
 # straight to the same parseListing. Changing the format here silently
 # breaks the reader, so it is pinned by tests/qml/tst_files_index.qml.
 #
@@ -88,7 +88,7 @@ in
   #
   # Nice and idle I/O because this competes with everything else a login
   # is doing. A cold walk of a home directory is I/O bound, and being
-  # second in that queue costs the user nothing — the search falls back to
+  # second in that queue costs the user nothing. The search falls back to
   # a live walk until the index lands.
   systemd.user.services.dots-files-index = {
     Unit = {

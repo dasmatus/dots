@@ -12,7 +12,7 @@
 # desktop. wlroots' headless backend creates a virtual output instead, so
 # nothing is drawn anywhere the user can see. `grim` can still capture that
 # virtual output, which is how a change gets EYEBALLED without ever being on
-# screen — a blank frame is a launch failure that a clean log will not show.
+# screen. A blank frame is a launch failure that a clean log will not show.
 #
 # Usage: nested-shell-test.sh <config-dir> [root.qml]
 #   config-dir  a built dots-quickshell-config store path

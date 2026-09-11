@@ -4,13 +4,13 @@
 // tile runs `awww img`, extracts the new accent from the same file with
 // accent.js (plan 1a) over a Canvas, writes it to Theme.tintStatePath for
 // tree.nix's FileView to pick up, and hands the accent to every tint
-// target — Icons.qml, Borders.qml, Gtk.qml and Kvantum.qml — so one pick
+// target: Icons.qml, Borders.qml, Gtk.qml and Kvantum.qml. So one pick
 // repaints the icon theme, the Hyprland borders, the GTK stylesheets and
 // the Kvantum theme together. No home-manager switch sits between a click
-// and the bar repainting — that FileView is the whole point.
+// and the bar repainting. That FileView is the whole point.
 //
 // apply(path, output, mode) is also reachable over IPC (`qs ipc call
-// wallpaper apply <path> <output> <mode>`) for an external caller — a
+// wallpaper apply <path> <output> <mode>`) for an external caller, a
 // keybind or a terminal. Rotation.qml lives inside this same process, so it
 // holds a direct reference to this component instead of shelling out to its
 // own IPC socket: one implementation, reached in-process by the timer and
@@ -24,14 +24,14 @@
 //
 // A successful apply also records which path/mode/fillColor just went to
 // which output(s), in outputs.json next to Theme.tintStatePath's own
-// current.json — config.rs's own state.json schema (an object of output
-// name -> { path, mode, fill_color }, every field optional), just at this
-// port's own path rather than the deleted crate's. `o` reloads a newly
-// selected output's own mode/colour from it, and `r` replays every
+// current.json. That's config.rs's own state.json schema (an object of
+// output name -> { path, mode, fill_color }, every field optional), just
+// at this port's own path rather than the deleted crate's. `o` reloads a
+// newly selected output's own mode/colour from it, and `r` replays every
 // output's own last-recorded wallpaper, rather than either only ever
 // seeing the live cycling state this session happened to be on.
 // Rotation.qml's hourly pick is the one apply() caller that opts out of
-// recording — restoring the rotation's latest random guess instead of
+// recording. Restoring the rotation's latest random guess instead of
 // what the user last actually chose is not what `r` is for.
 pragma ComponentBehavior: Bound
 
@@ -61,30 +61,30 @@ Scope {
     property var files: []
     property int selected: -1
 
-    // Live picker state, cycled by m/o/c below. config.rs's own defaults —
+    // Live picker state, cycled by m/o/c below. config.rs's own defaults:
     // the TUI started here too when a wallpaper folder had no prior state.
     property string mode: "fill"
     property string output: "*"
     property string fillColor: PickerLogic.DEFAULT_COLOR
 
-    // Every screen Quickshell currently knows about — cycleOutput()'s own
+    // Every screen Quickshell currently knows about: cycleOutput()'s own
     // list, and restore()'s notion of which outputs are worth asking
     // outputRecords about at all.
     readonly property var outputNames: Quickshell.screens.map(s => s.name)
 
-    // Persisted per-output state — config.rs's own on-disk schema, kept
+    // Persisted per-output state: config.rs's own on-disk schema, kept
     // under the same directory Theme.tintStatePath already lives in:
     // { "outputs": { "<name>": { "path", "mode", "fill_color" } } }, an
     // object keyed by output name (config.rs's State.outputs was a
-    // BTreeMap<String, OutputOverride>, not a list), every field optional
-    // and omitted — never null, never "" — the moment it is unset.
+    // BTreeMap<String, OutputOverride>, not a list), with every field
+    // optional: omitted, never null and never "", the moment it is unset.
     // recordOutputState() below is the only writer; reading through the
     // FileView's own adapter, rather than a local copy, keeps
     // cycleOutput()'s reload and restore()'s replay both looking at
     // whatever the last successful apply actually wrote.
     //
-    // JsonAdapter has no `root` — quickshell-io.qmltypes declares it (and
-    // its FileViewAdapter prototype) with not one property — only a
+    // JsonAdapter has no `root`. quickshell-io.qmltypes declares it (and
+    // its FileViewAdapter prototype) with not one property. Only a
     // property DECLARED on the adapter instance gets populated from the
     // file. outputStateFile.adapter.outputs below is that property, and
     // is already the bare map picker.js's functions take; there is
@@ -133,7 +133,7 @@ Scope {
         window.visible = false;
 
         // Entries queued by a restore() the user never waited out
-        // otherwise keep firing after the picker is gone — awww has
+        // otherwise keep firing after the picker is gone. awww has
         // already committed to whichever apply is actually in flight, but
         // nothing queued behind it needs to run once nobody is looking.
         root.pendingQueue = [];
@@ -159,16 +159,16 @@ Scope {
         root.selected = PickerLogic.gridMove(root.selected, delta, root.files.length);
     }
 
-    // GridView lays cells out left-to-right, wrapping at its own width —
-    // there is no property that already reports how many fit per row, so
+    // GridView lays cells out left-to-right, wrapping at its own width.
+    // There is no property that already reports how many fit per row, so
     // this recomputes it from the same width/cellWidth the layout itself
     // uses.
     function columnsPerRow(): int {
         return Math.max(1, Math.floor(grid.width / grid.cellWidth));
     }
 
-    // The keyboard half of what the grid's click handler already does —
-    // both funnel through apply() with the live mode/output/fillColor
+    // The keyboard half of what the grid's click handler already does.
+    // Both funnel through apply() with the live mode/output/fillColor
     // rather than either hardcoding its own triple.
     function applySelected(): void {
         if (root.selected < 0 || root.selected >= root.files.length)
@@ -186,21 +186,21 @@ Scope {
 
     // config.rs's cycle_output reloaded fill_mode/current_color through
     // effective_output the moment the selection moved, but only ever had
-    // to fall back to "fill"/DEFAULT_COLOR when NOTHING — no state, no
-    // declarative config either — had an opinion on that output. This port
+    // to fall back to "fill"/DEFAULT_COLOR when NOTHING, no state, no
+    // declarative config either, had an opinion on that output. This port
     // has no declarative layer, so effectiveOutput()'s own fallback is the
     // ONLY thing standing behind an output nothing has ever been applied
     // to, and reloading unconditionally would silently overwrite whatever
     // the user had just cycled m/c to with that fallback the moment they
     // landed on such an output (or on "*", which never gets its own
-    // record — see recordOutputState()). hasOutputRecord() distinguishes
+    // record; see recordOutputState()). hasOutputRecord() distinguishes
     // "found, reload from it" from "nothing recorded, leave the live
     // cycling state alone".
     // Select one output by name, adopting whatever mode and fill colour that
     // output last had applied to it. Split out of cycleOutput so the Settings
     // page's Displays/Wallpaper dropdown can pick directly rather than
-    // stepping blind through the list — the overlay's cycling affordance made
-    // sense with only a keyboard, a Select does not.
+    // stepping blind through the list. The overlay's cycling affordance made
+    // sense with only a keyboard; a Select does not.
     //
     // The state adoption is the part that must not be skipped. Assigning
     // `output` alone would leave the form showing the previous output's mode
@@ -222,7 +222,7 @@ Scope {
 
     // -e is case-insensitive in fd, so a stray .JPG is still found. "." is
     // the required PATTERN argument when every file under PATH is wanted,
-    // not a path itself — fd's own idiom for "no filter but the extensions".
+    // not a path itself. It's fd's own idiom for "no filter but the extensions".
     Process {
         id: lister
 
@@ -273,14 +273,14 @@ Scope {
 
     // Queued awww invocations, and whether one is currently in flight.
     // `pumpApplyQueue()`'s own decision to start the next entry is gated
-    // entirely on this flag, never on awwwProc.running directly — nothing
+    // entirely on this flag, never on awwwProc.running directly. Nothing
     // here can confirm Quickshell 0.3.0 clears `running` before `exited`
     // fires rather than after, so a pump gated on that ordering would be
     // either correct or permanently stalled depending on an assumption
     // nobody could check. `applyBusy` is set by pumpApplyQueue() itself
-    // and cleared from two places on awwwProc below — onExited for a
+    // and cleared from two places on awwwProc below: onExited for a
     // normal completion, and onRunningChanged as a fallback for a process
-    // that never started at all, which never fires onExited — see that
+    // that never started at all, which never fires onExited. See that
     // Process's own comments for why. awww itself has no argv for "these
     // N outputs, each with its own path", so restore()'s per-output loop
     // still needs the queue regardless.
@@ -292,44 +292,44 @@ Scope {
     // recordOutputState() calls queued here instead of written straight
     // through, for the window between the shell starting (Rotation.qml's
     // triggeredOnStart can fire immediately) and outputStateFile resolving
-    // its own first load attempt — see recordOutputState()'s own comment.
+    // its own first load attempt. See recordOutputState()'s own comment.
     property var pendingOutputRecords: []
 
     // True once outputStateFile's first load attempt has resolved, one
     // way or the other. A missing outputs.json (the fresh-install case)
-    // makes Quickshell emit loadFailed rather than loaded — confirmed
-    // live — so gating solely on outputStateFile.loaded would mean that
-    // first apply queues and nothing ever un-queues it: outputs.json has
-    // exactly one writer in this file, so nothing else would ever bring
-    // it into existence to make a real `loaded` happen. Both onLoaded and
-    // onLoadFailed below set this the same way.
+    // makes Quickshell emit loadFailed rather than loaded. This was
+    // confirmed live, so gating solely on outputStateFile.loaded would
+    // mean that first apply queues and nothing ever un-queues it:
+    // outputs.json has exactly one writer in this file, so nothing else
+    // would ever bring it into existence to make a real `loaded` happen.
+    // Both onLoaded and onLoadFailed below set this the same way.
     property bool outputStateKnown: false
 
     // output/mode/fillColor default to "*"/"fill"/DEFAULT_COLOR (every
-    // output, cropped to fill, the palette's own default swatch) —
-    // wallpaper-tui.nix's own defaults — so a caller that only has a path,
-    // like a grid click or Rotation's random pick, does not have to name
-    // them.
+    // output, cropped to fill, the palette's own default swatch). Those
+    // are wallpaper-tui.nix's own defaults, so a caller that only has a
+    // path, like a grid click or Rotation's random pick, does not have to
+    // name them.
     //
     // "*" never reaches awww's argv: this awww build takes "every output" by
     // the ABSENCE of --outputs, not by a wildcard, and passing the literal
-    // asterisk fails outright ("none of the requested outputs are valid") —
-    // found by actually running the built command rather than trusting
+    // asterisk fails outright ("none of the requested outputs are valid").
+    // Found by actually running the built command rather than trusting
     // awww.rs's own convention, which named "*" a level up, in random_wp.nix,
     // not in the CLI it shells out to.
     // `record` is false only for Rotation.qml's own hourly pick: outputs.json
     // is meant to answer "what did the user last deliberately choose",
     // and a random rotation stamping over that on every shell start would
     // mean `r` replays the rotation's latest guess instead of the pick it
-    // is actually supposed to restore. Every other caller — a grid click,
+    // is actually supposed to restore. Every other caller, a grid click,
     // Enter, the IPC entry point, restore() itself replaying an existing
-    // record — leaves it at the default.
+    // record, leaves it at the default.
     function apply(path, output, mode, fillColor = PickerLogic.DEFAULT_COLOR, record = true) {
         root.enqueueApply(path, output, mode, fillColor, true, record);
     }
 
     // r: every output that has ever had a wallpaper applied to it by name
-    // gets its OWN recorded path/mode/fillColor back — app.rs's own
+    // gets its OWN recorded path/mode/fillColor back. That's app.rs's own
     // restore(), now that outputRecords gives this port the state.json
     // half it was missing. `tint: i === 0` is the QML side of "tinting
     // from the first": the accent palette is global, so re-running
@@ -343,7 +343,7 @@ Scope {
     // `tint` marks the one queue entry, out of a possibly-multi-output
     // restore() batch, allowed to feed the accent extraction Canvas below.
     // `record` marks whether a successful run should be written back to
-    // outputRecords at all — see apply()'s own comment for why Rotation's
+    // outputRecords at all. See apply()'s own comment for why Rotation's
     // entries carry false.
     function enqueueApply(path, output, mode, fillColor, tint, record) {
         root.pendingQueue.push({ path, output, mode, fillColor, tint, record });
@@ -358,8 +358,8 @@ Scope {
 
         const entry = decision.entry;
 
-        // Normalized onto the entry itself, not just a local — so
-        // recordOutputState() below persists what actually got applied —
+        // Normalized onto the entry itself, not just a local, so
+        // recordOutputState() below persists what actually got applied,
         // before applyBusy flips true. An unguarded fillColor reaching
         // fillColorArg()'s .startsWith('#') would throw between that write
         // and awwwProc.running = true a few lines down, latching applyBusy
@@ -396,7 +396,7 @@ Scope {
     // Folds `entry`'s path/mode/fillColor into every output name it
     // resolved to. Rotation.qml's triggeredOnStart can fire the instant
     // the shell starts, well before outputStateFile resolves its own
-    // first load attempt — merging onto outputRecords before that
+    // first load attempt. Merging onto outputRecords before that
     // resolves would merge onto its declared property's own empty
     // default rather than what is actually on disk, and the write below
     // would silently drop every other output's real record. Queued
@@ -420,14 +420,14 @@ Scope {
     }
 
     // Marks the first load attempt resolved and writes whatever
-    // recordOutputState() queued while waiting on it — called from both
+    // recordOutputState() queued while waiting on it. Called from both
     // outputStateFile's onLoaded and onLoadFailed below, since a missing
     // outputs.json fires the latter, never the former. outputStateKnown
     // is set unconditionally before the drain, so a second call (should
     // both signals somehow fire for the same file) still gates
     // recordOutputState() correctly either way; drainPending() itself is
-    // what makes that second call a no-op rather than a double write —
-    // see its own comment in picker.js, and tst_picker.qml's tests on it,
+    // what makes that second call a no-op rather than a double write.
+    // See its own comment in picker.js, and tst_picker.qml's tests on it,
     // for why that is a tested property rather than an assumption.
     function flushPendingOutputRecords() {
         root.outputStateKnown = true;
@@ -441,12 +441,12 @@ Scope {
     }
 
     // The merge-then-write recordOutputState() (or flushPendingOutputRecords())
-    // actually wants — split out only so both have one place to call.
+    // actually wants. Split out only so both have one place to call.
     // mkdir first, same as applyAccent()'s own stateDir/stateWriter pair
     // below, since outputs.json lives in that same
     // not-yet-guaranteed-to-exist directory and is otherwise a completely
     // independent write. root.outputRecords reads {} here in the
-    // loadFailed case exactly as it would for an empty file — the merge
+    // loadFailed case exactly as it would for an empty file. The merge
     // below does not need to know which one it was.
     function writeOutputRecords(records) {
         root.pendingOutputState = PickerLogic.mergeOutputState(root.outputRecords, records);
@@ -473,20 +473,21 @@ Scope {
         onFileChanged: reload()
 
         // Both flush whatever recordOutputState() queued while this
-        // FileView's own first load attempt was still in flight — see
+        // FileView's own first load attempt was still in flight. See
         // pendingOutputRecords', recordOutputState()'s and
         // flushPendingOutputRecords()'s own comments. A file that does
-        // not exist yet — the fresh-install case, and outputs.json has no
-        // writer anywhere else — resolves through onLoadFailed, never
-        // onLoaded; confirmed live rather than assumed, the same way the
-        // adapter.root gap above was. Both fire again on every later
-        // reload too (an external edit, or watchChanges catching this
-        // file's own write); a no-op past the first flush either way.
+        // not exist yet, the fresh-install case, resolves through
+        // onLoadFailed, never onLoaded, since outputs.json has no writer
+        // anywhere else. That was confirmed live rather than assumed, the
+        // same way the adapter.root gap above was. Both fire again on
+        // every later reload too (an external edit, or watchChanges
+        // catching this file's own write); a no-op past the first flush
+        // either way.
         onLoaded: root.flushPendingOutputRecords()
         onLoadFailed: root.flushPendingOutputRecords()
 
         // A bare `JsonAdapter {}` has nothing for the parsed JSON to land
-        // on — this declared property is what actually gets populated
+        // on. This declared property is what actually gets populated
         // from the file's top-level "outputs" key; see outputRecords'
         // own comment above for why reading a `root` off the adapter
         // never worked here at all.
@@ -501,22 +502,22 @@ Scope {
 
         // Quickshell 0.3.0 does not emit exited when the binary itself
         // cannot be found (an `awww` missing from PATH logs "Process
-        // failed to start" and only ever drops `running`) — confirmed by
-        // running it. applyBusy cleared solely in onExited would then
-        // latch true forever, queuing every future apply behind a
-        // process that already failed and is never coming back.
+        // failed to start" and only ever drops `running`). This was
+        // confirmed by running it. applyBusy cleared solely in onExited
+        // would then latch true forever, queuing every future apply
+        // behind a process that already failed and is never coming back.
         //
         // This does not also call pumpApplyQueue(): onExited is still the
         // only place that does, since it alone knows whether this run
-        // actually reached the point of having an exit code to check —
-        // calling pumpApplyQueue() from here too could start the next
+        // actually reached the point of having an exit code to check.
+        // Calling pumpApplyQueue() from here too could start the next
         // queued entry (reassigning activeApply) before a still-pending
         // onExited for THIS entry has run, corrupting which entry that
         // handler ends up recording/tinting. A start-failure's own
         // queue therefore only resumes on the next independent apply
         // (a click, Enter, r, Rotation, IPC) rather than draining
-        // immediately — acceptable, since a missing binary fails every
-        // later attempt identically, and none of them stay stuck.
+        // immediately. That's acceptable, since a missing binary fails
+        // every later attempt identically, and none of them stay stuck.
         onRunningChanged: {
             if (!awwwProc.running)
                 root.applyBusy = false;
@@ -545,13 +546,13 @@ Scope {
     }
 
     // A second, permanently-visible layer-shell surface, 1x1 and background-
-    // layer so nothing about it is ever seen — Canvas.onPaint only fires for
+    // layer so nothing about it is ever seen. Canvas.onPaint only fires for
     // an item inside a window that is actually part of a live scene graph,
     // and the picker's own `window` below sits at visible: false until the
     // user opens it. Rotation.qml's hourly apply() has no reason to open
     // that window, so the extraction Canvas needs a window of its own that
     // is never toggled. Found by running apply() with the picker closed and
-    // watching onPaint simply never fire — qmllint and qmltestrunner cannot
+    // watching onPaint simply never fire. qmllint and qmltestrunner cannot
     // catch a missing scene graph, only a running compositor can.
     PanelWindow {
         id: accentSurface
@@ -607,7 +608,7 @@ Scope {
             onPaint: {
                 // The scene graph paints this on its own the moment the
                 // surface above maps, before apply() has ever run and
-                // sizer has a source — drawImage("") on that first pass
+                // sizer has a source. drawImage("") on that first pass
                 // logs a type-mismatch warning and aborts the handler,
                 // which this guard skips instead of provoking.
                 if (sizer.status !== Image.Ready)
@@ -650,14 +651,14 @@ Scope {
 
     // No adapter: this side only ever writes, and a plain string needs no
     // schema of its own to keep in sync with whatever reads current.json
-    // back — this file does not need to know what that reader does.
+    // back. This file does not need to know what that reader does.
     // (If it did use one: outputStateFile's own adapter above is this
-    // file's own idiom for reading a JsonAdapter-backed file back — a
+    // file's own idiom for reading a JsonAdapter-backed file back: a
     // property DECLARED on the adapter instance, since JsonAdapter has no
     // generic `.root` to read through; see outputRecords' own comment for
     // where that gap was confirmed.) Setting `path` loads eagerly, so the
     // very first ever pick logs one "file does not exist" warning for a
-    // file this same call is about to create — the same warning any
+    // file this same call is about to create. That's the same warning any
     // FileView pointed at a not-yet-written path logs, not a sign either
     // side is broken.
     FileView {
@@ -732,7 +733,7 @@ Scope {
             // focused TextInput consumes a letter as a character before a
             // parent's Keys.onPressed ever sees it, which
             // tests/qml/tst_focus_grammar.qml executes rather than asserts.
-            // Worth keeping the two apart — collapsing them into one
+            // Worth keeping the two apart. Collapsing them into one
             // "reasoning" is how this comment last went wrong.
             //
             // m/o/c/r cycle the ported picker state through picker.js's

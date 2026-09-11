@@ -1,6 +1,6 @@
-// The dropdown a crumb click opens: PathBar.qml's crumbs used to navigate
-// on a single click, and now open this instead, so its first row does what
-// that click used to — see crumbmenu.js's openRow() — before the rest of
+// The dropdown a crumb click opens: PathBar.qml's crumbs used to navigate on a
+// single click, and now open this instead, so its first row does what that
+// click used to. See crumbmenu.js's openRow() for that row, before the rest of
 // the crumb's directory follows beneath it, directories first.
 //
 // The popup mechanics come from PopupShell, extended here the way
@@ -134,7 +134,7 @@ PopupShell {
                         }
 
                         // "entry": modelData.index already lands on the
-                        // right element of root.entries — crumbmenu.js
+                        // right element of root.entries: crumbmenu.js
                         // slices from the front, so a shown row keeps the
                         // index it had before the cap.
                         const entry = root.entries[item.modelData.index];

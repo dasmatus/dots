@@ -13,8 +13,8 @@
 # LibreWolf keeps is the @sx alias, i.e. this instance on demand rather than
 # by default; see that file for the full reasoning.
 #
-# `dots-sandbox triage --assist`'s privacy-gated `searxng_search` tool
-# (nix/home/sandbox/triage.nix passes this same address through as
+# `dots-secreport triage --assist`'s privacy-gated `searxng_search` tool
+# (nix/home/ai/triage-assist.nix passes this same address through as
 # DOTS_TRIAGE_SEARXNG_ENDPOINT) is one more such repeating consumer, added
 # unconditionally — it needs no gating here since this service already runs
 # regardless of the triage assist flag. The systemd UNIT this module

@@ -54,7 +54,7 @@ impl Settings {
                     })?;
                     let key = key.trim().to_string();
                     // A repeated binding is invalid Nix ("attribute already
-                    // defined"), and get/set only touch the first match — so
+                    // defined"), and get/set only touch the first match, so
                     // silently keeping both would let an edit render a file
                     // that no longer evaluates. Refuse it up front instead.
                     if entries.iter().any(|(k, _)| k == &key) {
@@ -126,7 +126,7 @@ impl Settings {
         }
     }
 
-    /// Bare decimal integer value, or `None` if missing or not one — a
+    /// Bare decimal integer value, or `None` if missing or not one. A
     /// float (`"5.0"`), a suffixed literal, or trailing garbage all read
     /// back as `None` rather than being truncated or coerced. Callers that
     /// want a placeholder for the missing/invalid case (as `value_json`
@@ -171,7 +171,7 @@ impl Settings {
     /// Atomically replace `path` (write sibling tmp, then rename).
     ///
     /// # Errors
-    /// Returns an error when the temp file cannot be written or renamed —
+    /// Returns an error when the temp file cannot be written or renamed,
     /// e.g. without root for the /var/lib/dots default.
     pub fn save(&self, path: &Path) -> Result<(), Error> {
         let mut tmp = path.as_os_str().to_owned();
@@ -198,7 +198,7 @@ fn nix_escape(s: &str) -> String {
         .replace('$', "\\$")
 }
 
-/// RFC 1123 host label — mirrors rust/installer-tui/src/config.rs.
+/// RFC 1123 host label. Mirrors rust/installer-tui/src/config.rs.
 ///
 /// # Errors
 /// Returns the reason the label is invalid.
@@ -221,7 +221,7 @@ pub fn validate_hostname(s: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Git user.name sanity check — mirrors rust/installer-tui/src/config.rs.
+/// Git user.name sanity check. Mirrors rust/installer-tui/src/config.rs.
 ///
 /// # Errors
 /// Returns the reason the name is invalid.
@@ -261,7 +261,7 @@ fn validate_email(label: &str, s: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Git user.email sanity check — mirrors rust/installer-tui/src/config.rs.
+/// Git user.email sanity check. Mirrors rust/installer-tui/src/config.rs.
 ///
 /// # Errors
 /// Returns the reason the email is invalid.
@@ -278,7 +278,7 @@ pub fn validate_proton_email(s: &str) -> Result<(), String> {
     validate_email("proton email", s)
 }
 
-/// IANA time zone identifier sanity check (e.g. `Europe/Bratislava`) — the
+/// IANA time zone identifier sanity check (e.g. `Europe/Bratislava`). The
 /// nixpkgs `time.timeZone` option validates the real zone database at eval
 /// time, so this only catches an obviously wrong value before that rebuild.
 ///

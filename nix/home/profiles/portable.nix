@@ -1,18 +1,17 @@
-# Portable home-manager profile — the half of this repo's home config that
+# Portable home-manager profile: the half of this repo's home config that
 # depends on nothing but a Linux user account. It is what
 # `homeConfigurations` (flake/home.nix) installs on a non-NixOS host, and it
 # is imported unchanged by nix/home/default.nix so the NixOS build sees the
 # identical set.
 #
 # The split line is *runtime coupling*, not module cleanliness. Nothing in
-# nix/home reads `osConfig` — the whole tree already takes its inputs through
-# specialArgs (`dots`, `settings`) rather than the system config — so every
+# nix/home reads `osConfig`. The whole tree already takes its inputs through
+# specialArgs (`dots`, `settings`) rather than the system config, so every
 # module here evaluates standalone. What the session half needs and this half
 # does not is a machine built to run it: a Hyprland seat for the compositor
-# and shell, and nix/modules/system/sandbox-host.nix's microvm host for the
-# `dots-sandbox run` wrappers to launch into. Both are NixOS-only, and a
-# wrapper whose sandbox host is absent fails at app-launch time rather than at
-# eval, which is exactly the failure worth keeping off a foreign host.
+# and shell. That is NixOS-only, and a compositor module installed without
+# one is dead weight at eval time already noted at its own import site
+# (nix/home/profiles/session.nix), not a failure worth reproducing here.
 #
 # See nix/home/profiles/session.nix for that other half.
 {
@@ -40,6 +39,7 @@
     ./../ai/computer-use-linux.nix
     ./../ai/edupage-mcp.nix
     ./../ai/claude-desktop.nix
+    ./../ai/triage-assist.nix
     ./../apps/nixvim.nix
     ./../apps/brave.nix
     ./../apps/junction.nix
@@ -68,8 +68,8 @@
   # to register an MCP server into a harness, so with both dots.ai.claude and
   # dots.ai.codex off it has nothing to serve and would only install a dead
   # CLI on PATH. (The per-harness mcpServers/mcp_servers assignments inside
-  # the module are harmless when the parent harness is disabled — they're
-  # silently dropped — but there's no point enabling the server at all then.)
+  # the module are harmless when the parent harness is disabled; they're
+  # silently dropped; but there's no point enabling the server at all then.)
   programs.computer-use-linux.enable = dots.ai.claude || dots.ai.codex;
   dconf.enable = true;
   dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
@@ -77,7 +77,7 @@
     "org/gnome/desktop/interface" = {
       accent-color = "red";
     };
-    # Traffic-light order on the left — completes the GTK theme's macos
+    # Traffic-light order on the left. Completes the GTK theme's macos
     # tweak (gtk.theme below); Brave's caption buttons read this key too.
     "org/gnome/desktop/wm/preferences" = {
       button-layout = "close,minimize,maximize:appmenu";
@@ -105,11 +105,11 @@
     # own Gtk.qml (nix/home/desktop/quickshell/qml/wallpaper/Gtk.qml) needs to edit
     # gtk-icon-theme-name in place at wallpaper-pick time, and a write
     # through that symlink fails outright (EROFS) rather than reaching
-    # anything — see that file's own header for the write(2)-level reason.
+    # anything. See that file's own header for the write(2)-level reason.
     # Disabling just these two paths here does not stop home-manager from
     # computing their rendered .text/.source (the gtk3/gtk4 modules still
     # compute both regardless of `enable`; only the symlink itself is
-    # skipped) — the activation script below reuses that same source to
+    # skipped). The activation script below reuses that same source to
     # seed a real file the first time one is missing.
     "gtk-3.0/settings.ini".enable = false;
     "gtk-4.0/settings.ini".enable = false;
@@ -128,9 +128,9 @@
   # since linkGeneration is itself declared as entryAfter [ "writeBoundary" ]
   # (same file). Home-manager's dag gives siblings no guaranteed order. If
   # this seed ran first on the switch that turns management off, the old
-  # generation's symlink would still be sitting at $dst3/$dst4 — `[ -f ]`
+  # generation's symlink would still be sitting at $dst3/$dst4. `[ -f ]`
   # follows it to the still-existing store target, reads true, and skips
-  # the install — and then linkGeneration's cleanOldGen would delete that
+  # the install. Then linkGeneration's cleanOldGen would delete that
   # same symlink afterwards because the path stopped being managed,
   # leaving no settings.ini at all and GTK falling back to built-in
   # defaults. entryAfter [ "linkGeneration" ] (the same node home-manager's
@@ -145,8 +145,8 @@
   #   - A plain regular file: either an earlier seed's output, or Gtk.qml's
   #     own tint already written (Gtk.qml replaces the destination with mv,
   #     which leaves a regular file, never a symlink). -f is true, the seed
-  #     is skipped — required, see "seed-once" below, since this is the
-  #     expected steady state after the very first wallpaper pick.
+  #     is skipped. That's required, since this is the expected steady
+  #     state after the very first wallpaper pick; see "seed-once" below.
   #   - A dangling symlink unrelated to home-manager (foreign tool, manual
   #     edit, target since removed): -f is false because -f follows the
   #     link and finds nothing at the far end, so the seed runs. `install
@@ -161,7 +161,7 @@
   # declared default would erase a user's current tint every time they
   # rebuild for an unrelated reason. That is different from the dconf key
   # below (config.gtk.iconTheme's own dconf.settings write), which a switch
-  # does still reset — dconf has no "someone else owns this file" file-
+  # does still reset. dconf has no "someone else owns this file" file-
   # ownership mechanism to hand it off through, and the schema gap that
   # makes it inert on this machine is a separate, already-documented story.
   home.activation.gtkSettingsIniSeed = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
@@ -174,7 +174,7 @@
   # The Haskell toolchain (haskell-language-server, ghc, stack, cabal-install,
   # hlint, fourmolu) used to be listed right here. It is declared in
   # flake/languages.nix now and installed by nix/home/base/pkgs.nix, which
-  # this profile already imports — so the packages this profile puts in the
+  # this profile already imports. So the packages this profile puts in the
   # user's PATH are unchanged, and the editor-parity guarantee (Neovim's
   # nixvim lsp.servers.hls and Zed's `haskell` extension both finding the
   # identical binaries by bare name) holds exactly as before. It moved

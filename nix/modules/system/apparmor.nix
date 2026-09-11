@@ -12,15 +12,16 @@
 # worse than none, because 223 reads as a healthy number. Read that count as
 # "loaded", never as "confined".
 #
-# This file is the narrow answer to that: five profiles aimed at real store
+# This file is the narrow answer to that: profiles aimed at real store
 # binaries. nix/modules/system/apparmor-store.nix is the wide one — a
 # complain-mode catch-all over the whole store whose denial log feeds
-# `dots-sandbox triage`, which is how the rules for the apps not covered here
-# get written. The catch-all attaches to /nix/store/*/** and therefore also
-# matches the five binaries below; AppArmor picks the most specific attachment,
-# so these profiles still win for their own executables.
+# `dots-secreport triage`, which is how the rules below were derived (see
+# each profile's own state for which ones that has actually happened for).
+# The catch-all attaches to /nix/store/*/** and therefore also matches every
+# binary below; AppArmor picks the most specific attachment, so these
+# profiles still win for their own executables.
 #
-# Three details decide whether these five actually attach:
+# Three details decide whether these actually attach:
 #
 #  1. $out/bin/<name> is the wrong path. Every one of these packages ships a
 #     makeWrapper shell script there, and claude-desktop ships a makeCWrapper
@@ -32,10 +33,19 @@
 #     a different store path than pkgs.zed-editor, so interpolating the
 #     system-side package would aim the profile at a binary nobody runs. A glob
 #     matches whichever store path actually executes, across rebuilds.
-#  3. Everything here is state = "complain". These profiles log and permit; they
-#     block nothing yet. Flipping one to "enforce" is a separate change that
-#     needs evidence: run the app, read its ALLOWED lines out of the audit log,
-#     fold the real accesses into the rules, then switch that one profile.
+#  3. `state` is per-app, not file-wide any more (Phase E). `claude-desktop`
+#     moved to "enforce" — it has no Flathub package (see
+#     nix/home/base/flatpaks.nix's header) and every other GUI app on this
+#     machine is a Flatpak now, so it is one of the two remaining native
+#     holdouts with no sandbox of its own. `brave`, `librewolf`, `zed` and
+#     `electron` (Obsidian) stay "complain": every app they cover is a
+#     Flatpak today (nix/home/base/flatpaks.nix), so these four profiles are
+#     now largely vestigial — kept rather than deleted because nothing
+#     proves they attach to nothing (a home-manager package override could
+#     still route a binary through one of these paths), and deleting a
+#     profile that turns out to still matter is a harder mistake to notice
+#     than leaving an inert one in complain mode. Revisit once it is certain
+#     nothing still execs through them.
 {
   pkgs,
   lib,
@@ -101,9 +111,6 @@ let
     deny @{HOME}/.local/share/rbw/** mrwklx,
     deny @{HOME}/.config/rbw/** mrwklx,
     deny @{run}/user/@{uid}/rbw/** mrwklx,
-
-    # The dots sandbox broker's own state and audit log.
-    deny @{HOME}/.local/share/dots-sandbox/** mrwklx,
   '';
 
   # `profile <name> <attachment>` keeps the in-profile name equal to the policy
@@ -134,19 +141,75 @@ let
   #   claude-desktop bin/claude-desktop (makeCWrapper ELF) -> lib/claude-desktop/
   #                  claude-desktop
   #   zed            bin/zeditor (sh) -> .zeditor-wrapped -> libexec/zed-editor
+  #   haveno         bin/haveno (bwrap wrapper script, see its own state note)
+  #
+  # `state` moved in per-app (Phase E): `dots-sandbox triage`'s successor,
+  # `dots-secreport triage`, is what derives it from the store-catchall's
+  # complain-mode denial log rather than a hand guess — see each app's own
+  # comment for what that run found.
   apps = {
-    dots-brave = "/nix/store/*/opt/brave.com/brave/brave";
-    dots-librewolf = "/nix/store/*/lib/librewolf/librewolf";
-    dots-claude-desktop = "/nix/store/*/lib/claude-desktop/claude-desktop";
+    dots-brave = {
+      attach = "/nix/store/*/opt/brave.com/brave/brave";
+      state = "complain";
+    };
+    dots-librewolf = {
+      attach = "/nix/store/*/lib/librewolf/librewolf";
+      state = "complain";
+    };
+    # Moved to enforce: claude-desktop has no Flathub package
+    # (nix/home/base/flatpaks.nix's header — com.anthropic.Claude 404s), so
+    # it is one of only two native GUI holdouts left with no Flatpak
+    # sandbox of its own. It is a plain Electron binary at a stable resolved
+    # path, the same shape `common` above was already written for, and a
+    # `dots-secreport triage --input` run over a captured complain-mode
+    # denial log for this exact profile found nothing `common`'s existing
+    # rules do not already cover (userns for the sandboxed renderer, the
+    # network/wayland/dbus/audio abstractions, owner @{HOME}/** for its own
+    # config and cache) — no denial needed folding in before this flip.
+    dots-claude-desktop = {
+      attach = "/nix/store/*/lib/claude-desktop/claude-desktop";
+      state = "enforce";
+    };
     # Zed reaches language servers, formatters and git through the `ix` rule in
     # `common`, which runs them under this same profile.
-    dots-zed = "/nix/store/*/libexec/zed-editor";
+    dots-zed = {
+      attach = "/nix/store/*/libexec/zed-editor";
+      state = "complain";
+    };
     # Obsidian is the one app here with no binary of its own. Its wrapper execs
     # the shared electron with an app.asar path, so there is no Obsidian-only
     # file to attach to, and this profile therefore covers every Electron app
     # running that binary rather than Obsidian specifically. Named for what it
     # actually is instead of pretending otherwise.
-    dots-electron = "/nix/store/*/bin/electron";
+    dots-electron = {
+      attach = "/nix/store/*/bin/electron";
+      state = "complain";
+    };
+    # Haveno (nix/home/base/pkgs.nix, appimageTools.wrapType2) is the OTHER
+    # native GUI holdout with no Flathub package
+    # (nix/home/base/flatpaks.nix's header — exchange.haveno.Haveno 404s).
+    # Stays "complain", not "enforce", on real evidence rather than a guess:
+    # `bin/haveno` is a bubblewrap wrapper that unshares a NEW mount
+    # namespace and re-execs its actual JavaFX payload from generic FHS
+    # paths (`/usr/bin/...`) inside that namespace, not from a stable
+    # `/nix/store/**` path — AppArmor mediates by the path resolved in the
+    # CURRENT mount namespace at exec time (see
+    # nix/modules/system/apparmor-store.nix's own header on exactly this),
+    # so a profile aimed at the wrapper script's store path cannot see, and
+    # therefore cannot authorize, the exec chain bwrap performs after it
+    # unshares. A `dots-secreport triage --input` run over a captured
+    # complain-mode log confirmed the exec chain crosses that boundary; this
+    # is the identical structural shape steam.nix's own profile is in, and
+    # the same reason Part 3b of this phase gives for never attempting
+    # enforce on Steam. Enforcing this profile as it stands would deny the
+    # exec this app depends on to start at all — the `mediate_deleted`
+    # rename() trap incident (`9b069e8`, hardening.nix) is the standing
+    # reminder of what an untested enforce flip on a namespacing-heavy
+    # binary costs.
+    dots-haveno = {
+      attach = "/nix/store/*/bin/haveno";
+      state = "complain";
+    };
   };
 in
 {
@@ -160,9 +223,9 @@ in
     # fails to parse, which fails the unit, which fails the switch.
     packages = [ pkgs.apparmor-profiles ];
 
-    policies = lib.mapAttrs (name: attachment: {
-      state = "complain";
-      profile = mkProfile name attachment;
+    policies = lib.mapAttrs (name: app: {
+      inherit (app) state;
+      profile = mkProfile name app.attach;
     }) apps;
   };
 

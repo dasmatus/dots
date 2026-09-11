@@ -1,6 +1,6 @@
 // app.rs::Screen::Hostname. Empty input on Enter falls back to "tokyonight"
 // (app.rs's own default), then validate_hostname gates advancing. No Esc
-// handler here — app.rs has none either: Hostname is reached from both
+// handler here; app.rs has none either: Hostname is reached from both
 // Network (auto-picked disk) and DiskSelect (manual pick), so there is no
 // single screen "back" means, and the terminal build never invented one.
 pragma ComponentBehavior: Bound

@@ -1,5 +1,5 @@
 //! Tests for the scripting-facing subcommands: `write` (the pkexec-elevated
-//! half — reads the full settings.nix from stdin, refuses anything that does
+//! half, reads the full settings.nix from stdin, refuses anything that does
 //! not parse, atomically replaces the target file), `dump` (JSON array of
 //! every field) and `set` (validate-then-save one field). `serve`'s
 //! JSON-RPC conversation is covered separately in tests/serve.rs.
@@ -181,7 +181,7 @@ fn set_saves_a_valid_number_field() {
 }
 
 /// `Settings.qml`'s writer surfaces a non-zero exit as "a field was
-/// rejected" — a number field given non-numeric text must fail loudly
+/// rejected". A number field given non-numeric text must fail loudly
 /// rather than write a garbage value.
 #[test]
 fn set_rejects_non_integer_for_number_key_with_a_clear_message() {

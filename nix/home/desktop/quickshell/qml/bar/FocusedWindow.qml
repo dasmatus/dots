@@ -1,5 +1,5 @@
 // The focused window's icon and title, for this monitor only. The bar's
-// last non-capsule module, now a Pill like every other one — Workspaces,
+// last non-capsule module, now a Pill like every other one: Workspaces,
 // Network, Battery, Drives, Keymap, Clock, Tray.
 //
 // waybar did this with separate-outputs=true, meaning each output's bar showed
@@ -11,7 +11,7 @@
 // Icon and title are Pill's own direct children rather than wrapped in a
 // second RowLayout: Pill.qml's internal Row only forbids the anchors that
 // would fight its own x-positioning (left, right, horizontalCenter, fill,
-// centerIn — see Qt's own Row docs), and verticalCenter is not one of them,
+// centerIn, see Qt's own Row docs), and verticalCenter is not one of them,
 // so centring the icon and the differently-tall title against each other
 // still works with a plain anchor, the same way it needed one before this
 // module used RowLayout instead of Row for exactly that reason.
@@ -25,7 +25,7 @@
 // Elision is by width, not by waybar's max-length=60 character count. Sixty
 // characters of "IIII" and sixty of "MMMM" are not the same amount of bar, and
 // the centre module is the one that shoves the others around when it guesses
-// wrong. The width arithmetic itself lives in focusedwindow.js — see that
+// wrong. The width arithmetic itself lives in focusedwindow.js. See that
 // file's own header for why it isn't inline here.
 import QtQuick
 import Quickshell

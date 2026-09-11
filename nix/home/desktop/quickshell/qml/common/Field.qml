@@ -5,7 +5,7 @@
 // installer/.
 //
 // Backspace/typing/cursor movement are TextInput's own native keyboard
-// handling — nothing here reimplements them, which is how every screen stays
+// handling. Nothing here reimplements them, which is how every screen stays
 // reachable by keyboard alone without each one hand-rolling char-by-char
 // editing the way app.rs's `input.push(c)` / `input.pop()` had to for a raw
 // terminal.

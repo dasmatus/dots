@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ================================================================
-#  NixOS installer bootstrap — builds and runs the dots-installer
+#  NixOS installer bootstrap: builds and runs the dots-installer
 #  TUI via nix. See rust/installer-tui/ for the actual installer source
 #  (ratatui frontend driving disko + nixos-install).
 #

@@ -8,7 +8,7 @@
 // starts, then every interval after.
 //
 // Random over the same Wallpapers/ tree the picker's own grid lists, not a
-// Wallhaven fetch — the picker only knows how to apply a local file, and
+// Wallhaven fetch. The picker only knows how to apply a local file, and
 // giving Rotation its own remote source would leave two different
 // definitions of "the wallpaper set". A held reference to that Picker
 // instance drives it, not `qs ipc call`: both live in the same process, so
@@ -47,7 +47,7 @@ Scope {
                     return;
 
                 const pick = files[Math.floor(Math.random() * files.length)];
-                // record: false — a random rotation stamping over
+                // record: false. A random rotation stamping over
                 // outputs.json on every trigger would mean Picker's `r`
                 // replays the rotation's latest guess instead of the
                 // user's own last deliberate pick, which is what

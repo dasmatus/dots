@@ -1,5 +1,5 @@
-//! Wizard state machine. `handle_key` is a pure transition function over App —
-//! all screen flow logic lives here so it is unit-testable without a terminal.
+//! Wizard state machine. `handle_key` is a pure transition function over App.
+//! All screen flow logic lives here so it is unit-testable without a terminal.
 
 use crate::input::{KeyCode, KeyEvent};
 
@@ -20,7 +20,7 @@ pub enum Screen {
     Network,
     WifiPassword,
     WifiConnecting,
-    /// Manual target-disk picker — shown only when `autodetect_disk` couldn't
+    /// Manual target-disk picker, shown only when `autodetect_disk` couldn't
     /// pick a single disk unambiguously (multiple fixed disks, or none large
     /// enough). When autodetection succeeded this screen is skipped.
     DiskSelect,
@@ -80,7 +80,7 @@ pub struct App {
 
 impl App {
     /// Build the wizard. `auto` is the path `autodetect_disk` picked, when it
-    /// could pick one unambiguously — in that case `DiskSelect` is skipped.
+    /// could pick one unambiguously. In that case `DiskSelect` is skipped.
     /// When `auto` is `None`, `disks` is offered via the multi-select picker.
     #[must_use]
     pub fn new(disks: Vec<Disk>, auto: Option<String>) -> Self {

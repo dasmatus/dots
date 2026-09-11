@@ -1,10 +1,10 @@
-# Header Buttons Left + Brave GTK-Follow Implementation Plan
+# Header buttons left + Brave GTK-follow implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move window header buttons to the left edge and make Brave's chrome follow the Tokyonight-Dark GTK theme (the palette Alacritty already uses).
 
-**Architecture:** Two independent Home Manager edits in the existing NixOS+HM flake: one dconf key in `nix/home/default.nix`, and one idempotent `home.activation` entry in `nix/home/apps/brave.nix` that patches Brave's per-profile `Preferences` JSON (`extensions.theme.system_theme = 1`, `ui::SystemTheme::kGtk`) — no policy or HM option exists for this pref.
+**Architecture:** Two independent Home Manager edits in the existing NixOS+HM flake: one dconf key in `nix/home/default.nix`, and one idempotent `home.activation` entry in `nix/home/apps/brave.nix` that patches Brave's per-profile `Preferences` JSON (`extensions.theme.system_theme = 1`, `ui::SystemTheme::kGtk`). No policy or HM option exists for this pref.
 
 **Tech Stack:** Nix flakes, Home Manager (`dconf.settings`, `home.activation`, `lib.hm.dag`), jq.
 
@@ -14,7 +14,7 @@
 - **Do NOT `git commit` the nix files.** The index carries the user's unrelated in-flight changeset (`flake.nix`, `flake.lock`, `nix/home/*`, staged `core.*` dumps); committing these paths would sweep their working-tree state in. Leave committing to the user.
 - Do NOT touch `nix/data/facter.json` / `nix/data/settings.nix` except via the Task 3 stub dance (they're `skip-worktree`-parked machine answers; see memory `machine-answers-skip-worktree`).
 - Comments in this repo: `#` prose explaining the *why*, in the style of the surrounding files.
-- Nix-only change: the cargo half of `just nix-lint` is out of scope (Rust untouched; `just`/`cargo` not on PATH here — invoke `nix flake check --no-build` directly).
+- Nix-only change: the cargo half of `just nix-lint` is out of scope (Rust untouched; `just`/`cargo` not on PATH here, so invoke `nix flake check --no-build` directly).
 
 ---
 
@@ -33,7 +33,7 @@
     "org/gnome/desktop/interface" = {
       accent-color = "red";
     };
-    # Traffic-light order on the left — completes the GTK theme's macos
+    # Traffic-light order on the left completes the GTK theme's macos
     # tweak (gtk.theme below); Brave's caption buttons read this key too.
     "org/gnome/desktop/wm/preferences" = {
       button-layout = "close,minimize,maximize:appmenu";
@@ -72,7 +72,7 @@ After the `programs.brave` attrset, add:
   # Appearance "GTK" mode has no browser policy and no HM option: the choice
   # lives per-profile in Preferences → extensions.theme.system_theme
   # (ui::SystemTheme::kGtk = 1). Assert it on activation so Brave's chrome
-  # follows Tokyonight-Dark GTK3 — the same palette alacritty.nix hardcodes.
+  # follows Tokyonight-Dark GTK3, the same palette alacritty.nix hardcodes.
   # No-op before Brave's first launch; a Brave exit during a switch may
   # rewrite the file, so the next switch re-asserts it. Default profile only.
   home.activation.braveGtkTheme = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
@@ -84,9 +84,9 @@ After the `programs.brave` attrset, add:
 ```
 
 Notes for the implementer:
-- The probe (`jq -e … == 1`) runs outside HM's `run` wrapper on purpose — it is read-only; the mutation goes through `run` so `--dry-run` only echoes.
+- The probe (`jq -e … == 1`) runs outside HM's `run` wrapper on purpose. It is read-only; the mutation goes through `run` so `--dry-run` only echoes.
 - `sh -c '… "$1" …' sh "$prefs"` passes the path as a positional arg so no extra shell-quoting layer is needed inside the Nix string.
-- If jq ever fails to parse the file, `&&` skips the `mv` (a stray empty `.tmp` may remain — accepted).
+- If jq ever fails to parse the file, `&&` skips the `mv` (a stray empty `.tmp` may remain, which is accepted).
 
 - [ ] **Step 2: Verify by eval**
 
@@ -120,7 +120,7 @@ Expected: check passes; afterwards `git status --short` shows neither
 `nix/data/facter.json` nor `nix/data/settings.nix`. (`ls /var/lib/dots/` first to
 confirm the pristine copy filenames.)
 
-- [ ] **Step 3: No commit** — report the diff to the user instead (see Global Constraints).
+- [ ] **Step 3: No commit.** Report the diff to the user instead (see Global Constraints).
 
 ## Self-review
 

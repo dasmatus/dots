@@ -60,7 +60,7 @@ fn request_full_redraw_re_emits_an_unchanged_frame() {
         "idle unchanged frame emits zero bytes: {idle:?}"
     );
 
-    // Same unchanged state, but `request_full_redraw()` is set first — exactly
+    // Same unchanged state, but `request_full_redraw()` is set first, exactly
     // what `main.rs` does every draw. The presenter re-anchors and the diff
     // re-emits every cell this frame.
     app::request_full_redraw();
@@ -82,8 +82,8 @@ fn request_full_redraw_re_emits_an_unchanged_frame() {
     let _ = (frame1, frame3);
 }
 
-/// Concatenate the modeled screen's cell text, one row per line — the same
-/// projection `tests/view.rs` uses to assert rendered content.
+/// Concatenate the modeled screen's cell text, one row per line. It's the
+/// same projection `tests/view.rs` uses to assert rendered content.
 fn screen_text(term: &CaptureTerm, size: Size) -> String {
     let mut out = String::new();
     for y in 0..size.h {

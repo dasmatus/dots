@@ -1,6 +1,6 @@
 // The settings panel, reached with SUPER+comma.
 //
-// Rebuilt on an imported "ChromeOS Settings" layout for its STRUCTURE only —
+// Rebuilt on an imported "ChromeOS Settings" layout for its STRUCTURE only:
 // a 260px sidebar of nav entries, a header with the panel title over the
 // sidebar column and a live search field over the content column, a content
 // column of pages (each a title, a description, then groups of rows), and a
@@ -15,10 +15,10 @@
 // header is two columns of DIFFERENT widths carrying DIFFERENT content
 // (a title over the sidebar's own width, a search field over the content
 // column's), and its footer carries hints AND a Save button AND a transient
-// acknowledgement — composing all of that as optional Chrome modes would
+// acknowledgement. Composing all of that as optional Chrome modes would
 // either grow Chrome a settings-shaped special case or fork it under a new
-// name, which is exactly what reuse is supposed to avoid. common/Panel.qml —
-// the translucent rounded surface Chrome itself wraps — is what this shell
+// name, which is exactly what reuse is supposed to avoid. common/Panel.qml,
+// the translucent rounded surface Chrome itself wraps, is what this shell
 // builds directly on instead, the same way launcher/Launcher.qml already
 // does for a shape of its own.
 //
@@ -35,7 +35,7 @@
 // is this shell's presentation choice, not something dump's array can be
 // trusted to match). Security is a sixth, different shape of page: it owns
 // no dumped field at all, so it is a Loader onto pages/security.qml instead
-// of more rows — see showingSecurityPage below — and the sidebar itself is
+// of more rows, see showingSecurityPage below, and the sidebar itself is
 // unchanged: it was already data-driven off navPages before any of this
 // landed, precisely so that a later page only ever adds one nav entry
 // instead of restructuring this file.
@@ -68,7 +68,7 @@ Scope {
     property string status: ""
 
     // Which row Up/Down highlights, among whatever `visibleRows` currently
-    // is — the active page's own rows normally, or the search matches while
+    // is: the active page's own rows normally, or the search matches while
     // a query is active. A cursor only, same as before: editing still needs
     // a click, so arrowing past a field never steals focus out from under
     // whatever the mouse last put it on.
@@ -80,16 +80,19 @@ Scope {
     // would make Enter mean "save" on most rows and "log in" on one.
     property string page: "form"
 
-    // The sidebar's own selection — independent of `page`, which is form
+    // The sidebar's own selection, independent of `page`, which is form
     // vs. Proton, a distinction the old flat form never had to draw at all.
     property string activePage: "identity"
 
     property string query: ""
     readonly property bool searching: root.query.trim() !== ""
 
-    // The 260px sidebar's own model. Six entries because that is the whole
-    // information architecture the source design was imported for. Every
-    // one of the six now has a real page behind it.
+    // The 260px sidebar's own model, one entry per real page. It started as
+    // the six the source design was imported for; Session is the newest, and
+    // exists because the idle thresholds qml/idle/ reads had nowhere to go —
+    // they are not window-manager behaviour, and Security below renders its
+    // own dashboard through a Loader rather than the rows grammar these two
+    // need.
     readonly property var navPages: [
         {
             id: "identity",
@@ -134,6 +137,12 @@ Scope {
             description: "Every SUPER shortcut this session recognises."
         },
         {
+            id: "session",
+            label: "Session",
+            glyph: "\u{F0150}",
+            description: "When this machine blanks the screen and locks itself."
+        },
+        {
             id: "security",
             label: "Security",
             glyph: "\u{F099D}",
@@ -143,7 +152,7 @@ Scope {
 
     readonly property var activeNavEntry: root.navPages.find(p => p.id === root.activePage) ?? root.navPages[0]
 
-    // ~/.claude/settings.json is a different store than settings.nix — a
+    // ~/.claude/settings.json is a different store than settings.nix, a
     // store symlink into the Nix store that `home-manager switch` rewrites
     // wholesale (nix/home/ai/claude.nix's own comment on its `model` key says
     // so), so there is nothing here for edit()/save() to write back to.
@@ -184,7 +193,7 @@ Scope {
     // Whether the content column is showing the Security page's own
     // Loader-built dashboard/permissions surface instead of the rows
     // grammar. Same shape as showingKeyboardPage, and for the same reason:
-    // Security owns no dumped field either (see pages.js's PAGE_FIELDS —
+    // Security owns no dumped field either (see pages.js's PAGE_FIELDS,
     // "security" has no entry, so rowsForPage("security") always answers
     // []), so there is nothing here for visibleRows, the empty state or the
     // keyboard cursor to walk while it is up.
@@ -201,7 +210,7 @@ Scope {
     // these pages instead (see the `openAt` IPC below), so there is one
     // place each lives rather than two that drift apart.
     // The shell's one wallpaper/Picker.qml, handed in by shell.qml. Held here
-    // only to pass on to pages/wallpaper.qml's Loader — Settings itself never
+    // only to pass on to pages/wallpaper.qml's Loader. Settings itself never
     // touches it. Typed `var` rather than `Picker` so this file needs no
     // import of the wallpaper module for a reference it only forwards.
     property var wallpaperPicker: null
@@ -210,7 +219,7 @@ Scope {
     readonly property bool showingDisplaysPage: root.activePage === "displays" && !root.searching
 
     // Synthetic rows for the three Claude Code fields that live in
-    // ~/.claude/settings.json rather than settings.nix — see
+    // ~/.claude/settings.json rather than settings.nix. See
     // fieldDescriptions' entries for these keys for why they render
     // read-only instead of through edit()/save() like every dumped field.
     readonly property var claudeReadonlyRows: [
@@ -248,7 +257,7 @@ Scope {
     ]);
 
     // One page's own rows, in pages.js's order, plus whatever synthetic rows
-    // that page owns — Accounts' drill-in to Proton, AI's three read-only
+    // that page owns: Accounts' drill-in to Proton, AI's three read-only
     // Claude rows. "keyboard" and "security" fall through to
     // Pages.fieldsForPage's empty answer: Keyboard renders keybindsFile
     // directly instead (see showingKeyboardPage above), and Security
@@ -262,7 +271,7 @@ Scope {
     }
 
     // A one-line description per row, since global-settings only dumps a
-    // key/label/type/value — the "one-line description" the row grammar
+    // key/label/type/value. The "one-line description" the row grammar
     // wants is this shell's own copy, not Rust's. The three claude* entries
     // double as the "labelled" requirement the task brief asks for on rows
     // that write nowhere this Save button reaches: read-only here, and said
@@ -281,6 +290,8 @@ Scope {
             wmFollowMouse: "Moving the pointer over a window focuses it.",
             wmAnimations: "Window open, close and move animations.",
             wmLayout: "The tiling algorithm new windows join.",
+            idleBlankTimeout: "Seconds of inactivity before the screen turns off. Applied on the next rebuild.",
+            idleLockTimeout: "Seconds of inactivity before the session locks itself. Applied on the next rebuild.",
             aiOllama: "Runs models on this machine, no cloud involved.",
             aiClaude: "Enables the Claude Code CLI.",
             aiCodex: "Enables the Codex CLI.",
@@ -297,7 +308,7 @@ Scope {
         return root.fieldDescriptions[row.key] ?? "";
     }
 
-    // The parent value a dependent row's `dependsOn` reads — null for a key
+    // The parent value a dependent row's `dependsOn` reads, null for a key
     // pages.js's DEPENDS_ON does not name, which the row-building delegate
     // below treats as "not dependent at all" rather than looking a key up
     // that has no parent to find.
@@ -309,7 +320,7 @@ Scope {
     // Which real pages search.js's search() reaches across. Keyboard is not
     // one of them: its rows are keybinds.json entries, not settings.nix
     // fields, so there is nothing here yet for a query to match against.
-    readonly property var searchablePages: ["identity", "wm", "ai", "accounts"]
+    readonly property var searchablePages: ["identity", "wm", "session", "ai", "accounts"]
 
     // The flat search index: one descriptor per row any real page can show
     // today. search.js never sees a live SettingsRow, only this.
@@ -336,7 +347,7 @@ Scope {
     // actually walks: the active page's own rows while browsing (empty for
     // the Security stub, and for Keyboard, which renders keybindsFile
     // instead), or every row search.js matched while a query is active,
-    // regardless of which nav entry is selected — a real ChromeOS-style
+    // regardless of which nav entry is selected. A real ChromeOS-style
     // search reaches across pages, not just the one on screen.
     readonly property var visibleRows: {
         if (!root.searching)
@@ -446,7 +457,7 @@ Scope {
         root.save();
     }
 
-    // Runs the hyprctl side of a window-manager row's change — and only
+    // Runs the hyprctl side of a window-manager row's change, and only
     // ever after writer.onExited below has confirmed that same row's
     // persist to settings.nix actually landed. A key wm.js does not map
     // (every non-WM field) is a no-op: hyprctlArgs returns null and there is
@@ -463,8 +474,8 @@ Scope {
         applier.running = true;
     }
 
-    // A "Saved" acknowledgement is meant to be noticed, not lived with —
-    // this is what makes it transient. Cleared on anything else so a
+    // A "Saved" acknowledgement is meant to be noticed, not lived with.
+    // This is what makes it transient. Cleared on anything else so a
     // failure message or a fresh "Writing N fields…" is never raced away by
     // a timer left over from the save before it.
     Timer {
@@ -508,8 +519,8 @@ Scope {
         // cost the user an extra navigation every time, which is a
         // regression wearing consolidation's clothes.
         //
-        // An unknown page id is ignored rather than treated as an error —
-        // the panel still opens, on whatever page load() settled on. A typo
+        // An unknown page id is ignored rather than treated as an error.
+        // The panel still opens, on whatever page load() settled on. A typo
         // in a keybind should not make Settings unopenable.
         function openAt(page: string): void {
             root.load();
@@ -542,7 +553,7 @@ Scope {
 
         property var pending: []
 
-        // What next() just tried to persist — read back in onExited below
+        // What next() just tried to persist, read back in onExited below
         // so the live-apply path acts on the SAME key/value the just-exited
         // `global-settings set` call carried, not whatever root.edits
         // happens to hold by the time the process reports back.
@@ -646,8 +657,8 @@ Scope {
             // row moves focus there, and a focused TextInput keeps j and k as
             // typed characters (tests/qml/tst_focus_grammar.qml), while the
             // arrows still bubble up to the handlers below. Nothing hands
-            // focus back afterwards — panel.forceActiveFocus() runs on
-            // onVisibleChanged and nowhere else — so from that point on the
+            // focus back afterwards. panel.forceActiveFocus() runs on
+            // onVisibleChanged and nowhere else, so from that point on the
             // arrows are the only way to move until the window is reopened.
             // Arrange's footer makes the same promise on the same terms.
             Keys.onEscapePressed: {
@@ -663,8 +674,8 @@ Scope {
             Keys.onDownPressed: root.moveSelection(1)
 
             // A focused text row consumes j/k as literal characters before
-            // this ever sees them — TextInput's own native handling, driven
-            // with real key events in tests/qml/tst_focus_grammar.qml — so
+            // this ever sees them. TextInput's own native handling, driven
+            // with real key events in tests/qml/tst_focus_grammar.qml, is why
             // the alias only fires when the panel itself holds focus, the
             // same Vim-style aliasing Arrange's own grammar uses elsewhere.
             Keys.onPressed: event => {
@@ -705,7 +716,7 @@ Scope {
                     // sibling claiming the slack, a ColumnLayout will happily
                     // stretch this row to fill the panel. Both children below
                     // anchor their content to verticalCenter, so a stretched
-                    // header does not look tall — it looks like the title and
+                    // header does not look tall. It looks like the title and
                     // the search field have slid to the middle of the panel,
                     // which is exactly the symptom this pins.
                     Layout.preferredHeight: Theme.settingsHeaderHeight
@@ -751,7 +762,7 @@ Scope {
 
                             implicitHeight: Theme.settingsSearchHeight
 
-                            // No `text: root.query` binding here — a live
+                            // No `text: root.query` binding here. A live
                             // binding on a TextInput's own text property does
                             // not survive the user's first keystroke (Qt
                             // Quick treats a keystroke's own edit as an
@@ -887,7 +898,7 @@ Scope {
 
                         // QML layouts do not clip. When a page's content is
                         // taller than the space it was given, the children
-                        // simply overflow — and because this Item sits inside
+                        // simply overflow, and because this Item sits inside
                         // a Panel that draws no boundary of its own, that
                         // overflow renders *outside the panel*, over the
                         // desktop. Observed exactly that: the Wallpaper page's
@@ -898,7 +909,7 @@ Scope {
 
                         // Scrollable, because clipping alone turns "content
                         // spills onto the desktop" into "content is
-                        // unreachable" — the Keyboard page lists every SUPER
+                        // unreachable". The Keyboard page lists every SUPER
                         // bind and runs well past the panel's height. The
                         // Flickable owns the scrolling; the ColumnLayout
                         // inside keeps doing the layout, sized to the
@@ -990,7 +1001,7 @@ Scope {
                                             // endpoint/default-model rows only
                                             // mean something while aiOllama
                                             // itself is on (pages.js's
-                                            // DEPENDS_ON) — every other row
+                                            // DEPENDS_ON). Every other row
                                             // has no parent, and dependsOn
                                             // defaults to enabled for exactly
                                             // that case.
@@ -1040,7 +1051,7 @@ Scope {
 
                                             // Bounds come straight from the
                                             // dump payload's min/max/step,
-                                            // never a constant here — see
+                                            // never a constant here. See
                                             // rust/settings-global/src/menu.rs's
                                             // own comment on why those fields
                                             // reach the payload at all.
@@ -1078,7 +1089,7 @@ Scope {
                                             }
 
                                             // A value from a different store
-                                            // entirely (~/.claude/settings.json —
+                                            // entirely (~/.claude/settings.json,
                                             // see fieldDescriptions'
                                             // claudeModel entry). There is
                                             // nothing here for edit()/save()
@@ -1098,7 +1109,7 @@ Scope {
                                             // bare chevron rather than a
                                             // field, since Enter/click on
                                             // this row opens a page instead
-                                            // of editing a value —
+                                            // of editing a value.
                                             // `clickable: true` above is what
                                             // makes the WHOLE row (not just
                                             // this glyph) answer the click.
@@ -1118,7 +1129,7 @@ Scope {
 
                             // Keyboard page: keybinds.json rendered directly,
                             // the same read-only grouped list Cheatsheet.qml
-                            // already shows for SUPER+/ — reused rather than
+                            // already shows for SUPER+/, reused rather than
                             // parsed a second way, per the task brief. No row
                             // here reaches edit()/save(): the page carries no
                             // state of its own at all.
@@ -1179,7 +1190,7 @@ Scope {
                                 }
                             }
 
-                            // Security page: a Loader, not an inline tag —
+                            // Security page: a Loader, not an inline tag.
                             // settings/pages/security.qml's filename starts
                             // lowercase on purpose (matching the task
                             // brief's own path), and a lowercase filename
@@ -1191,7 +1202,7 @@ Scope {
                             // and `policy dump` fresh rather than showing
                             // whatever this Settings session first read,
                             // which matters more here than it does for any
-                            // other page — a security dashboard that goes
+                            // other page. A security dashboard that goes
                             // stale while the panel sits open is worse than
                             // one that costs a re-read on every visit.
                             Loader {
@@ -1211,7 +1222,7 @@ Scope {
 
                             // Wallpaper: same Loader-by-URL shape as Security
                             // above. `item.picker` is assigned rather than the
-                            // page building its own — wallpaper/Picker.qml is
+                            // page building its own. wallpaper/Picker.qml is
                             // the single instance shell.qml keeps alive,
                             // because Rotation.qml's hourly pick and
                             // `qs ipc call wallpaper apply` drive it whether
@@ -1257,8 +1268,8 @@ Scope {
 
                             // A trailing spacer that used to absorb the
                             // column's slack. Inside a Flickable there is no
-                            // slack to absorb — the column is exactly as tall
-                            // as its content — so it keeps only its old job of
+                            // slack to absorb, the column is exactly as tall
+                            // as its content, so it keeps only its old job of
                             // marking the end of the rows.
                             Item {
                                 Layout.fillWidth: true
@@ -1272,7 +1283,7 @@ Scope {
                         // The second surface. Built once and hidden rather
                         // than created per visit, which is why leaveProton()
                         // clears its fields by hand. Occupies the same
-                        // content column the form uses — the sidebar band
+                        // content column the form uses. The sidebar band
                         // above stays hidden while this is up, but its
                         // reserved width is not reclaimed, so Proton keeps
                         // the same left margin the form's own content does.

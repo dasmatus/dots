@@ -46,38 +46,6 @@ self: {
     # binary spelled out.
     meta.mainProgram = "global-settings";
   };
-  # dots-sandbox — the per-app sandbox's policy model and pure
-  # systemd-nspawn/-vmspawn argv translation (rust/dots-sandbox, a parallel
-  # agent's work this task only wires into the flake: no app is wrapped by
-  # it yet). `nix build .#dots-sandbox` is what the sandbox-policy-eval
-  # check below shells out to for `policy validate`, and it is also the
-  # binary the QML Settings page will eventually call `policy dump`
-  # through.
-  #
-  # doCheck stays false. `src` here is only rust/dots-sandbox, so
-  # tests/defaults_roundtrip.rs's read of
-  # `../../nix/data/sandbox-policy.json` never finds the real file inside
-  # the build sandbox and only ever exercises its own "skip cleanly"
-  # branch — a green tick that never actually parsed the checked-in policy.
-  # That alone would be a reason to distrust `doCheck = true` here even
-  # though it would not fail outright. The harder, permanent reason is
-  # forward-looking: this crate's own lib.rs doc comment is explicit that
-  # spawning a real `systemd-nspawn`/`systemd-vmspawn` process is
-  # deliberately left to a later task, and the tests that will matter once
-  # that lands exercise real Linux namespaces, which the Nix build sandbox
-  # refuses outright — so, same as every other crate whose real test run
-  # cannot happen inside the build sandbox, that run moves out of the
-  # package build and into `nix run .#nix-lint`, which is where this
-  # crate's `cargo fmt --check && cargo clippy --all-targets -- -D
-  # warnings && cargo test` line now runs too.
-  dots-sandbox = pkgs.rustPlatform.buildRustPackage {
-    pname = "dots-sandbox";
-    version = "0.1.0";
-    src = ../rust/dots-sandbox;
-    cargoLock.lockFile = ../rust/dots-sandbox/Cargo.lock;
-    doCheck = false;
-    meta.mainProgram = "dots-sandbox";
-  };
   # quickshell-config — the shell's QML tree with Palette.qml generated from
   # nix/data/palette.json. nix/home/desktop/quickshell/default.nix builds the same thing
   # with the real state directory; this one exists so `nix run .#nix-lint` has
@@ -107,4 +75,28 @@ self: {
   # trip its build-time asserts, not because anyone installs this directly.
   # See nix/packages/dots-skills.nix.
   dots-skills-primer = (pkgs.callPackage ../nix/packages/dots-skills.nix { }).primer;
+
+  # dots-secreport — salvaged out of dots-sandbox (see git history) when
+  # the bespoke per-app sandbox was retired for Flatpak + AppArmor:
+  # report.rs (the privacy/hardware-security dashboard collector behind
+  # qml/settings/pages/security.qml) and triage.rs (the AppArmor denial
+  # classifier, given the CLI subcommand it never had) had nothing to do
+  # with launching apps and outlived the crate they were born in.
+  #
+  # doCheck stays false, matching every other in-tree crate here
+  # (installer-tui, settings-global): the real `cargo test` run lives in
+  # `nix run .#nix-lint`, which is where its fmt/clippy/test line now runs
+  # too. Unlike the old dots-sandbox crate's own doCheck note (see git
+  # history), this crate has no forward-looking reason to stay that way (no
+  # real namespace/process spawn the Nix build sandbox would refuse) — it is
+  # simply consistency with the rest of the file rather than a real
+  # restriction.
+  dots-secreport = pkgs.rustPlatform.buildRustPackage {
+    pname = "dots-secreport";
+    version = "0.1.0";
+    src = ../rust/dots-secreport;
+    cargoLock.lockFile = ../rust/dots-secreport/Cargo.lock;
+    doCheck = false;
+    meta.mainProgram = "dots-secreport";
+  };
 }

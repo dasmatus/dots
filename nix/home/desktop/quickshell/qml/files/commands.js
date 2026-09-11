@@ -58,11 +58,11 @@ function actionRows(selection, clipboard, showHidden) {
     return rows;
 }
 
-// `where` is the directory index.js attached to a located hit. Without it
-// a search that answers from all of $HOME shows five rows called main.rs
-// and no way to tell them apart. The pane's own listing has no `where` —
-// every row of it is in the directory already on screen — and there the
-// kind of thing it is remains the only useful thing left to say.
+// `where` is the directory index.js attached to a located hit. Without it a
+// search that answers from all of $HOME shows five rows called main.rs and no
+// way to tell them apart. The pane's own listing has no `where`. Every row of
+// it is in the directory already on screen, so there the kind of thing it is
+// remains the only useful thing left to say.
 function entryRows(entries) {
     return entries.map((entry, index) => ({
         kind: "entry",
@@ -109,7 +109,7 @@ function actionsFor(query, selection, clipboard, showHidden) {
 
 // Not `filtered`, for two separate reasons.
 //
-// It sorted, and these rows arrive already ranked by index.js — exact name
+// It sorted, and these rows arrive already ranked by index.js: exact name
 // first, then the current directory, then a prefix. Re-sorting on the
 // title alone would undo the current-directory tier, which is the only
 // thing that makes a search across all of $HOME usable from inside a

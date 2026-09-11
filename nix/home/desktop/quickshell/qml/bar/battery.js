@@ -6,12 +6,12 @@
 // the test needs no D-Bus, no compositor and no palette.
 //
 // Colours come back as Theme property names rather than colours, for the same
-// reason — a `.pragma library` has no import of its own to reach Theme with.
+// reason. A `.pragma library` has no import of its own to reach Theme with.
 .pragma library
 
 // Quickshell normalises UPower's `Percentage` onto 0-1. waybar's {capacity}
 // interpolated the raw 0-100 D-Bus property instead, so the scale back to
-// whole percent happens here — without it every reading under 50% rounds to 0
+// whole percent happens here. Without it every reading under 50% rounds to 0
 // and the pill claims an empty battery.
 function percent(fraction) {
     return Math.round((fraction === undefined || fraction === null ? 0 : fraction) * 100);

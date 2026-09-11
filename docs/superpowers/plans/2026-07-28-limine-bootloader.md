@@ -4,7 +4,7 @@
 
 **Goal:** Replace `boot.loader.systemd-boot` with `boot.loader.limine` on the installed `tokyonight` system so `nixos-install` stops aborting on `/etc/machine-id` under impermanence, and prove the full Limine + TPM2 PCR-7 unlock chain end-to-end in a VM test.
 
-**Architecture:** Declarative switch in `nix/modules/system/boot.nix` only (the installer Rust code is unchanged — `nixos-install` invokes the Limine `installBootLoader` hook automatically, and `systemd-cryptenroll` is bootloader-independent). Limine installs to the firmware's removable `\EFI\BOOT\BOOTX64.EFI` path (`canTouchEfiVariables = false`) so it never runs `efibootmgr` (immune to nixpkgs #493017). A new two-node NixOS test (`limine-install-boot`) runs the installer's `plan()` in a VM and boots the installed disk via Limine, asserting the TPM2-unlocked LUKS root comes up.
+**Architecture:** Declarative switch in `nix/modules/system/boot.nix` only (the installer Rust code is unchanged, `nixos-install` invokes the Limine `installBootLoader` hook automatically, and `systemd-cryptenroll` is bootloader-independent). Limine installs to the firmware's removable `\EFI\BOOT\BOOTX64.EFI` path (`canTouchEfiVariables = false`) so it never runs `efibootmgr` (immune to nixpkgs #493017). A new two-node NixOS test (`limine-install-boot`) runs the installer's `plan()` in a VM and boots the installed disk via Limine, asserting the TPM2-unlocked LUKS root comes up.
 
 **Tech Stack:** NixOS flakes, `boot.loader.limine` (pinned nixos-unstable), `pkgs.testers.runNixOSTest`, OVMFFull + swtpm, disko LVM-on-LUKS, systemd initrd.
 

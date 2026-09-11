@@ -161,11 +161,11 @@ fn proton_email_round_trips_through_apply_values() {
 /// before this feature), so their rows must still dump: `number` for the
 /// int rows, `select` for the layout row, with `min`/`max`/`step`/`options`
 /// reaching the payload regardless of whether the key exists. The current
-/// *value*, though, must be the row's real schema default (`5`, `"dwindle"`)
-/// — not `0`/`""` — because a missing key is not the same as an unset one:
-/// it means the value defaults.nix already supplies, and reporting the
-/// wrong number here is how a Settings-panel Save would flatten a user's
-/// gaps to zero on the first edit of an unrelated field.
+/// *value*, though, must be the row's real schema default (`5`, `"dwindle"`),
+/// not `0`/`""`, because a missing key is not the same as an unset one: it
+/// means the value defaults.nix already supplies, and reporting the wrong
+/// number here is how a Settings-panel Save would flatten a user's gaps to
+/// zero on the first edit of an unrelated field.
 #[test]
 fn wm_int_and_select_rows_dump_their_schema_even_when_absent() {
     let s = Settings::parse(SRC).unwrap();
@@ -192,7 +192,7 @@ fn wm_int_and_select_rows_dump_their_schema_even_when_absent() {
 /// The regression this whole fix exists for: every key this task added must
 /// dump its `nix/system/defaults.nix` value when the store has never heard of
 /// it, not the type's zero value. Values here were independently confirmed
-/// against defaults.nix via `nix-instantiate --eval --strict --json` — if
+/// against defaults.nix via `nix-instantiate --eval --strict --json`. If
 /// either file changes without the other, this is the test that catches it.
 #[test]
 fn every_new_key_dumps_its_real_default_when_absent_from_the_store() {

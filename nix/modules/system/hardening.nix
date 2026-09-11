@@ -5,9 +5,18 @@
 # tmpfs /tmp.
 #
 # AppArmor ends up split three ways, so read all three before changing one.
-# The stock-profile load stays here because it is a single blunt switch
-# rather than a catalog worth its own file. The profiles that actually
-# attach on NixOS are written against store paths and outgrew this module:
+# This module used to also load ~223 stock profiles from pkgs.apparmor-profiles
+# in complain mode; that block is gone (Phase C of the hardening project —
+# see docs/superpowers/specs/2026-09-08-hardening-design.md — found they were
+# FHS-path profiles matching no Nix store target, AND that they were why
+# apparmor.service failed on every boot: apparmor_parser loads profiles
+# alphabetically, and the moment store-catchall installed the catch-all,
+# the parser's own next exec attached to it and hit `deny capability
+# mac_admin`, aborting the load partway through). `packages` stays: it is,
+# in nixpkgs' own words, AppArmor's *include path*, and every hand-written
+# profile in apparmor.nix and apparmor-store.nix leans on `include
+# <abstractions/base>`/`include <tunables/global>` resolving through it.
+# The profiles that actually attach on NixOS are written against store paths:
 # nix/modules/system/apparmor.nix holds the per-app profiles aimed at each
 # browser's and editor's resolved ELF, and nix/modules/system/apparmor-store.nix
 # holds the `mkStoreProfile` generator plus the store-wide complain-mode
@@ -24,8 +33,120 @@
   pkgs,
   ...
 }:
+let
+  # Ported from secureblue (Phase C); see each data file's own header for
+  # provenance and the REUSE.toml overrides that license them separately
+  # from this repo's default.
+  #
+  # The 9p family (9p, 9pnet, 9pnet_fd, 9pnet_rdma, 9pnet_usbg,
+  # 9pnet_virtio, 9pnet_xen) is filtered back out here, NOT in the ported
+  # data file, because this is a divergence from secureblue worth stating
+  # plainly rather than silently baking into the "faithful copy" data.
+  # secureblue is bare-metal-only and never has to reckon with this:
+  # `pkgs.testers.runNixOSTest` (which `tests/session-boot.nix`,
+  # `tests/sandbox.nix` and `nix run .#nix-smoke` all build on) shares the
+  # host's /nix/store into the test VM over virtio-9p, and `install 9pnet
+  # /bin/false` breaks that transport unconditionally — confirmed the hard
+  # way: it took `sysroot-nix-store.mount` down, which cascaded into
+  # Initrd File Systems failing, emergency mode, and this repo's own
+  # `panic-on-fail.service` turning that into a kernel panic before the
+  # test driver's shell ever came up. Excluded machine-wide rather than
+  # only for the test VM, because every NixOS VM test this repo builds
+  # from `tokyonightModules` — not just `session-boot` — shares the same
+  # exposure, and 9p was never reachable attack surface on real hardware
+  # to begin with (nothing here ever asks for it outside a VM test
+  # harness), so nothing is actually given up by leaving it loadable.
+  #
+  # `joydev` is filtered back out the same way, for the opposite reason:
+  # this config deliberately enables Steam (nix/modules/desktop/steam.nix,
+  # and ia32_emulation is kept in boot.kernelParams above specifically for
+  # it), and blacklisting the joystick input layer under it is
+  # self-defeating — no gamepad shows up at /dev/input/js* for any game to
+  # see. secureblue is not running Steam on this machine's hardware, so its
+  # blanket blacklist doesn't have to reckon with this either.
+  secureblueModuleBlacklist = builtins.filter (
+    mod: !lib.hasPrefix "9p" mod && mod != "joydev"
+  ) (import ../../data/module-blacklist.nix);
+  secureblueFramebufferBlacklist = import ../../data/framebuffer-blacklist.nix;
+in
 {
   security.forcePageTableIsolation = true;
+
+  # GrapheneOS hardened_malloc, system-wide (Phase B). secureblue injects
+  # `libhardened_malloc.so` four separate ways — /etc/profile.d,
+  # /usr/lib/environment.d, systemd's `[Manager] DefaultEnvironment=`, and
+  # PAM's pam_env.conf — because Fedora Atomic has no single hook that
+  # reaches every process. NixOS does: this one option makes the
+  # `nixos/modules/config/malloc.nix` module write the resolved
+  # `libhardened_malloc.so` path into `/etc/ld-nix.so.preload`, and nixpkgs'
+  # glibc carries a NixOS-specific patch
+  # (`pkgs/development/libraries/glibc/dont-use-system-ld-so-preload.patch`)
+  # that makes `elf/rtld.c` read exactly that path — unconditionally, for
+  # every dynamically-linked exec on the system — in place of the upstream
+  # `/etc/ld.so.preload`. One option reaches everything secureblue's four
+  # hooks reach together; `security.apparmor.includes."abstractions/base"`
+  # picks up the read grant for it automatically (same module), so the
+  # per-app profiles in apparmor.nix/apparmor-store.nix need no edit.
+  #
+  # Full variant (`graphene-hardened`), not `graphene-hardened-light`: the
+  # divergence table in the design spec lists secureblue's own allocator as
+  # the parity target, and secureblue runs the full variant — the light one
+  # exists upstream as a performance compromise, not as secureblue's actual
+  # baseline, so choosing it here would still leave a gap to close rather
+  # than closing it.
+  #
+  # The RLIMIT_AS trap: hardened_malloc reserves guard pages across a much
+  # larger virtual-address range than it will ever commit, so a process
+  # under a real `RLIMIT_AS` ceiling can fail `mmap`/`brk` with ENOMEM long
+  # before it is anywhere near its actual memory budget. secureblue ships a
+  # dedicated `libno_rlimit_as.so` LD_PRELOAD shim for exactly this, and
+  # NixOS has no equivalent option. Investigated rather than assumed:
+  #   - `grep -rn LimitAS= nix/` finds nothing; no unit in this repo sets it.
+  #   - nixpkgs' own modules only reference `LimitAS` as a valid key name in
+  #     `systemd.nspawn`'s option-name allowlist
+  #     (nixos/modules/system/boot/systemd/nspawn.nix) — nothing sets a
+  #     value there either, and this repo defines no `systemd.nspawn.*`
+  #     containers at all.
+  #   - `security.pam.loginLimits` (the NixOS option that would populate
+  #     `/etc/security/limits.conf`, the other place an `as` ceiling could
+  #     come from) is never touched anywhere in nix/, so it stays at its
+  #     default `[ ]` — no PAM-imposed AS limit either.
+  #   - systemd's own compiled-in default for `DefaultLimitAS=` is
+  #     "infinity" unless a unit or `[Manager]` override changes it, and
+  #     nothing here touches `systemd.extraConfig` or any `[Manager]`
+  #     section.
+  # Net finding: nothing in this closure sets RLIMIT_AS, by any of the three
+  # mechanisms that could plausibly do it, so the failure mode
+  # `libno_rlimit_as.so` exists to paper over should not be reachable here
+  # today. This is a closure-wide grep-and-source-read, not a boot-tested
+  # guarantee — a future unit (or a nixpkgs module bump) that adds
+  # `LimitAS=` to some service would silently reintroduce the trap, so a
+  # `LimitAS=` grep belongs in the review checklist for any new hardened
+  # unit from here on. If a service starts failing allocations with ENOMEM
+  # after this lands, that grep is the first thing to rerun, and
+  # `graphene-hardened-light` (touches far fewer guard pages) is the
+  # documented fallback — flip the `provider` value below, nothing else
+  #
+  # Steam (nix/modules/desktop/steam.nix), checked because hardened_malloc is
+  # exactly the class of allocator known to trip up closed-source game
+  # engines: it does NOT inherit this. `programs.steam` builds on
+  # `buildFHSEnv`, whose bubblewrap sandbox
+  # (pkgs/build-support/build-fhsenv-bubblewrap/default.nix in this pinned
+  # nixpkgs) gives the FHS environment its own private `/etc` — a fresh
+  # tmpfs populated only from the FHS closure's own `/etc` plus a hardcoded
+  # `etcBindEntries` allowlist (passwd, resolv.conf, localtime, ssl/certs,
+  # pam.d, and so on). `ld-nix.so.preload` is not on that list and the
+  # sandboxed `/etc` is never a bind-mount of the real one, so the file the
+  # patched glibc above reads is simply absent inside Steam's sandbox; its
+  # `__access() == 0` check fails and it loads nothing extra, the same as
+  # on unpatched glibc with no preload file at all. Confirmed by reading
+  # that exact script for this pinned nixpkgs revision, not assumed — Steam
+  # is currently untestable here anyway (dots.steam.enable stays "auto" and
+  # the committed `{}` facter stub reports no GPU, so `programs.steam.enable`
+  # never activates in this evaluated closure to begin with).
+  # depends on which variant is loaded.
+  environment.memoryAllocator.provider = "graphene-hardened";
+
   boot.kernel.sysctl = {
     "kernel.kptr_restrict" = 2;
     "kernel.dmesg_restrict" = 1;
@@ -60,74 +181,154 @@
     "net.ipv4.conf.default.send_redirects" = 0;
     "net.ipv4.conf.all.accept_source_route" = 0;
     "net.ipv6.conf.all.accept_source_route" = 0;
+
+    # From here down: secureblue's sysctl baseline (reference/55-hardening.conf
+    # in this project's SDD notes) that this machine lacked. Excluded on
+    # purpose, per docs/superpowers/specs/2026-09-08-hardening-design.md
+    # ("Phase C"): kernel.panic=-1 (R8) would turn a kernel splat into an
+    # instant reboot with no readable dmesg; the ARP-hardening quartet
+    # (arp_filter/arp_ignore/shared_media/drop_gratuitous_arp, R9) would be
+    # incoherent next to rp_filter's deliberate mkForce 2 above, for the same
+    # multi-homed-libvirt/VPN reason; kernel.yama.ptrace_scope is already 2
+    # here, stricter than secureblue's 1.
+
+    # perf_event_open() can leak kernel addresses and time hardware side
+    # channels; 3 is the most restrictive setting (unprivileged users get
+    # nothing from it at all).
+    "kernel.perf_event_paranoid" = 3;
+    # io_uring has been a disproportionate source of kernel-exploit primitives
+    # (see the kCTF writeups linked in the reference file); 2 disables it
+    # entirely, including for CAP_SYS_ADMIN.
+    "kernel.io_uring_disabled" = 2;
+    # Panic the kernel after this many oopses/warnings rather than allowing a
+    # bug to be poked at indefinitely in small, deniable increments.
+    "kernel.oops_limit" = 100;
+    "kernel.warn_limit" = 100;
+    # Route core dumps to a no-op instead of a file: a setuid process's or a
+    # secret-holding process's memory never touches disk this way. The
+    # reference value is a bare `/bin/false`, which does not exist on
+    # NixOS (only `/bin/sh` and `/usr/bin/env` are guaranteed) — the kernel
+    # would try to exec a path that is not there instead of the intended
+    # no-op, so this points at the real store path.
+    "kernel.core_pattern" = "|${pkgs.coreutils}/bin/false";
+    # Never core-dump a setuid/setgid process — the classic route to reading
+    # a privileged binary's memory back out as your own user.
+    "fs.suid_dumpable" = 0;
+    # binfmt_misc lets userspace register new "this file extension execs as
+    # that interpreter" handlers at runtime; nothing here needs that surface.
+    "fs.binfmt_misc.status" = 0;
+    # Restrict userfaultfd() to CAP_SYS_PTRACE. Unprivileged access to it is a
+    # well-worn primitive for winning kernel heap-spray/UAF races by holding a
+    # page fault open on demand.
+    "vm.unprivileged_userfaultfd" = 0;
+    # Maximum mmap ASLR entropy, 64-bit and 32-bit-compat respectively.
+    "vm.mmap_rnd_bits" = 32;
+    "vm.mmap_rnd_compat_bits" = 16;
+    # Refuse mappings in the bottom 64KiB of the address space, closing the
+    # classic NULL-pointer-dereference-to-arbitrary-write escalation.
+    "vm.mmap_min_addr" = 65536;
+    # TCP timestamps leak host uptime (a fingerprinting and side-channel
+    # surface) for no benefit this network needs.
+    "net.ipv4.tcp_timestamps" = 0;
+    # RFC 1337: ignore RSTs that arrive for a TIME-WAIT connection, closing
+    # the sequence-number-guessing TIME-WAIT assassination class.
+    "net.ipv4.tcp_rfc1337" = 1;
+    # Never answer ICMP/ICMPv6 echo requests — removes ping-based host
+    # discovery and the smurf/ping-flood surface outright, stricter than only
+    # ignoring broadcast pings.
+    "net.ipv4.icmp_echo_ignore_all" = 1;
+    "net.ipv6.icmp.echo_ignore_all" = 1;
+    # Prefer IPv6 privacy (temporary) addresses over the stable EUI-64 one for
+    # outbound connections, so a device's IPv6 suffix cannot be used to track
+    # it across networks.
+    "net.ipv6.conf.all.use_tempaddr" = 2;
+    # mkForce, not a plain value: nixpkgs' own
+    # nixos/modules/tasks/network-interfaces.nix already sets this same key
+    # (from networking.tempAddresses, default "default" → sysctl "2") as a
+    # PLAIN definition, not mkDefault, so a second plain `= 2;` here collides
+    # with it — "defined multiple times" — even though both resolve to the
+    # same value. Forcing pins the intent explicitly rather than relying on
+    # coincidence between this file and networking.tempAddresses' default.
+    "net.ipv6.conf.default.use_tempaddr" = lib.mkForce 2;
   };
 
+  # secureblue's kernel command line (reference/10-secureblue.toml in this
+  # project's SDD notes), 34 entries, ported here except for the rulings
+  # docs/superpowers/specs/2026-09-08-hardening-design.md ("Phase C") records:
+  #   - module.sig_enforce=1 and lockdown=confidentiality (R1/R2) move to
+  #     Phase A. Between now and then this machine runs the stock kernel with
+  #     unsigned modules; sig_enforce there would make the kernel refuse
+  #     every module load and strand the machine.
+  #   - nosmt is not adopted — SMT stays on (project decision).
+  #   - loglevel stays at the repo's existing 3 (R10), not secureblue's 0, so
+  #     a panic's tail stays readable for Phase A's CFI debugging.
+  #   - ia32_emulation=0 is not set: this repo enables Steam, whose runtime is
+  #     32-bit (R11).
+  #   - pti=on is not repeated: security.forcePageTableIsolation = true above
+  #     already emits it (nixpkgs' nixos/modules/security/misc.nix).
+  #   - kvm-intel.vmentry_l1d_flush=always is not repeated: security.
+  #     virtualisation.flushL1DataCache = "always" below already covers it.
   boot.kernelParams = [
     "init_on_alloc=1"
     "init_on_free=1"
     "page_alloc.shuffle=1"
     "randomize_kstack_offset=on"
     "slab_nomerge"
+    "hash_pointers=always"
+    "intel_iommu=on"
+    "iommu.passthrough=0"
+    "iommu.strict=1"
+    # The one entry here with real hardware-breakage potential: forcing IOMMU
+    # translation for every device can wedge a peripheral whose driver
+    # assumes it may DMA to physical addresses directly. First thing to drop
+    # if a device misbehaves after this lands.
+    "iommu=force"
+    "kvm.mitigate_smt_rsb=1"
+    "l1d_flush=on"
+    "l1tf=full,force"
+    "proc_mem.force_override=ptrace"
+    "random.trust_bootloader=off"
+    "random.trust_cpu=off"
+    "rd.emergency=halt"
+    "rd.shell=0"
+    "slab_debug=FZ"
+    "spec_store_bypass_disable=on"
+    "spectre_v2=on"
+    "ssbd=force-on"
+    "systemd.ssh_auto=no"
+    "vdso32=0"
+    "vsyscall=none"
   ];
 
   security.virtualisation.flushL1DataCache = "always";
   systemd.coredump.enable = false;
-  # AppArmor was enabled here but confining nothing. `packages` is, in
-  # nixpkgs' own words, "List of packages to be added to AppArmor's include
-  # path" — it makes profiles available to `Include` directives and to the
-  # policy cache. It does not load them. Loading is driven by `policies`,
-  # which was empty, so the generated apparmor.service had an
-  # ExecStartPre=aa-teardown, an ExecStop=aa-teardown and no ExecStart at
-  # all: it unloaded profiles at boot and loaded none. `aa-enabled` answered
-  # "Yes" and /sys/kernel/security/apparmor/profiles held zero entries, which
-  # is the worst combination — every surface reported AppArmor as on while
-  # nothing was confined.
+  # This used to also load every stock profile under pkgs.apparmor-profiles
+  # (~223 of them) in complain mode, through a `policies` attribute built by
+  # `readDir`-ing that package's profile directory. Gone as of Phase C
+  # (docs/superpowers/specs/2026-09-08-hardening-design.md): those are
+  # upstream FHS-distribution profiles attaching to paths like
+  # /usr/bin/brave, which do not exist on NixOS, so they matched nothing —
+  # AND they were the reason `apparmor.service` failed on every boot.
+  # apparmor_parser loads profiles alphabetically; the moment it reached
+  # `store-catchall` (nix/modules/system/apparmor-store.nix) it installed
+  # that catch-all, and the parser's own *next* exec — itself a Nix store
+  # path — immediately attached to the catch-all it had just loaded and hit
+  # its `deny capability mac_admin`, aborting the rest of the load
+  # (`stress-ng` sorts right after `store-catchall`, so everything from
+  # there on alphabetically never loaded). Deleting the stock profiles fixes
+  # this as a side effect of removing dead weight: with them gone, nothing
+  # alphabetically follows the catch-all inside this module's own load
+  # order, and `apparmor.service` reaches `active`.
   #
-  # Loading every stock profile is deliberately blunt, and its value on this
-  # system is limited in a way worth stating: these are upstream profiles
-  # written for FHS distributions, attaching to absolute paths like
-  # /usr/bin/brave. NixOS has no such paths, so most will load and match
-  # nothing. That makes this close to risk-free and also close to
-  # protection-free — real confinement here needs profiles written against
-  # Nix store paths, which is nix/modules/system/apparmor-store.nix (see
-  # that file for the generator and the store-catchall complain-mode
-  # profile it ships; it is imported alongside this module in
-  # flake/nixos.nix). What this does buy is honesty: the profile count
-  # stops being zero, so the security dashboard can report what is
-  # actually loaded instead of implying protection that does not exist.
-  #
-  # Only regular files are eligible: the directory also holds abstractions/,
-  # tunables/ and disable/, which are include fragments rather than profiles,
-  # and the module asserts a policy name contains no slash.
-  #
-  # `state` reads "complain", not "enforce": nothing in this repo enforces
-  # any more. The two sibling modules (apparmor.nix, apparmor-store.nix) are
-  # already complain, and the commit that flipped store-catchall back to
-  # complain (`9b069e8`) records what happened the one time it was
-  # enforced — `x` vanished for everything outside the store, so
-  # sudo/pkexec/unix_chkpwd/newuidmap under /run/wrappers/bin stopped
-  # running and greetd restart-looped into start-limit-hit. These stock
-  # profiles attach to FHS paths that do not exist on NixOS, so this
-  # particular flip changes no behaviour here today; it is stated as
-  # policy, not as a fix. The invariant this repo now holds is "no profile
-  # enforces until its denial log has been read", and a `state` string
-  # that reads `enforce` invites the next person to assume otherwise.
-  # Complain-mode profiles still log, and that log is what `dots-sandbox
-  # triage` consumes. The honesty argument above still holds under
-  # complain: a non-zero profile count is what keeps the dashboard from
-  # implying protection that is not there, whether or not that protection
-  # is currently switched on.
+  # `packages` STAYS. It is, in nixpkgs' own words, "List of packages to be
+  # added to AppArmor's include path" — nothing to do with the deleted
+  # `policies` block. It is what makes `include <abstractions/base>` and
+  # `include <tunables/global>` resolve for every hand-written profile in
+  # apparmor.nix and apparmor-store.nix; dropping it breaks both of those
+  # outright.
   security.apparmor = {
     enable = true;
     packages = [ pkgs.apparmor-profiles ];
-    policies =
-      let
-        profileDir = "${pkgs.apparmor-profiles}/etc/apparmor.d";
-      in
-      lib.mapAttrs (name: _: {
-        path = "${profileDir}/${name}";
-        state = "complain";
-      }) (lib.filterAttrs (_: kind: kind == "regular") (builtins.readDir profileDir));
   };
   services.firewalld.enable = true;
   # No `DefaultZone` override here on purpose. nixpkgs' firewall-firewalld.nix
@@ -222,15 +423,34 @@
   };
   boot.tmp.useTmpfs = true;
 
-  # Lynis NETW-3200 flags all four. Nothing on this machine speaks dccp, sctp,
-  # rds or tipc, and each is a rarely-audited protocol stack the kernel will
-  # autoload on a bare socket() call from any user. Blacklisting removes that.
-  boot.blacklistedKernelModules = [
-    "dccp"
-    "sctp"
-    "rds"
-    "tipc"
-  ];
+  # secureblue's module policy (reference/secureblue-modprobe.conf and
+  # reference/secureblue-framebuffer.conf in this project's SDD notes; the
+  # 4-entry Lynis NETW-3200 list this replaced — dccp, sctp, rds, tipc — is a
+  # strict subset of it). Deliberately `extraModprobeConfig`, not
+  # `boot.blacklistedKernelModules`: NixOS's option only emits a `blacklist`
+  # directive, which stops a module from autoloading on a device/alias match
+  # but does nothing to stop an explicit `modprobe <mod>` or a udev rule that
+  # names it directly. secureblue's own `install <mod> /bin/false` intercepts
+  # every load path, including that one, by replacing the module's install
+  # command outright. Matching that exactly rather than silently downgrading
+  # to the weaker form is the point — see nix/data/module-blacklist.nix and
+  # nix/data/framebuffer-blacklist.nix for the ported lists themselves.
+  # Bluetooth (`bluetooth`, `btusb`, `bluetooth_6lowpan`) is included on
+  # purpose: nix/modules/system/form-factor.nix now sets
+  # hardware.bluetooth.enable = false unconditionally, and this closes the
+  # module path a stray `modprobe bluetooth` could still take around that.
+  #
+  # `${pkgs.coreutils}/bin/false`, not a bare `/bin/false`: the reference
+  # config is written for Fedora, where that path exists; NixOS ships only
+  # `/bin/sh` and `/usr/bin/env`. The block still held with the bare path —
+  # kmod runs `install`'s command through `sh -c`, and `sh` itself exits 127
+  # when the target is missing — but every refused load logged `sh:
+  # /bin/false: No such file or directory` instead of a clean no-op.
+  boot.extraModprobeConfig = lib.concatMapStrings (
+    mod: "install ${mod} ${pkgs.coreutils}/bin/false\n"
+  ) (
+    secureblueModuleBlacklist ++ secureblueFramebufferBlacklist
+  );
 
   # USB-1000 / BadUSB. `implicitPolicyTarget = "block"` refuses anything not
   # already known, and `presentDevicePolicy = "allow"` grandfathers in whatever
@@ -279,6 +499,81 @@
       "root"
       config.dots.username
     ];
+  };
+
+  # Phase B, Part 3: faillock and pwquality, matched to the values measured
+  # off secureblue's /etc/security/{faillock,pwquality}.conf.
+  #
+  # THE INTERACTION TO KEEP IN MIND (see hardening.nix's own `sudo-rs`
+  # block above): `security.sudo-rs.wheelNeedsPassword = false` means wheel
+  # escalation never enters PAM's auth stack at all — there is no password
+  # prompt for either of these modules to ever see. Both settings below
+  # govern LOGIN (console `login`, the `ly`/`hyprlock` PAM services already
+  # wired for FIDO2 in desktop.nix, and password *changes* via `passwd`),
+  # never escalation. Do not read their presence here as "sudo is
+  # rate-limited" or "sudo enforces a strong password" — neither is true on
+  # this machine today.
+  #
+  # faillock: NixOS's PAM module has a `logFailures` option per service that
+  # inserts `pam_faillock.so` into that service's `auth` stack, but no
+  # dedicated option for the module's own tunables (secureblue's `deny`,
+  # `unlock_time`, etc.) — those live in `/etc/security/faillock.conf`,
+  # which pam_faillock.so reads directly, distro-agnostically, whenever no
+  # inline module argument overrides it. So this is two parts: the file,
+  # and switching the option on for the same three services desktop.nix
+  # already treats as "the login surfaces" (u2fAuth is wired identically on
+  # exactly these three).
+  environment.etc."security/faillock.conf".text = ''
+    # Ported from secureblue (reference/55-hardening.conf-adjacent
+    # /etc/security/faillock.conf in this project's SDD notes).
+    deny = 50
+    unlock_time = 86400
+    even_deny_root
+    audit
+  '';
+  security.pam.services = {
+    login.logFailures = true;
+    ly.logFailures = true;
+    hyprlock.logFailures = true;
+  };
+
+  # pwquality: same story as faillock — one config file pam_pwquality.so
+  # reads directly — but with one extra step. Unlike faillock, NixOS's PAM
+  # module has NO built-in `enable`-style knob for pam_pwquality at all, and
+  # (confirmed by reading nixos/modules/security/pam.nix directly) it never
+  # declares a `passwd` PAM service by default either — nothing here
+  # invokes pam_unix.so's password-changing stage today, so dropping only
+  # the conf file would be inert: no module reads it. Declaring the service
+  # is what actually wires a password-change stack into existence, matching
+  # what `passwd`(1) expects to find at /etc/pam.d/passwd.
+  #
+  # `requisite`, not `required`: pwquality must reject a weak password
+  # BEFORE pam_unix.so's own password rule ever runs, or a rejected password
+  # would still fall through to being hashed and stored. Ordered via the
+  # exact relative-order pattern this module's own header comment
+  # documents (`rules.auth.foo.order = …unix.order + 10`) — here `- 50`
+  # instead, to land before "unix" (order 10200 for the password stack,
+  # i.e. `10000 + index*100` with unix as the second autoOrderRules entry)
+  # rather than after it. `${pkgs.libpwquality.lib}` is deliberate, not
+  # `${pkgs.libpwquality}`: this package splits `pam_pwquality.so` into its
+  # `lib` output specifically, confirmed by building it against this pinned
+  # nixpkgs — the default "out" output carries only `pwmake`/`pwscore` and
+  # its own stock conf file, no `.so` at all.
+  environment.etc."security/pwquality.conf".text = ''
+    # Ported from secureblue (reference/55-hardening.conf-adjacent
+    # /etc/security/pwquality.conf in this project's SDD notes).
+    minlen = 15
+    dcredit = -1
+    ucredit = -1
+    lcredit = -1
+    ocredit = -1
+    dictcheck = 1
+    usercheck = 1
+  '';
+  security.pam.services.passwd.rules.password.pwquality = {
+    control = "requisite";
+    modulePath = "${pkgs.libpwquality.lib}/lib/security/pam_pwquality.so";
+    order = config.security.pam.services.passwd.rules.password.unix.order - 50;
   };
 
   # ACCT-9628. Deliberately a short ruleset: auditd bills every matching

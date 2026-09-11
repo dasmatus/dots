@@ -193,10 +193,18 @@ in
     services.fstrim.enable = !isVm;
 
     # ── Services ─────────────────────────────────────────────────────
-    # Bluetooth off on server/VM (no radios, no point loading the stack).
+    # Bluetooth off everywhere, unconditionally (Phase C,
+    # docs/superpowers/specs/2026-09-08-hardening-design.md), matching
+    # secureblue's own module blacklist (nix/data/module-blacklist.nix
+    # refuses bluetooth/btusb/bluetooth_6lowpan outright). This used to be
+    # `isLaptop || isDesktop`, on the theory that only a server or VM lacks
+    # the radio worth turning off; the radio was never the point — Bluetooth
+    # is a large, historically exploit-prone attack surface
+    # (nix/data/module-blacklist.nix cites the Wikipedia security-history
+    # page next to its blacklist entries) that this machine has no use for.
     # NixOS auto-disables bluetooth.hardware when enable=false, so this is
     # the single knob.
-    hardware.bluetooth.enable = isLaptop || isDesktop;
+    hardware.bluetooth.enable = false;
 
     # Wi-Fi power-save on laptops (extends battery; the AP tolerates it on
     # modern networks), disabled elsewhere. NetworkManager option — applies

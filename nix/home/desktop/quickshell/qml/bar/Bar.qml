@@ -12,6 +12,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import ".."
+import "../media"
 
 PanelWindow {
     id: root
@@ -57,6 +58,8 @@ PanelWindow {
             anchors.verticalCenter: parent.verticalCenter
 
             spacing: Theme.barSpacing
+
+            Media {}
 
             Network {}
 

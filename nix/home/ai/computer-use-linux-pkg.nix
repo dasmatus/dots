@@ -1,6 +1,6 @@
 # Prebuilt computer-use-linux MCP server + CLI (github.com/agent-sh/computer-use-linux).
 # Upstream ships no flake, so we wrap the official x86_64-unknown-linux-gnu
-# release binary with autoPatchelfHook — that rewrites the ELF interpreter
+# release binary with autoPatchelfHook, which rewrites the ELF interpreter
 # and rpath to Nix-store glibc/libgcc, the standard way to Nixify an upstream
 # release binary without recompiling. The binary only links glibc at load
 # time: zbus (DBus) is pure Rust, and AT-SPI is reached over the session

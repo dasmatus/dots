@@ -1,11 +1,11 @@
 // The file manager's outer shell: a tab strip, a places sidebar, one pane,
 // and a `:` command line along the bottom.
 //
-// One pane, not two. The two-pane Norton Commander layout is what made
-// Copy and Move mean "to the other side"; with a single pane they became a
-// clipboard instead — yank or cut, change directory, paste. That is also
-// the shape the command line already implies: a command, a navigation, a
-// second command.
+// One pane, not two. The two-pane Norton Commander layout is what made Copy
+// and Move mean "to the other side"; with a single pane they became a
+// clipboard instead. Yank or cut, change directory, paste. That is also the
+// shape the command line already implies: a command, a navigation, a second
+// command.
 //
 // A tab is one directory, and switching tabs swaps the pane's path.
 // nixvim.nix runs bufferline in `mode = "tabs"`, so the strip is modelled
@@ -65,10 +65,10 @@ Scope {
     property string promptMode: ""
     property string promptText: ""
     // Captured by Operations.beginPrompt() when a rename/mkdir/trash-confirm
-    // prompt opens, and the only thing confirmPrompt() resolves an argv
-    // from — never the live selection, which can point somewhere else
-    // entirely by the time the user presses Enter. See beginPrompt's own
-    // comment in operations.js for why.
+    // prompt opens. It is the only thing confirmPrompt() resolves an argv
+    // from, never the live selection, which can point somewhere else entirely
+    // by the time the user presses Enter. See beginPrompt's own comment in
+    // operations.js for why.
     property var promptSnapshot: null
 
     // `/` searches all of $HOME, wherever the pane happens to be pointing.
@@ -178,19 +178,18 @@ Scope {
         root.path = HistoryMath.currentOf(root.history);
     }
 
-    // Every in-tree caller already passes an absolute path — a mountpoint
-    // from Devices, an XDG directory from places.js, or a child built
-    // through FilesMath.join from an already-absolute pane path — except
-    // `qs ipc call files openPath`, which hands over an arbitrary string
-    // with no shape guarantee at all. `path` ends up unescaped in the
-    // Pane's listing argv and, for a non-directory hit, in `xdg-open`'s,
-    // which does not accept "--" at all (confirmed against the binary this
-    // service resolves from PATH), so a relative-looking path handed to it
-    // would be read as an option, not a path. Rejecting outright rather
-    // than coercing: a malformed IPC call should do nothing, not land
-    // somewhere the caller did not ask for. Operations.isAbsolutePath is
-    // pure, so this specific guard is unit-tested with no live Files.qml
-    // anywhere near the test.
+    // Every in-tree caller already passes an absolute path: a mountpoint from
+    // Devices, an XDG directory from places.js, or a child built through
+    // FilesMath.join from an already-absolute pane path. The exception is `qs
+    // ipc call files openPath`, which hands over an arbitrary string with no
+    // shape guarantee at all. `path` ends up unescaped in the Pane's listing
+    // argv and, for a non-directory hit, in `xdg-open`'s, which does not
+    // accept "--" at all (confirmed against the binary this service resolves
+    // from PATH), so a relative-looking path handed to it would be read as an
+    // option, not a path. Rejecting outright rather than coercing: a malformed
+    // IPC call should do nothing, not land somewhere the caller did not ask
+    // for. Operations.isAbsolutePath is pure, so this specific guard is
+    // unit-tested with no live Files.qml anywhere near the test.
     function setActivePath(newPath: string): void {
         if (!Operations.isAbsolutePath(newPath))
             return;
@@ -253,15 +252,15 @@ Scope {
         cmdline.beginPrompt(root.promptText);
     }
 
-    // Resolves strictly from promptSnapshot (captured when the prompt
-    // opened) plus the live promptText, never from the live selection —
-    // see promptSnapshot's own comment above for why. On rejection,
-    // Operations.promptErrorMessage picks a naming-specific message for a
-    // mode that actually validates a name and a generic one for a falsy
-    // snapshot or an unrecognised mode, neither of which has a name to
-    // blame — that choice is pure and lives in operations.js, testable
-    // with no live prompt, rather than duplicated as QML here. Either way
-    // the prompt closes, so nothing is left stuck on screen.
+    // Resolves strictly from promptSnapshot (captured when the prompt opened)
+    // plus the live promptText, never from the live selection. See
+    // promptSnapshot's own comment above for why. On rejection,
+    // Operations.promptErrorMessage picks a naming-specific message for a mode
+    // that actually validates a name and a generic one for a falsy snapshot or
+    // an unrecognised mode, neither of which has a name to blame. That choice
+    // is pure and lives in operations.js, testable with no live prompt, rather
+    // than duplicated as QML here. Either way the prompt closes, so nothing is
+    // left stuck on screen.
     function confirmPrompt(): void {
         const argv = Operations.resolvePromptArgv(root.promptSnapshot, root.promptText);
         if (argv)
@@ -496,10 +495,10 @@ Scope {
         implicitWidth: 1100
         implicitHeight: 700
 
-        // Closing this window from the compositor — SUPER+Q, the bind every
-        // other window on the desktop answers to — otherwise leaves it
-        // unable to open ever again, and silently. Both readings agree the
-        // window is gone the moment the toplevel dies: `visible` and
+        // Closing this window from the compositor, SUPER+Q, the bind every
+        // other window on the desktop answers to, otherwise leaves it unable
+        // to open ever again, and silently. Both readings agree the window is
+        // gone the moment the toplevel dies: `visible` and
         // `backingWindowVisible` each go false. But the setter compares
         // against a third, desired-state flag that a compositor-initiated
         // close never cleared, so the next `visible = true` matches it,
@@ -507,9 +506,9 @@ Scope {
         // so. Assigning false is what re-arms it.
         //
         // Here rather than defensively inside open(), because the desync has
-        // one source and four callers — open(), toggle(), openPath() and
-        // Devices' requestOpen — and this is the only one that knows the
-        // close happened.
+        // one source and four callers: open(), toggle(), openPath() and
+        // Devices' requestOpen. This is the only one that knows the close
+        // happened.
         onClosed: window.visible = false
 
         FocusScope {

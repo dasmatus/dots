@@ -1,7 +1,7 @@
 // The Wallpaper settings page: mode/output/fill-colour controls above a
 // thumbnail grid over Wallpapers/. Loaded by Settings.qml through a
 // `Loader { source: "pages/wallpaper.qml" }` (the same lowercase-filename-
-// by-source-URL idiom pages/security.qml uses, for the identical reason —
+// by-source-URL idiom pages/security.qml uses, for the identical reason:
 // this filename cannot be a QML type name).
 //
 // root.picker is handed in, not owned: wallpaper/Picker.qml is the ONE
@@ -10,7 +10,7 @@
 // not this page is even mounted. Settings.qml's Loader assigns it in
 // `onLoaded` rather than this file instantiating its own Picker, so a click
 // here runs through the exact same apply queue, output-state FileView and
-// accent-retint Canvas Picker.qml already owns — never a second copy of any
+// accent-retint Canvas Picker.qml already owns, never a second copy of any
 // of them.
 //
 // Because the Loader assigns after construction, every read of `picker` in a
@@ -21,7 +21,7 @@
 // standalone overlay's own Chrome; this page has no window-level key
 // handler to carry those on, so they are direct-pick Select rows instead
 // (controls/Select.qml, the same control Settings.qml's own "select"-typed
-// rows already use) — arguably better than cycling, since every option is
+// rows already use), arguably better than cycling, since every option is
 // visible at once rather than stepped through blind.
 pragma ComponentBehavior: Bound
 
@@ -41,7 +41,7 @@ ColumnLayout {
     // Not `required`, deliberately. A Loader assigns properties in its
     // `onLoaded`, which runs *after* the component is constructed, so a
     // required property is already too late by then and Qt warns
-    // "Required property picker was not initialized" — which is exactly what
+    // "Required property picker was not initialized", which is exactly what
     // this page did until it didn't. Nullable plus a guard is the shape that
     // survives being loaded rather than instantiated directly.
     property var picker: null
@@ -51,7 +51,7 @@ ColumnLayout {
     // Mirrors the standalone overlay's own open(): reload the Wallpapers/
     // listing and start the cursor at the first tile. Driven by the picker
     // arriving rather than by Component.onCompleted, since the Loader hands
-    // it over a moment after construction — on completion there is nothing
+    // it over a moment after construction. On completion there is nothing
     // to reload yet.
     onPickerChanged: {
         if (!root.picker)

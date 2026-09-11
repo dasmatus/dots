@@ -25,8 +25,8 @@ const LABELS = {
     calc: "Calc"
 };
 
-// Every row pillsFor sees is supposed to carry a `provider` string — every
-// provider function in Providers.qml sets one — but that is a convention,
+// Every row pillsFor sees is supposed to carry a `provider` string. Every
+// provider function in Providers.qml sets one, but that is a convention,
 // not something the type system enforces, and one row built without it must
 // not be able to throw pillsFor's caller into `undefined`. Rows failing that
 // convention are grouped under this id instead of by whatever they are
@@ -46,16 +46,16 @@ function labelFor(id) {
     return id in LABELS ? LABELS[id] : id[0].toUpperCase() + id.slice(1);
 }
 
-// One pill per provider, ordered by first appearance in `order` — the
+// One pill per provider, ordered by first appearance in `order`, the
 // ambient query's own registry-order concatenation (Launcher.qml's
-// `ambientRows`) — so the bar's left-to-right order stays put across a
+// `ambientRows`), so the bar's left-to-right order stays put across a
 // keystroke instead of reordering as match scores change.
 //
 // Counts, deliberately, come from `counted` instead: whatever list the
 // caller's own filter actually runs against (Launcher.qml's
 // `unfilteredResults`, the sorted-and-capped display list). `order` is
 // untruncated and unsorted, so counting from it would print a number a
-// click could not back up — the exact bug this replaced, where a provider
+// click could not back up: the exact bug this replaced, where a provider
 // pushed past the display cap still advertised its full row count while
 // filtering into it returned fewer rows, or none. A provider absent from
 // `counted` entirely is dropped rather than shown at a count of zero: a
@@ -83,14 +83,14 @@ function pillsFor(order, counted) {
 }
 
 // `pillId === ""` is the pill bar's own "All" state, not a provider nothing
-// ever produces — so a caller with no selection does not need a sentinel row
+// ever produces, so a caller with no selection does not need a sentinel row
 // object to mean "everything".
 //
 // Compares against `providerOf(row)`, not `row.provider` directly, so this
 // agrees with the grouping `pillsFor` used to build the "Other" pill in the
 // first place. A providerless row normalises to `FALLBACK_PROVIDER` there;
 // comparing the raw (`undefined`) field here would make "Other" a pill that
-// advertises a count and delivers zero rows for it — a promise `pillsFor`'s
+// advertises a count and delivers zero rows for it, a promise `pillsFor`'s
 // own contract exists to rule out.
 function filterByPill(rows, pillId) {
     if (pillId === "")

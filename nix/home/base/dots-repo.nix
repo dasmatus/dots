@@ -1,4 +1,4 @@
-# First-login bootstrap — replaces the retired installer copy at /etc/dots
+# First-login bootstrap: replaces the retired installer copy at /etc/dots
 # (git history): clones the dots repo from Codeberg into
 # ~/Dokumente/gitlab/personal/dots, flips its `origin` to SSH so later
 # push/pull ride the vault SSH key (nix/home/apps/bitwarden.nix dots-keys), then
@@ -8,9 +8,9 @@
 # real hostname/user/hardware report instead of the committed placeholders.
 # These are COPIES, not symlinks: a symlink here made an absolute path
 # outside the flake an evaluation-time dependency, which pure eval refuses
-# to follow — see the header of nix/data/settings.nix for the four things
+# to follow. See the header of nix/data/settings.nix for the four things
 # that broke. A copy is an ordinary in-tree file, so eval stays pure.
-# The local path keeps its legacy "gitlab" segment — it's just a folder name
+# The local path keeps its legacy "gitlab" segment. It's just a folder name
 # now; the repo itself lives on codeberg.org/dasmatus/dots.
 {
   pkgs,
@@ -29,7 +29,7 @@ let
   # Configured relatives of the install-answer stash (options.dots.paths):
   # <stateDir>/<file> is copied over nix/data/<file> in the clone. Unlike the
   # symlink this replaces, a later edit in the stash is NOT picked up
-  # automatically — re-run this unit (or re-copy by hand) after e.g. a fresh
+  # automatically. Re-run this unit (or re-copy by hand) after e.g. a fresh
   # nixos-facter run. That is the deliberate trade for keeping eval pure.
   stateDir = dots.paths.stateDir;
   answerFiles = [
@@ -58,7 +58,7 @@ let
 
     # The clone's default `origin` is the anonymous-HTTPS URL above. Flip
     # it to SSH so day-to-day push/pull use the vault key once dots-keys
-    # unlocks rbw. `set-url` only records the URL — no connection is
+    # unlocks rbw. `set-url` only records the URL. No connection is
     # attempted here, so this is safe before the SSH key exists.
     ${pkgs.git}/bin/git -C "$dest" remote set-url origin "${sshUrl}"
 
@@ -66,9 +66,9 @@ let
     # persisted stash (impermanence.nix bind-mounts /persist over
     # ${stateDir}) over the committed in-tree defaults. `install -m` both
     # replaces the destination and normalizes the mode, so the stash's
-    # 0600-root facter.json lands readable by the eval that follows — the
-    # permission failure that used to break `nix run .#iso-full` when that
-    # path was reached through a symlink. `git update-index --skip-worktree`
+    # 0600-root facter.json lands readable by the eval that follows. That's
+    # the permission failure that used to break `nix run .#iso-full` when
+    # that path was reached through a symlink. `git update-index --skip-worktree`
     # then hides the resulting content change so the clone's tree stays clean
     # for autoUpgrade's git operations; `2>/dev/null || true` guards a
     # not-yet-indexed path.
@@ -97,7 +97,7 @@ in
 
       # Only these two: this unit clones the repo into $HOME and chowns
       # flake.lock, so ProtectSystem/ProtectHome need a precise
-      # ReadWritePaths naming the clone path — real work tracked
+      # ReadWritePaths naming the clone path. Real work is tracked
       # separately, not added here (see research-units.md §4 item 6).
       # These two are safe regardless: neither git nor the restore script
       # has a legitimate reason to gain privilege via a setuid/setgid

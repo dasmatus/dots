@@ -60,7 +60,7 @@ Rectangle {
     color: Qt.alpha(root.low ? Theme.bg : Theme.bgDark, root.backgroundAlpha)
 
     // `low` is dunst's no-urgency case, where `frame` falls back to the
-    // neutral Theme.border rather than an urgency colour — that carries no
+    // neutral Theme.border rather than an urgency colour. That carries no
     // information, so this draws no strip for it rather than a neutral one.
     EdgeStrip {
         edge: "left"

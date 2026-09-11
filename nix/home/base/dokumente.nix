@@ -1,4 +1,4 @@
-# ~/Dokumente skeleton: the directory tree under ./dokumente IS the data —
+# ~/Dokumente skeleton: the directory tree under ./dokumente IS the data.
 # haumea loads it into a nested attrset (keep.nix markers = git-trackable
 # leaves). Materialized with mkdir -p: idempotent, never clobbers content.
 {

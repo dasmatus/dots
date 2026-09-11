@@ -1,6 +1,6 @@
 # The packages that CANNOT be flatpaks, plus Haveno's AppImage wrapper.
 #
-# This file used to be the landing site of a flatpaks-to-nixpkgs migration —
+# This file used to be the landing site of a flatpaks-to-nixpkgs migration:
 # "ex-flatpak GUI apps as native Home Manager packages". That direction is
 # reversed: every GUI app here is a Flathub ref again, declared in
 # nix/home/base/flatpaks.nix, and this file keeps only what Flathub has no
@@ -15,10 +15,9 @@
 #     compiler could not see the project it is asked to build. These are also
 #     what nix/home/apps/{nixvim,zed}.nix and the AI harnesses expect to find
 #     on PATH by bare name. The toolchains themselves are no longer LISTED
-#     here — they come from flake/languages.nix, the one devenv module
+#     here. They come from flake/languages.nix, the one devenv module
 #     `nix develop` builds its shell from; see `toolchains` below.
-#   - networkmanagerapplet — a session tray daemon, not an app.
-#   - haveno — no Flathub package exists (exchange.haveno.Haveno is 404,
+#   - haveno, no Flathub package exists (exchange.haveno.Haveno is 404,
 #     checked against the Flathub API). Upstream ships a signed AppImage,
 #     wrapped below.
 #
@@ -34,7 +33,7 @@
 }:
 let
   # The language toolchains, evaluated out of the SAME devenv module
-  # flake/devenv.nix imports — see flake/languages.nix for what is in it and
+  # flake/devenv.nix imports, see flake/languages.nix for what is in it and
   # why. `mkConfig` runs devenv's module system and stops there; it does not
   # build a shell, so nothing about `devenv.root`, the git hooks or
   # `enterShell` is involved, and none of that file's assertions are forced.
@@ -45,7 +44,7 @@ let
   # profile rather than a second instance that merely happens to agree.
   #
   # `config.packages` is devenv's public list of what the environment puts on
-  # PATH — but it is not only OUR packages: devenv's own top-level adds
+  # PATH, but it is not only OUR packages: devenv's own top-level adds
   # pkg-config unconditionally, and `processes` resolves a process manager
   # (process-compose) whether or not anything declares a process. Those belong
   # to `devenv up`, not to a user profile, so the baseline is evaluated once
@@ -54,8 +53,8 @@ let
   # means a future devenv that adds something else to its baseline does not
   # quietly grow the profile.
   #
-  # (The baseline eval is module-system only — no derivations are built for it
-  # — and `subtractLists` compares derivations by output path, so this is a
+  # (The baseline eval is module-system only, no derivations are built for it,
+  # and `subtractLists` compares derivations by output path, so this is a
   # cheap set difference, not a rebuild.)
   toolchains = inputs.devenv.lib.mkConfig {
     inherit pkgs inputs;
@@ -85,7 +84,7 @@ let
   };
   # The AppImage's own contents, unpacked. `wrapType2` uses this internally to
   # build the FHS root but discards everything outside the entrypoint, so the
-  # desktop entry and icon it ships are otherwise thrown away — see
+  # desktop entry and icon it ships are otherwise thrown away, see
   # extraInstallCommands below.
   havenoSrc = pkgs.fetchurl {
     url = "https://github.com/retoaccess1/haveno-reto/releases/download/v1.8.0-reto/haveno-v1.8.0-linux-x86_64.AppImage";
@@ -105,8 +104,8 @@ let
     version = "1.8.0-reto";
     src = havenoSrc;
 
-    # `wrapType2` on its own installs a binary and nothing else — its output
-    # is exactly bin/haveno — so Haveno was invisible to anything that finds
+    # `wrapType2` on its own installs a binary and nothing else. Its output
+    # is exactly bin/haveno, so Haveno was invisible to anything that finds
     # applications by scanning share/applications: the app grid, xdg-open,
     # and beamenu's `apps` provider alike. Lifting the AppImage's own entry
     # and icon out fixes all three at once, which is why this is a packaging
@@ -114,7 +113,7 @@ let
     #
     # The shipped Exec is
     #   Exec=sh -c "PATH=\"\$HOME/.local/bin:\$PATH\"; bin/Haveno %u"
-    # — a path relative to the AppImage root, which means nothing once the
+    # a path relative to the AppImage root, which means nothing once the
     # entry is read from the profile. The whole line is replaced rather than
     # patched piecewise, since none of it survives: the wrapper on PATH
     # already sets up the FHS environment that prelude was standing in for.
@@ -169,10 +168,6 @@ in
       omnix
       scrot
       imagemagick
-      # nix/home/desktop/session/actions.nix's nm-applet daemon has run at session
-      # start since forever, but nothing in this repo ever packaged it, so
-      # the network tray icon has silently never actually appeared.
-      networkmanagerapplet
 
       # The Nerd Font this config's terminal and prompt already assume. It was
       # never installed: nix/home/apps/kitty.nix asks for `font_family LilexNF`
@@ -181,7 +176,7 @@ in
       # `fc-list | grep -ci nerd` answered 0 and every one of those glyphs
       # rendered as tofu.
       #
-      # This is what flake/home.nix's `fonts.fontconfig.enable` is FOR — that
+      # This is what flake/home.nix's `fonts.fontconfig.enable` is FOR. That
       # option only points fontconfig at the home profile's share/fonts, and
       # on a foreign host with nothing in it there was nothing to find. On
       # NixOS the same package reaches fontconfig through
@@ -207,21 +202,21 @@ in
     ];
   # Newelle is a flatpak now (io.github.qwersyk.Newelle, gated on the same
   # dots.ai.ollama toggle in nix/home/base/flatpaks.nix). Its dconf settings
-  # stay here, below, because dconf is host state rather than app state — a
+  # stay here, below, because dconf is host state rather than app state. A
   # flatpak reads the same dconf database through the settings portal, so the
   # keys land where the app looks for them either way.
 
   # Newelle → ollama cloud model: the custom_command LLM handler feeds the
   # chat history ({0}, shell-quoted JSON) to `ollama run kimi-k3:cloud`, so
   # answers come from the ollama.com cloud model (requires `ollama signin` +
-  # `ollama pull kimi-k3:cloud`) — no per-key API billing. The instruction
+  # `ollama pull kimi-k3:cloud`), no per-key API billing. The instruction
   # and JSON are merged into one stdin prompt via `printf '%s\n%s\n'`
   # (unlike `echo`, printf won't mangle JSON `\n` escapes under /bin/sh);
   # `ollama run` reads piped stdin as the prompt, generates once, and
   # streams stdout, matching streaming = true. welcome-screen-shown skips
   # the first-run provider wizard; suggestion = "" disables the extra
   # per-message suggestion invocations (they'd burn ollama credits).
-  # NB: home-manager rewrites llm-settings wholesale on switch — handler
+  # NB: home-manager rewrites llm-settings wholesale on switch. Handler
   # tweaks made in the app UI don't survive a rebuild.
   #
   # Gated on dots.ai.ollama: the command needs the ollama client + cloud
@@ -232,8 +227,8 @@ in
   # Two kinds of gap are closed here, and they need different answers.
   #
   # Eleven of these packages ship no `.desktop` file at all (om, magick, the
-  # rust and haskell and c toolchains, scrot), so beamenu's `apps` provider —
-  # which reads share/applications and nothing else — cannot see them. Their
+  # rust and haskell and c toolchains, scrot), so beamenu's `apps` provider,
+  # which reads share/applications and nothing else, cannot see them. Their
   # entries are the `toolchain` plugin below.
   #
   # The rest do ship desktop entries and already launch. What a launcher adds
@@ -264,13 +259,13 @@ in
   # rather than one row per binary: "what is my Rust toolchain" is a question
   # someone actually asks, "what version is cargo-expand" is not.
   #
-  # `exec` is execvp'd directly by the canvas — no shell — so anything with a
-  # `;` or a pipe goes through `bash -lc`, the same form nix/home/ai/claude.nix
+  # `exec` is execvp'd directly by the canvas, with no shell, so anything with
+  # a `;` or a pipe goes through `bash -lc`, the same form nix/home/ai/claude.nix
   # uses. The pane renders stderr as well as stdout, so a tool that reports
   # its version on the wrong stream still shows up.
 
   # Keyworded, because unlike everything above it consumes what follows it.
-  # `rs E0382` renders the long-form explanation in the pane — the one piece
+  # `rs E0382` renders the long-form explanation in the pane, the one piece
   # of the Rust toolchain that is genuinely launcher-shaped.
 
   # Also keyworded, and the one entry here that beats its desktop file

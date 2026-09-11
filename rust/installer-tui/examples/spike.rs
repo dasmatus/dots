@@ -1,4 +1,4 @@
-//! abstracttui API spike — proves the migration surface compiles and renders
+//! abstracttui API spike. Proves the migration surface compiles and renders
 //! headless. Exercises: `App::new` + `mount`, `Scope::signal`, `dyn_view`
 //! dynamic region, `Element`/`LayoutStyle` flexbox, `Block`, `List`,
 //! `Progress`, `Spinner`, `RichTextView` (render rich text), `Image` mosaic
@@ -20,7 +20,7 @@ use abstracttui::widgets::{Image, ImageAlign, ImageFit, RichTextView};
 
 use abstracttui::prelude::*;
 
-/// Tokyonight blue, as a plain `Rgba` — the spike avoids theme token field
+/// Tokyonight blue, as a plain `Rgba`. The spike avoids theme token field
 /// names; the real migration maps the palette onto a `TokenSet` once at startup.
 const ACCENT: Rgba = Rgba::rgb(122, 162, 247);
 
@@ -48,7 +48,7 @@ fn main() {
         let rich = RichTextView::new(RichText::from_lines(vec![title])).element(&tokens);
 
         // Mosaic/emulator image backend: a 4×4 RGBA bitmap → half-block glyphs.
-        // No kitty/iTerm2/sixel negotiation — this is the wallpaper-tui path.
+        // No kitty/iTerm2/sixel negotiation. This is the wallpaper-tui path.
         let bmp = Arc::new(Bitmap::from_pixels(4, 4, vec![ACCENT; 16]).unwrap());
         let img = Image::from_bitmap(bmp)
             .mode(MosaicMode::HalfBlock)

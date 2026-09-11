@@ -1,0 +1,25 @@
+[package]
+name = "dots-secreport"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matus Mastena <Shadiness9530@proton.me>"]
+description = "Read-only system-security dashboard, plus an AppArmor denial triage classifier"
+license = "AGPL-3.0-only"
+
+# Salvaged out of rust/dots-sandbox (see git history) when the bespoke
+# per-app sandbox was retired for Flatpak + AppArmor: `report` and `triage`
+# never had anything to do with launching apps, and both outlive that
+# deletion. Dependencies below are exactly the subset of the old crate's
+# Cargo.toml that `report.rs`/`triage.rs` actually touch — zbus, signal-hook,
+# libc and futures-lite all belonged to the launcher/broker/daemon half that
+# was deleted, not to these two modules.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+miette = { version = "7", features = ["fancy"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = true
+strip = true

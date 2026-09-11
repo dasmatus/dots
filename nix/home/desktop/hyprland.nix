@@ -14,12 +14,12 @@ let
 
   # `hyprctl`'s `meta.mainProgram` is "Hyprland" (capitalised; `hyprctl` is a
   # second binary in the same package, same as quickshell's `qs` in
-  # nix/home/desktop/session/default.nix) — verified against the pinned nixpkgs,
+  # nix/home/desktop/session/default.nix). Verified against the pinned nixpkgs,
   # hence `getExe'` rather than `getExe`.
   hyprctl = lib.getExe' pkgs.hyprland "hyprctl";
 
   # hyprshot picks its save folder from $HYPRSHOT_DIR, then $XDG_PICTURES_DIR,
-  # then `xdg-user-dir PICTURES` — and only if that binary is on $PATH, which
+  # then `xdg-user-dir PICTURES`, and only if that binary is on $PATH, which
   # nixpkgs' wrapper does not arrange (it prefixes hyprland, jq, grim, slurp,
   # wl-clipboard, libnotify and hyprpicker, not xdg-user-dirs). Its last
   # resort is $HOME, so an unresolved lookup drops screenshots in the home
@@ -41,8 +41,8 @@ let
   '';
 
   # The dispatcher map: `dispatch` (actions.nix) → the Lua expression that
-  # invokes it. This is the WM-specific half of this file — the only part
-  # that knows Hyprland's own `hl.dsp.*` spelling — and is exactly what a
+  # invokes it. This is the WM-specific half of this file, the only part
+  # that knows Hyprland's own `hl.dsp.*` spelling, and is exactly what a
   # future nix/home/sway.nix replaces with a map onto `swaymsg`. Keyed off
   # `dispatch`, never off `name`: several `name`s (e.g. `focus.left` and
   # `focus.left-arrow`) share one `dispatch` value, and looking this up by
@@ -112,14 +112,14 @@ let
     else
       throw "nix/home/desktop/hyprland.nix: mkKey does not know how to render a mods list not starting with SUPER, from action `${a.name}`";
 
-  # Dispatcher rendering. `kind = "dispatch"` rows have no command at all —
+  # Dispatcher rendering. `kind = "dispatch"` rows have no command at all,
   # look their `dispatch` up in `dispatchMap`. Every other keyed row
   # (`app`/`action`) has a command in `config.dots.session.commands`, keyed
   # by `name`, run through `hl.dsp.exec_cmd`. `builtins.toJSON` escapes the
   # literal double quotes some commands carry (e.g. the `$RANDOM`-suffixed
   # unit name) into a lua string literal that Lua parses the same way JSON
   # does; this is ASCII-only input, so `toJSON`'s `\uXXXX` escaping of
-  # non-ASCII text never fires here — widening the commands to non-ASCII
+  # non-ASCII text never fires here. Widening the commands to non-ASCII
   # would need a second look at this.
   mkDispatch =
     a:
@@ -130,7 +130,7 @@ let
       lua "hl.dsp.exec_cmd(${builtins.toJSON cfg.commands.${a.name}})";
 
   # One `hl.bind` per keyed row: key, dispatcher, then the flags the row
-  # carries — `repeating` and `mouse` are never both true for the same row.
+  # carries. `repeating` and `mouse` are never both true for the same row.
   mkBind = a: {
     _args = [
       (mkKey a)
@@ -147,8 +147,8 @@ in
   # window and active-output modes drive Hyprland's own IPC. Contributed here
   # rather than in the WM-agnostic session module so that module stays
   # evaluable with no tiling WM in scope at all. `hyprmon-apply` used to be
-  # another entry here; it is gone along with hyprmon itself, not ported —
-  # the monitor layout is applied by qml/monitors/Watcher.qml now.
+  # another entry here; it is gone along with hyprmon itself, not ported.
+  # The monitor layout is applied by qml/monitors/Watcher.qml now.
   dots.session.exec = {
     reload = "${hyprctl} reload";
 
@@ -156,7 +156,7 @@ in
     # focused output. Bare `-m output` opens a slurp monitor picker, which is
     # wrong for a key that should just fire. This is a behaviour change from
     # the grim script it replaces, which composited every output into one
-    # image — hyprshot has no such mode.
+    # image; hyprshot has no such mode.
     screenshot-output = "${hyprshot} -m output -m active";
 
     # `-z` freezes the screen for the duration of the selection, so a menu or
@@ -218,7 +218,7 @@ in
     configType = "lua";
 
     settings = {
-      # local mod = "SUPER" — renderSettings emits all _var locals before
+      # local mod = "SUPER". renderSettings emits all _var locals before
       # the call entries, so this precedes every hl.bind(mod .. …) below.
       mod = {
         _var = "SUPER";
@@ -232,22 +232,24 @@ in
       # (nix/home/desktop/quickshell/qml/monitors/Watcher.qml) via
       # `hyprctl eval 'hl.monitor({...})'`, not from this config file.
 
-      # No exec-once / hl.on("hyprland.start", ...) block. `awww-daemon` and
-      # `nm-applet` are systemd --user units instead, WantedBy
-      # graphical-session.target (nix/home/desktop/session/default.nix), so nothing
-      # needs to launch them from the Lua DSL any more. `hyprmon apply` and
+      # No exec-once / hl.on("hyprland.start", ...) block. `awww-daemon` is a
+      # systemd --user unit instead, WantedBy graphical-session.target
+      # (nix/home/desktop/session/default.nix), so nothing needs to launch
+      # it from the Lua DSL any more. `nm-applet` was the same kind of unit
+      # until Network.qml grew its own access-point write path and it was
+      # deleted outright. `hyprmon apply` and
       # `wallpaper-tui --restore` are gone rather than ported: `main` deleted
       # both hyprmon and wallpaper-tui outright, in favour of
       # qml/monitors/Watcher.qml and qml/wallpaper/{Picker,Rotation}.qml.
       # Quickshell's own unit is deliberately not one of this module's
-      # generated ones either — see the comment on `execDefaults` in
+      # generated ones either. See the comment on `execDefaults` in
       # nix/home/desktop/session/default.nix for why.
 
       # env = [ "X,24" … ] (hyprlang comma-strings) → one hl.env(name, val)
       # call per pair, via _args. The eight portable variables come from
-      # `config.dots.session.sessionVariables` (nix/home/desktop/session/default.nix)
-      # — the same attrset `systemd.user.sessionVariables` reads, so the two
-      # can never drift — merged with the two that stay WM-specific here,
+      # `config.dots.session.sessionVariables` (nix/home/desktop/session/default.nix),
+      # the same attrset `systemd.user.sessionVariables` reads, so the two
+      # can never drift, merged with the two that stay WM-specific here,
       # since both are always "Hyprland". `lib.mapAttrsToList` walks names in
       # sorted order, so the rendered hyprland.lua now lists these
       # alphabetically rather than in the hand-written order above.
@@ -269,13 +271,13 @@ in
 
       # general/decoration/dwindle/master/misc/input/animations.enabled
       # all go into ONE hl.config({ … }) call. `col.*` (dotted in
-      # hyprlang) becomes a nested `col` table — the Lua API reads
+      # hyprlang) becomes a nested `col` table. The Lua API reads
       # col.active_border / col.inactive_border, not ["col.active_border"].
       config = {
         # gaps_in/gaps_out/border_size/layout come from the settings panel's
         # Window manager page (nix/home/desktop/quickshell/qml/settings/Settings.qml)
         # now, persisted to settings.nix and applied live via `hyprctl
-        # keyword` — see that page's applyLive()/wm.js for the live half.
+        # keyword`, see that page's applyLive()/wm.js for the live half.
         # nix/system/defaults.nix's wmGapsIn/wmGapsOut/wmBorderSize/wmLayout match
         # the literals this replaced exactly, so a rebuild with no settings
         # panel edit yet made is a no-op.
@@ -294,17 +296,17 @@ in
         decoration = {
           rounding = 10;
           # 0.75 opacity on every window (active + inactive) so the background
-          # blur below shows through — every window becomes frosted glass.
+          # blur below shows through. Every window becomes frosted glass.
           # Hyprland opacity is a PRODUCT, so this multiplies with any per-app
           # opacity (terminals etc.), nudging them slightly more transparent.
           # Chosen over a per-window `opacity 0.75 override, .*` rule because
           # active_opacity/inactive_opacity are typed Lua fields (guaranteed to
           # eval), whereas the override-style window-rule field isn't in the
-          # shipped hl.meta.lua — same visual result, no crash risk.
+          # shipped hl.meta.lua. Same visual result, no crash risk.
           active_opacity = 0.9;
           inactive_opacity = 0.75;
-          # Heavy blur. size/passes are GLOBAL — Hyprland has no per-window or
-          # per-layer strength — so these numbers are what gives the beamenu
+          # Heavy blur. size/passes are GLOBAL: Hyprland has no per-window or
+          # per-layer strength, so these numbers are what gives the beamenu
           # launcher its frosted backdrop (see the layer_rule below), and every
           # window inherits the same depth. 3 passes at size 8 is the usual
           # ceiling before the cost stops being worth it; going higher mostly
@@ -341,8 +343,8 @@ in
           kb_options = "caps:escape";
           # wmFollowMouse is a bool on the settings side (the panel only ever
           # offers on/off) where Hyprland's own follow_mouse is an int
-          # (0/1/2/3); true maps to Hyprland's own default 1, false to 0 —
-          # see nix/system/defaults.nix's comment on the key and wm.js's matching
+          # (0/1/2/3); true maps to Hyprland's own default 1, false to 0.
+          # See nix/system/defaults.nix's comment on the key and wm.js's matching
           # boolAsInt conversion for the live-apply half.
           follow_mouse = if settings.wmFollowMouse then 1 else 0;
           sensitivity = 0;
@@ -364,7 +366,7 @@ in
       # hl.window_rule({ name=…, match={ class=".*" }, blur=true })). The
       # global active_opacity/inactive_opacity in config.decoration above
       # already makes windows translucent so the background blur reads through;
-      # this rule additionally forces blur on windows that would otherwise opt
+      # this rule also forces blur on windows that would otherwise opt
       # out, so the effect is uniform across everything.
       window_rule = [
         {
@@ -386,8 +388,8 @@ in
       # deliberately translucent. Leaving it at the default would blur only the
       # fully opaque text.
       #
-      # Blur STRENGTH is global in Hyprland — there is no per-layer size or
-      # pass count — so the heavy look comes from decoration.blur above, which
+      # Blur STRENGTH is global in Hyprland: there is no per-layer size or
+      # pass count, so the heavy look comes from decoration.blur above, which
       # this rule opts the launcher into. Add `dim_around = true` here for a
       # spotlight effect that darkens the rest of the screen.
       #
@@ -501,7 +503,7 @@ in
 
       # Binds. hyprlang `bind`/`binde`/`bindm` collapse to one `hl.bind`
       # API: hl.bind(key, dispatcher, opts?). opts carries the flags that
-      # were separate keywords — { repeating = true } for binde,
+      # were separate keywords: { repeating = true } for binde,
       # { mouse = true } for bindm. `lua` (mkLuaInline) wraps both the key
       # expression (mod .. " + Q") and the dispatcher (hl.dsp.*) so HM
       # emits them verbatim. Plain Nix strings ("Print", "XF86AudioMute")
@@ -510,7 +512,7 @@ in
       # Generated from `nix/home/desktop/session/actions.nix`, one `hl.bind` per row
       # that carries a `key`; table order is preserved so the rendered file
       # reads in the same sequence as before. `mkKey`/`mkDispatch`/`mkBind`
-      # and `dispatchMap` above do the rendering — see the comment on
+      # and `dispatchMap` above do the rendering. See the comment on
       # `dispatchMap` for the one part of this that is Hyprland-specific.
       # Comments explaining why a particular bind exists live in actions.nix
       # now, not here.
@@ -598,7 +600,7 @@ in
         ];
       };
 
-      # Digital clock — $TIME is a hyprlock built-in that ticks every
+      # Digital clock. $TIME is a hyprlock built-in that ticks every
       # second on its own, so no cmd polling needed. Centered column over
       # the input field: TIME (130px above center) → DATE (40px above) →
       # input (110px below). In hyprlock, +Y is up.

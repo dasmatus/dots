@@ -1,6 +1,6 @@
 // Arrange.qml's own pure logic: the canvas <-> real-pixel coordinate
 // transform, edge snapping, the overrides.json merge, and the handful of
-// edit-form field parsers — kept out of the component so
+// edit-form field parsers, kept out of the component so
 // tests/qml/tst_arrange.qml can exercise the coordinate math and the merge
 // directly, with no live PanelWindow, MouseArea drag, or Hyprland singleton
 // anywhere near the test.
@@ -37,7 +37,7 @@ function toScreen(monitor, transform) {
     };
 }
 
-// Inverse of toScreen, rounded to a whole pixel — Hyprland's own `position`
+// Inverse of toScreen, rounded to a whole pixel: Hyprland's own `position`
 // field is always integral.
 function toWorldPosition(itemX, itemY, transform) {
     const wx = Math.round(itemX / transform.scale + transform.originX);
@@ -73,13 +73,13 @@ function closestWithin(value, targets, threshold) {
 }
 
 // Snap one dragged rectangle's x/y to whichever neighbour edge (of every
-// OTHER rectangle currently on the canvas) is within threshold —
+// OTHER rectangle currently on the canvas) is within threshold:
 // left-to-left, left-to-right, top-to-top and top-to-bottom, so two
 // monitors dragged flush against each other land exactly flush rather than
 // a pixel or two off. Axes snap independently: a drag that only lines up
 // vertically still gets that snap even if the horizontal position stays
 // free. `rect`/`others` are plain {x, y, width, height} objects (or, from
-// Arrange.qml, the live delegate Items themselves — this reads and returns
+// Arrange.qml, the live delegate Items themselves, this reads and returns
 // only x/y, so either works).
 function snappedPosition(rect, others, threshold) {
     const xTargets = [];
@@ -97,14 +97,14 @@ function snappedPosition(rect, others, threshold) {
 }
 
 // Every settable override field besides name/description, which the edit
-// form shows read-only — overrides.rs's own schema, kept as one list so
+// form shows read-only, overrides.rs's own schema, kept as one list so
 // mergedOverrides and the field parsers below all agree on it.
 const SETTABLE_FIELDS = ["resolution", "position", "scale", "transform", "vrr"];
 
 // A field counts as set by the form when it is neither absent nor an empty
 // string. 0 must still count as set (transform 0 is a real, meaningful
 // value, not "the form left this blank"), which is why this isn't a plain
-// truthiness check — applyOverrides in plan.js already relies on the same
+// truthiness check; applyOverrides in plan.js already relies on the same
 // distinction the other direction, testing each field with `!= null`.
 function isSet(value) {
     if (value === undefined || value === null)
@@ -119,7 +119,7 @@ function isSet(value) {
 // an untouched field as absent instead of writing a bogus 0. Number.isFinite
 // rather than Number.isNaN: a bare Number.isNaN check lets "Infinity" and
 // "-Infinity" through as real values, and JSON.stringify renders either as
-// `null` — the exact thing this function exists to keep out of an entry.
+// `null`, the exact thing this function exists to keep out of an entry.
 function numberField(text) {
     if (text === undefined || text === null)
         return undefined;
@@ -130,7 +130,7 @@ function numberField(text) {
     return Number.isFinite(n) ? n : undefined;
 }
 
-// numberField, truncated to an integer — used as-is for a generic integer
+// numberField, truncated to an integer, used as-is for a generic integer
 // field; transform's own narrower 0-7 range is enforced by parseTransform
 // below, not here.
 function integerField(text) {
@@ -138,10 +138,10 @@ function integerField(text) {
     return n === undefined ? undefined : Math.trunc(n);
 }
 
-// The vrr enum overrides.json allows, exactly. Anything else — a typo like
-// "on", a stray label copy-pasted in, blank text — becomes undefined rather
+// The vrr enum overrides.json allows, exactly. Anything else (a typo like
+// "on", a stray label copy-pasted in, blank text) becomes undefined rather
 // than a value written raw: overrides.rs's own parse_vrr had the same
-// contract (trim, lowercase, then match), so this lowercases too — a field
+// contract (trim, lowercase, then match), so this lowercases too: a field
 // this merge-only ever adds to but never clears (see mergedOverrides' own
 // comment) makes a case mismatch worse than an ordinary typo: typing "Off"
 // over an existing "left" would silently drop the field and leave "left" in
@@ -157,7 +157,7 @@ function parseVrr(text) {
     return VRR_VALUES.includes(trimmed) ? trimmed : undefined;
 }
 
-// Transform, restricted to Hyprland's own 0-7 range — overrides.rs's own
+// Transform, restricted to Hyprland's own 0-7 range: overrides.rs's own
 // s.parse::<u8>().ok() plus this schema's tighter bound (u8 alone would
 // still let 200 through). An out-of-range value is worth dropping rather
 // than forwarding: Hyprland rejects a bad transform outright and takes the
@@ -175,13 +175,13 @@ function parseTransform(text) {
 // save's form left untouched) and only the fields present on `item` are
 // replaced; an entry for a monitor not on the canvas right now (unplugged
 // since the last edit) is left alone rather than dropped. `items` is
-// `[{name, position, resolution?, scale?, transform?, vrr?}]` — position
+// `[{name, position, resolution?, scale?, transform?, vrr?}]`; position
 // always present (rendered as "XxY" by toWorldPosition), the rest present
 // only when the form actually set them, already carrying the types
 // overrides.json wants (see numberField/integerField above).
 //
 // This one-way merge means a blank field can never clear a value an earlier
-// save already wrote — isSet() treats "" the same as "the form never
+// save already wrote: isSet() treats "" the same as "the form never
 // touched this", so an existing entry's field survives untouched rather
 // than being erased. That is deliberate (see isSet()'s own comment), but it
 // means the only way to actually remove a field, short of hand-editing the
@@ -189,7 +189,7 @@ function parseTransform(text) {
 // one field at a time.
 //
 // `entries` is built by direct array push, in file order, rather than by
-// reading a name-keyed object's own key order back out — overrides.rs's own
+// reading a name-keyed object's own key order back out: overrides.rs's own
 // doc comment calls this file an ordered list where "first match wins", so
 // a save must not reorder entries it never touched, and a plain object's
 // key order cannot be trusted for that: JS iterates any key that looks like
@@ -205,7 +205,7 @@ function parseTransform(text) {
 //
 // A description-only entry (overrides.rs's own `name` is `Option<String>`,
 // and match_override's description-fallback pass is a real, documented
-// path — this user's own monitors.json matches by description, so an
+// path, this user's own monitors.json matches by description, so an
 // override keyed the same way is a thing they would plausibly write) has
 // nothing in `items` that could ever address it: every item this function
 // receives comes from a dragged canvas rectangle, which always carries the
@@ -222,7 +222,7 @@ function mergedOverrides(existingRoot, items) {
         }
         const copy = Object.assign({}, entry);
         // Only the first occurrence of a given name is ever put in
-        // byName — a duplicate-name file is a malformed one, but
+        // byName: a duplicate-name file is a malformed one, but
         // overrides.rs's own "first match wins" doc comment (see this
         // function's own header) makes the first occurrence the one that
         // actually governs, and Arrange.qml's own form-loading code reads

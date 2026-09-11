@@ -1,7 +1,7 @@
 //! Headless frontends over the settings store: `dump`/`set` for scripting and
 //! `serve` for beamenu-canvas's JSON-RPC form view. Only the file
 //! replacement is privileged, done by re-running this binary's `write` mode
-//! under pkexec with the rendered file on stdin — unchanged from the retired
+//! under pkexec with the rendered file on stdin, unchanged from the retired
 //! rofi frontend.
 
 use std::env;

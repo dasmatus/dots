@@ -21,7 +21,7 @@ mkdir -p "$(dirname "$result")"
 # a .done sentinel is touched when claude exits so the orchestrator can poll.
 # NB: omit --close-on-exit/--close-on_exit entirely: on zellij 0.44.3 it is a
 # boolean flag taking NO value (so `--close-on-exit false` is a hard parse
-# error), and its presence means close-on-exit=true — the opposite of the
+# error), and its presence means close-on-exit=true, the opposite of the
 # watchable-subagent intent. The default (flag absent) keeps the pane open.
 zellij action new-pane \
   --name "$name" \

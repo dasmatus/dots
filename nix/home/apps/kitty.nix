@@ -1,11 +1,11 @@
-# programs.kitty — port of alacritty.nix (deleted — see git history), kept
+# programs.kitty: port of alacritty.nix (deleted, see git history), kept
 # equally minimal: only the shell, colours, cursor, font and one keybind the
 # original carried. kitty is GPU-accelerated like Alacritty but its kitten
 # runtime ships with the nixpkgs package regardless; no extras are enabled
 # here. Settings ported 1:1, with kitty's config syntax differences:
 #   - colours: 0xRRGGBB → #RRGGBB (kitty.conf colour format)
 #   - font: Alacritty's normal.style = "Bold" (regular text rendered in the
-#     Bold face) has no kitty equivalent — font_family takes a font/PostScript
+#     Bold face) has no kitty equivalent. font_family takes a font/PostScript
 #     name, so LilexNF-Bold (the Bold face's PostScript name, confirmed via
 #     fc-query) is set as the regular font; bold_font pinned to the same so
 #     kitty doesn't synthesise a "bolder" variant for bold runs.

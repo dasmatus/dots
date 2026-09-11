@@ -1,20 +1,20 @@
-// The install runner — install.rs::run()/exec_step(), ported. `run(actions)`
+// The install runner, install.rs::run()/exec_step(), ported. `run(actions)`
 // walks the ordered list plan.js's planFor() (or, in a test, a harmless
 // stand-in of the same shape) produces, one Process at a time: the next
 // action starts only once the previous one has exited, and a non-zero exit
-// raises `failed` immediately — nothing after it ever runs. Event shape
+// raises `failed` immediately, so nothing after it ever runs. Event shape
 // mirrors install.rs's `Event` one signal per variant: `stepStarted`, `log`,
 // `recoveryKey`, `finished`, `failed`.
 //
 // A single Process/SplitParser pair is reused across every step rather than
-// one instance per action — Providers.qml's debounced file search reuses its
+// one instance per action. Providers.qml's debounced file search reuses its
 // Process across searches the same way, and actions here never overlap.
 //
 // `WriteFile` has no filesystem-write primitive of its own in QML, so it
 // runs as `install -D -m <mode> /dev/stdin <path>`: `install -D` creates
 // missing parent directories the way install.rs's `create_dir_all` does,
 // `-m` sets the mode at creation rather than chmod-ing afterwards, and the
-// contents travel over stdin — never through argv, never through a shell
+// contents travel over stdin, never through argv, never through a shell
 // string. `WriteSecrets` pipes the plaintext through
 // `mkpasswd -m yescrypt --stdin`, exactly like install.rs's `hash_password`,
 // then re-enters the same install-based write with the resulting hash; the
@@ -43,7 +43,7 @@ QtObject {
     property string _secretPath: ""
 
     /// Start walking `actions` from the top. Re-entrant calls are not
-    /// supported — one plan runs to `finished`/`failed` before another may
+    /// supported: one plan runs to `finished`/`failed` before another may
     /// start, matching install.rs's single worker thread.
     function run(actions) {
         root._actions = actions;
@@ -51,7 +51,7 @@ QtObject {
         root._runStep();
     }
 
-    /// The current `{title, action}` step — plan.js's shape.
+    /// The current `{title, action}` step, plan.js's shape.
     function _step() {
         return root._actions[root._index];
     }
@@ -120,7 +120,7 @@ QtObject {
                 const action = root._step().action;
                 if (action.kind === "Command" && action.capture === "RecoveryKey") {
                     // Kept out of the scrolling log; shown separately once
-                    // captured — install.rs does the same on its Done screen.
+                    // captured. install.rs does the same on its Done screen.
                     if (data.trim().length > 0)
                         root._lastLine = data.trim();
                 } else {
@@ -141,7 +141,7 @@ QtObject {
 
             if (root._phase === "hashSecret") {
                 const hash = root._lastLine;
-                // yescrypt hashes start "$y$" — install.rs checks the same
+                // yescrypt hashes start "$y$"; install.rs checks the same
                 // thing before trusting mkpasswd's stdout as a real hash.
                 if (!hash.startsWith("$y$")) {
                     root.failed(`${step.title}: mkpasswd did not produce a yescrypt hash`);

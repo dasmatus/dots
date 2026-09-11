@@ -4,19 +4,19 @@
 #
 # Why fetchgit + an in-flake build (not a flake input, not the old local
 # tarball): aipage's own flake only exposes an *impure* `apps.build` (it shells
-# out to `bun install` + `bunx`), and its built `dist-*` dirs are gitignored —
+# out to `bun install` + `bunx`), and its built `dist-*` dirs are gitignored,
 # so no flake input can reach a built artifact. `pkgs.fetchgit` with a pinned
 # `rev` + `hash` is a content-addressed fixed-output DERIVATION: pure under
 # `nix flake check`, baked into the ISO closure at build time, and substituted
 # from the install medium's store at install time (no network, no source build
-# at install time). Crucially it is a derivation, not the `builtins.fetchGit`
-# primitive: its output store path is determined by `hash` alone, so evaluating
-# it never fetches (a derivation's .outPath is computed from the hash without
-# realizing it). `builtins.fetchGit`, by contrast, is an eval-time primitive
-# that resolves its output through the nix fetcher cache (~/.cache/nix) — empty
-# on a fresh install medium / VM, so an offline `nixos-install --flake` would
-# shell out to `git` to rediscover the path. fetchgit sidesteps that entirely,
-# which is what makes the offline VM install test (tests/default.nix,
+# at install time). It is a derivation, not the `builtins.fetchGit` primitive:
+# its output store path is determined by `hash` alone, so evaluating it never
+# fetches (a derivation's .outPath is computed from the hash without realizing
+# it). `builtins.fetchGit`, by contrast, is an eval-time primitive that
+# resolves its output through the nix fetcher cache (~/.cache/nix), which is
+# empty on a fresh install medium / VM, so an offline `nixos-install --flake`
+# would shell out to `git` to rediscover the path. fetchgit sidesteps that
+# entirely, which is what makes the offline VM install test (tests/default.nix,
 # `limine-install-boot`) and a truly offline real install work. The old design
 # used a `file://$HOME/.local/share/aipage/dist-firefox.tar` FOD that only
 # existed on the dev machine, so `nixos-install` on the ISO failed to evaluate.
@@ -28,18 +28,18 @@
 # Keep this in step with xtask when aipage's pipeline changes; the update
 # script (scripts/update-aipage.sh) warns on xtask drift.
 #
-# Toolchain: cargo/rustc and bun are NOT picked out of `pkgs` here — they come
+# Toolchain: cargo/rustc and bun are NOT picked out of `pkgs` here. They come
 # from flake/languages.nix through `devenv.lib.mkConfig`, so this build, the
 # dev shell and the user profile compile with one declared toolchain. See the
 # `toolchains` binding below.
 #
 # Vendoring: cargo deps via `rustPlatform.fetchCargoVendor` (Cargo.lock is v4,
-# no git deps — only intra-workspace path deps, which live in `aipageSrc` and
+# no git deps, only intra-workspace path deps, which live in `aipageSrc` and
 # are found via the workspace layout by `cargoSetupHook`); JS deps
 # (postcss/tailwind/autoprefixer) via bun2nix's `fetchBunDeps` + `hook`, which
 # populates `node_modules` offline from a nix-store cache. `sass` uses
 # `pkgs.dart-sass` directly (the `sass` npm package pulls `sass-embedded`,
-# which fetches a native binary in a postinstall — avoided).
+# which fetches a native binary in a postinstall, which this build avoids).
 {
   pkgs,
   rustPlatform,
@@ -47,7 +47,7 @@
 }:
 let
   # The Rust and Bun toolchains this build compiles with, read out of
-  # flake/languages.nix — the same devenv module `nix develop` imports and
+  # flake/languages.nix, the same devenv module `nix develop` imports and
   # nix/home/base/pkgs.nix installs into the user profile. Before this, the
   # build named `pkgs.cargo`, `pkgs.rustc` and `pkgs.bun` directly, which meant
   # aipage could silently be built by a different Rust than the one the repo
@@ -55,7 +55,7 @@ let
   #
   # Only two PACKAGES are taken, not devenv's `config.packages`: a derivation
   # wants the compilers it names in `nativeBuildInputs`, not a whole
-  # environment. `mkConfig` is module-system evaluation only — no shell is
+  # environment. `mkConfig` is module-system evaluation only. No shell is
   # built and no assertion in that file is forced.
   #
   # `pkgs` here is flake/lib.nix's `pkgsBun` (the bun2nix-overlaid instance),
@@ -137,8 +137,8 @@ let
   # what caused the second incident here: it silently dropped two of the
   # 554 entries down to `hash = ""`, a value `fetchurl` accepts and
   # normalises to the all-zero fixed-output hash. Nothing about that is
-  # loud — eval passes, `nix build --dry-run` passes, even `.drvPath` on the
-  # packages that pull those two deps in stays a well-formed string — the
+  # loud. Eval passes, `nix build --dry-run` passes, even `.drvPath` on the
+  # packages that pull those two deps in stays a well-formed string. The
   # failure only surfaces at realization time, after downloading the real
   # tarball, as a hash mismatch that names the single npm package and
   # nothing about this file. `aipage-bun-hashes-eval` in flake/checks.nix
@@ -159,13 +159,13 @@ let
       rustPlatform.cargoSetupHook
       pkgs.llvmPackages.lld # wasm32-unknown-unknown linker (nixpkgs rustc
       # delegates wasm linking to the system `lld`, not a self-contained
-      # rust-lld — without this, `cargo build --target wasm32-…` fails with
+      # rust-lld. Without this, `cargo build --target wasm32-…` fails with
       # "linker `lld` not found").
       wasm-bindgen-cli
       pkgs.binaryen # `wasm-opt`
       bun
       pkgs.bun2nix.hook # reads `bunDeps`, populates node_modules offline
-      pkgs.dart-sass # `sass` binary — replaces `bunx sass`
+      pkgs.dart-sass # `sass` binary, replaces `bunx sass`
     ];
 
     inherit cargoDeps bunDeps;
@@ -174,7 +174,7 @@ let
     # BUN_INSTALL_CACHE_DIR with `cp -r` (no `-L`, despite its own comment
     # claiming otherwise), so all 541 cache entries stay *symlinks* into
     # per-package `bun-pkg-…` store paths. bun then hardlinks each package's
-    # files through those symlinks — i.e. link(2) whose resolved source is a
+    # files through those symlinks, i.e. link(2) whose resolved source is a
     # root-owned, read-only /nix/store file. Linux refuses that with EPERM
     # whenever `fs.protected_hardlinks=1` (the systemd default, so: Fedora and
     # NixOS both) and the builder is neither the file's owner nor holds write

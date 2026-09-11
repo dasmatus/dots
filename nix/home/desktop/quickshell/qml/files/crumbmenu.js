@@ -3,7 +3,7 @@
 // for the same reason tabs.js is: CrumbMenu.qml reaches Quickshell.Io, which
 // qmltestrunner cannot load, so the cap-and-remainder arithmetic and the row
 // shape have to live somewhere a test can drive them with a plain array and
-// no window — here, exercised by tst_files_crumbmenu.qml.
+// no window. It is exercised here by tst_files_crumbmenu.qml.
 .pragma library
 
 .import "commands.js" as Commands

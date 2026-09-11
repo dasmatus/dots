@@ -33,7 +33,7 @@ let
   # Named for the shell rather than for wallpaper-tui: Picker.qml is what
   # writes this file now. One Nix binding used on both the writer's
   # (Theme.tintStatePath) and the watcher's (tintState.path) side below is
-  # what keeps the two from disagreeing about where it lives — see this
+  # what keeps the two from disagreeing about where it lives. See this
   # module's own header for what happens when they do.
   tintStateDir = "${stateHome}/dots-shell/tint";
 
@@ -74,7 +74,7 @@ let
   # level deeper: these entries sit inside the object literal the
   # papirusColors property wraps, not directly inside Singleton { }. The
   # interpolation site below carries no static indent of its own precisely
-  # so this hardcoded prefix is the only one applied — a nonzero static
+  # so this hardcoded prefix is the only one applied. A nonzero static
   # prefix there would land on this string's first line only, since a '' ''
   # literal dedents its own source lines before substituting, not after.
   papirusColorEntries = lib.concatStringsSep ",\n" (
@@ -85,7 +85,7 @@ let
   # this path; one binding keeps them from drifting apart.
   papirusIconThemeBase = "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark";
 
-  # The sizes Papirus-Tint actually ships — the one place this list is
+  # The sizes Papirus-Tint actually ships: the one place this list is
   # written down. Everything else that needs it (index.theme's Directories
   # key below, and Icons.qml's retint() through the papirusTintSizes QML
   # property) derives from this list rather than hardcoding its own copy, so
@@ -105,7 +105,7 @@ let
 
   # The same sizes as space-separated "<n>x<n>" tokens, for Icons.qml's
   # retint() to iterate over as argv rather than hardcoding a second literal
-  # size list in a second language — see the papirusTintSizes QML property
+  # size list in a second language. See the papirusTintSizes QML property
   # below.
   papirusTintSizeTokens = lib.concatMapStringsSep " " (
     size: "${toString size}x${toString size}"
@@ -118,7 +118,7 @@ let
     Type=Fixed'') papirusTintSizes;
 
   # The runtime tint theme Icons.qml assembles into: Papirus-Dark with its
-  # folder icons re-symlinked to the wallpaper accent. THIN on purpose — it
+  # folder icons re-symlinked to the wallpaper accent. THIN on purpose: it
   # ships only the five `places` directories below, and Inherits resolves
   # every other icon straight from papirusIconThemeBase, so nothing else
   # needs copying or regenerating when the accent changes.
@@ -168,12 +168,12 @@ let
         // common/Pill.qml's internal Row hardcodes this same 6px spacing
         // today; this token exists so a sibling that has to duplicate the
         // number to compute available width has something to read instead
-        // of a second literal. Pill.qml itself is not wired to it yet — a
+        // of a second literal. Pill.qml itself is not wired to it yet. A
         // follow-up rewires the consumer once the file it lives in is free.
         readonly property int barPillSpacing: ${toString palette.bar.pillSpacing};
 
         // How many app icons a single crowded workspace draws before the
-        // rest fold into a "+n" badge — see Workspaces.qml's own use of it
+        // rest fold into a "+n" badge. See Workspaces.qml's own use of it
         // for why an unbounded row would be able to push the clock off the
         // bar.
         readonly property int barWorkspaceIconCap: ${toString palette.bar.workspaceIconCap};
@@ -222,7 +222,7 @@ let
         // launcher's: the richer sidebar-nav layout disagrees with every
         // other feature on spacing, and a shared constant every caller
         // immediately overrides is the magic number this file exists to
-        // stop. Nothing under qml/settings/ reads these yet — that lands
+        // stop. Nothing under qml/settings/ reads these yet. That lands
         // with the layout rebuild these tokens were cut for.
         readonly property int settingsSidebarWidth: ${toString palette.settings.sidebarWidth};
         readonly property int settingsHeaderHeight: ${toString palette.settings.headerHeight};
@@ -236,7 +236,7 @@ let
 
         // The Security page's permissions section is the first settings
         // surface to draw an app's own icon (real Name/Icon from the
-        // desktop entry, per `dots-sandbox catalog --json` — see
+        // desktop entry, per `dots-sandbox catalog --json`; see
         // security.qml) rather than a policy key, so it is the first to
         // need a size for one. Not reused from launcherIconSize/
         // filesIconSize: those two already disagree with each other, and a
@@ -275,7 +275,7 @@ let
         readonly property int settingsToggleHeight: ${toString palette.settings.toggleHeight};
 
         // How many entries a crumb's dropdown shows before it cuts off and
-        // reports the rest as a count instead — see files/crumbmenu.js's own
+        // reports the rest as a count instead. See files/crumbmenu.js's own
         // comment for why a directory like /nix/store forces a cap at all.
         // 15 is chosen against filesRowHeight: 15 entries plus the fixed
         // open-this-folder row and, when the cap bites, the one-line
@@ -296,8 +296,8 @@ let
 
         readonly property color accentFallback: "${palette.accentFallback}";
 
-        // The Nix-store Kvantum theme Kvantum.qml's retint() copies from —
-        // the same store path the deleted wallpaper-tui.nix wrapper passed
+        // The Nix-store Kvantum theme Kvantum.qml's retint() copies from.
+        // The same store path the deleted wallpaper-tui.nix wrapper passed
         // in as WALLPAPER_TUI_KVANTUM_BASE. Read-only for the same reason
         // every store path here is: it ships as part of the Nix store,
         // which is immutable by design.
@@ -305,7 +305,7 @@ let
 
         // The Nix-store Papirus-Dark tree Icons.qml's retint() copies from.
         // Papirus-Dark/<size> are symlinks to ../Papirus/<size>, so whole
-        // size directories are shared with the light variant — a copy out
+        // size directories are shared with the light variant. A copy out
         // of this path has to dereference the symlinks rather than copy
         // them as-is.
         readonly property string papirusBase: "${papirusIconThemeBase}";
@@ -365,7 +365,7 @@ let
 
         // Quickshell's qmltypes gives FileView.adapter the type FileViewAdapter
         // without exporting it, so qmllint cannot resolve anything reached
-        // through it — that is why the category is suppressed here. Separately,
+        // through it. That is why the category is suppressed here. Separately,
         // JsonAdapter has no `root` property on this Quickshell build: only a
         // property DECLARED on the adapter instance gets populated from the
         // file, which is why `accent` below is declared directly on tintState's

@@ -60,8 +60,8 @@ function gridMove(index, delta, count) {
 // already running and the pending queue, is there anything to start next,
 // and what is left in the queue afterwards. `busy` is a flag the caller
 // tracks itself (set the moment a Process starts, cleared the moment it
-// exits) rather than anything read back off Quickshell's Process.running —
-// nothing here, or in Picker.qml, assumes a particular ordering between
+// exits) rather than anything read back off Quickshell's Process.running.
+// Nothing here, or in Picker.qml, assumes a particular ordering between
 // Process's own `running` and `exited`.
 function nextApply(busy, queue) {
     if (busy || queue.length === 0)
@@ -73,13 +73,13 @@ function nextApply(busy, queue) {
 // nextApply() was: given whatever recordOutputState() queued while
 // outputStateFile's first load attempt was still unresolved, what should
 // actually get written (null if nothing was queued) and what the queue
-// becomes afterward (always empty — everything queued flushes in one
+// becomes afterward (always empty, since everything queued flushes in one
 // merge, not one record at a time). Exists so the double-fire safety
-// flushPendingOutputRecords() promises — a second call, from whichever
-// of onLoaded/onLoadFailed did not resolve first, finding nothing left
-// to flush — is a property of this function rather than something only
-// true by construction: draining an already-empty queue has to return
-// null, and that is exactly what running this twice in a row does.
+// flushPendingOutputRecords() promises is a property of this function,
+// not something only true by construction: a second call, from whichever
+// of onLoaded/onLoadFailed did not resolve first, finds nothing left to
+// flush because draining an already-empty queue has to return null, and
+// that is exactly what running this twice in a row does.
 function drainPending(queue) {
     if (queue.length === 0)
         return { records: null, queue: queue };
@@ -87,8 +87,8 @@ function drainPending(queue) {
 }
 
 // One record's on-disk shape: config.rs's OutputOverride, whose three
-// fields are all `#[serde(default, skip_serializing_if = "Option::is_none")]`
-// — present-and-meaningful or entirely absent, never null and never an
+// fields are all `#[serde(default, skip_serializing_if = "Option::is_none")]`,
+// present-and-meaningful or entirely absent, never null and never an
 // empty string. A wallpaper apply always has a real path/mode/fillColor,
 // so this rarely drops anything in practice; it exists so a future caller
 // that only knows a subset can still write a valid partial entry, and so
@@ -111,7 +111,7 @@ function outputEntry(record) {
 
 // config.rs's State: `{ outputs: BTreeMap<String, OutputOverride> }`, the
 // output name as the map KEY rather than a field inside the value.
-// `outputs` here is that map (not the `{ outputs: ... }` envelope — the
+// `outputs` here is that map (not the `{ outputs: ... }` envelope; the
 // caller adds that once, at the file boundary), so every function in this
 // file trades in the map directly.
 //
@@ -119,9 +119,9 @@ function outputEntry(record) {
 // so two writes of the same data produce byte-identical JSON rather than
 // churning a diff on insertion order alone.
 //
-// Each record fully replaces the named output's entry — a wallpaper apply
+// Each record fully replaces the named output's entry. A wallpaper apply
 // is a single "this output is now this path/mode/fillColor" event, not a
-// set of independent field patches — so an existing entry for a name in
+// set of independent field patches, so an existing entry for a name in
 // `records` is discarded wholesale rather than merged field-by-field. An
 // entry whose name is absent from `records` (a disconnected output, or
 // simply not part of this apply) is carried over untouched.
@@ -137,9 +137,9 @@ function mergeOutputState(existingOutputs, records) {
 }
 
 // config.rs's effective_output, minus the declarative config.outputs layer
-// this port never gained — only the runtime-state half survives, so a
+// this port never gained. Only the runtime-state half survives, so a
 // field falls back the moment it is missing (this port never writes null
-// or "" — see outputEntry() — but a hand-edited file could, and a falsy
+// or ""; see outputEntry(); but a hand-edited file could, and a falsy
 // check treats that the same as absent) rather than checking a second,
 // declarative source first.
 function effectiveOutput(outputs, name) {
@@ -151,7 +151,7 @@ function effectiveOutput(outputs, name) {
     };
 }
 
-// Whether `name` has a record at all — effectiveOutput()'s own fallback
+// Whether `name` has a record at all. effectiveOutput()'s own fallback
 // triple cannot answer this, since a real record of exactly fill/
 // DEFAULT_COLOR is indistinguishable from no record once both have gone
 // through the same fallback. cycleOutput() needs the distinction: landing
@@ -163,7 +163,7 @@ function hasOutputRecord(outputs, name) {
 }
 
 // app.rs's restore(): every output that has ever had a wallpaper applied
-// gets its OWN stored path/mode/fillColor back, in `outputNames`' order —
+// gets its OWN stored path/mode/fillColor back, in `outputNames`' order,
 // not the current grid selection replayed onto everything. An output with
 // no recorded path (never applied to by name) is left out rather than
 // restoring an empty apply.

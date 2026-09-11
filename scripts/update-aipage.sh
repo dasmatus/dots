@@ -10,8 +10,8 @@
 #   sudo nixos-rebuild switch --flake .#tokyonight   (or rebuild the ISO)
 #
 # This replaces the old flow that built dist-* tarballs into
-# ~/.local/share/aipage/ and grepped narHashes into nix/home/{brave,librewolf}.nix
-# — the dist is now built inside the dots flake, so there's nothing local to
+# ~/.local/share/aipage/ and grepped narHashes into nix/home/{brave,librewolf}.nix.
+# The dist is now built inside the dots flake, so there's nothing local to
 # refresh per machine.
 set -euo pipefail
 
@@ -27,7 +27,7 @@ EXPECT_WASM_BINDGEN="0.2.125"
 cd "$AIPAGE"
 git switch main
 git pull --ff-only
-# Pin only a clean published main — a dirty tree would pin uncommitted state.
+# Pin only a clean published main. A dirty tree would pin uncommitted state.
 [ -z "$(git status --porcelain --untracked=no)" ] || {
   echo "aipage: working tree dirty on main; commit/stash first" >&2
   exit 1

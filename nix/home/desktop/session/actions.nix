@@ -9,7 +9,7 @@
 # argument-free way from two places, one of which (`flake/packages.nix`) has
 # no evaluated home-manager config to draw arguments from, and
 # `nix/home/desktop/quickshell/tree.nix` runs a strict `builtins.toJSON` over the
-# result — a lambda, a `pkgs` reference, or a store path anywhere in this file
+# result. A lambda, a `pkgs` reference, or a store path anywhere in this file
 # would break both. Commands are attached later, in `nix/home/desktop/session/default.nix`,
 # keyed by `name`; that is also why this table has no `command` field of its
 # own.
@@ -25,7 +25,7 @@
 #              `dispatch`, because `name` must stay unique while `dispatch`
 #              only has to be unique per distinct action. `focus.left` and
 #              `focus.left-arrow` are two such `name`s, both carrying
-#              `dispatch = "focus.left"` — the HJKL and arrow-key rows fire
+#              `dispatch = "focus.left"`. The HJKL and arrow-key rows fire
 #              the same dispatcher from a different key. Task 4's bind
 #              generator must therefore key its dispatcher lookup off
 #              `dispatch`, never off `name`.
@@ -39,12 +39,12 @@
 #              Daemon/startup entries are filed under `session`, since they
 #              are session-lifecycle actions rather than keybinds.
 #   kind       one of:
-#                daemon  — long-running, started with the session, no key.
-#                startup — runs once at session start and exits, no key.
-#                app     — a GUI app launched by a key, repeat-launchable.
-#                action  — a short command fired by a key (IPC calls,
+#                daemon:   long-running, started with the session, no key.
+#                startup:  runs once at session start and exits, no key.
+#                app:      a GUI app launched by a key, repeat-launchable.
+#                action:   a short command fired by a key (IPC calls,
 #                          reload, lock).
-#                dispatch — no command at all; the WM handles it natively.
+#                dispatch: no command at all; the WM handles it natively.
 #   dispatch   abstract dispatcher name (dotted lowercase, WM-agnostic),
 #              non-null only for `kind = "dispatch"`. A future
 #              `nix/home/sway.nix` maps the same name to `swaymsg` instead
@@ -61,7 +61,7 @@
 #
 # One correction versus the plan this table was commissioned against: that
 # plan counted four `repeating = true` binds (volume/brightness). The source
-# carries eight — the four keyboard window-resize binds (SUPER+ALT+H/J/K/L)
+# carries eight. The four keyboard window-resize binds (SUPER+ALT+H/J/K/L)
 # also carry `{ repeating = true; }` in `hyprland.nix`, grouped under the same
 # "repeating binds (was binde)" comment as volume/brightness. This table
 # follows the source.
@@ -76,20 +76,6 @@ let
       mods = [ ];
       key = null;
       desc = "Wallpaper daemon (awww)";
-      category = "session";
-      kind = "daemon";
-      dispatch = null;
-      repeating = false;
-      mouse = false;
-    }
-    # The bar's network pill reports state; nm-applet's tray icon is what
-    # actually offers a menu to switch networks, so it stays until the shell
-    # grows that.
-    {
-      name = "nm-applet";
-      mods = [ ];
-      key = null;
-      desc = "Network manager tray applet";
       category = "session";
       kind = "daemon";
       dispatch = null;
@@ -167,7 +153,7 @@ let
       repeating = false;
       mouse = false;
     }
-    # Zed editor — the GUI code editor that replaces VSCodium. The nixpkgs
+    # Zed editor: the GUI code editor that replaces VSCodium. The nixpkgs
     # `zed-editor` package installs its binary as `zeditor` (its
     # meta.mainProgram), not `zed`, so the bare command name here is that
     # binary. programs.zed-editor (nix/home/apps/zed.nix) puts it on PATH.
@@ -229,7 +215,7 @@ let
     }
     # The monitor arrange surface (nix/home/desktop/quickshell/qml/monitors/
     # Arrange.qml), hyprmon.nix's old "Monitors" desktop entry replaced by a
-    # direct bind — one door in, like the settings form and the wallpaper
+    # direct bind. One door in, like the settings form and the wallpaper
     # picker above.
     {
       name = "arrange-toggle";
@@ -651,7 +637,7 @@ let
 
     # Print (no modifier) is the screenshot key; SUPER+SHIFT+S stays reserved
     # for the magic special workspace (was double-bound in hyprlang).
-    # SUPER+Print selects a region, SUPER+SHIFT+Print picks a window — the one
+    # SUPER+Print selects a region, SUPER+SHIFT+Print picks a window: the one
     # capture grim + slurp could not do, and the reason all three moved to
     # hyprshot. Each saves into the xdg-user-dir PICTURES folder, copies the
     # image to the clipboard and raises its own notification. The commands
@@ -729,7 +715,7 @@ let
 
     # Touchpad off and on, for typing on a laptop with the heel of a hand in
     # the way. Hyprland cannot be asked whether a device is enabled, so the
-    # shell remembers it for the life of the process — which ends at logout,
+    # shell remembers it for the life of the process, which ends at logout,
     # exactly when Hyprland forgets the setting too.
     {
       name = "touchpad-toggle";
@@ -821,7 +807,7 @@ let
       mouse = false;
     }
 
-    # Volume and brightness, still ±5% and still repeating while held — but
+    # Volume and brightness, still ±5% and still repeating while held, but
     # through the shell, which moves the Pipewire node or runs brightnessctl
     # and then draws the resulting level as a progress bar. The 1.5 boost
     # ceiling on the way up lives there too
@@ -872,7 +858,7 @@ let
     }
 
     # mouse binds: movewindow → window.drag, resizewindow → window.resize
-    # (mouse-drag form, no args — distinct from the keyboard window.resize-*
+    # (mouse-drag form, no args, distinct from the keyboard window.resize-*
     # dispatchers above, which carry a direction and a fixed step).
     {
       name = "window.drag";
@@ -901,11 +887,11 @@ let
   # `name` is the only join key (see the header above): `default.nix`'s
   # `lib.listToAttrs` and `keybinds.nix`'s `findAction` both resolve it by
   # first match (`builtins.head`), so a duplicate `name` would not fail
-  # loudly at either call site — it would silently pick one of the two rows
+  # loudly at either call site. It would silently pick one of the two rows
   # and drop the other. Checked once, here, in the file both of those
   # consumers import (`session/default.nix` via `import ./actions.nix`,
   # `keybinds.nix` via `import ./session/actions.nix`), so both inherit the
-  # guarantee for free instead of each needing their own copy of it — an
+  # guarantee for free instead of each needing their own copy of it. An
   # assertion living in `session/default.nix`'s own `config.assertions`
   # would not fire for `keybinds.nix`'s standalone, module-free evaluation
   # (flake/packages.nix, nix/home/desktop/quickshell/tree.nix), and one living only

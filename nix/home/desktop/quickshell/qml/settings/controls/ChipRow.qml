@@ -1,5 +1,5 @@
 // A wrapping row of togglable chips, for a row whose value is a SET rather
-// than a single choice — which providers to enable, which days a rule
+// than a single choice, which providers to enable, which days a rule
 // applies to. Built on common/Pill.qml, the shell's one capsule primitive,
 // per the task brief's own callout: a chip is a tag, and Pill is what every
 // other tag in this shell is already drawn from.

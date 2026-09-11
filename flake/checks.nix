@@ -30,12 +30,58 @@ in
         "modesetting"
       ];
     pkgs.writeText "facter-stub-ok" "modesetting";
+  # Phase A (docs/superpowers/specs/2026-09-08-hardening-design.md): assert
+  # the REALISED kernel .config, not the requested structuredExtraConfig —
+  # a dropped or silently-overridden option (an unmet Kconfig `depends on`,
+  # a renamed symbol) is the likeliest failure mode for a from-source
+  # kernel override, and it is invisible to a check that only reads back
+  # the request. `kernel.configfile`'s own $out IS the realised .config
+  # text file (`installPhase = "mv $buildRoot/.config $out";` in nixpkgs'
+  # build.nix) — cheap to build (Kconfig resolution only, no compilation),
+  # and exactly what the real kernel build consumes as its own .config.
+  # `nix flake check --no-build` only evaluates this (no derivation is
+  # forced), so it stays free on the everyday gate; `nix build
+  # .#checks.x86_64-linux.kernel-config-realised` is what actually proves
+  # it, and is Phase A's own verification step.
+  kernel-config-realised =
+    let
+      cfgFile = self.nixosConfigurations.tokyonight.config.boot.kernelPackages.kernel.configfile;
+    in
+    pkgs.runCommand "kernel-config-realised" { } ''
+      cfg=${cfgFile}
+      grep -qE '^CONFIG_CC_IS_CLANG=y$' "$cfg" || { echo "not actually built with clang"; exit 1; }
+      grep -qE '^CONFIG_LD_IS_LLD=y$' "$cfg" || { echo "not actually linked with lld"; exit 1; }
+      grep -qE '^CONFIG_CFI=y$' "$cfg" || { echo "CFI not enabled (NOT CFI_CLANG -- that symbol is transitional on this kernel and never appears)"; exit 1; }
+      grep -qE '^CONFIG_LTO_CLANG_THIN=y$' "$cfg" || { echo "ThinLTO not enabled"; exit 1; }
+      if grep -q '^CONFIG_CFI_PERMISSIVE' "$cfg"; then echo "CFI_PERMISSIVE leaked in -- permissive mode is logging, not a mitigation"; exit 1; fi
+      grep -qE '^CONFIG_LSM="[^"]*apparmor[^"]*"$' "$cfg" || { echo "apparmor missing from CONFIG_LSM -- Task 5's enforcing profiles would silently stop working"; exit 1; }
+      if grep -q '^CONFIG_CFI_CLANG' "$cfg"; then echo "CONFIG_CFI_CLANG line present -- should never appear (transitional symbol)"; exit 1; fi
+      touch $out
+    '';
+
   # A synthetic report with an NVIDIA card (PCI vendor 0x10de = 4318) must
   # flip videoDrivers to nvidia, engage facter's CPU detection, and pass
   # every module assertion — asserting on config.assertions forces the
   # nvidia package eval, so a broken unfree allowlist fails here instead of
   # on the first on-machine rebuild. The cpu entry is mandatory: facter
   # asserts a non-empty hardware.cpu on baremetal.
+  #
+  # Task 8 / Phase A2 changed what "every module assertion" means here.
+  # `dots.kernel.harden` defaults true, and this synthetic report makes
+  # `hasNvidia` true, so nix/system/hosts.nix's own assertion — the one that
+  # requires `dots.kernel.nvidiaCfiMatched` before letting the two combine —
+  # is now IN this list on purpose. `nvidia-cfi-toolchain-eval` above proves
+  # the wiring is correct; it does not and cannot prove the from-source
+  # nvidia-open build actually succeeds against this exact kernel, because
+  # that build has no binary cache and was not completed inside this
+  # session's sandbox (no NVIDIA hardware to justify keeping it running
+  # against a shared, memory-constrained host — see task-8-report.md). So
+  # `nvidiaCfiMatched` correctly stays `false`, and the loud failure below is
+  # the intended behaviour, not a regression: it is exactly the "eval error
+  # instead of a black screen" the brief asked for. Once a future session
+  # completes that build and flips the option, THIS check needs to flip
+  # back to asserting `failed == []` — leaving it silently green today would
+  # have hidden the exact gap Task 8 exists to be honest about.
   facter-nvidia-eval =
     let
       nvidiaSystem = self.nixosConfigurations.tokyonight.extendModules {
@@ -62,13 +108,93 @@ in
       };
       inherit (nvidiaSystem) config;
       failed = map (a: a.message) (builtins.filter (a: !a.assertion) config.assertions);
+      cfiUnmatched = lib.strings.hasInfix "dots.kernel.nvidiaCfiMatched";
     in
     assert config.services.xserver.videoDrivers == [ "nvidia" ];
     assert config.hardware.nvidia.open;
     assert config.hardware.cpu.amd.updateMicrocode;
     assert builtins.elem "amd_pstate=active" config.boot.kernelParams;
-    assert failed == [ ];
+    assert lib.assertMsg (builtins.length failed == 1 && cfiUnmatched (builtins.head failed))
+      "expected exactly one failing assertion (the unverified nvidiaCfiMatched gate), got: ${builtins.toJSON failed}";
     pkgs.writeText "facter-nvidia-ok" "nvidia";
+  # Task 8 / Phase A2: the assertion above only catches "nobody did the
+  # CFI-matching work at all" (dots.kernel.nvidiaCfiMatched still false).
+  # This one catches the narrower, sneakier failure — the flag got flipped
+  # true but the actual override wiring silently stopped reaching the
+  # nvidia-open derivation on some future nixpkgs bump. Eval-only: reading
+  # `.makeFlags` off a derivation is a plain attrset lookup, not a build, so
+  # this stays inside `nix flake check --no-build`'s budget the same way
+  # `facter-nvidia-eval` above does.
+  #
+  # There is deliberately no override anywhere in this tree that sets
+  # `hardware.nvidia.package` or re-derives nvidia-open's `stdenv` — reading
+  # nixpkgs' own pkgs/top-level/linux-kernels.nix directly (this exact pin)
+  # shows `packagesFor kernel_` already does that work: `self.callPackage =
+  # newScope self` plus `inherit (kernel) stdenv;` ("in particular, use the
+  # same compiler by default", that file's own comment) means
+  # `config.boot.kernelPackages.nvidiaPackages` — and therefore
+  # `hardware.nvidia.package`'s own default (`nvidiaPackages.${branch}`) —
+  # is instantiated through the HARDENED kernel's scope, not nixpkgs' stock
+  # one. nvidia-x11's own generic.nix never overrides `stdenv` or
+  # `callPackage` when it builds its `mod`/`open` passthru via `callPackage
+  # ./kernel-modules.nix {...}`, so that inheritance reaches kernel-modules.nix
+  # unbroken, and `kernelModuleMakeFlags` (same file) is literally
+  # `self.kernel.commonMakeFlags ++ [...]` — the hardened kernel's own
+  # `extraMakeFlags = ["LLVM=1"]` (kernel.nix) is baked into
+  # `commonMakeFlags` by common-flags.nix's trailing `++ extraMakeFlags`,
+  # so it is already present on this list without this repo adding it a
+  # second time. Asserting the three properties below is what would catch
+  # that chain breaking: an unrelated stdenv (no clang in CC=), a stray
+  # kernel (SYSOUT/SYSSRC pointing somewhere other than THIS build's own
+  # `kernel.dev`), or the flag itself silently dropping.
+  nvidia-cfi-toolchain-eval =
+    let
+      nvidiaSystem = self.nixosConfigurations.tokyonight.extendModules {
+        modules = [
+          {
+            hardware.facter.report = {
+              version = 2;
+              system = "x86_64-linux";
+              virtualisation = "none";
+              hardware = {
+                cpu = [ { vendor_name = "AuthenticAMD"; } ];
+                graphics_card = [
+                  {
+                    vendor = {
+                      hex = "10de";
+                      value = 4318;
+                    };
+                  }
+                ];
+              };
+            };
+          }
+        ];
+      };
+      inherit (nvidiaSystem) config;
+      # `hasInfix`'s needle goes through `builtins.match` as part of the
+      # regex it builds, and Nix refuses a regex built from a string that
+      # still carries a store-path context ("is not allowed to refer to a
+      # store path") — proven the hard way, not assumed. The context is
+      # exactly what this assertion already established (both strings come
+      # from evaluating THIS check's own `nvidiaSystem`), so discarding it
+      # loses no safety, only the (here, redundant) build edge.
+      hardenedDev = builtins.unsafeDiscardStringContext "${config.boot.kernelPackages.kernel.dev}";
+      openDrv = config.hardware.nvidia.package.open;
+      flags = builtins.concatStringsSep " " openDrv.makeFlags;
+    in
+    assert config.hardware.nvidia.open;
+    # SYSOUT/SYSSRC (kernel-modules.nix) point at THIS build's own kernel.dev,
+    # not some other kernel's, proving the headers/dev output actually used
+    # is the hardened kernel's own rather than a stock or re-derived one.
+    assert lib.strings.hasInfix hardenedDev flags;
+    # CC= (common-flags.nix) resolved to the hardened kernel's llvmStdenv,
+    # not a GCC default reached through some other path.
+    assert lib.strings.hasInfix "clang" flags;
+    # LLVM=1 flows in through commonMakeFlags (see kernel.nix's own comment
+    # on the seam) rather than needing its own copy of the flag here.
+    assert builtins.elem "LLVM=1" openDrv.makeFlags;
+    pkgs.writeText "nvidia-cfi-toolchain-eval-ok" "matched";
   # Asserts the FIDO2 PAM rules under the default (requireKey=false): u2f
   # is `sufficient` (a correct key touch alone short-circuits the stack —
   # unlocks without the password), unix stays `sufficient` (password fallback),
@@ -194,19 +320,54 @@ in
   # committed facter.json stub ({}) leaves the auto-detection on the
   # "desktop" fallback (no report → no virtualisation, no form_factor),
   # and that synthetic reports steer CPU governor, thermald, PPD, lid
-  # switch, sleep-target masking, swappiness, fstrim, bluetooth, and
-  # wifi powersave onto the expected per-form-factor profile. Each case
-  # extends the tokyonight config with a minimal facter report and
+  # switch, sleep-target masking, swappiness, fstrim, and wifi powersave
+  # onto the expected per-form-factor profile. Bluetooth is no longer part
+  # of that per-form-factor matrix (Phase C,
+  # docs/superpowers/specs/2026-09-08-hardening-design.md, removed it
+  # outright — see the module-blacklist entries alongside it), so it is
+  # asserted off unconditionally below rather than per form factor. Each
+  # case extends the tokyonight config with a minimal facter report and
   # asserts the resolved config. Eval-only (no build).
   formfactor-eval =
     let
-      sys = self.nixosConfigurations.tokyonight;
+      # `dots.kernel.harden = false` on every variant below, including the
+      # base. This check evaluates FOUR full tokyonight closures, and since
+      # Phase A put nix/modules/system/kernel.nix into tokyonightModules,
+      # each one of them otherwise carries a from-source, ThinLTO-linked
+      # mainline kernel. That made a plain `nix flake check` try to pull the
+      # kernel in four times over and OOM a 15G machine outright — killed at
+      # this exact check, repeatedly, with SIGKILL.
+      #
+      # Nothing here is about the kernel. Every assertion below reads a
+      # form-factor effect: governor, thermald, power-profiles-daemon, the
+      # lid handler, sleep targets, fstrim, bluetooth. Those resolve
+      # identically on a stock kernel, so paying for a kernel build to check
+      # them is pure cost. The one place the hardened kernel IS built and
+      # asserted is `kernel-config-realised`, which exists for exactly that
+      # and evaluates one closure rather than four.
+      #
+      # Apply the same treatment to any future check that extends
+      # `nixosConfigurations.tokyonight` and does not specifically care which
+      # kernel is underneath.
+      stockKernel = {
+        dots.kernel.harden = false;
+      };
+      sys = self.nixosConfigurations.tokyonight.extendModules {
+        modules = [ stockKernel ];
+      };
       # cpu entry is mandatory on baremetal (facter asserts it); VMs skip it.
       bareCpu = [ { vendor_name = "AuthenticAMD"; } ];
       mkReport = report: {
         hardware.facter.report = report;
       };
-      extend = report: sys.extendModules { modules = [ (mkReport report) ]; };
+      extend =
+        report:
+        sys.extendModules {
+          modules = [
+            (mkReport report)
+            stockKernel
+          ];
+        };
 
       # Stub ({}) → desktop fallback.
       stub = sys.config;
@@ -252,7 +413,9 @@ in
     assert stub.services.logind.settings.Login.HandleLidSwitch == "ignore";
     assert !stub.systemd.targets.sleep.enable;
     assert stub.services.fstrim.enable;
-    assert stub.hardware.bluetooth.enable;
+    # Bluetooth is off everywhere now, not just on server/VM — see the
+    # comment above this check.
+    assert !stub.hardware.bluetooth.enable;
     # laptop
     assert laptop.config.powerManagement.cpuFreqGovernor == "powersave";
     assert laptop.config.services.thermald.enable;
@@ -261,6 +424,7 @@ in
     assert laptop.config.systemd.targets.sleep.enable;
     assert laptop.config.networking.networkmanager.wifi.powersave;
     assert laptop.config.boot.kernel.sysctl."vm.swappiness" == 60;
+    assert !laptop.config.hardware.bluetooth.enable;
     # server
     assert server.config.powerManagement.cpuFreqGovernor == "performance";
     assert !server.config.services.thermald.enable;
@@ -316,101 +480,11 @@ in
     assert carries palette.fonts.ui;
     pkgs.writeText "palette-eval-ok" palette.accentFallback;
 
-  # nix/data/sandbox-policy.json is the committed, read-only defaults every
-  # per-app sandbox launch resolves against (rust/dots-sandbox). Modelled on
-  # palette-eval above, then taken one step further: that check only proves
-  # the Nix side agrees with itself, but here there are genuinely two
-  # parsers of the same file — this eval-time half and the Rust binary's
-  # own `serde` schema — and this repo's convention for exactly that shape
-  # of risk is a single committed source of truth with a check proving it
-  # round-trips through both. The asserts below catch a malformed file
-  # cheaply, at eval time, before any derivation realizes; the
-  # `dots-sandbox policy validate` build afterwards is what actually proves
-  # the two parsers still agree, since an eval-only assert here and the
-  # crate's own `serde`/`validate_strict` logic can drift independently of
-  # each other without this.
-  sandbox-policy-eval =
-    let
-      policyPath = ../nix/data/sandbox-policy.json;
-      policy = builtins.fromJSON (builtins.readFile policyPath);
-
-      # The crate itself has no compiled-in app catalog — the defaults file
-      # *is* the catalog (see resolve_app in rust/dots-sandbox/src/policy.rs)
-      # — so "an app id the crate knows" is checked here against every real
-      # launchable surface this repo actually offers: the flake's own
-      # `nix run .#<app>` list, plus every other surface `wrapSandboxed`
-      # confines outside that list — the quickshell pill bar's desktop
-      # launchers and the `home.packages` MCP servers (edupage-mcp) that
-      # ship no launcher at all. Nothing in Nix enumerates either set's
-      # app ids today, so the second half is a hand-kept list; a new
-      # sandboxed app — launcher or MCP server — needs a line here as
-      # much as it needs one in the policy file.
-      knownFlakeApps = builtins.attrNames self.apps.${system};
-      knownDesktopApps = [
-        "global-settings"
-        "computer-use-linux"
-        "kitty"
-        "junction"
-        "bitwarden"
-        "zed"
-        "claude-desktop"
-        "edupage-mcp"
-      ];
-      knownApps = knownFlakeApps ++ knownDesktopApps;
-
-      appIds = builtins.attrNames policy.apps;
-      unknownApps = builtins.filter (id: !(builtins.elem id knownApps)) appIds;
-
-      apps = builtins.attrValues policy.apps;
-      capStates = lib.flatten (map (app: builtins.attrValues (app.caps or { })) apps);
-      pathStates = lib.flatten (map (app: map (p: p.state) (app.paths or [ ])) apps);
-      validStates = [
-        "allow"
-        "deny"
-        "ask"
-      ];
-      # `allow-once` is a session-state answer, never a persisted one (see
-      # PolicyState's doc comment) — this is the same rejection `serde`
-      # gives the binary for free by only ever having three variants to
-      # deserialize into, restated here since raw JSON parsing has no such
-      # enum to lean on.
-      badStates = builtins.filter (s: !(builtins.elem s validStates)) (capStates ++ pathStates);
-
-      unconfinedApps = lib.filterAttrs (_: app: app.unconfined or false) policy.apps;
-      # Missing and blank are the same failure (`require_reason` trims
-      # before checking emptiness), so both collapse into one match here.
-      badReasons = builtins.filter (
-        id: builtins.match "[[:space:]]*" (unconfinedApps.${id}.reason or "") != null
-      ) (builtins.attrNames unconfinedApps);
-    in
-    # SUPPORTED_VERSION in rust/dots-sandbox/src/policy.rs. Bumping the
-    # schema is deliberate on both sides at once, never on just one.
-    assert policy.version == 1;
-    assert lib.assertMsg (unknownApps == [ ]) (
-      "nix/data/sandbox-policy.json names app id(s) this repo does not define: "
-      + builtins.concatStringsSep ", " unknownApps
-    );
-    assert lib.assertMsg (badStates == [ ]) (
-      "nix/data/sandbox-policy.json has a grant state other than allow/deny/ask: "
-      + builtins.concatStringsSep ", " badStates
-    );
-    assert lib.assertMsg (badReasons == [ ]) (
-      "nix/data/sandbox-policy.json marks unconfined app(s) with no non-empty reason: "
-      + builtins.concatStringsSep ", " badReasons
-    );
-    pkgs.runCommand "sandbox-policy-validate-ok"
-      {
-        nativeBuildInputs = [ self.packages.${system}.dots-sandbox ];
-      }
-      ''
-        dots-sandbox policy validate ${policyPath} | tee $out
-      '';
-
   # The standalone home-manager build (flake/home.nix), forced to EVALUATE but
   # not to build. `.drvPath` is the whole trick: it demands that every module
   # in nix/home/profiles/portable.nix type-checks, that every option assignment
   # resolves, and that each specialArg the profile destructures
-  # (`dots`, `settings`, `wrapSandboxed`, the in-flake packages) is actually
+  # (`dots`, `settings`, the in-flake packages) is actually
   # supplied — while stopping short of realising a closure of browsers, editors
   # and a Haskell toolchain, which is not something `nix flake check` should
   # ever pull.
@@ -445,20 +519,6 @@ in
       builtins.unsafeDiscardStringContext hm.activationPackage.drvPath
     );
 
-  # Every home.activation entry, guarded against ending the run early.
-  # home-manager splices the whole DAG into one bash script, so an `exit` in
-  # any entry stops the activation there — including linkGeneration, which is
-  # the step that puts ~/.config/quickshell, and every other managed file, on
-  # disk. Nothing about that failure is loud: the script exits 0, systemd
-  # reports success, and home.packages still arrive because useUserPackages
-  # installs them through the NixOS closure rather than through this script.
-  # The symptom is a ~/.config that quietly stops tracking the repo, which is
-  # how a whole desktop shell reached the store and never reached the machine.
-  #
-  # checkLinkTargets is upstream's and its `|| exit 1` is the point: a file
-  # collision has to stop the run before anything is linked. Every other entry
-  # fails here instead, a home-manager bump that adds one included — read what
-  # the new entry does before deciding its name belongs below.
   hm-activation-eval =
     let
       sys = self.nixosConfigurations.tokyonight.config;
@@ -563,87 +623,4 @@ in
       toString hm.systemd.user.services."dots-launcher-toggle@".Service.ExecStart
     );
     pkgs.writeText "shell-service-eval-ok" execStart;
-
-  # nix/home/ai/claude.nix's PostToolUse memory hook, run for real against
-  # fixtures rather than only eyeballed at eval time — the whole reason it
-  # moved out of a permission-rule `if` field (see the long comment on
-  # `hooks.PostToolUse` in that file) is that an `if` string cannot be
-  # trusted to fire at all, and every other check in this file proves
-  # config shape, not runtime behaviour. `hookCmd` is read out of the same
-  # evaluated home-manager config `hm-activation-eval`/`shell-service-eval`
-  # above already reach into, so this runs the literal store path Claude
-  # Code invokes, not a hand-rebuilt stand-in for it. Fixtures live under
-  # tests/fixtures/memory-hook/ rather than beside the module, per this
-  # repo's tests/ convention.
-  memory-hook-eval =
-    let
-      sys = self.nixosConfigurations.tokyonight.config;
-      hm = sys.home-manager.users.${sys.dots.username};
-      postToolUse = lib.head hm.programs.claude-code.settings.hooks.PostToolUse;
-      hookCmd = (lib.head postToolUse.hooks).command;
-      fixtures = ../tests/fixtures/memory-hook;
-      memoryPayload = "${fixtures}/memory-write.json";
-      ordinaryPayload = "${fixtures}/ordinary-write.json";
-      # Sits on the script's `case` boundary on purpose: the path carries
-      # `/.claude/` but no `memory/` leaf, unlike ordinaryPayload above
-      # (which carries neither and so never probes the boundary at all).
-      # A future loosening of the match — say, dropping the second
-      # `*"/memory/"*` segment — turns this fixture into the first thing
-      # that wrongly fires, because it is the nearest real path to the
-      # actual pattern rather than an unrelated one.
-      claudeConfigPayload = "${fixtures}/claude-config-write.json";
-      malformedPayload = "${fixtures}/malformed.json";
-      emptyPayload = "${fixtures}/empty.json";
-    in
-    # The matcher is the cheap tool-name pre-filter the hook still relies
-    # on; a change here would silently widen or narrow which tool calls
-    # ever reach the script at all.
-    assert postToolUse.matcher == "Write|Edit";
-    # This check runs hookCmd directly, so an `if` field on the hook entry
-    # would never actually stop anything here — the runCommand below would
-    # keep passing even after such a regression. But Claude Code itself DOES
-    # consult file rules for `Edit(path)` (unlike the `Write(path)` case the
-    # move away from `if` was chiefly about — see the long comment on
-    # `hooks.PostToolUse` in claude.nix), so a re-added `if` would silently
-    # stop the hook firing on every edit to an already-existing memory file.
-    # Asserting the field's absence is what keeps that regression from
-    # hiding behind a check that only reads `.command`.
-    assert !((lib.head postToolUse.hooks) ? "if");
-    pkgs.runCommand "memory-hook-eval-ok" { } ''
-      mem_out="$(${hookCmd} < ${memoryPayload})"
-      if [ -z "$mem_out" ]; then
-        echo "memory-path payload produced no output" >&2
-        exit 1
-      fi
-      printf '%s' "$mem_out" | grep -q "unslopping-memory" || {
-        echo "memory-path output is missing the primer text: $mem_out" >&2
-        exit 1
-      }
-
-      src_out="$(${hookCmd} < ${ordinaryPayload})"
-      if [ -n "$src_out" ]; then
-        echo "ordinary source-file payload produced output: $src_out" >&2
-        exit 1
-      fi
-
-      cfg_out="$(${hookCmd} < ${claudeConfigPayload})"
-      if [ -n "$cfg_out" ]; then
-        echo "claude-config (on the /.claude/ boundary, no memory/) payload produced output: $cfg_out" >&2
-        exit 1
-      fi
-
-      ${hookCmd} < ${malformedPayload} > malformed.out
-      if [ -s malformed.out ]; then
-        echo "malformed payload produced output" >&2
-        exit 1
-      fi
-
-      ${hookCmd} < ${emptyPayload} > empty.out
-      if [ -s empty.out ]; then
-        echo "empty payload produced output" >&2
-        exit 1
-      fi
-
-      echo ok > $out
-    '';
 }

@@ -169,7 +169,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [iso-boot, limine-install-boot]
+        check: [iso-boot, limine-install-boot, session-boot]
     steps:
       - uses: actions/checkout@v4
       # Same determinate-nixd background-GC race as in the nix-eval lane

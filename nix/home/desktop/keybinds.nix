@@ -5,15 +5,15 @@
 # table carries one row per bind, so this file's only remaining job is
 # deciding which of those rows the overlay shows as a single summary line
 # instead of one row apiece (the `collapses` table below), and rendering
-# the `key` text in this overlay's own human style — `SUPER + Shift + F`,
+# the `key` text in this overlay's own human style, `SUPER + Shift + F`,
 # not the action table's `SUPER + SHIFT + F`.
 #
 # Every action name mentioned below, whether inside a collapse entry or as
 # a bare one-to-one reference, is checked against actions.nix, and every
 # keyed action in actions.nix must be claimed exactly once: not zero times
 # (a new bind nobody decided how to show in the cheatsheet) and not twice.
-# Get either wrong and evaluation throws, naming the offending action —
-# that failure, not the collapsing itself, is what stops this file drifting
+# Get either wrong and evaluation throws, naming the offending action. That
+# failure, not the collapsing itself, is what stops this file drifting
 # out of step with actions.nix the way the old hand-curated table did with
 # hyprland.nix.
 #
@@ -21,16 +21,16 @@
 # actions.nix: it's imported the same way from two places, one of which
 # (flake/packages.nix, the qmllint gate) has no evaluated home-manager
 # config to draw arguments from, and nix/home/desktop/quickshell/tree.nix runs a
-# strict builtins.toJSON over the result — a lambda or a store path
+# strict builtins.toJSON over the result. A lambda or a store path
 # anywhere in this file would break both.
 #
 # `touchpad` and `kitty` are the exception: hand-written below because they
 # have no rows in actions.nix at all. The touchpad gestures come from
 # `hl.gesture` (nix/home/desktop/hyprland.nix:345) and kitty's Shift+Enter bind from
-# nix/home/apps/kitty.nix:52 — neither is a `bind` entry, so neither belongs in
+# nix/home/apps/kitty.nix:52. Neither is a `bind` entry, so neither belongs in
 # a table about exec/dispatch binds.
 #
-# Grouped, not flattened — a QML Repeater nests groups without complaint,
+# Grouped, not flattened. A QML Repeater nests groups without complaint,
 # so the shape can say what it means: a list of `{ name; items; }`, one per
 # cheatsheet section.
 let
@@ -55,8 +55,8 @@ let
   # Shift/Alt/Ctrl here, and a couple of X11 keysym names read better
   # spelled out. Both are total over their input, on purpose: a mod or key
   # this file doesn't know how to render throws instead of printing raw,
-  # which is the same drift the coverage check below exists to catch —
-  # silently rendering an unrecognised mod or keysym would be exactly the
+  # which is the same drift the coverage check below exists to catch.
+  # Silently rendering an unrecognised mod or keysym would be exactly the
   # kind of un-noticed staleness this file was rewritten to make
   # impossible.
   modLabel =
@@ -75,7 +75,7 @@ let
   # Keysyms the overlay has always printed raw, deliberately: not letters,
   # not digits, not an XF86 media key, not a mouse form, and not worth a
   # human translation either. Written down as a decision rather than left
-  # as a silent fallback — anything outside this list and outside the
+  # as a silent fallback: anything outside this list and outside the
   # mechanical patterns below throws.
   keyPassthrough = [
     "comma"
@@ -125,8 +125,8 @@ let
   # The collapse table: every place the cheatsheet prints one summary row
   # for several actions.nix rows instead of one row per bind (`SUPER +
   # H/J/K/L` for four directional focus binds, `SUPER + 1..0` for ten
-  # workspace binds, and so on). Each entry names every action it covers —
-  # validated below — and the key/desc text to print once for all of them.
+  # workspace binds, and so on). Each entry names every action it covers,
+  # validated below, and the key/desc text to print once for all of them.
   collapses = {
     focusHjkl = {
       names = [
@@ -232,9 +232,9 @@ let
 
   # Per-category row order. A bare action name projects one-to-one; a
   # `collapse` prints its table entry's key/desc once. actions.nix's own
-  # declaration order does not decide this — e.g. `media` below interleaves
+  # declaration order does not decide this: `media` below interleaves
   # collapsed and one-to-one rows in an order its source rows aren't
-  # declared in — so order is spelled out here, once, per category.
+  # declared in, so order is spelled out here, once, per category.
   categorySpecs = {
     launchers = map (n: { one = n; }) [
       "terminal"

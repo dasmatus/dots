@@ -3,8 +3,8 @@
 // captured lines and no Process, filesystem or compositor.
 //
 // The index is a file of exactly the lines files.js's searchArgv already
-// produces — `%Y\t%s\t%T@\t%P`, relative to $HOME — written ahead of time
-// by the dots-files-index systemd unit. That format identity is the point:
+// produces, `%Y\t%s\t%T@\t%P` relative to $HOME, written ahead of time by the
+// dots-files-index systemd unit. That format identity is the point:
 // parseListing reads the index without knowing it is one, so nothing
 // downstream had to learn a second shape.
 //
@@ -35,7 +35,7 @@
 // A slash is left alone rather than escaped. It is not a metacharacter,
 // escaping an ordinary character is undefined in POSIX ERE, and the
 // segment anchor in indexArgv already means a query containing a slash
-// matches nothing — exactly as it matched nothing through `-iname`.
+// matches nothing, exactly as it matched nothing through `-iname`.
 var ESCAPED = ".^$+{}()|[]\\";
 
 function globToRegex(query) {
@@ -64,7 +64,7 @@ function globToRegex(query) {
 // match starts where the path does and cannot stray into the size or
 // mtime column.
 //
-// `-m` is not a display cap — searchCap in Files.qml is that. It bounds
+// `-m` is not a display cap. searchCap in Files.qml is that. It bounds
 // how much work grep does at all: a one-character query matches almost
 // every line of a 300k-line file, and reading all of them into QML to
 // throw away everything past the first screen is the cost this whole
@@ -88,8 +88,8 @@ function indexFor(showHidden, allPath, visiblePath) {
 // Whether the index can answer for this directory at all. It covers $HOME
 // and nothing else, so anywhere outside falls back to the live walk.
 //
-// The trailing slash is what stops a sibling that merely shares the prefix
-// — /home/matuska against /home/matus — from being treated as inside it.
+// The trailing slash is what stops a sibling that merely shares the prefix,
+// /home/matuska against /home/matus, from being treated as inside it.
 function withinHome(path, home) {
     return path === home || path.indexOf(home + "/") === 0;
 }
@@ -152,7 +152,7 @@ function locateAt(entries, dir, home) {
 // The glob applied to a single name, for filtering the pane's live listing
 // by the query the index was searched with. Unanchored, because `-iname`
 // wrapped its pattern in `*` on both sides and an empty query has to match
-// everything — that is the state the line is in before anything is typed.
+// everything, which is the state the line is in before anything is typed.
 function globMatches(name, query) {
     return new RegExp(globToRegex(query), "i").test(name);
 }
@@ -193,16 +193,15 @@ function depthOf(dir) {
 // only then does an exact name beat a prefix and a prefix beat a mere
 // substring, the way commands.js already orders the `:` line.
 //
-// That order is the whole reason a `/` covering all of $HOME is usable
-// from inside a project, and getting it the other way round quietly
-// defeats itself. Ranking an exact name first put every hit in the same
-// tier the moment a full filename was typed — which is the ordinary way
-// to search — so the directory you were standing in stopped counting at
-// all. Searching "main.rs" from this repo's rust/ then answered with
-// six main.rs files from six other projects and none of its own, while
-// four unit tests agreed it was correct, because each of them had put
-// both candidates under one directory and so could not tell the two
-// orderings apart.
+// That order is the whole reason a `/` covering all of $HOME is usable from
+// inside a project, and getting it the other way round quietly defeats itself.
+// Ranking an exact name first put every hit in the same tier the moment a full
+// filename was typed, which is the ordinary way to search, so the directory
+// you were standing in stopped counting at all. Searching "main.rs" from this
+// repo's rust/ then answered with six main.rs files from six other projects
+// and none of its own, while four unit tests agreed it was correct, because
+// each of them had put both candidates under one directory and so could not
+// tell the two orderings apart.
 function tierOf(entry, needle, cwd) {
     const lower = entry.name.toLowerCase();
 

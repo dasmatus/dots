@@ -10,7 +10,9 @@
   ...
 }:
 {
-  boot.kernelPackages = pkgs.linuxPackages_latest;
+  # boot.kernelPackages moved to nix/modules/system/kernel.nix (Phase A,
+  # docs/superpowers/specs/2026-09-08-hardening-design.md), gated on
+  # dots.kernel.harden.
   services.systemd-lock-handler.enable = true;
   services.displayManager.defaultSession = "hyprland-uwsm";
   programs.gamemode = {
@@ -90,17 +92,13 @@
     # source anyway once Cachix evicted the old tagged prebuilt.
   };
 
-  # Automatic timezone from geolocation (no manual zone changes when
-  # traveling). localtimed (the localtime→localtimed rename, the RTC-lineage
-  # daemon) uses geoclue2 — WiFi SSID-based location — plus systemd-timedated
-  # to set the zone at runtime. geoclue2's geoProviderUrl already defaults to
-  # the working beacondb endpoint, so no provider override is needed.
-  # localtimed forces `time.timeZone = null` while enabled (it errors if a
-  # plain timezone is set, to avoid silently overriding it), so the fallback
-  # below is mkDefault — localtimed's null wins while it's enabled, and the
-  # settings.timezone fallback only applies if localtimed is ever disabled.
-  services.localtimed.enable = true;
-  services.geoclue2.enable = true;
+  # Automatic timezone-from-geolocation (localtimed + geoclue2) was here and
+  # is gone (Phase C, docs/superpowers/specs/2026-09-08-hardening-design.md):
+  # geoclue2 is a WiFi-SSID location daemon with no other consumer in this
+  # repo — services.gammastep (nix/home/desktop/hyprland.nix) already runs
+  # off hardcoded coordinates rather than geoclue2 — so it was pure attack
+  # surface for one convenience (not having to set a timezone by hand while
+  # traveling) this laptop's actual travel pattern rarely exercises.
   time.timeZone = lib.mkDefault settings.timezone;
   i18n.defaultLocale = settings.locale;
 

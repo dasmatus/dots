@@ -25,6 +25,43 @@
 # that `package` assignment below for why it's a package override rather than
 # upstream's global overlay, and how the override composes with the nixpkgs
 # steam module's own `.override` call.
+#
+# ── Why Steam stays native, not a Flatpak ───────────────────────────────────
+#
+# Every other GUI app on this machine is a Flathub ref now
+# (nix/home/base/flatpaks.nix). Steam was considered for the same move
+# (com.valvesoftware.Steam exists on Flathub) and rejected, for one specific,
+# checked reason: `dots.steam.millennium` above patches `programs.steam` by
+# overriding `package` with a `pkgs.callPackage` of Millennium's own
+# `steam.nix` (see that assignment's comment for the full mechanics) — a
+# Nix-level package override that has no Flatpak equivalent. Millennium
+# itself patches the Steam client's own JS/CSS at the package level; a
+# Flatpak's `programs.steam` escape hatch does not exist, and Millennium's
+# own install method (a script that writes into the running client's own
+# install dir) fights a Flatpak's read-only `/app`. Moving to
+# `com.valvesoftware.Steam` would have silently dropped working theming with
+# no equivalent way to get it back. That is reason enough on its own; do not
+# re-litigate this without a real Flatpak-side Millennium story in hand.
+#
+# It also cannot be hardened the way every native package in Phase B's
+# curated overlay is: `programs.steam` wraps Valve's prebuilt proprietary
+# binaries in an FHS environment (`buildFHSEnv`/bubblewrap) with no source
+# in this closure, so the Clang/CFI/ThinLTO flags
+# (docs/superpowers/specs/2026-09-08-hardening-design.md, "Phase B") have
+# nothing to recompile. That is permanent, not a gap to close later.
+#
+# Steam has already forced three other hardening exceptions, each ruled
+# separately and NOT to be "tidied up" here:
+#   - `ia32_emulation` stays on (ruling R11) — the Steam runtime is 32-bit.
+#   - XWayland stays enabled (ruling R23) — Steam is an X11-only client.
+#   - `joydev` stays out of the kernel module blacklist (ruling R25a) —
+#     blacklisting the joystick layer under an enabled Steam is
+#     self-defeating; gamepads stop enumerating.
+# Steam also does NOT inherit hardened_malloc (see
+# nix/modules/system/hardening.nix's allocator comment): its FHS environment
+# gets its own private /etc with no `ld-nix.so.preload`, so the patched
+# glibc that reads that file everywhere else on this machine finds nothing
+# to preload inside Steam's sandbox. Worth knowing, not a defect to chase.
 {
   config,
   lib,
@@ -88,14 +125,43 @@ in
     '';
   };
 
+  # Both default OFF. `remotePlay.openFirewall`/`localNetworkGameTransfers.
+  # openFirewall` are the ONLY open inbound ports on a machine whose
+  # hardening.nix otherwise sets allowedTCPPorts = [], allowedUDPPorts = []
+  # and trustedInterfaces = [] — the entire rest of the firewall is
+  # deny-by-default. Both are opt-in Steam features (streaming to another
+  # device; copying installs between machines on the same LAN); leaving them
+  # off costs nothing to a user who does not use either, and turning either
+  # back on is one boolean away rather than a feature deletion.
+  options.dots.steam.remotePlay.openFirewall = lib.mkOption {
+    type = lib.types.bool;
+    default = false;
+    description = ''
+      Open the firewall for Steam Remote Play (streaming to/from another
+      device). Off by default — this is the only inbound hole this option
+      controls; see `dots.steam.localNetworkGameTransfers.openFirewall` for
+      the other one.
+    '';
+  };
+
+  options.dots.steam.localNetworkGameTransfers.openFirewall = lib.mkOption {
+    type = lib.types.bool;
+    default = false;
+    description = ''
+      Open the firewall for Steam's LAN game-content transfers (pulling an
+      install from another machine on the same network instead of
+      re-downloading it). Off by default; see
+      `dots.steam.remotePlay.openFirewall` for the other inbound hole this
+      module can open.
+    '';
+  };
+
   config = lib.mkIf steamEnabled {
     programs.steam = {
       enable = true;
-      # Open the firewall for Steam Remote Play (streaming to/from another
-      # machine) and for LAN game-content transfers (pulling an install from
-      # another machine on the same network instead of re-downloading).
-      remotePlay.openFirewall = true;
-      localNetworkGameTransfers.openFirewall = true;
+      remotePlay.openFirewall = config.dots.steam.remotePlay.openFirewall;
+      localNetworkGameTransfers.openFirewall =
+        config.dots.steam.localNetworkGameTransfers.openFirewall;
       # protontricks: Winetricks wrapper for Proton games — the standard
       # companion for installing native Windows dependencies (e.g. a game's
       # bundled redist) into a Proton prefix.
@@ -145,5 +211,93 @@ in
     # under `programs.steam.enable`, and desktop.nix already enables pipewire
     # alsa, so 32-bit audio wires up automatically. Restating them here would
     # just duplicate the upstream config block.
+
+    # AppArmor, in the style of nix/modules/system/apparmor.nix's own
+    # per-app profiles — same abstractions, same attach_disconnected +
+    # mediate_deleted flags — but declared here rather than threaded into
+    # that file, since this is the one profile in the whole config that
+    # needs `config.programs.steam.package` (the resolved FHS wrapper) to
+    # attach to at all.
+    #
+    # COMPLAIN ONLY, and not a placeholder to graduate later without new
+    # evidence: `programs.steam.package` is a `buildFHSEnv`/bubblewrap
+    # wrapper (`pkgs/by-name/st/steam`, `pname = "steam"`), the exact same
+    # shape as `nix/home/base/pkgs.nix`'s Haveno wrapper that
+    # nix/modules/system/apparmor.nix's own `dots-haveno` profile is kept at
+    # complain for. `bin/steam` unshares a new mount namespace and re-execs
+    # its actual game/client processes from generic FHS paths inside it
+    # (plus a Proton prefix and arbitrary downloaded vendor binaries PER
+    # GAME on top of that), none of which a profile anchored to the
+    # wrapper's own `/nix/store/**` attachment can see or authorize. This is
+    # Steam's OWN version of the identical structural gap, one order of
+    # magnitude wider given how much of it is vendor code this repo does not
+    # control at all. Attempting enforce here without dedicated evidence
+    # repeats incident `9b069e8` (hardening.nix) at a scale that incident
+    # only hinted at — denying a namespacing-heavy binary its own exec chain
+    # takes the whole client down, not just the parts a per-app profile
+    # meant to narrow.
+    security.apparmor.policies.dots-steam = {
+      state = "complain";
+      profile = ''
+        abi <abi/4.0>,
+
+        include <tunables/global>
+
+        profile dots-steam "${config.programs.steam.package}/bin/steam" flags=(attach_disconnected,mediate_deleted) {
+          include <abstractions/base>
+          include <abstractions/nameservice>
+          include <abstractions/fonts>
+          include <abstractions/freedesktop.org>
+          include <abstractions/dbus-session-strict>
+          include <abstractions/audio>
+          include <abstractions/X>
+          include <abstractions/mesa>
+          include <abstractions/opengl>
+          include <abstractions/p11-kit>
+          include <abstractions/ssl_certs>
+          include <abstractions/user-tmp>
+
+          /nix/store/** rm,
+          /nix/store/**/bin/* ix,
+          /nix/store/**/libexec/** ix,
+
+          # The FHS/bubblewrap sandbox every launch builds, and Proton's own
+          # user-namespace use inside it.
+          userns,
+          mount,
+          umount,
+          pivot_root,
+
+          network inet stream,
+          network inet6 stream,
+          network inet dgram,
+          network inet6 dgram,
+          network netlink raw,
+          network unix stream,
+          network unix dgram,
+
+          owner @{HOME}/** rwkl,
+          owner /tmp/** rwkl,
+          @{run}/user/@{uid}/** rwkl,
+          @{PROC}/@{pid}/** r,
+          /sys/devices/** r,
+          /dev/dri/* rw,
+          /dev/shm/** rwk,
+
+          # Controllers. `joydev` deliberately stays out of the kernel
+          # module blacklist (ruling R25a) for exactly this — an enabled
+          # Steam with no path to its own gamepads is self-defeating.
+          /dev/input/** rw,
+          /dev/uinput rw,
+          /dev/hidraw* rw,
+
+          deny @{HOME}/.ssh/** mrwklx,
+          deny @{HOME}/.gnupg/** mrwklx,
+          deny @{HOME}/.local/share/rbw/** mrwklx,
+          deny @{HOME}/.config/rbw/** mrwklx,
+          deny @{run}/user/@{uid}/rbw/** mrwklx,
+        }
+      '';
+    };
   };
 }

@@ -16,11 +16,12 @@
 # agenix secret (secrets/secrets.nix, nix/home/secrets/identity.nix) so a
 # public repo does not carry a real name and address, and so it never lands in
 # the world-readable Nix store. rust/installer-tui still collects and writes
-# them (config.rs::settings_nix) — harmless, since nothing reads them now.
+# them (config.rs::settings_nix). That is harmless, since nothing reads them
+# now.
 #
 # rust/installer-tui writes these same keys (config.rs::settings_nix) into the
 # stash at install time; nix/home/base/dots-repo.nix then COPIES the stash over
-# this file in the clone (a copy, not a symlink — that is what keeps eval
+# this file in the clone (a copy, not a symlink, which is what keeps eval
 # pure) and marks it --skip-worktree so the clone's tree stays clean.
 {
   username = "matus";

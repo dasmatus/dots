@@ -7,18 +7,18 @@
 //
 // Frecency here is stored as (score, last) rather than as a literal log of
 // recent uses, and it decays lazily: a record only remembers its own score
-// as of its own `last` write, and every reader — order(), evictOverCap() —
+// as of its own `last` write, and every reader (order(), evictOverCap())
 // recomputes that score decayed forward to `now` on demand. Writers (bump())
 // do the opposite: decay to `now` once, add the new use, and store the sum
 // as the new baseline. This "decay-on-read, accumulate-on-write" split means
 // nothing here ever has to walk every stored record just because time
-// passed — a record nobody has looked up in months is left exactly as it
+// passed. A record nobody has looked up in months is left exactly as it
 // was last written and only decays the moment something actually asks for
 // its current score.
 .pragma library
 
 // One week. Frecency's "half of a use's weight is gone after this long"
-// knob — long enough that a program run every workday stays near the top
+// knob: long enough that a program run every workday stays near the top
 // across a weekend, short enough that one used a month ago has mostly faded
 // by now.
 const HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -29,17 +29,17 @@ const HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
 // this is only a backstop against records for things that no longer exist
 // accumulating across years of installs and removals. Set well clear of a
 // large but ordinary machine's real key count so that eviction is
-// effectively never reached in normal use — an eviction that fires
+// effectively never reached in normal use: an eviction that fires
 // routinely would be making ranking decisions, which is order()'s job.
 const RECORD_CAP = 4000;
 
 // A record's score decayed from `record.last` forward to `now`. Missing or
 // malformed decays to 0 rather than throwing or poisoning a comparison:
 // order() calls this for every row on every keystroke, and a row with no
-// usage history yet — or ever — is the common case here, not an error.
+// usage history yet, or ever, is the common case here, not an error.
 //
 // Exponential decay with half-life H means multiplying by 0.5 for every H
-// of elapsed time, i.e. score * 0.5^(elapsed / H) — continuous rather than
+// of elapsed time, i.e. score * 0.5^(elapsed / H): continuous rather than
 // "halve it once a week on a timer", so a record decays by the same factor
 // whether something reads it once a day or once a year.
 //
@@ -47,14 +47,14 @@ const RECORD_CAP = 4000;
 // disk that a user can edit, a half-written older schema can leave behind,
 // or a future version of this code can write differently. A record whose
 // score or last is not a finite number would make this return NaN, and NaN
-// in order()'s comparator reads as "equal" for every key at once — which
+// in order()'s comparator reads as "equal" for every key at once, which
 // silently discards the input-order tiebreak the whole sort rests on. It is
 // cheaper to treat a nonsense record as no history than to let one poison
 // the ordering of every row beside it.
 //
 // elapsed is clamped at zero because it is a difference of two clocks that
-// need not agree. A record written while the system clock was ahead — an
-// unset RTC before NTP corrects it is the ordinary way this happens — has
+// need not agree. A record written while the system clock was ahead (an
+// unset RTC before NTP corrects it is the ordinary way this happens) has
 // `last` in the future, making elapsed negative and 0.5^negative a
 // multiplier ABOVE one. bump() then stores that inflated value as the new
 // baseline, so a single launch during the wrong-clock window could pin a
@@ -81,7 +81,7 @@ function effectiveScore(record, now) {
 // Returns a new object. `records` is Providers.qml's own live
 // JsonAdapter-backed frecency store, and reassigning that property (rather
 // than mutating it in place) is what re-fires the sort binding that reads
-// it — mutating here would leave the display stale until something else
+// it; mutating here would leave the display stale until something else
 // happened to touch the property.
 function bump(records, key, now) {
     const before = effectiveScore(records[key], now);
@@ -91,7 +91,7 @@ function bump(records, key, now) {
 }
 
 // Keeps the `cap` records with the highest effective score at `now` and
-// drops the rest. Ties are broken by key — not because key order carries
+// drops the rest. Ties are broken by key, not because key order carries
 // any meaning, but because leaving a tie in effective score unresolved
 // would let which record survives depend on whatever order a JS engine's
 // sort happens to hand equal-eff entries in, which itself traces back to
@@ -106,7 +106,7 @@ function bump(records, key, now) {
 // recorded for the very first time is in the candidate set at the lowest
 // score any record can have: exactly 1.0, since 0 + 1 decayed across zero
 // elapsed time. Against a full store of keys launched even twice within a
-// half-life it loses every time — and because it was dropped before being
+// half-life it loses every time. Because it was dropped before being
 // written, the next launch starts it from 1.0 again, and the one after
 // that. The app could be run daily forever and never enter the store or
 // rank above anything. Exempting the keys the caller just recorded means
@@ -116,7 +116,7 @@ function bump(records, key, now) {
 // The protected list is deduplicated and itself capped, so `cap` holds
 // whatever a caller passes. Neither case can arise from recordUse, which
 // passes at most an action key and its distinct parent against a cap in the
-// thousands — but a function whose whole contract is "returns at most `cap`
+// thousands, but a function whose whole contract is "returns at most `cap`
 // records" should not be one wider use away from returning more, or from
 // under-filling because a caller repeated a key.
 function evictOverCap(records, cap, now, protect) {
@@ -145,14 +145,14 @@ function evictOverCap(records, cap, now, protect) {
 }
 
 // A row's own usable record, or undefined when it has no usage history to
-// rank on: no `key` property — most providers' rows (files, clipboard,
-// calc, ...) never carry one — a `key` that `records` has never seen, or a
+// rank on: no `key` property (most providers' rows, e.g. files, clipboard,
+// calc, ..., never carry one), a `key` that `records` has never seen, or a
 // stored record that is not the two finite numbers this file writes.
 //
 // The shape check lives here as well as in effectiveScore because the two
 // sort keys read different fields. effectiveScore guarding `score` keeps
 // NaN out of the `eff` comparison, but `last` is compared directly, and
-// `b.last - a.last` on a non-finite `last` is NaN just the same — which the
+// `b.last - a.last` on a non-finite `last` is NaN just the same, which the
 // comparator reads as "these are equal" and so skips the input-index
 // tiebreak the whole sort rests on. Returning undefined for a malformed
 // record means both keys fall to the same 0 that a row with no history
@@ -171,8 +171,8 @@ function recordFor(row, records) {
 // Ranks `rows` for display: a prefix match on `needle` first, then usage
 // frecency, then most-recently-used, then the row's own position in `rows`
 // as the last resort. `needle` arrives already trimmed and already
-// lowercased — Launcher.qml computes `text.trim().toLowerCase()` once per
-// keystroke before calling this — and this function must not re-normalise
+// lowercased (Launcher.qml computes `text.trim().toLowerCase()` once per
+// keystroke before calling this), and this function must not re-normalise
 // it: doing so would repeat work every caller already did, and would hide a
 // caller that forgot to normalise at all behind a rank.js that silently
 // fixed it for them instead of a launcher that visibly stopped
@@ -180,15 +180,15 @@ function recordFor(row, records) {
 // those come from providers verbatim and genuinely do need it.
 //
 // Sorting runs over a decorated array (`{row, prefix, eff, last, i}`)
-// compared on all four fields in that order, with `i` — the row's own index
-// in the *input* `rows` array — as the final tiebreaker, rather than
+// compared on all four fields in that order, with `i`, the row's own index
+// in the *input* `rows` array, as the final tiebreaker, rather than
 // leaving a tie to fall out of whatever Array.prototype.sort's stability
 // happens to do with it. Two rows tied on prefix, eff and last are exactly
 // the case this signature exists to make deterministic without reaching
 // for an alphabetical tiebreak nothing here actually promises.
 //
-// Returns a new array. Mutates neither `rows` — shared with pills.js's own
-// read of `ambientRows` (Launcher.qml:91-99) — nor `records`.
+// Returns a new array. Mutates neither `rows`, shared with pills.js's own
+// read of `ambientRows` (Launcher.qml:91-99), nor `records`.
 function order(rows, records, needle, now) {
     const decorated = rows.map((row, i) => {
         const record = recordFor(row, records);

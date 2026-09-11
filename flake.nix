@@ -27,22 +27,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Declarative microVMs. The per-app sandbox uses these to confine a package
-    # in a real hardware boundary rather than a namespace, which is what makes
-    # "no app is unsandboxed" achievable: the exemptions the container design
-    # needed (a terminal whose children inherit its confinement, a launcher
-    # whose whole job is exec'ing browsers) stop being exemptions once each app
-    # gets its own kernel.
-    #
-    # It also sidesteps the blocker that killed the nspawn route outright:
-    # unprivileged managed-mode nspawn cannot start on a nixpkgs-built systemd,
-    # because systemd-nsresourced wants a BPF-LSM program compiled out for want
-    # of kernel BTF. A VM asks nsresourced for nothing.
-    microvm = {
-      url = "github:microvm-nix/microvm.nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     haumea = {
       url = "github:nix-community/haumea/v0.2.2";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -211,8 +195,10 @@
       } self;
       # nixosConfigurations split into flake/nixos.nix (the installed system
       # + the two LiveISO closures). nixosConfigs also exports mkTokyonight
-      # (a settings-parameterized builder) for tests/default.nix — it is NOT a
-      # nixosConfiguration, so strip it before exposing nixosConfigurations.
+      # (a settings-parameterized builder) and tokyonightModules (the disk-
+      # independent half of tokyonight's module list) for tests/ — neither
+      # is a nixosConfiguration, so strip both before exposing
+      # nixosConfigurations.
       nixosConfigs = import ./flake/nixos.nix {
         inherit
           self
@@ -224,7 +210,10 @@
       };
     in
     {
-      nixosConfigurations = builtins.removeAttrs nixosConfigs [ "mkTokyonight" ];
+      nixosConfigurations = builtins.removeAttrs nixosConfigs [
+        "mkTokyonight"
+        "tokyonightModules"
+      ];
 
       # packages.${system} split into flake/packages.nix; it receives `self`
       # (this outputs attrset) so iso/iso-full can reach the LiveISO closures
@@ -266,11 +255,13 @@
         # LiveISO boot oracle (NixOS test framework) — see tests/README.md.
         # mkTokyonight + dotsFlake + inputs feed the limine-install-boot test
         # (pre-build a test-settings closure; stage the flake in the installer VM).
+        # tokyonightModules feeds session-boot's gate, so it self-syncs
+        # against the same module list mkTokyonight builds from.
         // import ./tests {
           inherit pkgs inputs;
           inherit (pkgs) lib;
           inherit (self.packages.${system}) iso;
-          inherit (nixosConfigs) mkTokyonight;
+          inherit (nixosConfigs) mkTokyonight tokyonightModules;
           dotsFlake = self;
         };
     };

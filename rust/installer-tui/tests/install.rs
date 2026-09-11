@@ -30,11 +30,11 @@ fn swap_size_rounds_meminfo_up_to_gib() {
 
 #[test]
 fn plan_writes_random_luks_keyfile_from_urandom() {
-    // The LUKS keyfile is 64 random bytes from /dev/urandom — disk encryption
+    // The LUKS keyfile is 64 random bytes from /dev/urandom. Disk encryption
     // is decoupled from any login password. Slot 0 becomes an unknown random
     // passphrase; the real unlock paths are TPM2 (auto) + the recovery key.
     // The keyfile is shredded after enrollment (plan_shreds_passfile_last),
-    // so the random passphrase is never recoverable — it just authorized the
+    // so the random passphrase is never recoverable. It just authorized the
     // TPM2/recovery enrollment.
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let keyfile = steps
@@ -376,7 +376,7 @@ fn plan_writes_secrets_before_install_and_never_stashes_them() {
     // The load-bearing git-leak guard: secrets.nix must never reach
     // /var/lib/dots, or dots-clone (nix/home/base/dots-repo.nix) would restore it
     // into the user's git clone and a yescrypt hash would be committable.
-    // No command in the plan may reference secrets.nix at all — the stash cp
+    // No command in the plan may reference secrets.nix at all. The stash cp
     // lists only settings.nix + facter.json, and WriteSecrets writes into the
     // tmpfs STAGED_FLAKE, not the target.
     for s in &steps {

@@ -238,9 +238,9 @@ Rectangle {
                 // into it. A binding cannot be undone by the statement after
                 // the one that armed it. It is also the same shape the
                 // `catcher` item in Files.qml already uses for the opposite
-                // half of this handover, and the three bindings — catcher's
-                // closed state, this one, and the confirm item's below —
-                // are mutually exclusive, so exactly one holds focus.
+                // half of this handover. The three bindings, catcher's closed
+                // state, this one, and the confirm item's below, are mutually
+                // exclusive, so exactly one holds focus.
                 focus: root.mode !== "" && !root.confirming
 
                 onTextChanged: {

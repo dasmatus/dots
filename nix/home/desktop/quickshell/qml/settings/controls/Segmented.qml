@@ -1,6 +1,6 @@
 // A row of mutually-exclusive options drawn as one capsule track with a
 // filled active segment, for a row whose value is one of a handful of
-// named choices (few enough to show all at once — Select.qml is the
+// named choices (few enough to show all at once; Select.qml is the
 // sibling control for a list too long to lay out flat).
 //
 // One outer capsule rather than one capsule per option: the source design's
@@ -17,8 +17,8 @@ Rectangle {
     id: root
 
     // [{ label, value }, ...]. `value` is compared with ===, so callers
-    // pass whatever primitive their field already stores — a string key
-    // most often — rather than this control inventing its own encoding.
+    // pass whatever primitive their field already stores, a string key
+    // most often, rather than this control inventing its own encoding.
     property var options: []
     property var value: null
 

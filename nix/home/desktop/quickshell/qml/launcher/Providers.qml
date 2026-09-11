@@ -46,11 +46,10 @@ QtObject {
             subtitle: "Suspend to RAM",
             argv: ["systemctl", "suspend"]
         },
-        {
-            title: "Hibernate",
-            subtitle: "Suspend to disk",
-            argv: ["systemctl", "hibernate"]
-        },
+        // Hibernate was here and cannot work: disko.nix randomizes the swap
+        // partition's LUKS key on every boot (`randomEncryption`), so there
+        // is no stable key across a reboot for the kernel to resume
+        // against. Removed rather than left to fail silently at 2am.
         {
             title: "Restart",
             subtitle: "Reboot the machine",

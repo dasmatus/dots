@@ -2,19 +2,19 @@
 // position, scale and transform, plus the way into the spatial arranger.
 // Loaded by Settings.qml through a `Loader { source: "pages/displays.qml" }`,
 // the same lowercase-filename-by-source-URL idiom pages/security.qml and
-// pages/wallpaper.qml use, and for the identical reason — a lowercase
+// pages/wallpaper.qml use, and for the identical reason: a lowercase
 // filename cannot be a QML type name.
 //
 // Why this page reads rather than edits, when the wallpaper page next to it
 // fully replaces its old overlay:
 //
 // monitors/Arrange.qml is a spatial drag editor built around a fixed
-// 720x420 canvas beside a 220px form, with 20px between them — 960px of
+// 720x420 canvas beside a 220px form, with 20px between them, 960px of
 // width before any chrome. The Settings content column is
 // Theme.settingsPanelWidthFactor (0.72) of the screen minus the 260px
 // sidebar and row padding: roughly 1090px on a 1920-wide display, but only
 // about 690px on a 1366-wide one. So the arranger fits here and does not fit
-// generally, and shrinking a drag canvas is not a layout tweak — dragging a
+// generally, and shrinking a drag canvas is not a layout tweak. Dragging a
 // monitor rectangle into place is the whole interaction, and it degrades
 // badly before it degrades visibly.
 //
@@ -103,7 +103,7 @@ ColumnLayout {
         }
     }
 
-    // The way to the arranger. SUPER+M reaches it directly too — this row
+    // The way to the arranger. SUPER+M reaches it directly too. This row
     // exists so the page is not a dead end for someone who arrived through
     // the sidebar and has no reason to know the bind.
     SettingsRow {

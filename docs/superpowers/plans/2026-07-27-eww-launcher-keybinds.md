@@ -1,4 +1,4 @@
-# eww app launcher + first-boot keyboard help — Implementation Plan
+# eww app launcher + first-boot keyboard help implementation plan
 
 > **Goal:** Replace the rofi-based app launcher (`SUPER + D`) and first-login keybind cheatsheet (`~/.config/rofi/rofi-keybinds.sh`) with eww widgets. The app launcher should visually mirror the macOS Spotlight search bar (rounded, frosted, centered, wide input with a magnifier icon, results below). The keyboard-help screen becomes a frosted centered modal grouped by category. Rofi stays in place for the file manager and power menu.
 
@@ -6,7 +6,7 @@
 
 ## Global Constraints
 
-- **No inline tests** — repo rule; tests live under `tests/` at repo root if needed. This change is pure config/scripts, so no new tests are required beyond `nix run .#nix-lint`.
+- **No inline tests**, per repo rule. Tests live under `tests/` at repo root if needed. This change is pure config/scripts, so no new tests are required beyond `nix run .#nix-lint`.
 - **Comments:** top-level `//!`/`///`-style in Rust; module docstring + per-symbol docstrings in Python; Nix files use top-level `#` comments. Inline comments (`//`/`#`) only for non-obvious logic.
 - **No Co-Authored-By / session-link doxxing** in commits or GitLab text.
 - **Package names verified in this flake's nixpkgs:** `pkgs.eww`, `pkgs.jq`, `pkgs.dex`.
@@ -17,17 +17,17 @@
 
 ## File Structure
 
-- **Create** `nix/home/eww/default.nix` — install eww, jq, dex; declare `xdg.configFile` for the whole eww config tree.
-- **Create** `nix/home/eww/eww.yuck` — main eww config: windows, widgets, variables, `include` of generated keybinds data.
-- **Create** `nix/home/eww/eww.scss` — Spotlight-style launcher + frosted keybinds modal.
-- **Create** `nix/home/eww/scripts/list-apps.sh` — enumerate `.desktop` entries, filter by query, emit JSON for eww.
-- **Create** `nix/home/eww/scripts/launcher.sh` — toggle, search, select, launch, reset.
-- **Create** `nix/home/eww/scripts/keybinds.sh` — first-boot sentinel + on-demand toggle.
-- **Modify** `nix/home/desktop/keybinds.nix` — stop generating the rofi dmenu script; generate `~/.config/eww/keybinds.yuck` with the keybind list as a JSON `defvar`, and update comments.
-- **Modify** `nix/home/desktop/hyprland.nix` — change `SUPER + D` to open the eww launcher; change the first-login exec and `SUPER + /` exec to the new eww keybinds script; bind `Escape` to close any open eww window.
-- **Modify** `nix/home/default.nix` — import `nix/home/eww`.
-- **Modify** `nix/home/rofi/default.nix` — update comments to clarify rofi is now used only for files/power-menu.
-- **Modify** `nix/home/rofi/tokyonight.rasi` — update header comment to drop the "drun" claim.
+- **Create** `nix/home/eww/default.nix`. Install eww, jq, dex; declare `xdg.configFile` for the whole eww config tree.
+- **Create** `nix/home/eww/eww.yuck`. Main eww config: windows, widgets, variables, `include` of generated keybinds data.
+- **Create** `nix/home/eww/eww.scss`. Spotlight-style launcher and frosted keybinds modal.
+- **Create** `nix/home/eww/scripts/list-apps.sh`. Enumerate `.desktop` entries, filter by query, emit JSON for eww.
+- **Create** `nix/home/eww/scripts/launcher.sh`. Toggle, search, select, launch, reset.
+- **Create** `nix/home/eww/scripts/keybinds.sh`. First-boot sentinel + on-demand toggle.
+- **Modify** `nix/home/desktop/keybinds.nix`. Stop generating the rofi dmenu script; generate `~/.config/eww/keybinds.yuck` with the keybind list as a JSON `defvar`, and update comments.
+- **Modify** `nix/home/desktop/hyprland.nix`. Change `SUPER + D` to open the eww launcher; change the first-login exec and `SUPER + /` exec to the new eww keybinds script; bind `Escape` to close any open eww window.
+- **Modify** `nix/home/default.nix`. Import `nix/home/eww`.
+- **Modify** `nix/home/rofi/default.nix`. Update comments to clarify rofi is now used only for files/power-menu.
+- **Modify** `nix/home/rofi/tokyonight.rasi`. Update header comment to drop the "drun" claim.
 
 ---
 

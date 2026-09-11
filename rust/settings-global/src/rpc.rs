@@ -1,6 +1,6 @@
 //! JSON-RPC 2.0 framing for `global-settings serve`'s stdio conversation with
 //! the beamenu-canvas sidecar (protocol v1, binding across both crates): one
-//! JSON object per line. Only the subset `serve` needs is implemented —
+//! JSON object per line. Only the subset `serve` needs is implemented.
 //! `ui.render` out, `form.submit`/`shutdown` in.
 
 use serde::Deserialize;
@@ -12,13 +12,13 @@ use crate::settings::Settings;
 /// One decoded line from the canvas.
 #[derive(Debug)]
 pub enum Incoming {
-    /// `form.submit {"values": {...}}` — a request, so it carries `id` and
+    /// `form.submit {"values": {...}}`, a request, so it carries `id` and
     /// expects a `result`/`error` response.
     FormSubmit {
         id: Value,
         values: Map<String, Value>,
     },
-    /// `shutdown` — a notification; `serve` exits 0 on receipt.
+    /// `shutdown`, a notification; `serve` exits 0 on receipt.
     Shutdown,
     /// A request for a method this worker does not implement; `id` is
     /// `Some` when a response is owed (it was a request, not a notification).

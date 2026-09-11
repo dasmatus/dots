@@ -8,8 +8,8 @@
 // matters lives.
 //
 // lsblk's "rm" column is the SCSI removable-media bit. A USB hard disk
-// answers that bit "no" — it is a fixed drive that merely lives behind a
-// USB bridge — while the NVMe boot disk's EFI System Partition answers
+// answers that bit "no", since it is a fixed drive that merely lives behind
+// a USB bridge, while the NVMe boot disk's EFI System Partition answers
 // "hotplug" false and sits there with a filesystem and no mountpoint,
 // looking exactly like a candidate to offer up for mounting. "hotplug" is
 // the bit that means "arrived after boot, on a bus meant for that"; "rm" is
@@ -61,8 +61,8 @@ function orNull(v) {
 /// Depth-first walk of one top-level lsblk entry. `diskPath` and
 /// `diskHotplug` are fixed at the top-level disk and carried unchanged into
 /// every descendant, because "on itself OR on its parent disk" means the
-/// disk that owns the partition, not whichever node sits one level up —
-/// relevant for a logical partition nested inside an extended one.
+/// disk that owns the partition, not whichever node sits one level up.
+/// Relevant for a logical partition nested inside an extended one.
 function walk(node, diskPath, diskHotplug, out) {
     const excludedType = node.type === "loop" || node.type === "rom";
     const ownHotplug = flag(node.hotplug);
@@ -94,8 +94,8 @@ function walk(node, diskPath, diskHotplug, out) {
 }
 
 /// Parse `lsblk -J -b` output into a flat array of mountable devices: hotplug
-/// partitions and hotplug superfloppy disks, everything else — internal
-/// disks, the ESP, loop and rom devices, LVM/crypt plumbing — left out.
+/// partitions and hotplug superfloppy disks. Everything else, internal
+/// disks, the ESP, loop and rom devices, LVM/crypt plumbing, is left out.
 /// Malformed input yields an empty list rather than throwing, since this
 /// runs on every udev poll and one bad read must not crash the shell.
 function parseDevices(text) {
@@ -164,7 +164,7 @@ function parseMounts(text) {
 }
 
 /// label, else vendor+model trimmed (lsblk right-pads vendor to 8 columns),
-/// else the kernel name — always something to put on the menu row.
+/// else the kernel name. Always something to put on the menu row.
 function displayLabel(device) {
     if (device.label)
         return device.label;
@@ -219,7 +219,7 @@ function seedAttempts(attempted, devices) {
     return seeded;
 }
 
-/// Records that transitioned from unmounted to mounted between two polls —
+/// Records that transitioned from unmounted to mounted between two polls,
 /// the notify-send trigger. A device absent from `previous` counts as
 /// having been unmounted, so a stick that appears already-mounted still
 /// fires the notification once.
@@ -235,8 +235,8 @@ function newlyMounted(previous, next) {
     });
 }
 
-/// argv for `udisksctl mount`. The path is always its own array element —
-/// see previewCommand in qml/launcher/preview.js for why that discipline
+/// argv for `udisksctl mount`. The path is always its own array element.
+/// See previewCommand in qml/launcher/preview.js for why that discipline
 /// matters: a label or mountpoint under attacker control is legal ext4/exfat
 /// metadata, and it must never be able to reach a shell as text.
 function mountCommand(path) {

@@ -2,13 +2,13 @@
 # + CLI (github.com/agent-sh/computer-use-linux). The prebuilt release binary
 # is packaged in ./computer-use-linux-pkg.nix (autoPatchelf'd to Nix-store
 # glibc). Enabling this module installs the CLI on PATH and registers it as
-# a stdio MCP server in every harness present in this dots config — Claude
+# a stdio MCP server in every harness present in this dots config: Claude
 # Code (programs.claude-code.mcpServers) and Codex
 # (programs.codex.settings.mcp_servers). To wire a new harness, add another
 # `config.programs.<harness>...` assignment below; the build is shared.
 #
 # Registration is the *wiring* only. Actually driving the desktop needs
-# system services — ydotoold (input injection), the AT-SPI session bus
+# system services: ydotoold (input injection), the AT-SPI session bus
 # (accessibility tree), xdg-desktop-portal (screenshots), and a udev rule
 # giving the `input` group access to /dev/uinput. Those are NixOS system
 # modules and live outside home-manager; run `computer-use-linux doctor` (or
@@ -53,14 +53,14 @@ in
     # harnesses don't depend on PATH at spawn time.
     home.packages = [ cfg.package ];
 
-    # Claude Code — programs.claude-code.mcpServers, written to ~/.claude.json.
+    # Claude Code: programs.claude-code.mcpServers, written to ~/.claude.json.
     programs.claude-code.mcpServers.computer-use-linux = {
       type = "stdio";
       command = "${cfg.package}/bin/computer-use-linux";
       args = mcpArgs;
     };
 
-    # OpenAI Codex CLI — programs.codex.settings.mcp_servers, written to
+    # OpenAI Codex CLI: programs.codex.settings.mcp_servers, written to
     # ~/.codex/config.toml. Merges with the searxng entry declared in codex.nix.
     programs.codex.settings.mcp_servers.computer-use-linux = {
       command = "${cfg.package}/bin/computer-use-linux";

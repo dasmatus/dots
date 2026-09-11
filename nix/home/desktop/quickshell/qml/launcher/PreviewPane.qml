@@ -8,7 +8,7 @@
 //
 // One `sh` runs per selection rather than one per keystroke: the highlight
 // moves a row at a time when held down, and stat'ing every row it passes
-// through is work nobody sees. The path travels in argv — see preview.js.
+// through is work nobody sees. The path travels in argv; see preview.js.
 pragma ComponentBehavior: Bound
 
 import QtQuick

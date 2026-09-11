@@ -8,7 +8,7 @@ use global_settings::settings::{
 };
 
 /// Verbatim shape of what rust/installer-tui/src/config.rs::settings_nix
-/// writes on the target — the canonical on-disk format.
+/// writes on the target, the canonical on-disk format.
 const INSTALLER_WRITTEN: &str = "{\n  username = \"matus\";\n  hostname = \"matthiasbuch\";\n  disks = [ \"/dev/nvme0n1\" ];\n  swapSize = \"15G\";\n  gitName = \"Ada Lovelace\";\n  gitEmail = \"ada@example.com\";\n  aiClaude = true;\n  aiCodex = false;\n  aiOllama = true;\n}\n";
 
 #[test]
@@ -244,7 +244,7 @@ fn get_int_roundtrips_negative_values() {
 
 /// A non-integer at an int key (a float, a suffixed literal, or trailing
 /// garbage) must read back as `None` rather than being truncated or
-/// otherwise silently coerced — the documented choice for `get_int`.
+/// otherwise silently coerced, the documented choice for `get_int`.
 #[test]
 fn get_int_is_none_for_non_integer_values() {
     let s =

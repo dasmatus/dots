@@ -1,4 +1,4 @@
-// app.rs::Screen::DiskSelect — the manual multi-select picker, shown only
+// app.rs::Screen::DiskSelect: the manual multi-select picker, shown only
 // when installer.qml's autodetectDisk() call could not pick a single fixed
 // disk unambiguously. The chosen disks span one LVM volume group (disko.nix
 // puts a PV on each), so the capacity gate below is on their combined size,

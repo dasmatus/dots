@@ -147,9 +147,9 @@ stdenv.mkDerivation (finalAttrs: {
   # CLAUDE_CONFIG_DIR alone, and every session the app starts spawns the CLI
   # with that variable overwritten to a private per-session directory seeded
   # with a CLAUDE.md and caches. Nor would setting it in the wrapper survive:
-  # the app builds its subprocess environment from a fixed allowlist — it
+  # the app builds its subprocess environment from a fixed allowlist. It
   # re-adds HOME, PATH, SHELL, TERM and USER by hand precisely because nothing
-  # is inherited — so a variable set here reaches the Electron process and
+  # is inherited, so a variable set here reaches the Electron process and
   # stops there. What does reach a session is the plugin list handed to the
   # CLI as --plugin-dir, and registering a plugin is $HOME state, so
   # nix/home/ai/claude-desktop.nix does that half.

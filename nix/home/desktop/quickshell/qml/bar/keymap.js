@@ -1,7 +1,7 @@
 // Parsing for the keymap pill: Hyprland's `activelayout` IPC payload, and
 // the `hyprctl devices -j` snapshot the pill reads both to seed itself
 // before the first such event arrives and to resolve every event after
-// that — see activeLayoutCodeFrom for why the event's own payload is not
+// that. See activeLayoutCodeFrom for why the event's own payload is not
 // enough on its own.
 //
 // Kept out of Keymap.qml for the same reason battery.js is kept out of
@@ -32,7 +32,7 @@ function parseActiveLayoutEvent(data) {
 }
 
 // Shortens a full XKB layout name ("English (US)", "Slovak") to two letters
-// for a 30px bar. A parenthesised variant is dropped before abbreviating —
+// for a 30px bar. A parenthesised variant is dropped before abbreviating.
 // "(US)" describes a keyboard arrangement, not the language, and keeping it
 // would abbreviate "English (US)" down to the variant instead of the
 // language every other layout is identified by.
@@ -71,7 +71,7 @@ function activeKeymapFrom(devicesJsonText) {
 }
 
 // Picks the active layout's own configured code out of the same `hyprctl
-// devices -j` snapshot — the same code launcher/keyboard.js's rows switch
+// devices -j` snapshot, the same code launcher/keyboard.js's rows switch
 // by (`Keyboard Layout: sk`), not `active_keymap` above. That field is
 // Hyprland's human-readable XKB description, and truncating it does not
 // generally land on the matching code: German's own code is "de", but its
@@ -79,7 +79,7 @@ function activeKeymapFrom(devicesJsonText) {
 // "Sl". Confirmed live (`hyprctl devices -j` on a running Hyprland session)
 // that each keyboard also reports `layout`, the same comma-separated code
 // list `hyprctl getoption input:kb_layout -j`'s `str` carries, and
-// `active_layout_index`, which entry in it is live right now — indexing one
+// `active_layout_index`, which entry in it is live right now. Indexing one
 // with the other is what this returns. Same fallbacks as activeKeymapFrom
 // for no keyboards or unparseable JSON, plus "" for an index that is
 // missing or out of range.
@@ -107,7 +107,7 @@ function activeLayoutCodeFrom(devicesJsonText) {
 }
 
 // How many layouts are configured for the active keyboard, out of the same
-// snapshot activeLayoutCodeFrom reads — `layout` counted rather than
+// snapshot activeLayoutCodeFrom reads, `layout` counted rather than
 // indexed. Backs Keymap.qml's own `visible` guard: a single configured
 // layout has nothing to switch between, the same floor
 // launcher/keyboard.js's keyboardRows already applies before it offers a

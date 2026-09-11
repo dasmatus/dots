@@ -1,11 +1,11 @@
 // Builds a QApplication rather than Quickshell's default QGuiApplication,
 // which is what Qt's platform-menu layer needs to exist at all. Tray.qml
 // opens a tray item's DBusMenu through SystemTrayItem.display(), and without
-// this line every one of those calls aborts into the log — "Cannot display
-// PlatformMenuEntry as quickshell was not started in QApplication mode" —
-// having drawn nothing and thrown nothing. QsMenuAnchor.open() is gated on
-// the same flag, so it is the platform-menu path that needs this, not the
-// one API. Costs no closure: the quickshell binary already links
+// this line every one of those calls aborts into the log with "Cannot
+// display PlatformMenuEntry as quickshell was not started in QApplication
+// mode", having drawn nothing and thrown nothing. QsMenuAnchor.open() is
+// gated on the same flag, so it is the platform-menu path that needs this,
+// not the one API. Costs no closure: the quickshell binary already links
 // libQt6Widgets. Pinned by tests/qml/tst_platform_menu.qml, which has to
 // read this file's raw text because the line is a comment.
 //@ pragma UseQApplication
@@ -17,10 +17,9 @@
 // restart to manage. Bar declares modelData as required, and Variants supplies
 // it per screen.
 //
-// The notification layer, the OSD and the sandbox permission prompt are
-// single instances that follow the focused monitor, rather than one per
-// screen. Two monitors showing the same notification is a duplicate, not a
-// feature.
+// The notification layer and the OSD are single instances that follow the
+// focused monitor, rather than one per screen. Two monitors showing the
+// same notification is a duplicate, not a feature.
 //
 // The launcher, cheatsheet, settings form, wallpaper picker, monitor
 // arrange surface and file manager are single instances too: only one can
@@ -30,20 +29,26 @@
 // Picker instance so its hourly random pick can drive the same apply() a
 // grid click does.
 //
-// Watcher has no window either — it is the monitor hotplug daemon
+// Watcher has no window either. It is the monitor hotplug daemon
 // (hyprmon.service, before this migration) folded into a plain Scope. It
 // runs unconditionally rather than lazily behind a keybind because a
 // monitor can be plugged in at any time, not just while some other surface
 // is open.
+//
+// IdleWatcher is windowless for the same reason and unconditional for a
+// stronger one: it is what blanks the screen and locks the session after a
+// quiet stretch, and before it existed no part of this system did either.
+// It draws nothing, so its only visible effect is the desktop going dark
+// and hyprlock coming up.
 import Quickshell
 import "bar"
 import "cheatsheet"
 import "files"
+import "idle"
 import "launcher"
 import "monitors"
 import "notifications"
 import "osd"
-import "sandbox"
 import "settings"
 import "wallpaper"
 
@@ -58,15 +63,13 @@ ShellRoot {
 
     Osd {}
 
-    Prompt {}
-
     Launcher {}
 
     Cheatsheet {}
 
     // Declared after Picker below so the reference resolves; QML object
     // creation is order-independent for id lookups within the same scope.
-    // Settings only forwards this to its Wallpaper page's Loader — the one
+    // Settings only forwards this to its Wallpaper page's Loader. The one
     // Picker instance stays owned here, because Rotation's hourly pick and
     // `qs ipc call wallpaper apply` drive it whether Settings is open or not.
     Settings {
@@ -86,4 +89,6 @@ ShellRoot {
     Watcher {}
 
     Arrange {}
+
+    IdleWatcher {}
 }

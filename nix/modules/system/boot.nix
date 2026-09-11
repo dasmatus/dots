@@ -31,7 +31,21 @@
     loader.limine = {
       enable = true;
       # was loader.systemd-boot.configurationLimit = 2 — Limine's equivalent.
-      maxGenerations = 2;
+      # Raised 2 -> 5 for Phase A's safety net
+      # (docs/superpowers/specs/2026-09-08-hardening-design.md): with
+      # `system.autoUpgrade` rebuilding daily and never rebooting itself
+      # (maintenance.nix), 5 is "5 daily rebuild cycles since the last real
+      # reboot" of visible fallback in the Limine menu, not 5 calendar days
+      # — a laptop left running/suspended across more than 5 rebuild cycles
+      # can still find every visible entry built inside a bad window, though
+      # older good generations stay recoverable by hand for ~30 days (the
+      # nix.gc change in maintenance.nix). Paired with that GC change: at
+      # the old `--delete-older-than 0d`, GC collapsed the profile to ~1
+      # generation weekly regardless of this number, so raising it alone
+      # would have bought nothing. See kernel.nix's `stock-kernel`
+      # specialisation for the fallback that does NOT depend on a working
+      # system at all.
+      maxGenerations = 5;
       # was loader.systemd-boot.editor = false. Must be explicit: with Secure
       # Boot off the Limine module does not force-disable the editor, so without
       # this the boot menu would allow `init=/bin/sh` root access.

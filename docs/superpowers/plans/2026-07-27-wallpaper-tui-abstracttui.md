@@ -1,22 +1,22 @@
-# wallpaper-tui → abstracttui Migration Implementation Plan
+# wallpaper-tui → abstracttui migration implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rewrite `wallpaper-tui`'s TUI layer from `ratatui`+`crossterm`+`ratatui-image` onto `abstracttui 0.2.x`, render the preview through the mosaic/emulator backend (no native image-protocol negotiation), add a preview crossfade + selection-slide animation, and keep all non-TUI tests green.
 
-**Architecture:** Same Approach A as the installer — keep `App` (`app.rs`) as the pure state machine, hold it in `Signal<App>`, project via `dyn_view`. The `ratatui_image::Picker`/`StatefulProtocol` fields are removed; the preview becomes a `gfx::Bitmap` derived from the cached `image::DynamicImage` and shown through the `Image` widget on the mosaic backend. A `fx.rs` overlay adds the crossfade, gated by `DOTS_NO_ANIM`.
+**Architecture:** Same Approach A as the installer. Keep `App` (`app.rs`) as the pure state machine, hold it in `Signal<App>`, project via `dyn_view`. The `ratatui_image::Picker`/`StatefulProtocol` fields are removed; the preview becomes a `gfx::Bitmap` derived from the cached `image::DynamicImage` and shown through the `Image` widget on the mosaic backend. A `fx.rs` overlay adds the crossfade, gated by `DOTS_NO_ANIM`.
 
 **Tech Stack:** Rust 2021, `abstracttui = "0.2"`, existing non-TUI modules (`config`, `awww`, `accent`, `tint`, `preview`, `wallpapers`, `cli`), `image` (kept), `mpsc` + `std::thread` worker pattern (unchanged).
 
 ## Global Constraints
 
-- Non-TUI modules (`cli.rs`, `config.rs`, `awww.rs`, `accent.rs`, `tint.rs`, `preview.rs`, `wallpapers.rs`) are **untouched** — no logic, no signature changes. `preview::load_preview` must keep returning `image::DynamicImage` so `tests/preview.rs` stays green.
+- Non-TUI modules (`cli.rs`, `config.rs`, `awww.rs`, `accent.rs`, `tint.rs`, `preview.rs`, `wallpapers.rs`) are **untouched**. No logic, no signature changes. `preview::load_preview` must keep returning `image::DynamicImage` so `tests/preview.rs` stays green.
 - `App::handle_key` stays a pure transition function; only its parameter type changes to `crate::input::KeyEvent`. There is no `app` state-machine test, so no test edits required for the shim.
-- The `Image` widget runs on the **mosaic/emulator backend** (half-block/quadrant/sextant/braille cell glyphs) — **no** native kitty/iTerm2/sixel negotiation. `MosaicMode` chosen via `use_caps` (half-blocks on raw VTs).
-- No inline tests — new tests in `tests/`.
+- The `Image` widget runs on the **mosaic/emulator backend** (half-block/quadrant/sextant/braille cell glyphs). **No** native kitty/iTerm2/sixel negotiation. `MosaicMode` chosen via `use_caps` (half-blocks on raw VTs).
+- No inline tests. New tests in `tests/`.
 - Comments: top-level (`//!`) / per-symbol (`///`) only.
 - No `Co-Authored-By`/session-link in commits.
-- The authoritative abstracttui signature reference is `docs/superpowers/refs/abstracttui-api.md` (created by the installer-tui plan's Task 0). This plan's Task 0 **extends** that reference with the `Image`-mosaic + `Bitmap`-from-`DynamicImage` specifics. When code disagrees with the reference, the reference wins — adjust until `cargo check` passes.
+- The authoritative abstracttui signature reference is `docs/superpowers/refs/abstracttui-api.md` (created by the installer-tui plan's Task 0). This plan's Task 0 **extends** that reference with the `Image`-mosaic + `Bitmap`-from-`DynamicImage` specifics. When code disagrees with the reference, the reference wins. Adjust until `cargo check` passes.
 - `cargo fmt --all` and `cargo clippy -- -W clippy::all -W clippy::perf -W clippy::pedantic` clean before each commit.
 
 ---
@@ -40,11 +40,11 @@
 
 ### Task 0: Image-mosaic API spike (extends the shared reference)
 
-**Goal:** Build a throwaway example that loads a PNG via the existing `preview::load_preview`, converts the `image::DynamicImage` to `abstracttui::gfx::Bitmap`, and displays it headless through the `Image` widget on the mosaic backend — confirming the `Image`/`ImageFit`/`ImageAlign`/`MosaicMode` APIs and the `DynamicImage→Bitmap` conversion. Extend `docs/superpowers/refs/abstracttui-api.md` with the findings.
+**Goal:** Build a throwaway example that loads a PNG via the existing `preview::load_preview`, converts the `image::DynamicImage` to `abstracttui::gfx::Bitmap`, and displays it headless through the `Image` widget on the mosaic backend, confirming the `Image`/`ImageFit`/`ImageAlign`/`MosaicMode` APIs and the `DynamicImage→Bitmap` conversion. Extend `docs/superpowers/refs/abstracttui-api.md` with the findings.
 
 **Files:**
 - Create: `rust/wallpaper-tui/examples/spike.rs`
-- Modify: `rust/wallpaper-tui/Cargo.toml` (add `abstracttui = "0.2"`; keep `ratatui`/`crossterm`/`ratatui-image` for now — removed in Task 1)
+- Modify: `rust/wallpaper-tui/Cargo.toml` (add `abstracttui = "0.2"`; keep `ratatui`/`crossterm`/`ratatui-image` for now. Removed in Task 1)
 - Modify: `docs/superpowers/refs/abstracttui-api.md` (append §Image-mosaic, §Bitmap-from-DynamicImage)
 
 **Interfaces:**
@@ -125,14 +125,14 @@ git commit -m "feat(wallpaper-tui): abstracttui Image-mosaic spike + reference"
 
 ### Task 1: Dependency swap + `input` shim + `app.rs` field surgery
 
-**Goal:** Remove `ratatui`/`crossterm`/`ratatui-image`, add the `input` shim, switch `handle_key` to it, and remove the `Picker`/`StatefulProtocol` fields from `App` — replacing the on-screen preview with a `gfx::Bitmap`. `App::new` drops its `picker` parameter. Non-TUI tests stay green; the TUI builds only after Tasks 3-5.
+**Goal:** Remove `ratatui`/`crossterm`/`ratatui-image`, add the `input` shim, switch `handle_key` to it, and remove the `Picker`/`StatefulProtocol` fields from `App`, replacing the on-screen preview with a `gfx::Bitmap`. `App::new` drops its `picker` parameter. Non-TUI tests stay green; the TUI builds only after Tasks 3-5.
 
 **Files:**
 - Modify: `rust/wallpaper-tui/Cargo.toml`
 - Create: `rust/wallpaper-tui/src/input.rs`
 - Modify: `rust/wallpaper-tui/src/app.rs`
 - Modify: `rust/wallpaper-tui/src/lib.rs`
-- (No test edits — there is no `app` state-machine test.)
+- (No test edits. There is no `app` state-machine test.)
 
 **Interfaces:**
 - Consumes: `abstracttui::gfx::Bitmap`; the `Bitmap-from-DynamicImage` recipe from the reference.
@@ -140,7 +140,7 @@ git commit -m "feat(wallpaper-tui): abstracttui Image-mosaic spike + reference"
 
 - [ ] **Step 1: Write the `input` shim**
 
-`rust/wallpaper-tui/src/input.rs` — identical to the installer's `input.rs` (`KeyCode::{Char,Enter,Esc,Backspace,Up,Down}`, `KeyEvent{code}`, `From<KeyCode>`). The keys the wallpaper TUI uses: `q`/Esc, `j`/Down, `k`/Up, Enter, `m`, `c`, `o`, `p`, `r` — all covered by `Char` + the named variants.
+`rust/wallpaper-tui/src/input.rs`. Identical to the installer's `input.rs` (`KeyCode::{Char,Enter,Esc,Backspace,Up,Down}`, `KeyEvent{code}`, `From<KeyCode>`). The keys the wallpaper TUI uses: `q`/Esc, `j`/Down, `k`/Up, Enter, `m`, `c`, `o`, `p`, `r`, all covered by `Char` + the named variants.
 
 - [ ] **Step 2: Swap `app.rs` key type + remove image-protocol fields**
 
@@ -151,14 +151,14 @@ In `rust/wallpaper-tui/src/app.rs`:
 - **Add** `pub preview: Option<Bitmap>,` (the on-screen bitmap, derived from the cache).
 - Keep `pub preview_cache: HashMap<String, image::DynamicImage>,` unchanged.
 - Change `handle_key(&mut self, key: crossterm::event::KeyEvent)` → `handle_key(&mut self, key: KeyEvent)`; replace the inner `use crossterm::event::KeyCode;` with the imported `KeyCode`. Logic unchanged.
-- `App::new(config, state, no_tint, backend)` — drop the `picker` parameter; remove the `picker` field init; init `preview: None`. The body otherwise unchanged (outputs/fill_mode/current_color logic identical).
+- `App::new(config, state, no_tint, backend)`. Drop the `picker` parameter; remove the `picker` field init; init `preview: None`. The body otherwise unchanged (outputs/fill_mode/current_color logic identical).
 - `request_preview`: replace `self.picker.new_resize_protocol(img)` with a `DynamicImage→Bitmap` conversion helper `fn dynimg_to_bitmap(img: &image::DynamicImage) -> Bitmap` (the reference recipe). On cache hit, set `self.preview = Some(dynimg_to_bitmap(&img))`. On miss, keep the `PendingOp::Preview { path }` dispatch unchanged.
 - `on_event`'s `PreviewReady` arm: replace `self.picker.new_resize_protocol(img.clone())` with `let bmp = dynimg_to_bitmap(&img); self.preview = Some(bmp);` then `self.preview_cache.insert(path, img);`. The `None` branch keeps `self.preview = None`.
 - Add `#[derive(Clone)]` to `App` if not present (needed to put it in a `Signal`); verify all fields are `Clone` (`Bitmap` is `Clone`, `HashMap<String, DynamicImage>` is `Clone`, `Config`/`State`/`TintBackend` are `Clone`).
 
 - [ ] **Step 3: Export `input` + the bitmap helper**
 
-`rust/wallpaper-tui/src/lib.rs` — add `pub mod input;`. Keep `pub fn` re-exports as-is. The `dynimg_to_bitmap` helper can live private in `app.rs` (used only there) or in a new `pub mod gfx_util;` if `ui.rs` also needs it — default to private in `app.rs` unless `ui.rs` needs it.
+`rust/wallpaper-tui/src/lib.rs`. Add `pub mod input;`. Keep `pub fn` re-exports as-is. The `dynimg_to_bitmap` helper can live private in `app.rs` (used only there) or in a new `pub mod gfx_util;` if `ui.rs` also needs it. Default to private in `app.rs` unless `ui.rs` needs it.
 
 - [ ] **Step 4: Swap Cargo.toml deps**
 
@@ -182,7 +182,7 @@ walkdir = "2"
 Run: `cd rust/wallpaper-tui && cargo test --test preview && cargo test --test accent && cargo test --test awww && cargo test --test tint && cargo test --test config`
 Expected: PASS (these don't touch `app.rs`).
 Run: `cd rust/wallpaper-tui && cargo check`
-Expected: FAIL only in `ui.rs` and `main.rs` (still reference removed deps / old `App::new` signature). Expected — rewritten in Tasks 3-5.
+Expected: FAIL only in `ui.rs` and `main.rs` (still reference removed deps / old `App::new` signature). This is expected. It gets rewritten in Tasks 3-5.
 
 - [ ] **Step 6: Commit**
 
@@ -194,7 +194,7 @@ git commit -m "refactor(wallpaper-tui): engine-agnostic input shim, drop ratatui
 
 ---
 
-### Task 2: `fx` overlay — preview crossfade + selection slide
+### Task 2: `fx` overlay, preview crossfade + selection slide
 
 **Goal:** Create `src/fx.rs` with a preview crossfade (`Transition` on opacity between successive `Bitmap`s) and a list selection slide, gated by `DOTS_NO_ANIM`. Unit-test the crossfade math with `Clock::fixed`.
 
@@ -231,7 +231,7 @@ fn animations_enabled_respects_env() {
 }
 ```
 
-(Adjust `now(ms)` / `crossfade_curve` to the confirmed `Clock`/`Tween` API; the property — 0→1 over the duration — is the contract.)
+(Adjust `now(ms)` / `crossfade_curve` to the confirmed `Clock`/`Tween` API; the property, 0→1 over the duration, is the contract.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -280,9 +280,9 @@ git commit -m "feat(wallpaper-tui): fx overlay (preview crossfade + selection sl
 
 ---
 
-### Task 3: `ui.rs` — list + info/help bars
+### Task 3: `ui.rs`, list + info/help bars
 
-**Goal:** Rewrite `ui.rs` as an abstracttui View: a horizontal `List` (wallpapers) | preview pane, above an info bar, above a one-line help footer — flexbox layout. The preview pane is a placeholder in this task (drawn in Task 4). Verify the list/info/help render headless.
+**Goal:** Rewrite `ui.rs` as an abstracttui View: a horizontal `List` (wallpapers) | preview pane, above an info bar, above a one-line help footer, using flexbox layout. The preview pane is a placeholder in this task (drawn in Task 4). Verify the list/info/help render headless.
 
 **Files:**
 - Modify: `rust/wallpaper-tui/src/ui.rs` (full rewrite)
@@ -323,7 +323,7 @@ fn list_shows_wallpaper_names_and_help_line() {
 }
 ```
 
-Build the `todo_cfg/state/backend` fixtures from `wallpaper_tui::config::{Config, State}` and `wallpaper_tui::accent::TintBackend` exactly as the existing `tests/config.rs`/`tests/accent.rs` do — reuse their construction patterns. Implement `todo_harness_from_reference()` per the reference §Testing (`CaptureTerm` + `driver.turn`/`app.pump` + `assert_snapshot`).
+Build the `todo_cfg/state/backend` fixtures from `wallpaper_tui::config::{Config, State}` and `wallpaper_tui::accent::TintBackend` exactly as the existing `tests/config.rs`/`tests/accent.rs` do. Reuse their construction patterns. Implement `todo_harness_from_reference()` per the reference §Testing (`CaptureTerm` + `driver.turn`/`app.pump` + `assert_snapshot`).
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -357,7 +357,7 @@ pub fn root_view(cx: Scope, app: Signal<App>, fx: Signal<Fx>) -> View {
 }
 ```
 
-`main_view`: a column whose first row is a horizontal split (`Style::row()`) — `List` (left, grow) | preview placeholder (`Block` with left border, fixed width ~50) — second row is the info bar (`RichTextView` styled like the old `draw_info`: dark-gray bg, white bold), third row is the help line (dim `RichTextView`). `empty_view`: a `RichTextView` with "No wallpapers found in: {folder}" + the info + help rows. The `List` items are wallpaper file names; highlight the `app.selected` index with the old highlight style (black on light-blue, bold, `> ` symbol). Copy the `HELP` string and info-bar format verbatim from the old `ui.rs`/`app.rs::info_text`.
+`main_view`: a column whose first row is a horizontal split (`Style::row()`) of `List` (left, grow) | preview placeholder (`Block` with left border, fixed width ~50). The second row is the info bar (`RichTextView` styled like the old `draw_info`: dark-gray bg, white bold), the third row is the help line (dim `RichTextView`). `empty_view`: a `RichTextView` with "No wallpapers found in: {folder}" + the info + help rows. The `List` items are wallpaper file names; highlight the `app.selected` index with the old highlight style (black on light-blue, bold, `> ` symbol). Copy the `HELP` string and info-bar format verbatim from the old `ui.rs`/`app.rs::info_text`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -374,7 +374,7 @@ git commit -m "feat(wallpaper-tui): abstracttui list + info/help layout"
 
 ---
 
-### Task 4: `ui.rs` — `Image` preview on the mosaic backend
+### Task 4: `ui.rs`, `Image` preview on the mosaic backend
 
 **Goal:** Replace the preview placeholder with the `Image` widget rendering `app.preview: Option<Bitmap>` through the mosaic/emulator backend, with the crossfade applied (Task 2's `fx.crossfade_opacity()`). Handle the "rendering…"/"[preview unavailable]" fallback labels.
 
@@ -424,7 +424,7 @@ Expected: FAIL.
 
 In `main_view`, the preview pane becomes:
 - If `!app.show_preview`: a `Block` with a left border (mirrors old behavior).
-- Else if `let Some(bmp) = &app.preview`: an `Image` widget showing `bmp` via the mosaic backend, `ImageFit::Contain`, `ImageAlign::Center`. Apply the crossfade: when `animations_enabled()`, blend the new bitmap's opacity by `fx.crossfade_opacity()` (if the `Image` widget / paint style exposes an alpha knob — confirm in the reference; else drive the crossfade by drawing the old bitmap at `1 - opacity` and the new at `opacity` if the engine supports two overlapping images, else fall back to an instant cut and document that crossfade is best-effort). `MosaicMode` selected via `use_caps` — half-blocks on raw VTs, richer glyphs on full terminals.
+- Else if `let Some(bmp) = &app.preview`: an `Image` widget showing `bmp` via the mosaic backend, `ImageFit::Contain`, `ImageAlign::Center`. Apply the crossfade: when `animations_enabled()`, blend the new bitmap's opacity by `fx.crossfade_opacity()` (if the `Image` widget / paint style exposes an alpha knob, confirm in the reference; else drive the crossfade by drawing the old bitmap at `1 - opacity` and the new at `opacity` if the engine supports two overlapping images, else fall back to an instant cut and document that crossfade is best-effort). `MosaicMode` selected via `use_caps`, half-blocks on raw VTs, richer glyphs on full terminals.
 - Else (no bitmap, decode pending or failed): a `RichTextView` with `"rendering…"` if `app.preview_pending.is_some()` else `"[preview unavailable]"`.
 
 Wire the crossfade retarget: in `root_view`'s `dyn_view`, keep a `Signal<Option<String>>` (`last_preview_path`); when `app.selected_path()` changes, call `fx.get().retarget_crossfade()` and update the signal.
@@ -444,7 +444,7 @@ git commit -m "feat(wallpaper-tui): mosaic-backed Image preview with crossfade"
 
 ---
 
-### Task 5: `main.rs` — runtime + custom loop + worker bridge
+### Task 5: `main.rs`, runtime + custom loop + worker bridge
 
 **Goal:** Replace the ratatui/crossterm event loop with an abstracttui runtime: build `App` (no `Picker`), wrap in `Signal<App>`, mount `root_view`, run a custom loop draining `apply_rx`/`preview_rx` into `on_event`, dispatching `pending` (Apply/Restore/Preview) to worker threads, feeding key events into `handle_key`, quitting via `quitter` when `should_quit`. Drop `Picker::from_query_stdio` entirely. Non-interactive CLI paths (`--restore`, `--cache-previews`, `--path`) stay unchanged.
 
@@ -457,7 +457,7 @@ git commit -m "feat(wallpaper-tui): mosaic-backed Image preview with crossfade"
 
 - [ ] **Step 1: Rewrite `main.rs`**
 
-Keep `resolve_backend`, `main()`'s non-interactive dispatch (`args.restore`, `args.cache_previews`, `args.path`) **byte-for-byte** — only `run_tui` is rewritten. The new `run_tui`:
+Keep `resolve_backend`, `main()`'s non-interactive dispatch (`args.restore`, `args.cache_previews`, `args.path`) **byte-for-byte**. Only `run_tui` is rewritten. The new `run_tui`:
 
 ```rust
 fn run_tui(config: Config, state: State, no_tint: bool, backend: TintBackend) -> anyhow::Result<()> {
@@ -551,7 +551,7 @@ git commit -m "feat(wallpaper-tui): abstracttui runtime + custom loop + apply/pr
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: a green, comprehensive `tests/view.rs`.
+- Produces: a green, complete `tests/view.rs`.
 
 - [ ] **Step 1: Consolidate the suite**
 
@@ -574,9 +574,9 @@ git commit -m "test(wallpaper-tui): full headless render + crossfade suite"
 
 ## Notes for the executor
 
-- This plan **extends** `docs/superpowers/refs/abstracttui-api.md` (created by the installer-tui plan's Task 0). If the installer plan hasn't run yet, this plan's Task 0 creates the reference's core sections too — coordinate so the two plans don't clobber the file (append, don't overwrite).
-- `preview::load_preview` stays returning `image::DynamicImage` — the conversion to `Bitmap` happens in `app.rs`. `tests/preview.rs` is untouched.
-- The mosaic backend is mandatory (no native image protocols) — do not call `choose_channel`'s kitty/iterm2/sixel rungs. The spike (Task 0) confirms how to force mosaic.
-- `cargo check` after Task 1 will be red in `ui.rs`/`main.rs` until Tasks 3-5 land — expected. Commit Task 1 after the non-TUI tests pass.
+- This plan **extends** `docs/superpowers/refs/abstracttui-api.md` (created by the installer-tui plan's Task 0). If the installer plan hasn't run yet, this plan's Task 0 creates the reference's core sections too. Coordinate so the two plans don't clobber the file (append, don't overwrite).
+- `preview::load_preview` stays returning `image::DynamicImage`. The conversion to `Bitmap` happens in `app.rs`. `tests/preview.rs` is untouched.
+- The mosaic backend is mandatory (no native image protocols). Do not call `choose_channel`'s kitty/iterm2/sixel rungs. The spike (Task 0) confirms how to force mosaic.
+- `cargo check` after Task 1 will be red in `ui.rs`/`main.rs` until Tasks 3-5 land. This is expected. Commit Task 1 after the non-TUI tests pass.
 - Preserve the `HELP` string and info-bar format verbatim from the old `ui.rs`/`app.rs`.
 - Keep `examples/spike.rs` until the migration is fully green; remove in a final cleanup commit if desired.

@@ -1,9 +1,9 @@
-// app.rs::Screen::Installing. Runs Runner.qml against `actions` — plan.js's
-// planFor() output in the real flow, a harmless stand-in in a test — and
+// app.rs::Screen::Installing. Runs Runner.qml against `actions`, plan.js's
+// planFor() output in the real flow, a harmless stand-in in a test, and
 // renders the three things install.rs's Event stream produces: a step
 // counter, a scrolling log, and the recovery key once it arrives. No key
 // handling here, matching app.rs's `Screen::Installing | Screen::WifiConnecting
-// => {}` arm — a half-finished install is worse than a screen the user can
+// => {}` arm. A half-finished install is worse than a screen the user can
 // back out of.
 //
 // The recovery key is shown in its own always-visible banner, not folded
@@ -34,13 +34,13 @@ Frame {
 
     // This is the ONE line that makes Runner.qml reachable rather than a
     // unit-tested dead end (plan 1b's gap: four writers ported and tested,
-    // three never wired to a caller). Runner imports Quickshell.Io, so it —
-    // and this file, which instantiates it — cannot be run under
+    // three never wired to a caller). Runner imports Quickshell.Io, so
+    // neither it nor this file, which instantiates it, can be run under
     // qmltestrunner at all (confirmed: the plugin only loads inside the
     // `quickshell` binary itself, not a bare Qt QML host); linting the BUILT
     // tree (nix-lint's other QML gate) is what stands in instead. Typo-ing
     // this call (`runner.rnu`) reproduced as a missing-property error at
-    // this exact line — checked while writing this file, then reverted.
+    // this exact line, checked while writing this file, then reverted.
     onActivated: runner.run(root.actions)
 
     Runner {
@@ -53,9 +53,9 @@ Frame {
         }
         onLog: line => {
             // Reassigned rather than pushed: QML bindings only notice a
-            // property CHANGE, not an in-place array mutation — the same
-            // reason Settings.qml's edit map is reassigned rather than
-            // mutated (see that file's header).
+            // property CHANGE, not an in-place array mutation. This is
+            // the same reason Settings.qml's edit map is reassigned
+            // rather than mutated (see that file's header).
             root.logLines = root.logLines.concat([line]);
         }
         onRecoveryKey: key => root.recoveryKey = key

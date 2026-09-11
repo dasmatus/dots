@@ -1,4 +1,4 @@
-# Rust → Haskell rewrite on reflex-vty — design
+# Rust → Haskell rewrite on reflex-vty design
 
 Date: 2026-08-10
 Status: approved (user: "lgtm")
@@ -23,11 +23,11 @@ only surveyed library with native fine-grained FRP (`Event`/`Dynamic`/`Behavior`
 ≈ abstracttui's `Signal`/`memo`/`dyn_view`), which preserves the apps'
 reactive architecture as a near-1:1 port. brick (runner-up) has zero reactivity
 (Elm/MVU) and would force re-architecting all three apps. Image-mosaic is
-identical custom work on both (neither ships it; both sit on vty char-cell —
+identical custom work on both (neither ships it; both sit on vty char-cell,
 which aligns with abstracttui's unicode-mosaic, no-sixel/kitty contract).
 
-Decision: **faithful API-port fork** — keep an abstracttui-shaped API on top of
-reflex-vty, port the apps near-1:1, salvage the pure-logic modules from the
+Decision: **faithful API-port fork**. Keep an abstracttui-shaped API on top of
+reflex-vty, port the apps near-1:1, and salvage the pure-logic modules from the
 working from-scratch port.
 
 ## Version pin
@@ -38,7 +38,7 @@ working from-scratch port.
   are satisfied by nixpkgs (`reflex 0.9.4.0`, `vty 6.4`) at the dots flake's
   nixpkgs pin `61b7c44c`.
 - 1.2.0.0 provides `Reflex.Vty.Canvas` (mosaic target) and
-  `Reflex.Vty.Test.Snapshot` (`imageToGrid` test helper) — absent in the
+  `Reflex.Vty.Test.Snapshot` (`imageToGrid` test helper), both absent in the
   nixpkgs-shipped 0.6.2.1.
 - **Fallback** if the override proves unbuildnable: pin 0.6.2.1 (zero override)
   and degrade `Canvas`→direct vty `Image` mosaic, `Test.Snapshot`→custom
@@ -61,15 +61,15 @@ Apps depend on `abstracttui`. Each app is a cabal `library` + `executable`.
 ## Salvaged pure modules (DRY)
 
 Copied from the working from-scratch port and lightly adapted (zero terminal /
-reactive dependency — pure data + algorithms; already smoke-tested correct):
+reactive dependency, pure data + algorithms; already smoke-tested correct):
 
 - `Base.Color` (Rgba), `Base.Geom` (Point/Size)
 - `Gfx.Bitmap` (Vector Rgba, `from_pixels`, `resizeNearest`, `pixelAt`)
 - `Gfx.Mosaic` (`MosaicMode`/`ImageFit`/`ImageAlign`, `cellPixels`, sampling)
 - `Render.Style` (Span/RichLine/RichText, push-coalesce, wrap)
 - `Theme` (TokenSet semantic tokens; default abstract-dark)
-- `Anim` (Easing, Clock Fixed/Real, Tween, retargetable Transition) — pure
-  parts; the `request_frame` tick wiring is added in the compat layer.
+- `Anim` (Easing, Clock Fixed/Real, Tween, retargetable Transition), the pure
+  parts. The `request_frame` tick wiring is added in the compat layer.
 - `Layout.Style` (Dimension Auto/Cells/Percent, Edges, Inset, flex spec)
 
 These survive the library switch because they have no backend coupling.
@@ -149,8 +149,9 @@ bridges use `performEventAsync`/`PerformEvent`.
 - **0.6.2.1 fallback:** build the grid reader over vty `Graphics.Vty.Picture`→
   `SpanOps` (`PictureToSpans`/`Span`, available in vty 6.4).
 - **Port the existing `Smoke.hs` 5 tests** (paint text, capture round-trip,
-  full-redraw contract, shortcut-quit, List focus routing) to the new harness —
-  test *intentions* reused (DRY). Per-widget tests added alongside each widget.
+  full-redraw contract, shortcut-quit, List focus routing) to the new harness.
+  Test *intentions* are reused (DRY). Per-widget tests added alongside each
+  widget.
 - App integration tests live in each app's `tests/` dir (no inline tests, per
   CLAUDE.md), mirroring the Rust `rust/*/tests/` suites.
 
@@ -164,11 +165,11 @@ Common: `clap` → **`optparse-applicative`**; `anyhow::Result` → `IO ()` with
 `have_tty`/`UnixTerminal` → vty (vty owns the tty; guard with an `isatty`-style
 check via `unix` `stdFd`/`queryTerminal`).
 
-- **hyprmon** — 3 subcommands (`apply`/`watch`/`override`). `apply`/`watch` are
+- **hyprmon**: 3 subcommands (`apply`/`watch`/`override`). `apply`/`watch` are
   pure-logic dispatch (no TUI): load `Rules`, run `apply`/`watch`, print/render
   `MonitorSpec`. `override` launches the reflex-vty TUI editor. Thin dispatch;
   logic stays in the library (testable).
-- **installer-tui** — no clap. `main`: read `/proc/meminfo` → `swap_size_gib`;
+- **installer-tui**: no clap. `main`: read `/proc/meminfo` → `swap_size_gib`;
   `disks::list_disks` → autodetect (fall back to manual DiskSelect on any
   failure, never crash-loop on a blank tty1); build `App`; `run` = reflex-vty
   `mainWidget` hosting `Signal App` + `Signal ScreenFx`, draining install/net
@@ -176,7 +177,7 @@ check via `unix` `stdFd`/`queryTerminal`).
   `pending_net_op`/`start_install` to worker threads, advancing `ScreenFx` one
   frame per turn. Reboot side effect fires only when `DOTS_INSTALLER_DRY_RUN` is
   unset and the state machine set `reboot`. Loop paced by `DOTS_TUI_IDLE_MS`.
-- **wallpaper-tui** — `optparse-applicative` `Args` (cli.rs surface, identical to
+- **wallpaper-tui**: `optparse-applicative` `Args` (cli.rs surface, identical to
   the Python-era CLI so `random_wp.nix` + Hyprland `exec-once` stay unchanged):
   `--restore`, `--output`, `--mode`, `--color`, `--no-tint`, `--tint-backend`,
   `--cache-previews`, `--preview-size`, `path`. Non-interactive paths
@@ -239,11 +240,11 @@ Env gates preserved verbatim: `DOTS_INSTALLER_DRY_RUN`, `DOTS_TUI_IDLE_MS`,
 
 ## Out of scope / non-goals
 
-- Native image protocols (sixel/kitty/iTerm2) — abstracttui uses unicode mosaic
+- Native image protocols (sixel/kitty/iTerm2): abstracttui uses unicode mosaic
   only; vty char-cell is aligned, not a gap.
-- Keeping the hand-rolled reactive core / terminal backend — replaced by Reflex
+- Keeping the hand-rolled reactive core / terminal backend: replaced by Reflex
   + vty per the user's "switch to a maintained library" decision.
-- A brick/MVU variant — rejected fork (would drop reactivity, re-architect apps).
+- A brick/MVU variant: rejected fork (would drop reactivity, re-architect apps).
 
 ## Risks
 

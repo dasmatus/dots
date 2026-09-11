@@ -1,5 +1,5 @@
 // app.rs::Screen::Username. validate_username is installer-tui's own
-// (config.rs), not one of settings-global's three — see config.js's header
+// (config.rs), not one of settings-global's three; see config.js's header
 // for why it still has to be ported. No Esc handler, matching app.rs.
 pragma ComponentBehavior: Bound
 

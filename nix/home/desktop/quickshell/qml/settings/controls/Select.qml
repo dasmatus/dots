@@ -1,18 +1,18 @@
 // One choice out of a list too long to lay flat as Segmented.qml's options
-// are — a timezone, a monitor, anything enumerated at runtime rather than
+// are, a timezone, a monitor, anything enumerated at runtime rather than
 // fixed at design time. Collapsed, it is a button naming the current value;
 // clicking it reveals the option list in place, underneath.
 //
 // In place, not a floating popup. A real dropdown wants to paint over
 // whatever sits below it, and every floating surface this shell already has
 // (common/PopupShell.qml, files/Menu.qml, files/CrumbMenu.qml) is mounted
-// directly on its window's top level for exactly that reason — Qt Quick
+// directly on its window's top level for exactly that reason. Qt Quick
 // only lets `z` reorder siblings under the SAME parent, so a popup nested
 // three components deep cannot out-paint a sibling subtree no matter how
 // high its `z` goes; it has to be a child of something both subtrees share.
 // SettingsRow's control slot is not that: it sits inside whichever page and
 // group host the row, with no shared overlay layer above them for a nested
-// popup to reach. Expanding in place sidesteps the whole problem — the
+// popup to reach. Expanding in place sidesteps the whole problem: the
 // option list is an ordinary Layout child, so opening it simply grows this
 // control's own height and the Layout around it reflows, the same as an
 // accordion. A floating variant can still reuse PopupShell later, once a

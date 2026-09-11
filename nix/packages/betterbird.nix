@@ -4,8 +4,8 @@
 # Why a tarball and not nixpkgs: nixpkgs carried `betterbird` built from
 # source and dropped it for want of a maintainer willing to keep tracking
 # upstream's Thunderbird-ESR-plus-patches churn. Upstream itself never
-# stopped shipping releases — betterbird.eu still publishes a signed
-# linux-x86_64 tarball every ESR cycle — so this follows the same fallback
+# stopped shipping releases, and betterbird.eu still publishes a signed
+# linux-x86_64 tarball every ESR cycle, so this follows the same fallback
 # nixpkgs itself uses whenever building a Mozilla-derived browser or mail
 # client from source is more than a repo wants to maintain: wrap the
 # prebuilt release binary with autoPatchelfHook instead of compiling it,
@@ -21,7 +21,7 @@
 # tray icon, which is what keeps mail arriving with no window open.
 # home-manager's thunderbird module hardcodes its profile directory to
 # `~/.thunderbird` no matter which package is actually configured, and
-# Betterbird — being a Thunderbird rebrand at the profile-format level —
+# Betterbird, being a Thunderbird rebrand at the profile-format level,
 # reads and writes that exact tree unmodified. Nothing below renames or
 # redirects that path, on purpose: doing so would split the profile
 # home-manager writes prefs into from the one the running binary opens.
@@ -151,7 +151,7 @@ stdenv.mkDerivation {
   dontConfigure = true;
   dontBuild = true;
 
-  # Nix, not Betterbird, owns upgrades here — an in-place self-update would
+  # Nix, not Betterbird, owns upgrades here. An in-place self-update would
   # write into the read-only store and just fail, noisily, on every launch.
   postPatch = ''
     echo 'pref("app.update.auto", "false");' >> defaults/pref/channel-prefs.js

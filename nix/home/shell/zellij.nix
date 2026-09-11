@@ -1,4 +1,4 @@
-# programs.zellij port of files/zellij/config.kdl (deleted — see git history),
+# programs.zellij port of files/zellij/config.kdl (deleted, see git history),
 # rendered through home-manager's toKDL generator (_args/_props/_children).
 # Deliberate changes vs the original:
 #   - copy_command: xclip → wl-copy (Wayland session; store path via getExe',
@@ -8,12 +8,12 @@
 #     original config was never validated (the binary was never installed)
 #   - tmux-mode "s"/"v" (NewPane Down/Right, i.e. hsplit/vsplit) dropped:
 #     editor splits now live in Neovim, and zellij-nav.nvim navigates Neovim
-#     splits and zellij panes seamlessly with Ctrl-h/j/k/l (zellij's own
+#     splits and zellij panes with Ctrl-h/j/k/l (zellij's own
 #     pane-nav keys stay on Alt, so Ctrl passes straight through). Creating
 #     zellij panes just to hold editor splits is therefore redundant.
 # Kept verbatim: the duplicate tmux-mode "l" bind (Scroll, then MoveFocus
 # "Right"); zellij resolves duplicates last-wins, so behaviour is unchanged.
-# Note: zellij itself was never installed before — this module adds the binary.
+# Note: zellij itself was never installed before. This module adds the binary.
 { pkgs, lib, ... }:
 let
   # bind "t" [ actions… ] → one KDL `bind "t" { …; }` node

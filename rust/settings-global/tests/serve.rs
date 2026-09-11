@@ -9,7 +9,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 struct Serve {
     child: Child,
-    // `None` after `close_stdin` — models the canvas process exiting/crashing
+    // `None` after `close_stdin`. Models the canvas process exiting/crashing
     // without ever sending `shutdown`.
     stdin: Option<ChildStdin>,
     stdout: BufReader<std::process::ChildStdout>,
@@ -46,7 +46,7 @@ impl Serve {
     }
 
     /// Write a literal line as-is, unlike `send` this does not require valid
-    /// JSON — lets a test feed the worker garbage on the wire.
+    /// JSON. Lets a test feed the worker garbage on the wire.
     fn send_raw(&mut self, line: &str) {
         let stdin = self.stdin.as_mut().expect("stdin already closed");
         writeln!(stdin, "{line}").unwrap();
@@ -64,7 +64,7 @@ impl Serve {
         self.child.wait().unwrap()
     }
 
-    /// Send `shutdown`, then collect every remaining line up to EOF — lets a
+    /// Send `shutdown`, then collect every remaining line up to EOF. Lets a
     /// test assert nothing extra arrived after the point it stopped reading.
     fn finish_collecting_remainder(mut self) -> (std::process::ExitStatus, Vec<String>) {
         self.send(&serde_json::json!({ "jsonrpc": "2.0", "method": "shutdown" }));
@@ -233,8 +233,8 @@ fn survives_a_malformed_line_between_valid_requests() {
     let render1 = serve.recv();
     assert_eq!(render1["method"], "ui.render");
 
-    // A garbage line between two valid requests must not kill the worker —
-    // if it did, the second request below would never get a response and
+    // A garbage line between two valid requests must not kill the worker. If
+    // it did, the second request below would never get a response and
     // `recv` would panic on a closed stdout instead.
     serve.send_raw("not json");
 
@@ -269,7 +269,7 @@ fn eof_without_shutdown_exits_cleanly() {
     let _initial_render = serve.recv();
 
     // Close stdin (the canvas process exiting/crashing) without ever sending
-    // `shutdown` — the worker must still notice EOF on stdin and exit 0
+    // `shutdown`. The worker must still notice EOF on stdin and exit 0
     // rather than hang waiting for a line that will never arrive.
     serve.close_stdin();
     let status = serve.child.wait().unwrap();

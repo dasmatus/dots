@@ -3,7 +3,7 @@
 #
 # `programs.brave` is therefore NOT used any more. That module's only job was
 # to install the package and render `brave-flags.conf`; the package now comes
-# from Flathub, and the flags file has to move — a flatpak reads
+# from Flathub, and the flags file has to move, because a flatpak reads
 # $XDG_CONFIG_HOME from inside its sandbox, which is
 # ~/.var/app/com.brave.Browser/config, not ~/.config. Enabling the module
 # alongside the flatpak would install a second, native Brave and write the
@@ -23,14 +23,14 @@ let
   appConfig = "${config.home.homeDirectory}/.var/app/${appId}/config";
 in
 {
-  # AIPage (EduPage AI sidebar — codeberg.org/dasmatus/aipage), built inside
+  # AIPage (EduPage AI sidebar, codeberg.org/dasmatus/aipage), built inside
   # this flake from a pinned fetchGit source (see nix/packages/aipage.nix +
   # flake.nix packages.aipage-chrome). `aipageChrome` is the unpacked MV2
   # dist dir (a store path).
   #
   # Brave 1.92.139 segfaults on startup (jump through a NULL pointer, ip=0)
   # when its runtime-dlopened GTK integration picks GTK4 on a Wayland
-  # session — bisected: --ozone-platform=x11 runs, wayland+gtk4 crashes,
+  # session. Bisected: --ozone-platform=x11 runs, wayland+gtk4 crashes,
   # wayland+gtk3 runs. Pin the GTK3 path until the upstream GTK4/Wayland
   # shim works against GTK 4.22.
   #
@@ -40,7 +40,7 @@ in
   #
   # NB the extension path is a /nix/store path being handed to a sandboxed
   # app. The store is not in a flatpak's default filesystem set, which is why
-  # nix/home/base/flatpaks.nix grants this app read-only access to it — and
+  # nix/home/base/flatpaks.nix grants this app read-only access to it, and
   # why that grant is load-bearing rather than cosmetic: without it Brave
   # starts with no AIPage and no error a user would notice.
   home.file."${appConfig}/brave-flags.conf".text = ''

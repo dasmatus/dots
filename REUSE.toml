@@ -57,3 +57,33 @@ path = [
 precedence = "override"
 SPDX-FileCopyrightText = "NONE"
 SPDX-License-Identifier = "CC0-1.0"
+
+# secureblue's kernel-module blacklist (reference/secureblue-modprobe.conf in
+# this project's SDD notes — see docs/superpowers/specs/2026-09-08-
+# hardening-design.md, "Phase C"), ported with its structure and grouping
+# intact rather than independently selected. Carries secureblue's own
+# license, not this repo's default.
+[[annotations]]
+path = "nix/data/module-blacklist.nix"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright 2025-2026 The Secureblue Authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# secureblue's legacy-framebuffer blacklist (reference/secureblue-
+# framebuffer.conf), itself a derivative of Ubuntu's kmod package
+# blacklist-framebuffer.conf — see that file's own "Upstream:" pointer.
+# Kept out of module-blacklist.nix above because it carries a DIFFERENT
+# license and a multi-party copyright list, not just secureblue's.
+[[annotations]]
+path = "nix/data/framebuffer-blacklist.nix"
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "(C) 2011-2013  ProFUSION embedded systems",
+  "(C) 2013-2016  Intel Corporation. All rights reserved.",
+  "(C) 2012  Lucas De Marchi <lucas.de.marchi@gmail.com>",
+  "(C) 2019  Alexey Gladkov <gladkov.alexey@gmail.com>",
+  "(C) 2012  Pedro Pedruzzi",
+  "(C) 2013 Michal Marek, SUSE",
+  "Copyright 2025-2026 The Secureblue Authors",
+]
+SPDX-License-Identifier = "LGPL-2.1-or-later"

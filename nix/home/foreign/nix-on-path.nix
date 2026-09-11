@@ -94,7 +94,7 @@ let
   # Linked TO, though: stable, narrow, and self-describing. Pointing at
   # /nix/store/…-home-manager-path/bin would churn every link's target on
   # every generation and, decisively, make the ownership signature
-  # "/nix/store/*" — far too broad a thing to ever delete on.
+  # "/nix/store/*", far too broad a thing to ever delete on.
   profileBin = "${config.home.profileDirectory}/bin";
 
   manifest = "${config.xdg.stateHome}/dots/nix-local-bin.list";
@@ -220,7 +220,7 @@ let
 
       # Create or adopt. The only branch that writes is the one where the path
       # is absent, or is already a symlink of exactly our shape. Anything else
-      # at that name — a real file, a directory, someone else's symlink — is
+      # at that name, a real file, a directory, someone else's symlink, is
       # reported and left alone, which is checkLinkTargets' rule re-stated for
       # the one directory home-manager is not managing.
       for n in "''${!want[@]}"; do
@@ -321,8 +321,8 @@ in
   config = lib.mkIf farm.enable {
     # Ordered after installPackages, not linkGeneration. Both are declared
     # entryAfter [ "writeBoundary" ] (files.nix, home-environment.nix) and the
-    # DAG gives siblings no order, so writeBoundary alone would be a race —
-    # that is the lesson recorded on portable.nix's gtkSettingsIniSeed. The
+    # DAG gives siblings no order, so writeBoundary alone would be a race.
+    # That is the lesson recorded on portable.nix's gtkSettingsIniSeed. The
     # hazard there was cleanOldGen deleting the guarded path; that hazard is
     # absent here, since home-manager manages nothing under ~/.local/bin. What
     # this script actually requires is that its link TARGETS resolve, and
@@ -347,8 +347,8 @@ in
     # home.sessionPath reaches ONLY etc/profile.d/hm-session-vars.sh (it feeds
     # home.sessionSearchVariables, consumed solely by sessionVariablesPackage)
     # and it PREPENDS. Neither suits: ~/.bashrc on this host never sources
-    # that file, and gnome-shell — the process whose PATH decides whether a
-    # .desktop entry loads at all — is started by the systemd user manager,
+    # that file, and gnome-shell, the process whose PATH decides whether a
+    # .desktop entry loads at all, is started by the systemd user manager,
     # which reads environment.d and not any shell rc.
     #
     # The ${PATH:+:} guard matters: an unset PATH would otherwise yield a

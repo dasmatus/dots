@@ -65,9 +65,12 @@ Three things worth knowing:
   a waybar bar, a dunst daemon, an eww window, a mostly-retired rofi and a Rust
   launcher wrapping a ten-patch fork of bemenu's C renderer, which between them
   had five theme paths and five ways of being told what colour to be.
-  `services.hypridle`, `programs.hyprlock` and `services.gammastep` replace the
-  old swayidle/swaylock/redshift exec-once lines. No X11 session is left
-  anywhere.
+  The same tree also owns idle: `qml/idle/` watches `ext-idle-notify-v1`,
+  blanks the outputs after five minutes and asks logind to lock after ten,
+  which `services.systemd-lock-handler` routes to `programs.hyprlock` through
+  `lock.target`. So hyprlock and `services.gammastep` replace the old
+  swaylock/redshift exec-once lines and the shell replaces swayidle. No X11
+  session is left anywhere.
 - **LibreWolf** (`nix/home/apps/librewolf.nix`). Runs natively through
   `programs.librewolf`, Home Manager's firefox-module wrapper, which owns
   `~/.librewolf`. The module writes the upstream arkenfox base plus personal
@@ -83,7 +86,7 @@ Three things worth knowing:
   (and once at shell startup, so a fresh login is never blank). Either
   path runs `awww` directly, re-derives the accent from the applied image,
   and seeds a thin Papirus-Tint theme that re-points its folder icons at
-  the matching prebuilt colour variant by symlink — no separate TUI or
+  the matching prebuilt colour variant by symlink, no separate TUI or
   systemd timer involved.
 
 ## Testing

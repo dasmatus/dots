@@ -1,12 +1,12 @@
 // Keyboard layout pill: shows the active XKB layout code, shortened to fit.
 //
 // Hyprland has no property for this anywhere on the Hyprland singleton or
-// on a monitor or workspace — the only live signal is `activelayout`, one
+// on a monitor or workspace. The only live signal is `activelayout`, one
 // of the unfiltered lines `Hyprland.rawEvent` forwards off the compositor's
 // own event socket. Its own payload only carries Hyprland's human-readable
 // description of the new layout ("Slovak", "English (US)"), though, not the
-// configured code launcher/keyboard.js's rows switch by ("sk", "us") —
-// truncating the description does not generally land on that code (see
+// configured code launcher/keyboard.js's rows switch by ("sk", "us").
+// Truncating the description does not generally land on that code (see
 // keymap.js's activeLayoutCodeFrom), so this pill would disagree with the
 // launcher about what a layout is even called. `activelayout` is used only
 // as a "something changed, re-read `hyprctl devices -j`" trigger instead;

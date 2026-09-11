@@ -28,8 +28,8 @@ Rectangle {
     // Declared BEFORE the RowLayout, deliberately. Later siblings sit on top
     // in QML, so a full-row MouseArea written last swallows the clicks of
     // anything interactive inside the layout. Nothing in there asks for its
-    // own clicks today — the accessory capsule that did has moved to the
-    // pill bar — so the ordering is kept as the standing rule rather than
+    // own clicks today (the accessory capsule that did has moved to the
+    // pill bar), so the ordering is kept as the standing rule rather than
     // left to be rediscovered the next time a row grows something clickable.
     MouseArea {
         anchors.fill: parent

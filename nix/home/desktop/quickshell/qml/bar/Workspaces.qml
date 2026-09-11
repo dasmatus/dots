@@ -11,13 +11,13 @@
 // Pill is adopted here for its padding and its fixed 22px height, the same
 // reason every other bar module is one, NOT for its capsule fill: that stays
 // transparent. This is a deliberate exception to the rest of the bar's
-// pills, which sit on Theme.bgDark — a row of real app icons already
+// pills, which sit on Theme.bgDark. A row of real app icons already
 // carries its own colour, and a second background behind it would be paint
 // competing with the icons rather than structure holding them apart. Leave
 // the fill transparent when touching this file.
 //
-// Urgent, focused and active are no longer separate glyphs — the icons
-// themselves say "occupied" now — but they still have to be distinguishable,
+// Urgent, focused and active are no longer separate glyphs. The icons
+// themselves say "occupied" now, but they still have to be distinguishable,
 // so each stays a colour: a thin underline beneath a workspace's icons for
 // the occupied cases, the dot's own colour for an empty one.
 //
@@ -65,7 +65,7 @@ Pill {
     }
 
     // Maps a running toplevel to an icon path. `wayland.appId` is the same
-    // field FocusedWindow.qml already keys on — it is Hyprland's window
+    // field FocusedWindow.qml already keys on. It is Hyprland's window
     // class surfaced through the generic wlr-foreign-toplevel-management
     // handle, reactive on its own `appIdChanged` signal, unlike the class
     // field buried in `lastIpcObject`'s static snapshot. byId() covers the

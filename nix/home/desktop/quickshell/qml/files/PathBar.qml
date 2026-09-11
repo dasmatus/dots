@@ -1,10 +1,10 @@
 // The breadcrumb bar: where you are, one clickable component at a time.
 //
 // It spans the whole window between the tab strip and the body rather than
-// sitting inside the pane, because it describes the tab, not the pane —
-// the sidebar's selection changes it too. A band with its own fill, one
-// shade off both neighbours, so it separates the strip above from the body
-// below instead of being a line of text floating over the same ground.
+// sitting inside the pane, because it describes the tab, not the pane. The
+// sidebar's selection changes it too. A band with its own fill, one shade off
+// both neighbours, so it separates the strip above from the body below instead
+// of being a line of text floating over the same ground.
 //
 // The crumbs centre on the bar and the arrows anchor to its left edge,
 // rather than both living in one row. In a row the path would start
@@ -16,9 +16,9 @@
 // breadcrumb that is one slash out sends a click somewhere the user did
 // not point at, and nothing on screen would show it was wrong.
 //
-// A crumb click opens CrumbMenu rather than navigating straight there —
-// see browse() below and Files.qml's own wiring of it — so the click still
-// reaches the right directory, just one row further in.
+// A crumb click opens CrumbMenu rather than navigating straight there. See
+// browse() below and Files.qml's own wiring of it. The click still reaches the
+// right directory, just one row further in.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -46,7 +46,7 @@ Rectangle {
     implicitHeight: Theme.filesRowHeight + Theme.filesPadding
     // Pinned to bg rather than lifted to the lighter `raised` token: below,
     // Pane fills with Theme.selection, and bg reads at a solid 1.740:1
-    // against it — moving this bar any lighter (raised or selection
+    // against it. Moving this bar any lighter (raised or selection
     // itself) would collapse that seam back toward 1:1 instead. bg also
     // keeps this bar's own breadcrumb trail and nav arrows, both
     // Theme.muted/Theme.dim by default, at a healthy contrast. The seam

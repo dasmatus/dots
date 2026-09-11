@@ -7,11 +7,11 @@
 // string the target flake reads.
 //
 // Username validation is NOT one of the three `settings-global` validators
-// (hostname/git-name/git-email) — this repeats installer-tui's own
+// (hostname/git-name/git-email). This repeats installer-tui's own
 // `validate_username` (config.rs), which settings-global never had reason to
 // carry since it edits an already-installed system's settings, not a fresh
-// login name. Dropping it here would let the Username screen accept a
-// reserved or malformed name that later breaks `users.users.<name>`.
+// login name. Dropping it here would let the Username screen accept a reserved
+// or malformed name that later breaks `users.users.<name>`.
 .pragma library
 
 const RESERVED_USERNAMES = ["root", "nixos", "nobody", "daemon", "messagebus"];
@@ -26,7 +26,7 @@ function nixEscape(s) {
 }
 
 /// RFC 1123 host label: lowercase alphanumerics and inner hyphens, 1-63 chars.
-/// Returns null on success, an error string otherwise — the JS stand-in for
+/// Returns null on success, an error string otherwise, the JS stand-in for
 /// config.rs's `Result<(), String>`.
 function validateHostname(s) {
     if (s.length === 0)
@@ -71,7 +71,7 @@ function validateGitName(s) {
             return "git name must not contain newlines";
     }
     // Array.from splits on Unicode code points, matching Rust's chars().count()
-    // rather than a UTF-16 code-unit length — 田中 is 2, not 2 either way here,
+    // rather than a UTF-16 code-unit length. 田中 is 2, not 2 either way here,
     // but a surrogate-pair emoji would over-count under plain .length.
     if (Array.from(s).length > 128)
         return "git name must be at most 128 characters";
@@ -120,7 +120,7 @@ function swapSizeGibFromMeminfo(meminfo) {
     return Math.max(Math.ceil(kb / (1024 * 1024)), 1);
 }
 
-/// The answer object the wizard fills in — installer-tui's `InstallConfig`,
+/// The answer object the wizard fills in, installer-tui's `InstallConfig`,
 /// camelCased. `aiClaude`/`aiCodex`/`aiOllama` default to `true` here (not
 /// left to a bare `{}` default) for the same reason `App::new` sets them
 /// explicitly rather than deriving `Default`: `Default` would flip AI tooling
@@ -140,8 +140,8 @@ function defaults() {
     };
 }
 
-/// Render the nix/data/settings.nix the flake consumes on the target — must match
-/// config.rs::settings_nix byte for byte (see tst_installer.qml).
+/// Render the nix/data/settings.nix the flake consumes on the target. Must
+/// match config.rs::settings_nix byte for byte (see tst_installer.qml).
 function settingsNix(cfg) {
     const disks = cfg.disks.map(d => `"${d}"`).join(" ");
     return `{\n  username = "${cfg.username}";\n  hostname = "${cfg.hostname}";\n  disks = [ ${disks} ];\n  swapSize = "${cfg.swapSizeGib}G";\n  gitName = "${nixEscape(cfg.gitName)}";\n  gitEmail = "${nixEscape(cfg.gitEmail)}";\n  aiClaude = ${cfg.aiClaude};\n  aiCodex = ${cfg.aiCodex};\n  aiOllama = ${cfg.aiOllama};\n}\n`;

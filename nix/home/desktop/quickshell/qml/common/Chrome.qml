@@ -65,7 +65,7 @@ Item {
                 Layout.fillWidth: true
 
                 // Theme has no dim-foreground token (see tree.nix's generated
-                // properties) — opacity on the shared foreground keeps the
+                // properties). Opacity on the shared foreground keeps the
                 // hint bar off nix/data/palette.json rather than adding one for a
                 // single label.
                 text: root.hints.map(h => `${h.key} ${h.label}`).join("   ·   ")

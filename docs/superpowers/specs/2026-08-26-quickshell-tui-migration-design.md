@@ -24,7 +24,7 @@ in one QML tree with one palette, and `rust/` goes away except for
 Four calls were made up front, and the rest of the design follows from
 them.
 
-**The logic moves too, not just the surface.** The crates are deleted
+**The logic moves along with the surface.** The crates are deleted
 outright rather than kept as headless backends. That is 7060 lines
 gone, of which 3890 is domain logic rather than drawing: 1700 in
 `wallpaper-tui`, 1104 in `installer-tui`, 1086 in `hyprmon`. It buys
@@ -204,8 +204,8 @@ the media would have booted to a blank screen. It is now
 `FloatingWindow`, with the reason in the file's header.
 
 Two things this cost, worth remembering while writing plan 3b's
-screens. The check that was supposed to catch it — running `qs -p` on
-the built root — passed, because it ran under Hyprland, which does
+screens. The check that was supposed to catch it, running `qs -p` on
+the built root, passed, because it ran under Hyprland, which does
 implement layer-shell. A check aimed at the wrong runtime is worse
 than none. And this risk section originally blamed the GPU for the
 cage risk; the real blocker was a protocol, and no amount of

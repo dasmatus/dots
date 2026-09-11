@@ -17,17 +17,17 @@
 # key's public half to ~/.ssh/id_ed25519.pub (git's signingkey), writes
 # ~/.config/git/allowed_signers, and ensures the dots repo's Codeberg
 # remote is on SSH. Safe to re-run. Prerequisite in the vault: an
-# SSH-key-type item (created in the web vault/app — rbw serves keys, it
-# cannot create them).
+# SSH-key-type item (created in the web vault/app, since rbw only serves
+# keys and cannot create them).
 #
-# One-time-EVER (per vault key, not per machine — the key is shared
+# One-time-EVER (per vault key, not per machine, the key is shared
 # across all your hosts): upload ~/.ssh/id_ed25519.pub to Codeberg's
 # Settings → SSH/GPG keys, marked for auth AND signing (Forgejo verifies
 # SSH-signed commits). Until then SSH push/pull fail; the public HTTPS
 # clone still works.
 #
 # Day-to-day UX: the agent is spawned on demand by any rbw command and
-# starts *locked* — after a reboot, run `rbw unlock` before the first
+# starts *locked*. After a reboot, run `rbw unlock` before the first
 # push or signed commit (lock_timeout re-locks after an hour). Deliberate
 # trade-off for a key that never touches disk. Escape hatch while
 # un-bootstrapped: `git -c commit.gpgsign=false commit`.
@@ -41,25 +41,25 @@
 
 let
   # The Bitwarden account email is NOT assumed to equal the git or Proton
-  # address — three separate accounts. It comes from settings (empty by
+  # address, three separate accounts. It comes from settings (empty by
   # default) rather than the literal that used to sit here: this is a public
   # repo, and an address written into it is in the clone history for good.
   # Empty means the key is omitted from rbw's config entirely and rbw prompts
   # on first use. See nix/system/defaults.nix's "eval-time identity" block for
-  # why this is a settings key and not an agenix secret — rbw's config.json is
-  # generated at evaluation, which agenix cannot reach.
+  # why this is a settings key and not an agenix secret, because rbw's
+  # config.json is generated at evaluation, which agenix cannot reach.
   bitwardenEmail = settings.bitwardenEmail;
 
   # The signing identity written into allowed_signers is read at RUNTIME from
   # the decrypted agenix secret, not from the Nix config: since
   # nix/home/shell/git.nix stopped setting user.email (it arrives through an
   # `[include]`, see nix/home/secrets/identity.nix), there is no eval-time
-  # value left to interpolate — `config.programs.git.settings.user.email`
+  # value left to interpolate. `config.programs.git.settings.user.email`
   # would now be null. `git config --get` resolves the include chain the same
   # way every other git command does, so this picks up the decrypted address.
   gitConfigGet = "${pkgs.git}/bin/git config --get user.email";
   pubkeyFile = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
-  # Mirrors nix/home/base/dots-repo.nix's repoRel — the legacy "gitlab" segment
+  # Mirrors nix/home/base/dots-repo.nix's repoRel, the legacy "gitlab" segment
   # is just a folder name now; the repo lives on codeberg.org/dasmatus/dots.
   dotsRepo = "${config.home.homeDirectory}/Dokumente/gitlab/personal/dots";
   codebergSsh = "ssh://git@codeberg.org/dasmatus/dots";
@@ -101,7 +101,7 @@ let
     # vault key. Flip any existing remote already pointing at codeberg.org
     # to SSH; add a 'codeberg' remote if none does. A non-codeberg remote
     # (e.g. a legacy gitlab origin) is never touched. set-url only records
-    # the URL — no connection, safe before the key is unlocked.
+    # the URL, making no connection, so it is safe before the key is unlocked.
     if [ -d "${dotsRepo}/.git" ]; then
       found=0
       for r in $(${pkgs.git}/bin/git -C "${dotsRepo}" remote); do
@@ -126,7 +126,7 @@ in
   # Enabled only when an address is configured, and gated at `programs.rbw`
   # rather than inside `settings`. home-manager's rbw module declares
   # `settings.email` with NO default, so leaving it out is not "absent from
-  # config.json" — it is an evaluation error ("The option
+  # config.json". It is an evaluation error ("The option
   # `programs.rbw.settings.email' was accessed but has no value defined") the
   # moment the module renders that file. There is no way to express
   # "unconfigured" from inside `settings`; the only lever is the module itself.
@@ -135,8 +135,8 @@ in
   # `"email": ""` is worse than no config.json at all: rbw reads it as the
   # configured account and stops prompting, leaving the vault permanently
   # unreachable. With the module off there is simply no config, and `rbw
-  # login` asks for the address on first use. dots-keys below is unaffected —
-  # it calls `${pkgs.rbw}/bin/rbw` by absolute store path, so it never depended
+  # login` asks for the address on first use. dots-keys below is unaffected.
+  # It calls `${pkgs.rbw}/bin/rbw` by absolute store path, so it never depended
   # on this module to put the binary anywhere.
   programs.rbw = lib.mkIf (bitwardenEmail != "") {
     enable = true;
@@ -151,7 +151,7 @@ in
 
   # No systemd unit for rbw-agent: it self-daemonizes and is spawned on
   # demand by the first rbw command, which fights systemd's cgroup
-  # lifetime tracking for no gain — a unit could not remove the unlock
+  # lifetime tracking for no gain, since a unit could not remove the unlock
   # prompt anyway.
   home.sessionVariables.SSH_AUTH_SOCK = "$XDG_RUNTIME_DIR/rbw/ssh-agent-socket";
 

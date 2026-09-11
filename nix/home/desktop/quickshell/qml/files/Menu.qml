@@ -2,11 +2,11 @@
 // filter and the directory entries: a menu is already pointing at
 // something, so it needs no way to choose one.
 //
-// The popup mechanics — placement, clamping, the bottom-edge flip, the
-// dismiss backdrop, openAt()/close() — live in PopupShell, extended here as
-// the root rather than wrapped, the way the bar's pills extend Pill. This
-// file keeps only what a right-click menu adds on top: the rows themselves,
-// how tall they make the panel, and their hover highlight.
+// The popup mechanics live in PopupShell: placement, clamping, the bottom-edge
+// flip, the dismiss backdrop, openAt()/close(). It is extended here as the
+// root rather than wrapped, the way the bar's pills extend Pill. This file
+// keeps only what a right-click menu adds on top: the rows themselves, how
+// tall they make the panel, and their hover highlight.
 pragma ComponentBehavior: Bound
 
 import QtQuick

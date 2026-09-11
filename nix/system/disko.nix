@@ -1,4 +1,4 @@
-# Single source of truth for the disk layout — same goals as the retired
+# Single source of truth for the disk layout, same goals as the retired
 # Gentoo installer's partition.py (git history): ESP 2G, TPM2-LUKS2 btrfs
 # root, random-key swap. Realised on LVM so the volume group can span every
 # selected disk: one PV per disk, one VG (`tokyonightvg`), logical volumes for
@@ -10,7 +10,7 @@
 #             --argstr swapSize 32G nix/system/disko.nix
 #   - imported by flake.nix into the system config (generates fileSystems).
 # When neither disk nor disks is supplied, disko autodetects one whole-disk
-# device. Multiple matches throw — autodetection must never silently wipe
+# device. Multiple matches throw. Autodetection must never silently wipe
 # several disks, so a multi-disk span always comes from an explicit `disks`.
 {
   disk ? null,
@@ -43,7 +43,7 @@ let
   # One disk attr per selected device. The first disk also carries the ESP;
   # every disk carries a single LVM-PV partition that joins `tokyonightvg`.
   # builtins-only (no lib) so the disko CLI can evaluate this file with just
-  # its --arg/--argstr args — it doesn't inject lib the way nixosSystem does.
+  # its --arg/--argstr args. It doesn't inject lib the way nixosSystem does.
   vgName = "tokyonightvg";
   diskEntry = i: d: {
     name = "main${toString i}";
@@ -94,7 +94,7 @@ in
 
     # disko allocates fixed-size LVs (priority 1000) before any 100%FREE LV
     # (priority 1251), so `swap` claims its size first and `root` fills the
-    # rest — no need to game LV attribute order.
+    # rest, no need to game LV attribute order.
     lvm_vg.${vgName} = {
       type = "lvm_vg";
       lvs = {

@@ -71,7 +71,24 @@
             # version now advances with `nix flake update` of nixpkgs instead
             # of being pinned independently.
             withUWSM = true;
-            xwayland.enable = true;
+            # Gated on dots.xwayland.enable (nix/modules/dots.nix), default
+            # true. Phase C
+            # (docs/superpowers/specs/2026-09-08-hardening-design.md) tried
+            # removing XWayland outright on the premise that every GUI app
+            # here is a Wayland-native Flatpak — but Haveno
+            # (nix/home/base/pkgs.nix, a JavaFX/jpackage bundle; OpenJFX has
+            # no Wayland backend) and Steam (nix/modules/desktop/steam.nix,
+            # an X11-only client) both need it, so a hard `false` broke
+            # them. A toggle keeps the removal one boolean away for when
+            # both apps go, instead of silently reintroducing XWayland
+            # unconditionally or hiding the dependency again. Upstream's own
+            # default is `true`, so this has to be a real assignment, not a
+            # deleted line — `xwayland.enable` feeds `enableXWayland` on the
+            # Hyprland package build itself (nixpkgs'
+            # nixos/modules/programs/wayland/hyprland.nix), so a merely-absent
+            # option here would silently keep XWayland built in and running
+            # regardless of the toggle.
+            xwayland.enable = config.dots.xwayland.enable;
           };
           services.udisks2.enable = true;
 
@@ -231,6 +248,20 @@
           # dir so hyprland-portals.conf can dispatch Screenshot/ScreenCast to
           # hyprland and Settings/FileChooser to gtk.
           xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+
+          # The SYSTEM-level half of Flatpak (nixpkgs' own
+          # nixos/modules/services/desktops/flatpak.nix — the plain
+          # `services.flatpak.enable`, not nix-flatpak's declarative
+          # packages/overrides, which stay on the home-manager side; see
+          # nix/home/base/flatpaks.nix's header for why). Installing 25
+          # Flathub refs into the USER installation without this one line
+          # still works — flatpak run resolves them fine — but their
+          # exports/share never joins the system XDG_DATA_DIRS, so a
+          # Flatpak's own icons, mime associations and D-Bus service files
+          # are invisible to anything that only ever looks at the system
+          # search path. nix/home/base/flatpaks.nix's header used to flag
+          # this as a one-line follow-up; this is that line.
+          services.flatpak.enable = true;
 
           programs.dconf.enable = true;
         }

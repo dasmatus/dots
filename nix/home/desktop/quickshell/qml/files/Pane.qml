@@ -38,18 +38,18 @@ Rectangle {
     readonly property var entries: FilesMath.visibleEntries(root.allEntries, root.showHidden)
     property int selectedIndex: -1
     // model: is root.entries, a plain JS array, so QML hands each delegate
-    // a fresh wrapper object every time the list is rebuilt — a stored
+    // a fresh wrapper object every time the list is rebuilt. A stored
     // entry never === anything a delegate holds. Derive selected from the
     // index instead of storing the object itself.
     readonly property var selected: root.selectedIndex >= 0 && root.selectedIndex < root.entries.length ? root.entries[root.selectedIndex] : null
 
     // Stamped when a listing lands rather than read live per row: every
     // delegate would otherwise call Date.now() on every repaint, and all of
-    // them want the same "now" anyway — the one the listing was taken at.
+    // them want the same "now" anyway, the one the listing was taken at.
     property double listedAt: 0
 
     // Theme.bgDark reads at roughly 1.1:1 contrast against the window's
-    // own Theme.bg — with no border to fall back on, that pair is not
+    // own Theme.bg. With no border to fall back on, that pair is not
     // actually distinguishable. Theme.selection is the strongest fill the
     // existing palette offers against bg (~1.7:1) without inventing a new
     // token. The active/inactive distinction is carried by the strip
@@ -66,7 +66,7 @@ Rectangle {
     // how a write operation can land on something the UI never highlighted:
     // navigating away (onPathChanged) drops it immediately, and every
     // completed listing (list()'s own async completion, below) drops it
-    // again regardless of why list() ran — including a post-operation
+    // again regardless of why list() ran, including a post-operation
     // refresh that Files.qml triggers with no path change at all.
     onPathChanged: {
         root.selectedIndex = -1;
@@ -86,7 +86,7 @@ Rectangle {
 
     // Keyboard selection. Each of these also drags the view along, because
     // a selection that has scrolled out of sight is the same as no
-    // selection at all — the next j moves something the user cannot see.
+    // selection at all. The next j moves something the user cannot see.
     function selectIndex(index: int): void {
         if (root.entries.length === 0)
             return;
@@ -129,17 +129,16 @@ Rectangle {
         if (entry.isDir) {
             root.navigate(child);
         } else {
-            // Operations.openArgv, not an inline array literal: it has no
-            // "--" and must never grow one — xdg-open's own argument loop
-            // rejects it outright ("unexpected option '--'", exit 1),
-            // confirmed against the exact binary this service resolves
-            // from PATH, and broken that way once already by a "--" added
-            // here in an earlier pass over this file. Being a pure
-            // builder now means a test pins that shape directly. The
-            // leading-dash exposure that earlier "--" was guarding
-            // against is closed at its source instead: Files.qml's
-            // setActivePath refuses a non-absolute root.path, so `child`
-            // can never start with anything but "/".
+            // Operations.openArgv, not an inline array literal: it has no "--"
+            // and must never grow one. xdg-open's own argument loop rejects it
+            // outright ("unexpected option '--'", exit 1), confirmed against
+            // the exact binary this service resolves from PATH, and broken
+            // that way once already by a "--" added here in an earlier pass
+            // over this file. Being a pure builder now means a test pins that
+            // shape directly. The leading-dash exposure that earlier "--" was
+            // guarding against is closed at its source instead: Files.qml's
+            // setActivePath refuses a non-absolute root.path, so `child` can
+            // never start with anything but "/".
             Quickshell.execDetached(Operations.openArgv(child));
         }
     }
@@ -182,17 +181,17 @@ Rectangle {
                 height: Theme.filesRowHeight
                 radius: Theme.filesRadius / 2
                 // raised measures 1.032:1 against this pane's own
-                // Theme.selection fill — close enough to identical that
+                // Theme.selection fill, close enough to identical that
                 // hovering a row was not visible at all. Theme.bg measures
-                // 1.740:1 against selection instead, which is what this
-                // pane used at the branch base (Theme.bgDark against the
-                // window's own Theme.bg, 1.099:1) before selection replaced
-                // bg as the pane fill; bg reads as a hole punched in the
-                // pane rather than a row lifted off it, but a visible
-                // sunken row beats an invisible raised one. It costs no
-                // text contrast either: the size/time columns' Theme.muted
-                // sits at 2.355:1 on the bare pane and 4.097:1 once
-                // hovered, both above the 2.283:1 raised left it at.
+                // 1.740:1 against selection instead, which is what this pane
+                // used at the branch base (Theme.bgDark against the window's
+                // own Theme.bg, 1.099:1) before selection replaced bg as the
+                // pane fill; bg reads as a hole punched in the pane rather
+                // than a row lifted off it, but a visible sunken row beats an
+                // invisible raised one. It costs no text contrast either: the
+                // size/time columns' Theme.muted sits at 2.355:1 on the bare
+                // pane and 4.097:1 once hovered, both above the 2.283:1 raised
+                // left it at.
                 color: row.current ? Theme.accent : (rowArea.containsMouse ? Theme.bg : "transparent")
 
                 RowLayout {

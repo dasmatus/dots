@@ -5,7 +5,7 @@
 //
 // `activated` re-exposes the StackView attachment (`StackView.onActivated`)
 // under a plain signal so screens never need `import QtQuick.Controls`
-// themselves just to grab keyboard focus back after a push/replace — only
+// themselves just to grab keyboard focus back after a push/replace. Only
 // this file needs to know StackView exists.
 import QtQuick
 import QtQuick.Controls

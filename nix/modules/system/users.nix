@@ -5,13 +5,13 @@
 # rebuilds (userborn preserves existing hashes; see below).
 {
   config,
+  lib,
   pkgs,
   settings,
   inputs,
   aipageFirefox,
   aipageChrome,
   settingsMenu,
-  dotsSandbox,
   claudeDesktop,
   betterbird,
   chromaleon,
@@ -99,8 +99,13 @@ in
       "video"
       "input"
       "networkmanager"
-      "libvirtd"
-    ];
+    ]
+    # The libvirtd group only means anything once
+    # dots.virtualisation.enable (nix/modules/dots.nix) actually creates the
+    # group; with the VM stack off by default (Phase C), listing it
+    # unconditionally would either dangle or fail eval depending on how
+    # NixOS's group-membership check reacts to an absent group.
+    ++ lib.optional config.dots.virtualisation.enable "libvirtd";
   };
 
   home-manager = {
@@ -126,7 +131,6 @@ in
         aipageFirefox
         aipageChrome
         settingsMenu
-        dotsSandbox
         claudeDesktop
         betterbird
         chromaleon

@@ -8,7 +8,7 @@
 // preserve: /proc is read here and now, on every keystroke, because it is
 // microseconds; `df` needs a subprocess, tens of milliseconds, so it is read
 // on a timer and handed in as a snapshot instead. Nothing in this file opens
-// a file or spawns a process — Providers.qml does both and passes the text
+// a file or spawns a process: Providers.qml does both and passes the text
 // in, which is what keeps that split honest and this file testable without
 // a machine that happens to have a battery, a network or any mounts at all.
 .pragma library
@@ -19,7 +19,7 @@
 const KIB = 1024;
 
 // One "Key:    12345 kB" line's value out of /proc/meminfo's text, or
-// undefined if the key is missing or its line does not end in "kB" — meminfo
+// undefined if the key is missing or its line does not end in "kB". meminfo
 // keeps every value in kibibytes except a handful of bare counters
 // (HugePages_Total and friends), and reading one of those as a memory size
 // would be wrong in a way `parseInt` alone would not catch.
@@ -53,8 +53,8 @@ function parseMeminfo(raw) {
 
 // `df -B1 --output=used,size,avail,pcent <path>...`, one data row per path
 // df could reach, in the same order the paths were given. The header line is
-// dropped unconditionally rather than matched by name: it is localised —
-// this machine prints "Benutzt 1B-Blöcke Verf. Verw%" — so nothing here ever
+// dropped unconditionally rather than matched by name: it is localised
+// (this machine prints "Benutzt 1B-Blöcke Verf. Verw%"), so nothing here ever
 // reads its text. Neither the column order nor the header handling changes
 // here; both are already correct.
 //
@@ -65,13 +65,13 @@ function parseMeminfo(raw) {
 // see percentOf's own use in diskRows for why that stays computed rather
 // than read.
 //
-// A path df cannot reach — gone, permission denied, not yet mounted —
+// A path df cannot reach (gone, permission denied, not yet mounted)
 // produces no stdout row at all, not a blank one, so matching rows to
 // `paths` by index alone silently mislabels every path after the failed
 // one: on a machine with no /home directory, the /nix/store row would be
 // the only one printed, land at index 0, and get stamped "/home" while the
 // real /nix/store reading is dropped. `stderrText` is what tells the two
-// apart — GNU df writes one line per failing argument with the literal path
+// apart: GNU df writes one line per failing argument with the literal path
 // embedded in it (this machine's German build reads "df: /nonexistent:
 // Datei oder Verzeichnis nicht gefunden"; the wording is localised, the
 // path substring is not), so a plain substring check needs no locale
@@ -147,7 +147,7 @@ function answersTo(query, title, keywords) {
 
 // The Memory row, from a fresh /proc/meminfo read. beamenu's Enter action
 // here opened a live dashboard sidecar that has no port in this shell, so
-// Enter copies the reading instead — the same fallback every other
+// Enter copies the reading instead, the same fallback every other
 // informational row (clipboard, emoji, snippets) already uses.
 function memoryRow(meminfoText, query, copy) {
     const memory = parseMeminfo(meminfoText);
@@ -202,7 +202,7 @@ function diskRows(snapshot, query, copy) {
     return rows;
 }
 
-// The provider function proper — query string in, rows out, the same shape
+// The provider function proper: query string in, rows out, the same shape
 // every other source in Providers.qml uses. `meminfoText` is whatever the
 // caller just read inline; `diskSnapshot` is whatever the caller's timer
 // last produced. Neither is read here, which is what keeps this file able to

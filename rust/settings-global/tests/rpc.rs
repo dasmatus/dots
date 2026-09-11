@@ -1,5 +1,5 @@
 //! Pure-function tests for `rpc::parse_line` and the notification/response
-//! builders — the framing edge cases that are awkward to provoke by driving
+//! builders, the framing edge cases that are awkward to provoke by driving
 //! a live subprocess (malformed JSON, missing id, unknown methods).
 
 use global_settings::rpc::{self, Incoming};

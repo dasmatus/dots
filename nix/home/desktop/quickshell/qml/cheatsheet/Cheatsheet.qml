@@ -28,7 +28,7 @@ Scope {
 
     readonly property var focusedScreen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? null
 
-    // JsonAdapter has no `root` property on this Quickshell build — reading a
+    // JsonAdapter has no `root` property on this Quickshell build. Reading a
     // bare `root` off it is silently always undefined, which is why SUPER+/
     // used to render an empty sheet. Only a property DECLARED on the adapter
     // instance gets populated from the file; `groups` below is that property.
@@ -43,7 +43,7 @@ Scope {
     }
     // qmllint enable unresolved-type
 
-    // How far one Up/Down (or j/k) press moves the list — close to one
+    // How far one Up/Down (or j/k) press moves the list. Close to one
     // row's height, so a single press is visible without feeling like a
     // page flip. There is nothing here to select: this is a read-only
     // reference with no per-row action, so the keys just move the
@@ -106,8 +106,8 @@ Scope {
             anchors.centerIn: parent
 
             width: Math.min(920, parent.width - 80)
-            // panel.implicitHeight is pure chrome overhead here — the
-            // Flickable body reports no implicitHeight of its own — so this
+            // panel.implicitHeight is pure chrome overhead here. The
+            // Flickable body reports no implicitHeight of its own, so this
             // is the real header+footer cost plus the list's own height,
             // still capped against the screen the way it always was.
             height: Math.min(scroll.contentHeight + panel.implicitHeight, parent.height - 80)

@@ -1,6 +1,6 @@
-// app.rs::Screen::Network. Scanning is real — nmcli driven through Process,
-// same as net.rs::run_scan — because listing nearby SSIDs touches nothing;
-// connecting is deliberately NOT wired here (see WifiConnecting.qml's
+// app.rs::Screen::Network. Scanning is real: nmcli driven through Process,
+// same as net.rs::run_scan, because listing nearby SSIDs touches nothing.
+// Connecting is deliberately NOT wired here (see WifiConnecting.qml's
 // header): this plan writes no system state before Confirm, and running
 // `nmcli device wifi connect` is exactly that kind of state.
 //
@@ -98,7 +98,7 @@ Frame {
     }
 
     /// Dedupe by SSID keeping the strongest signal; sort by signal
-    /// descending, ties by SSID ascending — net.rs::parse_wifi_list.
+    /// descending, ties by SSID ascending; net.rs::parse_wifi_list.
     function parseWifiList(terse) {
         const bySsid = new Map();
         for (const line of terse.split("\n")) {

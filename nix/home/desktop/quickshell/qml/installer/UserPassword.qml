@@ -1,5 +1,5 @@
 // app.rs::Screen::UserPassword. The typed value is held in `wizard.pending`
-// (installer.qml's transient, non-cfg state — app.rs's own `pending_password`
+// (installer.qml's transient, non-cfg state; app.rs's own `pending_password`
 // field, kept off `InstallConfig` for the same reason: it is not final until
 // UserPasswordConfirm agrees with it) rather than written to `cfg` yet. No
 // Esc handler, matching app.rs.
