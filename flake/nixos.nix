@@ -32,6 +32,12 @@ let
         dotsSandbox = inputs.self.packages.x86_64-linux.dots-sandbox;
         claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;
         betterbird = inputs.self.packages.x86_64-linux.betterbird;
+        # nix/modules/system/users.nix takes `chromaleon` as a module argument and
+        # forwards it into home-manager's extraSpecialArgs for
+        # nix/home/base/gnome-extensions.nix. flake/home.nix supplies it on the
+        # standalone side; without it here the NixOS eval fails outright with
+        # "attribute 'chromaleon' missing", taking `nix flake check` with it.
+        chromaleon = inputs.self.packages.x86_64-linux.chromaleon;
       };
       modules = [
         inputs.disko.nixosModules.disko
