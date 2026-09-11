@@ -13,6 +13,7 @@
   config,
   lib,
   pkgs,
+  wrapCapped,
   ...
 }:
 let
@@ -26,7 +27,27 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = [ claudeDesktop ];
+    # Memory-capped (nix/home/base/memory-limits.nix). Both halves of that
+    # module aim at this app and only one fires per target: under GNOME the
+    # app-gnome-com.anthropic.Claude-.scope.d drop-in has already capped the
+    # scope by the time the shim runs, so the shim sees a non-"max"
+    # memory.max and execs straight through, leaving gnome-shell the scope it
+    # tracks the running app with. On NixOS nothing scopes GUI apps —
+    # hyprland.nix launches through hl.dsp.exec_cmd, a direct exec — so there
+    # the shim creates the scope itself.
+    #
+    # The wrapper also rewrites Exec= in the .desktop, which matters here
+    # specifically: nix/packages/claude-desktop.nix substitutes it to that
+    # package's own $out/bin/claude-desktop, so a launcher would otherwise
+    # walk straight past the shim.
+    home.packages = [
+      (wrapCapped {
+        pool = "electron";
+        high = "3G";
+        max = "4G";
+        swap = "1G";
+      } claudeDesktop)
+    ];
 
     # The app stores its session in the Secret Service, which on this machine
     # is gnome-keyring (pulled in by the GNOME session; also what Proton Mail

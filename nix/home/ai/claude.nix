@@ -8,6 +8,7 @@
   lib,
   dots,
   claudeDesktop,
+  wrapCapped,
   ...
 }:
 let
@@ -199,6 +200,26 @@ in
   # into settings.nix as aiClaude and bridged by nix/modules/dots.nix).
   programs.claude-code = {
     enable = dots.ai.claude;
+
+    # Memory-capped. The CLI never gets a systemd scope of its own — it
+    # inherits whatever cgroup its terminal tab sits in (observed:
+    # app.slice/ptyxis-spawn-<uuid>.scope) — so the wrapper in
+    # nix/home/base/memory-limits.nix is the only lever there is.
+    #
+    # 6G/10G rather than the 2G-ish an idle session actually uses, because
+    # EVERYTHING the CLI spawns is charged to its cgroup: the MCP servers
+    # (searxng, edupage, computer-use-linux) and, far more expensively, every
+    # build it runs through Bash. `cargo build`, `nix run .#iso` and the
+    # clang/ld link steps this repo does routinely all land inside the cap.
+    # Sized too low, the kernel picks the largest process in the cgroup and
+    # kills `ld` — the session survives but the build dies, which is a
+    # self-inflicted failure with a confusing signature.
+    package = wrapCapped {
+      pool = "claude";
+      high = "6G";
+      max = "10G";
+      swap = "2G";
+    } pkgs.claude-code;
 
     mcpServers.searxng = {
       type = "stdio";

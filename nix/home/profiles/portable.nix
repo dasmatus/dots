@@ -50,6 +50,7 @@
     ./../base/dokumente.nix
     ./../base/dots-repo.nix
     ./../base/pkgs.nix
+    ./../base/memory-limits.nix
     ./../base/flatpaks.nix
     ./../base/gnome-extensions.nix
     ./../base/gnome-backgrounds.nix
