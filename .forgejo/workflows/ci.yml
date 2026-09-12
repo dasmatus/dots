@@ -24,9 +24,13 @@
 #
 # Cold-cache escape hatch: the 1.5 GB ISO closure in vm-boot builds in-job.
 # The hosted runner's store does NOT survive between runs, so every weekly
-# boot oracle pays the full build — to make it substitute instead of build,
-# wire up a binary cache (Cachix/attic) or
-# DeterminateSystems/flakehub-cache-action and point the jobs at it.
+# boot oracle used to pay the full build every time. Wired up now: the pull
+# side is the `matusdasdots` Cachix cache, added to every job's nix.conf via
+# nix-installer-action's `extra-conf` (see the `with:` block below) — no
+# secret involved, since the cache is public, so PR builds substitute from it
+# too. The push side is cachix/cachix-action (pinned to v16), gated to
+# non-PR events so a fork's PR can't exfiltrate the write token, uploading
+# whatever each job built after its own `Stop determinate-nixd` step.
 
 on:
   push:
@@ -49,11 +53,11 @@ jobs:
       # collection is in flight (DeterminateSystems/nix-src#395; the upstream
       # fix NixOS/nix#15992 merged 2026-06-07 but is not ported to any
       # Determinate Nix release). `flake check` still *builds* this flake's
-      # IFD drvs mid-eval (fetchgit aipage source; callCabal2nix abstracttui)
-      # — a racing GC pass deletes those freshly instantiated .drv files and
-      # the check dies with "error: path '…-aipage-944064e.drv' is not valid",
-      # cascading to every dependent check. On the hosted runner's small disk
-      # that race fires on ~every run.
+      # IFD drvs mid-eval (fetchgit aipage source) — a racing GC pass deletes
+      # those freshly instantiated .drv files and the check dies with "error:
+      # path '…-aipage-944064e.drv' is not valid", cascading to every
+      # dependent check. On the hosted runner's small disk that race fires on
+      # ~every run.
       #
       # A post-install "stop the daemon" step (tried 2026-08-24, three runs)
       # still lost the race every time: determinate-nixd's very first boot,
@@ -67,7 +71,22 @@ jobs:
           echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
+      # extra-conf here lands in the daemon's nix.conf at install time, as
+      # root, which is the only trust level the daemon honours unconditionally
+      # for substituter/trusted-public-keys settings. A client-side nix.conf
+      # or --option passed from a later, untrusted-user step gets silently
+      # downgraded instead: nix-daemon logs "warning: ignoring untrusted
+      # substituter ..." and quietly rebuilds from source, no error, so a
+      # cache typo or a too-late placement fails open rather than loud. Doing
+      # it here also survives the SIGKILL of determinate-nixd two steps below,
+      # because that daemon only (re)writes nix.conf from its own init, which
+      # has already completed by the time this step returns. Cache is
+      # `matusdasdots` on Cachix; public, so no auth token needed to pull.
       - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            extra-substituters = https://matusdasdots.cachix.org
+            extra-trusted-public-keys = matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258=
       # Second line of defense in case the pre-seeded config above doesn't
       # stick — confirmed 2026-08-24 that config.json correctly reads
       # {"garbageCollector":{"strategy":"disabled"}} both right after
@@ -108,6 +127,43 @@ jobs:
             sleep 2
           done
           pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
+      # Push side of the `matusdasdots` Cachix cache. Pull is already covered
+      # by the installer's extra-conf above and needs no secret, since the
+      # cache is public — this step only uploads, hence
+      # `skipAddingSubstituter: true`, which skips the action's own `cachix
+      # use` call. Without that flag cachix-action would rewrite nix.conf a
+      # second time on top of the install-time config, for no benefit and one
+      # more thing that could disagree with it. `if:` restricts pushing to
+      # non-PR events so a pull_request run (which may come from a fork) never
+      # sees the write token. Placement matters and is deliberate: `useDaemon`
+      # (default true) makes the action register a post-build hook by
+      # exporting NIX_USER_CONF_FILES for the *rest of this job* — it cannot
+      # retroactively catch anything built in an earlier step, so it must run
+      # after "Stop determinate-nixd" (nothing has built yet) and before the
+      # job's first `nix build`, below. Pinned at v16 (`runs.using: node20`),
+      # not v17 (`node24`): actions/checkout@v4 above is node20 and
+      # demonstrably works on codeberg-medium, and nothing here has confirmed
+      # node24 does too. v16 still exposes every input this step uses.
+      - name: Cachix (push only)
+        if: github.event_name != 'pull_request'
+        uses: https://github.com/cachix/cachix-action@v16
+        with:
+          name: matusdasdots
+          authToken: ${{ secrets.CACHIX_KEY }}
+          skipAddingSubstituter: true
+      # cachix-action silently falls back to store-scan mode — re-uploading
+      # every nixpkgs path this job substituted, not just what it actually
+      # built — when the runner user isn't a trusted Nix user, and only
+      # surfaces that as a warning buried in the step log, not a failure.
+      # nix-installer-action's `trust-runner-user` defaults to true so this
+      # should never trigger, but "should" isn't "confirmed": print the
+      # resolved config so a regression shows up in plain sight instead of as
+      # a quietly bloated upload.
+      - name: Show the resolved cache config
+        run: |
+          (nix config show 2>/dev/null || nix show-config) \
+            | grep -E '^(trusted-users|substituters|extra-substituters|trusted-public-keys)' \
+            || echo "::warning::could not read the resolved nix config"
       # Diagnostic only, not a fix: confirmed 2026-08-24 that killing
       # determinate-nixd (previous step, verified dead before flake check
       # even starts) does NOT stop the "aipage-944064e.drv is not valid"
@@ -183,7 +239,17 @@ jobs:
           echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
           sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
             || cp /tmp/determinate-config.json /etc/determinate/config.json
+      # Same `matusdasdots` Cachix substituter as nix-eval, wired the same
+      # way and for the same reason: install-time extra-conf is the only
+      # placement the daemon trusts unconditionally, so a client-side config
+      # written by a later step would get silently downgraded to a warning
+      # and a source rebuild instead. See the nix-eval job for the full
+      # writeup.
       - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            extra-substituters = https://matusdasdots.cachix.org
+            extra-trusted-public-keys = matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258=
       # See the nix-eval job for the full rationale: no systemd, and a
       # single SIGTERM pkill didn't stick either — SIGKILL in a loop, verified.
       - name: Stop determinate-nixd (nix-src#395 race)
@@ -206,6 +272,31 @@ jobs:
             sleep 2
           done
           pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
+      # Push side of the `matusdasdots` Cachix cache — same step, same
+      # reasoning, as the nix-eval job: pull needs no secret and is already
+      # wired via extra-conf, `skipAddingSubstituter: true` stops this action
+      # from re-touching nix.conf, and it has to sit here (after determinate-
+      # nixd is stopped, before this job's own `nix build` below) because
+      # `useDaemon` only wires the upload hook into steps that run after it.
+      # The step-level `if` is redundant here — the job-level `if` above
+      # already limits this job to schedule/workflow_dispatch, never PRs —
+      # but it's kept anyway so the two Cachix steps read identically.
+      - name: Cachix (push only)
+        if: github.event_name != 'pull_request'
+        uses: https://github.com/cachix/cachix-action@v16
+        with:
+          name: matusdasdots
+          authToken: ${{ secrets.CACHIX_KEY }}
+          skipAddingSubstituter: true
+      # See the nix-eval job for why this print exists: cachix-action's
+      # store-scan fallback (untrusted runner user) only warns, it doesn't
+      # fail, so confirm here rather than assume nix-installer-action's
+      # `trust-runner-user: true` default held.
+      - name: Show the resolved cache config
+        run: |
+          (nix config show 2>/dev/null || nix show-config) \
+            | grep -E '^(trusted-users|substituters|extra-substituters|trusted-public-keys)' \
+            || echo "::warning::could not read the resolved nix config"
       # --option system-features is still needed: even with /dev/kvm present,
       # Nix won't schedule nixos-test derivations unless kvm/nixos-test are
       # declared on the (per-invocation) system-features.
