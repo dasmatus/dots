@@ -107,6 +107,22 @@ in
     "flakes"
   ];
 
+  # The LiveISO does not import nix/modules/system/core.nix (flake/lib.nix's
+  # mkIso only pulls in this file and nix/modules/system/network.nix), so the
+  # matusdasdots Cachix substituter configured there does nothing for the
+  # installer environment. Without a copy here, a real `nixos-install --flake
+  # .#tokyonight` run from the ISO rebuilds the whole dots closure from
+  # source instead of substituting it. The honest tradeoff: on a machine with
+  # no network during install, this extra substituter costs one connect
+  # attempt per path before nix falls back. core.nix is the installed
+  # system, where that cost matters; this is the installer, where the
+  # network is normally present already (networking.networkmanager.enable
+  # below) and the substitution win is large.
+  nix.settings.substituters = [ "https://matusdasdots.cachix.org" ];
+  nix.settings.trusted-public-keys = [
+    "matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258="
+  ];
+
   networking.networkmanager.enable = true;
   networking.wireless.enable = true;
 

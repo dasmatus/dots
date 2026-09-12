@@ -84,12 +84,28 @@
       "root"
       "@wheel"
     ];
-    # No Hyprland-specific substituter: the compositor now comes from nixpkgs
-    # (programs.hyprland default package, see nix/modules/desktop/desktop.nix), so it
-    # and its deps are Hydra-built and substituted from the default
-    # cache.nixos.org. The earlier hyprland.cachix.org substituter existed for
-    # a pinned Hyprland flake input, which is gone — and which built from
-    # source anyway once Cachix evicted the old tagged prebuilt.
+    # No Hyprland-specific substituter is needed: the compositor now comes
+    # from nixpkgs (programs.hyprland default package, see
+    # nix/modules/desktop/desktop.nix), so it and its deps are Hydra-built
+    # and substituted from cache.nixos.org already. The earlier
+    # hyprland.cachix.org substituter existed for a pinned Hyprland flake
+    # input, which is gone — and which built from source anyway once Cachix
+    # evicted the old tagged prebuilt, because it was someone else's cache
+    # with an eviction policy we did not control.
+    #
+    # The extra substituter below is ours, not a third party's: the
+    # matusdasdots Cachix cache that CI populates (.forgejo/workflows/ci.yml)
+    # for this repo's own closures. Verified against the pinned nixpkgs
+    # (567a49d1913ce81ac6e9582e3553dd90a955875f,
+    # nixos/modules/config/nix.nix): neither `substituters` nor
+    # `trusted-public-keys` carries an mkOption default; the module instead
+    # injects `substituters = mkAfter [ "https://cache.nixos.org/" ]` at
+    # config level. So this plain definition list-merges rather than
+    # clobbering, and cache.nixos.org still applies, appended after ours.
+    substituters = [ "https://matusdasdots.cachix.org" ];
+    trusted-public-keys = [
+      "matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258="
+    ];
   };
 
   # Automatic timezone-from-geolocation (localtimed + geoclue2) was here and
