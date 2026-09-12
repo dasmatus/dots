@@ -102,6 +102,22 @@
     # injects `substituters = mkAfter [ "https://cache.nixos.org/" ]` at
     # config level. So this plain definition list-merges rather than
     # clobbering, and cache.nixos.org still applies, appended after ours.
+    #
+    # Where the real trust boundary sits: `matusdasdots` uses a
+    # Cachix-managed signing key (the API returns `publicSigningKeys`, i.e.
+    # Cachix holds the private half and signs server-side on every push), and
+    # `require-sigs` stays `true` on both this config and the ISO's
+    # (nix/system/iso.nix; verified by eval), with `trusted-substituters`
+    # left at `[]`. `require-sigs` therefore stops a hostile CDN or a MITM
+    # from swapping in an unsigned path over this substituter's own
+    # connection — but it does nothing against whoever holds CACHIX_KEY:
+    # that token can get arbitrary store paths signed by the cache and then
+    # substituted here, to run as root on tokyonight and on every machine
+    # installed from the LiveISO. That is a normal, acceptable tradeoff for
+    # a cache one controls — CACHIX_KEY is scoped to this repo's own CI — but
+    # it is a different axis of trust than `require-sigs` is usually read as
+    # buying, and worth naming plainly rather than leaving a reader to assume
+    # the wrong one.
     substituters = [ "https://matusdasdots.cachix.org" ];
     trusted-public-keys = [
       "matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258="

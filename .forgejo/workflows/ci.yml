@@ -25,12 +25,17 @@
 # Cold-cache escape hatch: the 1.5 GB ISO closure in vm-boot builds in-job.
 # The hosted runner's store does NOT survive between runs, so every weekly
 # boot oracle used to pay the full build every time. Wired up now: the pull
-# side is the `matusdasdots` Cachix cache, added to every job's nix.conf via
-# nix-installer-action's `extra-conf` (see the `with:` block below) — no
-# secret involved, since the cache is public, so PR builds substitute from it
-# too. The push side is cachix/cachix-action (pinned to v16), gated to
-# non-PR events so a fork's PR can't exfiltrate the write token, uploading
-# whatever each job built after its own `Stop determinate-nixd` step.
+# side is the `matusdasdots` Cachix cache, added to both Nix jobs' nix.conf
+# (nix-eval, vm-boot; the rust job never runs nix-installer-action so never
+# sees this config) via nix-installer-action's `extra-conf` (see the `with:`
+# block below) — no secret involved, since the cache is public, so PR builds
+# substitute from it too. The push side is cachix/cachix-action (pinned to
+# v16), gated to non-PR events. That gate is not about forks: Forgejo never
+# passes secrets to a fork's PR run at all, so there is nothing there for a
+# fork to exfiltrate. What it guards is a same-repo PR branch, where
+# CACHIX_KEY genuinely is available — see the push step's own `if:` for the
+# same point made again at the point it matters. Each push uploads whatever
+# that job built, after its own `Stop determinate-nixd` step.
 
 on:
   push:
@@ -127,6 +132,26 @@ jobs:
             sleep 2
           done
           pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
+      # cachix-action detects a missing token itself (src/main.ts:87:
+      # `hasPushTokens = signingKey !== "" || authToken !== ""`) and falls
+      # back to `pushMode = None` when both are empty — but only reports that
+      # through `core.info`, never `core.warning` or a failure. A renamed,
+      # deleted or rotated CACHIX_KEY secret would therefore produce a
+      # permanently green job and a permanently empty cache, with no signal
+      # anywhere: the exact failure mode this whole branch exists to avoid.
+      # Fail loud here, before the push step below ever runs, instead of
+      # trusting cachix-action's silent no-op. `if:` mirrors the push step's
+      # own guard: PR runs never carry the secret in the first place (see the
+      # header), so there is nothing to assert there.
+      - name: Assert the Cachix token is present
+        if: github.event_name != 'pull_request'
+        env:
+          TOKEN: ${{ secrets.CACHIX_KEY }}
+        run: |
+          test -n "$TOKEN" || {
+            echo "::error::CACHIX_KEY is unset — the push step would silently no-op"
+            exit 1
+          }
       # Push side of the `matusdasdots` Cachix cache. Pull is already covered
       # by the installer's extra-conf above and needs no secret, since the
       # cache is public — this step only uploads, hence
@@ -272,6 +297,20 @@ jobs:
             sleep 2
           done
           pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
+      # Same silent-no-op hazard as the nix-eval job: cachix-action only
+      # reports a missing token through `core.info` (src/main.ts:87), never a
+      # warning or failure, so a renamed/deleted/rotated CACHIX_KEY would
+      # otherwise leave this schedule/dispatch-only job green forever with
+      # nothing ever pushed. See nix-eval for the full writeup.
+      - name: Assert the Cachix token is present
+        if: github.event_name != 'pull_request'
+        env:
+          TOKEN: ${{ secrets.CACHIX_KEY }}
+        run: |
+          test -n "$TOKEN" || {
+            echo "::error::CACHIX_KEY is unset — the push step would silently no-op"
+            exit 1
+          }
       # Push side of the `matusdasdots` Cachix cache — same step, same
       # reasoning, as the nix-eval job: pull needs no secret and is already
       # wired via extra-conf, `skipAddingSubstituter: true` stops this action

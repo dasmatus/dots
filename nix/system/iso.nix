@@ -111,22 +111,31 @@ in
   # mkIso only pulls in this file and nix/modules/system/network.nix), so the
   # matusdasdots Cachix substituter configured there does nothing for the
   # installer environment. Without a copy here, a real `nixos-install --flake
-  # .#tokyonight` run from the ISO rebuilds the whole dots closure from
-  # source instead of substituting it. The honest tradeoff: on a machine with
-  # no network during install, an unreachable substituter is not one quick
-  # failed attempt — tests/default.nix:300-303 measured this exact scenario
-  # (nixos-install from an offline installer) and found nix retries every
-  # path 5x with backoff against cache.nixos.org alone, thousands of paths ×
-  # 5 retries = hours, which is why that VM forces `substituters = mkForce [
-  # ]` alongside a 1s `connect-timeout`. But `https://cache.nixos.org/` is
-  # already in this file's substituter list and is equally unreachable
-  # offline (verified: `live-iso` evaluates to
+  # .#tokyonight` run from the ISO falls back to building from source
+  # whatever of the closure isn't already on cache.nixos.org. That coverage
+  # is narrower than the whole dots closure: no CI job builds
+  # nixosConfigurations.tokyonight.system.build.toplevel itself. The weekly
+  # `limine-install-boot` check (vm-boot, schedule/dispatch only — a push to
+  # main refreshes none of this) builds `testToplevel`
+  # (tests/default.nix:99), a VM-disk-sized *variant* of it, so the bulk of
+  # ordinary packages in the closure does get cached and the substituter
+  # does pay off for those — but the exact tokyonight toplevel derivation and
+  # the disk-config-dependent paths under it never get pushed by anything.
+  # The honest tradeoff: on a machine with no network during install, an
+  # unreachable substituter is not one quick failed attempt —
+  # tests/default.nix:298-303 measured this exact scenario (nixos-install
+  # from an offline installer) and found nix retries every path 5x with
+  # backoff against cache.nixos.org alone, thousands of paths × 5 retries =
+  # hours, which is why that VM forces `substituters = lib.mkForce [ ]`
+  # alongside a 1s `connect-timeout` (tests/default.nix:304-305). But
+  # `https://cache.nixos.org/` is already in this file's substituter list and
+  # is equally unreachable offline (verified: `live-iso` evaluates to
   # `["https://matusdasdots.cachix.org","https://cache.nixos.org/"]`), so
   # adding ours doubles an existing cost rather than introducing a new
   # failure mode. core.nix is the installed system; this is the installer,
   # where the network is normally present already
-  # (networking.networkmanager.enable below) and the substitution win is
-  # large.
+  # (networking.networkmanager.enable below) and the substitution win — for
+  # the part of the closure the weekly check actually pushes — is real.
   nix.settings.substituters = [ "https://matusdasdots.cachix.org" ];
   nix.settings.trusted-public-keys = [
     "matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258="
