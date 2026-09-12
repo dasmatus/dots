@@ -113,11 +113,20 @@ in
   # installer environment. Without a copy here, a real `nixos-install --flake
   # .#tokyonight` run from the ISO rebuilds the whole dots closure from
   # source instead of substituting it. The honest tradeoff: on a machine with
-  # no network during install, this extra substituter costs one connect
-  # attempt per path before nix falls back. core.nix is the installed
-  # system, where that cost matters; this is the installer, where the
-  # network is normally present already (networking.networkmanager.enable
-  # below) and the substitution win is large.
+  # no network during install, an unreachable substituter is not one quick
+  # failed attempt — tests/default.nix:300-303 measured this exact scenario
+  # (nixos-install from an offline installer) and found nix retries every
+  # path 5x with backoff against cache.nixos.org alone, thousands of paths ×
+  # 5 retries = hours, which is why that VM forces `substituters = mkForce [
+  # ]` alongside a 1s `connect-timeout`. But `https://cache.nixos.org/` is
+  # already in this file's substituter list and is equally unreachable
+  # offline (verified: `live-iso` evaluates to
+  # `["https://matusdasdots.cachix.org","https://cache.nixos.org/"]`), so
+  # adding ours doubles an existing cost rather than introducing a new
+  # failure mode. core.nix is the installed system; this is the installer,
+  # where the network is normally present already
+  # (networking.networkmanager.enable below) and the substitution win is
+  # large.
   nix.settings.substituters = [ "https://matusdasdots.cachix.org" ];
   nix.settings.trusted-public-keys = [
     "matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258="

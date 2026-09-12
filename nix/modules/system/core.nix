@@ -90,8 +90,8 @@
     # and substituted from cache.nixos.org already. The earlier
     # hyprland.cachix.org substituter existed for a pinned Hyprland flake
     # input, which is gone — and which built from source anyway once Cachix
-    # evicted the old tagged prebuilt, because it was someone else's cache
-    # with an eviction policy we did not control.
+    # evicted the old tagged prebuilt — an eviction policy we did not
+    # control, because it was someone else's cache.
     #
     # The extra substituter below is ours, not a third party's: the
     # matusdasdots Cachix cache that CI populates (.forgejo/workflows/ci.yml)
