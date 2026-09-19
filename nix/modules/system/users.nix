@@ -119,8 +119,8 @@ in
     # nix/home/apps/bitwarden.nix's bitwardenEmail) — the git identity is NOT
     # among them any more, it is an agenix secret resolved at activation
     # (nix/home/secrets/identity.nix). The desktop choice in settings.desktop
-    # is NOT gated on the HM side — only the system-level desktop block in
-    # nix/modules/desktop/desktop.nix reads it. `dots` is the typed
+    # is gated on the HM side through nix/home/profiles/session.nix, which
+    # dispatches to the matching per-DE home module. `dots` is the typed
     # projection of the installer answers (nix/modules/dots.nix) so the HM-side
     # AI gating (nix/home/{claude,codex}.nix) and the dots-clone symlinks
     # (nix/home/base/dots-repo.nix) read the same values as the system modules.

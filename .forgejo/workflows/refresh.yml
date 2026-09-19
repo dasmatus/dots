@@ -1,0 +1,189 @@
+# Keeps the newest release's download link alive.
+#
+# buzzheavier's free tier keeps a file for 8 days, adds 2 days per download
+# (capped at 60), and only makes it permanent after 30 downloads inside 60
+# days. A config repo's ISO will not see 30 downloads, so without this workflow
+# every published download link dies about a week after the release.
+#
+# So: re-upload the newest release's ISO and rewrite that release's body with
+# the new link. Older releases are left to expire; their bodies keep the
+# sha256, so an old release stays verifiable even once it stops being
+# downloadable.
+#
+# Twice a week, NOT weekly. The floor is 8 days and a weekly run leaves one
+# day of margin, so a single failed run kills the link. Mon+Thu leaves 3-4 day
+# gaps. Dial back to Mondays only if the bandwidth matters more than the margin.
+#
+# It lives in its own file rather than as a job in ci.yml because ci.yml's
+# schedule drives the 3-hour vm-boot matrix. Sharing a cron would run that
+# twice a week, and telling the two crons apart inside one workflow needs
+# github.event.schedule, whose Forgejo support is unverified. A second workflow
+# gets its own cron and cannot interfere.
+#
+# This workflow NEVER builds. It reads the store path recorded by the release
+# and substitutes it — no flake evaluation, no nixpkgs download, and no
+# exposure to the aipage import-from-derivation that ci.yml's nix-eval lane
+# documents as failing. A download plus an upload is the whole job, which is
+# also the least this can cost a shared, donation-funded runner.
+name: refresh
+
+on:
+  schedule:
+    - cron: "57 3 * * 1,4"
+  workflow_dispatch:
+
+env:
+  BUZZ_PARENT_ID: ${{ vars.BUZZ_PARENT_ID }}
+  BUZZ_LOCATION_ID: ${{ vars.BUZZ_LOCATION_ID }}
+
+jobs:
+  refresh:
+    name: "refresh: re-upload the newest release ISO"
+    runs-on: codeberg-medium
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      # push: false — this job builds nothing, so it has nothing to contribute
+      # to the cache and no need for the write token.
+      - uses: ./.forgejo/actions/setup-nix
+        with:
+          push: "false"
+      - name: Ensure curl and jq
+        run: |
+          command -v jq   >/dev/null || nix profile install nixpkgs#jq
+          command -v curl >/dev/null || nix profile install nixpkgs#curl
+      - name: Assert the buzzheavier credentials are present
+        env:
+          TOKEN: ${{ secrets.BUZZHEAVIER_TOKEN }}
+        run: |
+          test -n "$TOKEN" || {
+            echo "::error::BUZZHEAVIER_TOKEN is unset — the refresh would silently do nothing and the live download link would expire"
+            exit 1
+          }
+          test -n "$BUZZ_PARENT_ID" || {
+            echo "::error::BUZZ_PARENT_ID is unset"
+            exit 1
+          }
+      # release.json is attached by the release lane and carries the ISO's
+      # /nix/store path. That is what makes this job cheap: without it, getting
+      # the bytes back would mean evaluating the flake at the tag, which costs
+      # a nixpkgs fetch and a full NixOS module evaluation every single run.
+      - name: Find the newest release
+        id: rel
+        env:
+          TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          TOKEN_ALT: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          API="${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}"
+          T="${TOKEN:-$TOKEN_ALT}"
+          curl -fsS -H "authorization: token $T" "$API/releases?limit=1" -o /tmp/rels.json
+          count=$(jq 'length' /tmp/rels.json)
+          if [ "$count" = "0" ]; then
+            echo "::notice::no releases yet — nothing to refresh"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tag=$(jq -r '.[0].tag_name' /tmp/rels.json)
+          url=$(jq -r '.[0].assets[]? | select(.name == "release.json") | .browser_download_url' /tmp/rels.json | head -1)
+          if [ -z "$url" ]; then
+            echo "::error::release $tag has no release.json asset — it predates this workflow, or the release lane failed to attach it. Re-run the release lane for $tag, or refresh it by hand."
+            exit 1
+          fi
+          curl -fsSL "$url" -o /tmp/release.json
+          {
+            echo "skip=false"
+            echo "tag=${tag}"
+            echo "iso=$(jq -r .iso /tmp/release.json)"
+            echo "sha256=$(jq -r .sha256 /tmp/release.json)"
+            echo "storePath=$(jq -r .storePath /tmp/release.json)"
+          } >> "$GITHUB_OUTPUT"
+          echo "refreshing ${tag}"
+      # --max-jobs 0 would be redundant here: `nix copy --from` substitutes or
+      # fails, it never builds. If this errors the ISO has been evicted from the
+      # cache, and the fix is to re-run the release lane for that tag.
+      - name: Substitute the ISO from the cache
+        if: steps.rel.outputs.skip != 'true'
+        env:
+          STORE_PATH: ${{ steps.rel.outputs.storePath }}
+          WANT_SUM: ${{ steps.rel.outputs.sha256 }}
+          ISO_NAME: ${{ steps.rel.outputs.iso }}
+        run: |
+          set -euo pipefail
+          nix copy --from https://matusdasdots.cachix.org "$STORE_PATH"
+          cp -L "$STORE_PATH"/iso/*.iso "./${ISO_NAME}"
+          got=$(sha256sum "$ISO_NAME" | cut -d' ' -f1)
+          if [ "$got" != "$WANT_SUM" ]; then
+            echo "::error::substituted ISO does not match the release: want $WANT_SUM, got $got"
+            exit 1
+          fi
+          echo "substituted ${ISO_NAME}, sha256 verified against the release"
+      - id: publish
+        if: steps.rel.outputs.skip != 'true'
+        uses: ./.forgejo/actions/publish-buzz
+        with:
+          file: ${{ steps.rel.outputs.iso }}
+          filename: ${{ steps.rel.outputs.iso }}
+          parent-id: ${{ env.BUZZ_PARENT_ID }}
+          location-id: ${{ env.BUZZ_LOCATION_ID }}
+          token: ${{ secrets.BUZZHEAVIER_TOKEN }}
+      - name: Compose the release body
+        id: body
+        if: steps.rel.outputs.skip != 'true'
+        env:
+          ISO_NAME: ${{ steps.rel.outputs.iso }}
+          ISO_URL: ${{ steps.publish.outputs.url }}
+          ISO_SUM: ${{ steps.publish.outputs.sha256 }}
+          ISO_SIZE: ${{ steps.publish.outputs.size }}
+        run: |
+          set -euo pipefail
+          human=$(awk -v b="$ISO_SIZE" 'BEGIN { printf "%.2f GiB", b/1073741824 }')
+          {
+            echo "body<<RELEASE_BODY_EOF"
+            cat <<BODY
+          ### Download
+
+          **[${ISO_NAME}](${ISO_URL})** — ${human}
+
+          \`\`\`
+          sha256  ${ISO_SUM}
+          \`\`\`
+
+          Verify against the \`.sha256\` attached below:
+
+          \`\`\`sh
+          sha256sum -c ${ISO_NAME}.sha256
+          \`\`\`
+
+          Write it to a USB stick and boot the target machine; the installer
+          starts on tty1. The image is plain and unsigned, so it boots via
+          firmware defaults with no Secure Boot enrolment.
+
+          ---
+
+          The download is hosted off-forge, because one ISO is Codeberg's entire
+          recommended allowance for packages, LFS and attachments. That link is
+          refreshed automatically and may still lapse — if it has, \`nix run .#iso\`
+          builds the same image from this tag.
+          BODY
+            echo "RELEASE_BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+      # patch mode replaces the body outright. The old link is gone from the
+      # page, not left below the new one for someone to click.
+      - if: steps.rel.outputs.skip != 'true'
+        uses: ./.forgejo/actions/forgejo-release
+        with:
+          tag: ${{ steps.rel.outputs.tag }}
+          body: ${{ steps.body.outputs.body }}
+          mode: patch
+          token: ${{ secrets.FORGEJO_TOKEN }}
+          token-alt: ${{ secrets.GITHUB_TOKEN }}
+      # keep: 1 — the previous upload of this same ISO is now a dead duplicate.
+      - if: steps.rel.outputs.skip != 'true'
+        uses: ./.forgejo/actions/prune-buzz
+        with:
+          parent-id: ${{ env.BUZZ_PARENT_ID }}
+          prefix: ${{ steps.rel.outputs.iso }}
+          keep: "1"
+          keep-id: ${{ steps.publish.outputs.id }}
+          token: ${{ secrets.BUZZHEAVIER_TOKEN }}

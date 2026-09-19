@@ -1,0 +1,108 @@
+# Deletes superseded uploads from one buzzheavier directory.
+#
+# Cheaper than it looks: GET /api/fs/{id} returns names alongside ids, so this
+# is one list plus k deletes — no per-file metadata fetch.
+#
+# This step NEVER fails the job. A release whose bytes are published and whose
+# release page is written is a successful release; failing it afterwards over
+# housekeeping would turn a tidy-up problem into a red build and a tag that has
+# to be deleted and re-pushed. Every failure path here warns and returns 0.
+#
+# It also refuses to guess. The JSON shape is undocumented, so if the listing
+# cannot be ordered confidently the step skips rather than deletes: keeping too
+# many files costs nothing on a free tier where files expire on their own,
+# while deleting the wrong one destroys a published download link.
+name: "Prune buzzheavier uploads"
+description: "Keep the newest N files matching a prefix in a directory; delete the rest."
+
+inputs:
+  parent-id:
+    description: "buzzheavier directory id to prune."
+    required: true
+  prefix:
+    description: "Only consider files whose name starts with this."
+    required: true
+  keep:
+    description: "How many of the newest matching files to keep."
+    required: false
+    default: "5"
+  keep-id:
+    description: "File id that must never be deleted, whatever the ordering says."
+    required: false
+    default: ""
+  token:
+    description: "buzzheavier account id, used as the bearer token."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        IN_PARENT: ${{ inputs.parent-id }}
+        IN_PREFIX: ${{ inputs.prefix }}
+        IN_KEEP: ${{ inputs.keep }}
+        IN_KEEP_ID: ${{ inputs.keep-id }}
+        IN_TOKEN: ${{ inputs.token }}
+      run: |
+        set -uo pipefail
+
+        if [ -z "$IN_TOKEN" ]; then
+          echo "::warning::no buzzheavier token — skipping the prune"
+          exit 0
+        fi
+
+        umask 077
+        conf=$(mktemp)
+        trap 'rm -f "$conf"' EXIT
+        printf 'header = "authorization: Bearer %s"\n' "$IN_TOKEN" > "$conf"
+
+        listing=$(curl -fsS -K "$conf" "https://buzzheavier.com/api/fs/${IN_PARENT}")
+        if [ -z "$listing" ]; then
+          echo "::warning::could not list directory ${IN_PARENT} — skipping the prune"
+          exit 0
+        fi
+
+        # Recursive descent, not a fixed path: the response shape is not
+        # documented anywhere, and an object carrying both an id and a name is
+        # unambiguous enough to work from. Timestamps are tried under several
+        # spellings for the same reason.
+        entries=$(printf '%s' "$listing" | jq -c --arg p "$IN_PREFIX" '
+          [ .. | objects
+            | select((.id? | type) == "string" and (.name? | type) == "string")
+            | select(.name | startswith($p))
+            | { id, name,
+                ts: (.createdAt? // .created_at? // .uploadedAt? // .updatedAt? // .date? // null) }
+          ]' 2>/dev/null)
+
+        if [ -z "$entries" ] || [ "$entries" = "[]" ]; then
+          echo "nothing matching '${IN_PREFIX}' to prune"
+          exit 0
+        fi
+
+        total=$(printf '%s' "$entries" | jq 'length')
+        undated=$(printf '%s' "$entries" | jq '[.[] | select(.ts == null)] | length')
+        if [ "$undated" != "0" ]; then
+          echo "::warning::${undated}/${total} entries carry no recognisable timestamp — skipping the prune rather than guessing an order"
+          exit 0
+        fi
+
+        doomed=$(printf '%s' "$entries" | jq -r --argjson k "$IN_KEEP" --arg keep "$IN_KEEP_ID" '
+          sort_by(.ts) | reverse | .[$k:] | .[] | select(.id != $keep) | "\(.id)\t\(.name)"')
+
+        if [ -z "$doomed" ]; then
+          echo "${total} file(s) matching '${IN_PREFIX}', keeping ${IN_KEEP} — nothing to delete"
+          exit 0
+        fi
+
+        while IFS=$'\t' read -r id name; do
+          [ -n "$id" ] || continue
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE -K "$conf" \
+            "https://buzzheavier.com/api/fs/${id}")
+          case "$code" in
+            200|202|204) echo "deleted ${name} (${id})" ;;
+            *) echo "::warning::deleting ${name} (${id}) returned HTTP ${code}" ;;
+          esac
+        done <<< "$doomed"
+
+        exit 0

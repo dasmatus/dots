@@ -1,0 +1,186 @@
+# Uploads one file to buzzheavier and reports where it landed.
+#
+# Why buzzheavier and not a release attachment: Codeberg asks that a repository
+# stay under "1.5 GiB of packages, LFS and attachments", and one ISO is that
+# entire allowance. Why buzzheavier and not an object store: the whole upload is
+# a single PUT, so CI needs curl and jq and nothing else — no two-step
+# handshake, no signature, no SDK.
+#
+# AN ACCOUNT IS OPTIONAL. With no token this uploads anonymously, which is the
+# default and needs no setup at all. A token buys three things: uploads land in
+# a directory of your choosing, prune-buzz can list and delete, and the
+# retention window is longer. Everything here works either way.
+#
+# The API answers plain curl; the HTML pages do not. w.buzzheavier.com and
+# buzzheavier.com/api/* return JSON, but buzzheavier.com/<id>,
+# buzzheavier.com/<id>/download and dd.buzzheavier.com/<id> all sit behind a
+# Cloudflare interstitial and 403 anything without a browser — measured, not
+# assumed. So a download link is for humans to click, and NOTHING in CI may try
+# to fetch one.
+name: "Publish to buzzheavier"
+description: "Upload a file to buzzheavier, returning its download URL, id, size, sha256 and expiry."
+
+inputs:
+  file:
+    description: "Path to the file to upload."
+    required: true
+  filename:
+    description: "Name to publish under. Defaults to the file's basename."
+    required: false
+    default: ""
+  parent-id:
+    description: "Directory id to upload into. Requires a token; omit to upload anonymously."
+    required: false
+    default: ""
+  location-id:
+    description: "Storage region id from GET /api/locations. Optional; the server picks one otherwise."
+    required: false
+    default: ""
+  token:
+    description: "buzzheavier account id, used as the bearer token. Omit to upload anonymously."
+    required: false
+    default: ""
+  retries:
+    description: "How many times to attempt the upload."
+    required: false
+    default: "3"
+  min-days:
+    description: "Warn if the upload expires sooner than this many days."
+    required: false
+    default: "3"
+
+outputs:
+  url:
+    description: "Public download URL. Opens in a browser; not fetchable by curl."
+    value: ${{ steps.upload.outputs.url }}
+  id:
+    description: "buzzheavier file id."
+    value: ${{ steps.upload.outputs.id }}
+  sha256:
+    description: "sha256 of the uploaded bytes, as confirmed by the server."
+    value: ${{ steps.upload.outputs.sha256 }}
+  size:
+    description: "Size in bytes."
+    value: ${{ steps.upload.outputs.size }}
+  expiry:
+    description: "When the upload expires, ISO 8601, or empty if the server did not say."
+    value: ${{ steps.upload.outputs.expiry }}
+
+runs:
+  using: composite
+  steps:
+    - id: upload
+      shell: bash
+      env:
+        IN_FILE: ${{ inputs.file }}
+        IN_NAME: ${{ inputs.filename }}
+        IN_PARENT: ${{ inputs.parent-id }}
+        IN_LOCATION: ${{ inputs.location-id }}
+        IN_TOKEN: ${{ inputs.token }}
+        IN_RETRIES: ${{ inputs.retries }}
+        IN_MIN_DAYS: ${{ inputs.min-days }}
+      run: |
+        set -euo pipefail
+
+        test -f "$IN_FILE" || { echo "::error::no such file: $IN_FILE"; exit 1; }
+        if [ -n "$IN_PARENT" ] && [ -z "$IN_TOKEN" ]; then
+          echo "::error::parent-id needs a token; without one the upload cannot target a directory"
+          exit 1
+        fi
+
+        name="$IN_NAME"
+        if [ -z "$name" ]; then name="$(basename "$IN_FILE")"; fi
+
+        size=$(stat -c%s "$IN_FILE")
+        sum=$(sha256sum "$IN_FILE" | cut -d' ' -f1)
+        echo "uploading $name — $size bytes, sha256 $sum"
+
+        # The token, when there is one, never reaches argv: on a shared runner
+        # `ps` would otherwise expose it for the whole duration of a multi-GB
+        # upload, and it is the account id itself, so it cannot be scoped and
+        # rotating it means changing the account. An empty config file is a
+        # valid -K argument, which keeps the anonymous path on the same code.
+        umask 077
+        conf=$(mktemp)
+        trap 'rm -f "$conf"' EXIT
+        if [ -n "$IN_TOKEN" ]; then
+          printf 'header = "authorization: Bearer %s"\n' "$IN_TOKEN" > "$conf"
+          echo "uploading with an account token"
+        else
+          : > "$conf"
+          echo "uploading anonymously (no token configured)"
+        fi
+
+        path="$name"
+        if [ -n "$IN_PARENT" ]; then path="${IN_PARENT}/${name}"; fi
+        target="https://w.buzzheavier.com/${path}"
+        if [ -n "$IN_LOCATION" ]; then target="${target}?locationId=${IN_LOCATION}"; fi
+
+        # An explicit loop rather than curl's --retry: --retry reports nothing
+        # per attempt, and a failed multi-GB upload is exactly the thing whose
+        # attempt count you want in the log. Nothing needs rolling back between
+        # attempts — buzzheavier mints the id only on success, so a failed PUT
+        # leaves no half-created record behind.
+        resp=""
+        for attempt in $(seq 1 "$IN_RETRIES"); do
+          if resp=$(curl -fsS --connect-timeout 30 -T "$IN_FILE" -K "$conf" "$target"); then
+            break
+          fi
+          resp=""
+          echo "::warning::upload attempt ${attempt}/${IN_RETRIES} failed"
+          sleep $((attempt * 15))
+        done
+        test -n "$resp" || {
+          echo "::error::upload failed after ${IN_RETRIES} attempts"
+          exit 1
+        }
+
+        id=$(printf '%s' "$resp" | jq -er '.data.id') || {
+          echo "::error::no .data.id in the upload response"
+          printf '%s\n' "$resp" >&2
+          exit 1
+        }
+
+        # The server hashes what it stored and hands the digest back, so this
+        # is a real end-to-end check on the bytes rather than trust in a 200.
+        # It needs no second request and no credential, which is what makes it
+        # better than reading the file back — and reading it back is impossible
+        # anyway, since the download host 403s anything that is not a browser.
+        remote_sum=$(printf '%s' "$resp" | jq -r '.data.sha256 // empty')
+        remote_size=$(printf '%s' "$resp" | jq -r '.data.size // empty')
+        if [ -n "$remote_sum" ] && [ "$remote_sum" != "$sum" ]; then
+          echo "::error::the server stored different bytes: sent $sum, stored $remote_sum"
+          exit 1
+        fi
+        if [ -n "$remote_size" ] && [ "$remote_size" != "$size" ]; then
+          echo "::error::the server stored $remote_size bytes, sent $size"
+          exit 1
+        fi
+        echo "server confirmed sha256 and size"
+
+        # Retention is not a constant, so read it back rather than assume it.
+        # Measured on an anonymous upload 2026-09-13: exactly 4 days. If that
+        # ever shortens, the refresh schedule is wrong and this says so instead
+        # of letting links quietly start dying between runs.
+        expiry=$(printf '%s' "$resp" | jq -r '.data.expiry // empty')
+        if [ -n "$expiry" ]; then
+          now=$(date -u +%s)
+          exp=$(date -u -d "$expiry" +%s 2>/dev/null || echo 0)
+          if [ "$exp" -gt 0 ]; then
+            days=$(( (exp - now) / 86400 ))
+            echo "expires ${expiry} (${days} day(s) from now)"
+            if [ "$days" -lt "$IN_MIN_DAYS" ]; then
+              echo "::warning::this upload expires in ${days} day(s), under the ${IN_MIN_DAYS} the refresh schedule assumes — shorten the cron in refresh.yml"
+            fi
+          fi
+        fi
+
+        {
+          echo "url=https://buzzheavier.com/${id}"
+          echo "id=${id}"
+          echo "sha256=${sum}"
+          echo "size=${size}"
+          echo "expiry=${expiry}"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "published: https://buzzheavier.com/${id}"

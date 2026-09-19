@@ -5,11 +5,23 @@ A [Tokyonight](https://github.com/folke/tokyonight.nvim)-themed NixOS flake. One
 [nixos-facter](https://github.com/nix-community/nixos-facter), a home-manager
 profile, and a LiveISO that carries a ratatui installer.
 
+## Download
+
+Tagged releases carry a prebuilt LiveISO:
+
+**<https://codeberg.org/dasmatus/dots/releases/latest>**
+
+The image is linked from the release rather than attached to it, because one
+ISO is Codeberg's entire recommended allowance for packages, LFS and
+attachments. That link is re-uploaded automatically twice a week and can still
+lapse; the `.sha256` attached to the release stays valid either way, and
+`nix run .#iso` below builds the same image from the tag.
+
 ## Quickstart
 
 ```bash
 # From any Linux with nix installed: builds + runs the installer TUI
-curl -fsSL https://gitlab.com/TenTypekMatus/tokyonight-dots/-/raw/main/install.sh | bash
+curl -fsSL https://codeberg.org/dasmatus/dots/raw/branch/main/install.sh | bash
 
 # Equivalent, from a checkout:
 nix run .#dots-installer

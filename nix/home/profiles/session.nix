@@ -1,19 +1,32 @@
-# The Hyprland session — the half of the home config that only works on a
+# The desktop session — the half of the home config that only works on a
 # machine built for it, split out of nix/home/default.nix so
 # `homeConfigurations` on a foreign host can take the other half alone.
 #
-# desktop/: the compositor, its session units and the Quickshell tree. These
-# assume they ARE the session — Hyprland holds the seat, and desktop/session/
-# generates the `dots-*` user units the keybinds start. Installed next to a
-# GNOME or KDE session they are dead weight at best; their units start into a
-# compositor that is not running. (The per-app sandbox that used to live
-# beside this profile as `sandbox/` was retired for Flatpak + AppArmor —
-# see git history; nix/home/ai/triage-assist.nix is the one piece of it that
-# outlived the deletion, and it lives with the other AI-harness modules now.)
+# This profile is a dispatcher: it imports the shared session infrastructure
+# (actions, keybinds, quickshell) unconditionally, then the per-DE home
+# module selected by `dots.desktop.environment`. Each per-DE module carries
+# its compositor config, its lock screen, and its own keybind rendering.
+#
+# desktop/session/: the compositor-agnostic action table and the systemd
+# unit generator. These assume they ARE the session — the compositor holds
+# the seat, and session/ generates the `dots-*` user units the keybinds
+# start. Installed next to a foreign DE they are dead weight at best;
+# their units start into a compositor that is not running.
+{
+  dots,
+  ...
+}:
 {
   imports = [
-    ./../desktop/hyprland.nix
     ./../desktop/session
     ./../desktop/quickshell
-  ];
+  ]
+  ++ (
+    if dots.desktop.environment == "gnome" then
+      [ ./../desktop/gnome.nix ]
+    else if dots.desktop.environment == "sway" then
+      [ ./../desktop/sway.nix ]
+    else
+      [ ./../desktop/hyprland.nix ]
+  );
 }

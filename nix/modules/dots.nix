@@ -136,6 +136,44 @@ in
       };
     };
 
+    # --- Desktop environment ---
+    desktop = {
+      environment = mkOption {
+        type = types.enum [
+          "gnome"
+          "hyprland"
+          "sway"
+        ];
+        default = "hyprland";
+        description = ''
+          Which desktop environment the session runs. Exactly one is active
+          at a time; the enum makes mutual exclusion structural rather than
+          asserted. Each DE has its own system module
+          (nix/modules/desktop/<name>.nix) and home module
+          (nix/home/desktop/<name>.nix), both gated on this value.
+        '';
+      };
+
+      hyprland = {
+        layout = mkOption {
+          type = types.enum [
+            "dwindle"
+            "master"
+          ];
+          default = "dwindle";
+          description = "Hyprland tiling layout algorithm.";
+        };
+      };
+
+      sway = {
+        gaps = mkOption {
+          type = types.int;
+          default = 5;
+          description = "Sway inner gaps in pixels.";
+        };
+      };
+    };
+
     # --- Optional subsystems, off by default (Phase C hardening pass) ---
     virtualisation.enable = mkOption {
       type = types.bool;
@@ -155,7 +193,7 @@ in
       default = true;
       description = ''
         Whether Hyprland runs an XWayland server
-        (nix/modules/desktop/desktop.nix: programs.hyprland.xwayland.enable).
+        (nix/modules/desktop/hyprland.nix: programs.hyprland.xwayland.enable).
         Phase C tried removing XWayland outright on the premise that the
         whole GUI set is Wayland-native Flatpaks, but two apps on this
         machine need it: Haveno (nix/home/base/pkgs.nix) is a JavaFX/jpackage
@@ -229,5 +267,6 @@ in
       lockTimeout = mkDefault settings.idleLockTimeout;
     };
     paths.stateDir = mkDefault settings.dotsStateDir;
+    desktop.environment = mkDefault settings.desktop;
   };
 }

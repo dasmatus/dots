@@ -76,6 +76,9 @@ let
       codex = settings.aiCodex;
       ollama = settings.aiOllama;
     };
+    desktop = {
+      environment = settings.desktop;
+    };
     paths = {
       stateDir = settings.dotsStateDir;
       settingsFile = "settings.nix";

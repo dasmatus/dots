@@ -1,203 +1,79 @@
 # Codeberg CI — Forgejo Actions (GitHub-Actions-compatible syntax).
 #
-# Runner: the hosted codeberg-medium runner (4 vCPU / 8 GB). An earlier
-# self-hosted runner (medium@actions-tiny.aburayama.m.codeberg.org, chosen
-# for its /dev/kvm and no time cap) was retired in 4b7528c — the lanes all
-# target the hosted label now. Consequence: no persistent Nix store between
+# Runner: the hosted codeberg-medium runner (4 vCPU / 8 GB, and on these
+# runners filesystem writes count against RAM, with 2 GB of temp on top). An
+# earlier self-hosted runner (medium@actions-tiny.aburayama.m.codeberg.org,
+# chosen for its /dev/kvm and no time cap) was retired in 4b7528c — the lanes
+# all target the hosted label now. Consequence: no persistent Nix store between
 # runs; every job installs Nix fresh.
 #
-# Nix is installed by DeterminateSystems/nix-installer-action@v22 — the
-# idiomatic GitHub-Actions setup, which Forgejo Actions runs unchanged (it
-# fetches the action from github.com, same as actions/checkout). The action
-# installs Determinate Nix with flakes + nix-command on by default and
-# auto-enables KVM when /dev/kvm is present (exports DETERMINATE_NIX_KVM=1).
-# The action's `determinate: false` upstream-Nix option was retired
-# 2026-01-01, so Determinate Nix is what we get — same `nix` CLI, flakes on.
-# Caveat: pinning @v22 does NOT pin the Nix version underneath (the action
-# always pulls the newest Determinate Nix Installer), so DetNix behavior
-# changes can reach CI silently; see the GC-disable steps below for what
-# bitten us once.
+# The Nix bootstrap that used to be pasted into every Nix job lives in
+# .forgejo/actions/setup-nix now. It is a local composite action, so every job
+# that uses it MUST run actions/checkout first — Forgejo resolves `uses: ./…`
+# out of the checked-out tree. Read that file before touching cache or daemon
+# behaviour; it carries the reasoning for both.
 #
-# Lanes (mirror the retired .gitlab-ci.yml):
-#   lint (every push + PR)  flake eval + cheap checks; cargo fmt/clippy/test.
-#   vm   (weekly + manual)  the two LiveISO boot oracles (tests/default.nix).
+# Lanes:
+#   lint    (every push + PR)  flake eval + cheap checks; cargo fmt/clippy/test.
+#   vm      (weekly + manual)  the two LiveISO boot oracles (tests/default.nix).
+#   release (v* tags)          build the ISO, publish it, cut a release.
 #
-# Cold-cache escape hatch: the 1.5 GB ISO closure in vm-boot builds in-job.
-# The hosted runner's store does NOT survive between runs, so every weekly
-# boot oracle used to pay the full build every time. Wired up now: the pull
-# side is the `matusdasdots` Cachix cache, added to both Nix jobs' nix.conf
-# (nix-eval, vm-boot; the rust job never runs nix-installer-action so never
-# sees this config) via nix-installer-action's `extra-conf` (see the `with:`
-# block below) — no secret involved, since the cache is public, so PR builds
-# substitute from it too. The push side is cachix/cachix-action (pinned to
-# v16), gated to non-PR events. That gate is not about forks: Forgejo never
-# passes secrets to a fork's PR run at all, so there is nothing there for a
-# fork to exfiltrate. What it guards is a same-repo PR branch, where
-# CACHIX_KEY genuinely is available — see the push step's own `if:` for the
-# same point made again at the point it matters. Each push uploads whatever
-# that job built, after its own `Stop determinate-nixd` step.
+# Releases do NOT attach the ISO to Codeberg. Codeberg asks that a repository
+# stay under "1.5 GiB of packages, LFS and attachments", and one ISO is that
+# whole allowance — so the image goes to buzzheavier and the release body
+# carries the link. Only the ~100-byte .sha256 is attached here, which costs
+# nothing and keeps `sha256sum -c` working even after the download link lapses.
+#
+# That link DOES lapse: buzzheavier's free tier keeps a file for 8 days, plus
+# 2 days per download, and only makes it permanent after 30 downloads in 60
+# days. .forgejo/workflows/refresh.yml re-uploads the newest release's ISO
+# twice a week to keep its link alive. If you delete that workflow, every
+# published download link dies within about a week.
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   schedule:
     # ~03:57 UTC Mondays (off the :00 mark; see Justfile ethos)
     - cron: "57 3 * * 1"
   workflow_dispatch:
 
+env:
+  # Not secret: a directory id is meaningless without the account token, and
+  # the region id is public (GET /api/locations).
+  BUZZ_PARENT_ID: ${{ vars.BUZZ_PARENT_ID }}
+  BUZZ_LOCATION_ID: ${{ vars.BUZZ_LOCATION_ID }}
+
 jobs:
   nix-eval:
     name: "nix: flake check + cheap checks"
     runs-on: codeberg-medium
+    if: "!startsWith(github.ref, 'refs/tags/')"
     steps:
       - uses: actions/checkout@v4
-      # Determinate Nix's determinate-nixd runs automatic background GC by
-      # default (targets 30 GB / 5-20% free disk, "urgent" mode below 5%), and
-      # its deletion loop never re-checks GC temp roots added while a
-      # collection is in flight (DeterminateSystems/nix-src#395; the upstream
-      # fix NixOS/nix#15992 merged 2026-06-07 but is not ported to any
-      # Determinate Nix release). `flake check` still *builds* this flake's
-      # IFD drvs mid-eval (fetchgit aipage source) — a racing GC pass deletes
-      # those freshly instantiated .drv files and the check dies with "error:
-      # path '…-aipage-944064e.drv' is not valid", cascading to every
-      # dependent check. On the hosted runner's small disk that race fires on
-      # ~every run.
-      #
-      # A post-install "stop the daemon" step (tried 2026-08-24, three runs)
-      # still lost the race every time: determinate-nixd's very first boot,
-      # during nix-installer-action below, can kick off its initial GC pass
-      # before any later step gets a chance to intervene. Writing this config
-      # *before* Nix is even installed means the daemon never starts with GC
-      # enabled in the first place — no window for an initial pass to exist.
-      - name: Pre-seed determinate-nixd config with GC disabled
-        run: |
-          sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
-          echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
-          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
-            || cp /tmp/determinate-config.json /etc/determinate/config.json
-      # extra-conf here lands in the daemon's nix.conf at install time, as
-      # root, which is the only trust level the daemon honours unconditionally
-      # for substituter/trusted-public-keys settings. A client-side nix.conf
-      # or --option passed from a later, untrusted-user step gets silently
-      # downgraded instead: nix-daemon logs "warning: ignoring untrusted
-      # substituter ..." and quietly rebuilds from source, no error, so a
-      # cache typo or a too-late placement fails open rather than loud. Doing
-      # it here also survives the SIGKILL of determinate-nixd two steps below,
-      # because that daemon only (re)writes nix.conf from its own init, which
-      # has already completed by the time this step returns. Cache is
-      # `matusdasdots` on Cachix; public, so no auth token needed to pull.
-      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      - uses: ./.forgejo/actions/setup-nix
         with:
-          extra-conf: |
-            extra-substituters = https://matusdasdots.cachix.org
-            extra-trusted-public-keys = matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258=
-      # Second line of defense in case the pre-seeded config above doesn't
-      # stick — confirmed 2026-08-24 that config.json correctly reads
-      # {"garbageCollector":{"strategy":"disabled"}} both right after
-      # install and after a manual re-apply, so a wrong/reset config was
-      # never the problem. The systemd-based stop+mask from three earlier
-      # attempts was chasing a daemon that was never systemd-managed at
-      # all: `systemctl stop` on codeberg-medium fails outright with
-      # "System has not been booted with systemd as init system (PID 1).
-      # Can't operate." — determinate-nixd runs as a bare background
-      # process. A plain `pkill` (SIGTERM, the default) also didn't stick:
-      # the same PID was still alive 2s later, which points at it ignoring
-      # or deferring SIGTERM — plausible if it was already mid-GC-sweep at
-      # that point, the same sweep this whole step exists to prevent. Kill
-      # it with SIGKILL, which cannot be deferred or ignored, and loop
-      # until `pgrep` actually confirms it's gone rather than trusting a
-      # single attempt plus a fixed sleep. The pattern matches
-      # `determinate-nixd daemon` specifically, not the bare substring
-      # "determinate-nixd": nix-daemon's own cmdline embeds that string via
-      # its `--option json-log-path .../determinate-nixd-logger.socket`
-      # argument.
-      - name: Stop determinate-nixd (nix-src#395 race)
-        run: |
-          df -h /nix
-          echo "--- config.json after install ---"
-          cat /etc/determinate/config.json 2>&1 || echo "(missing)"
-          echo "--- re-applying GC-disabled config in case the installer reset it ---"
-          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
-            || cp /tmp/determinate-config.json /etc/determinate/config.json
-          cat /etc/determinate/config.json
-          echo "--- SIGKILL retry loop, verified ---"
-          for attempt in 1 2 3 4 5; do
-            if ! pgrep -f 'determinate-nixd daemon' >/dev/null; then
-              echo "determinate-nixd confirmed down after $((attempt - 1)) SIGKILL attempts"
-              break
-            fi
-            pgrep -a -f 'determinate-nixd daemon'
-            sudo pkill -9 -f 'determinate-nixd daemon' 2>&1 || true
-            sleep 2
-          done
-          pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
-      # cachix-action detects a missing token itself (src/main.ts:87:
-      # `hasPushTokens = signingKey !== "" || authToken !== ""`) and falls
-      # back to `pushMode = None` when both are empty — but only reports that
-      # through `core.info`, never `core.warning` or a failure. A renamed,
-      # deleted or rotated CACHIX_KEY secret would therefore produce a
-      # permanently green job and a permanently empty cache, with no signal
-      # anywhere: the exact failure mode this whole branch exists to avoid.
-      # Fail loud here, before the push step below ever runs, instead of
-      # trusting cachix-action's silent no-op. `if:` mirrors the push step's
-      # own guard: PR runs never carry the secret in the first place (see the
-      # header), so there is nothing to assert there.
-      - name: Assert the Cachix token is present
-        if: github.event_name != 'pull_request'
-        env:
-          TOKEN: ${{ secrets.CACHIX_KEY }}
-        run: |
-          test -n "$TOKEN" || {
-            echo "::error::CACHIX_KEY is unset — the push step would silently no-op"
-            exit 1
-          }
-      # Push side of the `matusdasdots` Cachix cache. Pull is already covered
-      # by the installer's extra-conf above and needs no secret, since the
-      # cache is public — this step only uploads, hence
-      # `skipAddingSubstituter: true`, which skips the action's own `cachix
-      # use` call. Without that flag cachix-action would rewrite nix.conf a
-      # second time on top of the install-time config, for no benefit and one
-      # more thing that could disagree with it. `if:` restricts pushing to
-      # non-PR events so a pull_request run (which may come from a fork) never
-      # sees the write token. Placement matters and is deliberate: `useDaemon`
-      # (default true) makes the action register a post-build hook by
-      # exporting NIX_USER_CONF_FILES for the *rest of this job* — it cannot
-      # retroactively catch anything built in an earlier step, so it must run
-      # after "Stop determinate-nixd" (nothing has built yet) and before the
-      # job's first `nix build`, below. Pinned at v16 (`runs.using: node20`),
-      # not v17 (`node24`): actions/checkout@v4 above is node20 and
-      # demonstrably works on codeberg-medium, and nothing here has confirmed
-      # node24 does too. v16 still exposes every input this step uses.
-      - name: Cachix (push only)
-        if: github.event_name != 'pull_request'
-        uses: https://github.com/cachix/cachix-action@v16
-        with:
-          name: matusdasdots
-          authToken: ${{ secrets.CACHIX_KEY }}
-          skipAddingSubstituter: true
-      # cachix-action silently falls back to store-scan mode — re-uploading
-      # every nixpkgs path this job substituted, not just what it actually
-      # built — when the runner user isn't a trusted Nix user, and only
-      # surfaces that as a warning buried in the step log, not a failure.
-      # nix-installer-action's `trust-runner-user` defaults to true so this
-      # should never trigger, but "should" isn't "confirmed": print the
-      # resolved config so a regression shows up in plain sight instead of as
-      # a quietly bloated upload.
-      - name: Show the resolved cache config
-        run: |
-          (nix config show 2>/dev/null || nix show-config) \
-            | grep -E '^(trusted-users|substituters|extra-substituters|trusted-public-keys)' \
-            || echo "::warning::could not read the resolved nix config"
+          # PR runs never carry the secret in the first place — Forgejo does
+          # not pass secrets to a fork's PR run at all — so there is nothing
+          # there for the push side to do, and nothing to assert.
+          push: ${{ github.event_name != 'pull_request' }}
+          cachix-token: ${{ secrets.CACHIX_KEY }}
       # Diagnostic only, not a fix: confirmed 2026-08-24 that killing
-      # determinate-nixd (previous step, verified dead before flake check
-      # even starts) does NOT stop the "aipage-944064e.drv is not valid"
-      # failure — same error, every run, dead daemon or not. That rules out
-      # the GC race entirely; every earlier step in this job chased the
-      # wrong cause. `nix flake check`'s cascading failure output swallows
-      # the real underlying error for whatever breaks first, so build the
-      # one IFD-requiring package flake check needs mid-eval in isolation
-      # here, with full logs, before flake check's own noisier failure.
+      # determinate-nixd (see setup-nix, verified dead before flake check even
+      # starts) does NOT stop the "aipage-944064e.drv is not valid" failure —
+      # same error, every run, dead daemon or not. That rules out the GC race
+      # entirely. `nix flake check`'s cascading failure output swallows the real
+      # underlying error for whatever breaks first, so build the one
+      # IFD-requiring package flake check needs mid-eval in isolation here, with
+      # full logs, before flake check's own noisier failure.
+      #
+      # This also gates the release lane: nix/packages/aipage.nix:242 reads a
+      # manifest out of a fetchgit derivation, and flake/lib.nix puts the aipage
+      # dists in isoImage.storeContents for BOTH ISOs, so evaluating .#iso goes
+      # through the same import-from-derivation. If this is red, releases are
+      # red for the same reason.
       - name: Diagnose the aipage fetch in isolation (not a fix)
         run: |
           echo "--- can this runner reach codeberg.org at all? ---"
@@ -206,8 +82,8 @@ jobs:
           nix build -L --no-link .#aipage-firefox || echo "[isolated aipage build failed, see above — this is the real error]"
       # Evaluates every output incl. both VM test derivations; builds nothing.
       - run: nix flake check --no-build -L
-      # The cheap non-VM checks are worth actually building. Build ALL the
-      # eval checks declared in flake/checks.nix so a silent regression in
+      # The cheap non-VM checks are worth actually building. Build ALL the eval
+      # checks declared in flake/checks.nix so a silent regression in
       # fido-2fa / aipage / formfactor doesn't slip past CI (nix flake check
       # --no-build above only evaluates them, it doesn't build the asserts).
       - run: |
@@ -222,10 +98,12 @@ jobs:
   rust:
     name: "rust: fmt + clippy + test"
     runs-on: codeberg-medium
+    if: "!startsWith(github.ref, 'refs/tags/')"
     steps:
       - uses: actions/checkout@v4
       # Pinned toolchain on the runner host (replaces the rust:1.97 container;
-      # no Docker needed on the self-hosted runner).
+      # no Docker needed). This lane never touches Nix, so it does not use
+      # setup-nix and never sees the Cachix config.
       - uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.97"
@@ -253,89 +131,13 @@ jobs:
         check: [iso-boot, limine-install-boot, session-boot]
     steps:
       - uses: actions/checkout@v4
-      # Same determinate-nixd background-GC race as in the nix-eval lane
-      # (DeterminateSystems/nix-src#395) — this job realises the same IFD
-      # drvs plus a far larger closure, so its exposure window is worse.
-      # See the nix-eval job for the full rationale, incl. why this is
-      # pre-seeded *before* nix-installer-action rather than stopped after.
-      - name: Pre-seed determinate-nixd config with GC disabled
-        run: |
-          sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
-          echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
-          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
-            || cp /tmp/determinate-config.json /etc/determinate/config.json
-      # Same `matusdasdots` Cachix substituter as nix-eval, wired the same
-      # way and for the same reason: install-time extra-conf is the only
-      # placement the daemon trusts unconditionally, so a client-side config
-      # written by a later step would get silently downgraded to a warning
-      # and a source rebuild instead. See the nix-eval job for the full
-      # writeup.
-      - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      # This job realises the same IFD drvs as nix-eval plus a far larger
+      # closure, so its exposure to everything setup-nix guards against is
+      # worse, not better.
+      - uses: ./.forgejo/actions/setup-nix
         with:
-          extra-conf: |
-            extra-substituters = https://matusdasdots.cachix.org
-            extra-trusted-public-keys = matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258=
-      # See the nix-eval job for the full rationale: no systemd, and a
-      # single SIGTERM pkill didn't stick either — SIGKILL in a loop, verified.
-      - name: Stop determinate-nixd (nix-src#395 race)
-        run: |
-          df -h /nix
-          echo "--- config.json after install ---"
-          cat /etc/determinate/config.json 2>&1 || echo "(missing)"
-          echo "--- re-applying GC-disabled config in case the installer reset it ---"
-          sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
-            || cp /tmp/determinate-config.json /etc/determinate/config.json
-          cat /etc/determinate/config.json
-          echo "--- SIGKILL retry loop, verified ---"
-          for attempt in 1 2 3 4 5; do
-            if ! pgrep -f 'determinate-nixd daemon' >/dev/null; then
-              echo "determinate-nixd confirmed down after $((attempt - 1)) SIGKILL attempts"
-              break
-            fi
-            pgrep -a -f 'determinate-nixd daemon'
-            sudo pkill -9 -f 'determinate-nixd daemon' 2>&1 || true
-            sleep 2
-          done
-          pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
-      # Same silent-no-op hazard as the nix-eval job: cachix-action only
-      # reports a missing token through `core.info` (src/main.ts:87), never a
-      # warning or failure, so a renamed/deleted/rotated CACHIX_KEY would
-      # otherwise leave this schedule/dispatch-only job green forever with
-      # nothing ever pushed. See nix-eval for the full writeup.
-      - name: Assert the Cachix token is present
-        if: github.event_name != 'pull_request'
-        env:
-          TOKEN: ${{ secrets.CACHIX_KEY }}
-        run: |
-          test -n "$TOKEN" || {
-            echo "::error::CACHIX_KEY is unset — the push step would silently no-op"
-            exit 1
-          }
-      # Push side of the `matusdasdots` Cachix cache — same step, same
-      # reasoning, as the nix-eval job: pull needs no secret and is already
-      # wired via extra-conf, `skipAddingSubstituter: true` stops this action
-      # from re-touching nix.conf, and it has to sit here (after determinate-
-      # nixd is stopped, before this job's own `nix build` below) because
-      # `useDaemon` only wires the upload hook into steps that run after it.
-      # The step-level `if` is redundant here — the job-level `if` above
-      # already limits this job to schedule/workflow_dispatch, never PRs —
-      # but it's kept anyway so the two Cachix steps read identically.
-      - name: Cachix (push only)
-        if: github.event_name != 'pull_request'
-        uses: https://github.com/cachix/cachix-action@v16
-        with:
-          name: matusdasdots
-          authToken: ${{ secrets.CACHIX_KEY }}
-          skipAddingSubstituter: true
-      # See the nix-eval job for why this print exists: cachix-action's
-      # store-scan fallback (untrusted runner user) only warns, it doesn't
-      # fail, so confirm here rather than assume nix-installer-action's
-      # `trust-runner-user: true` default held.
-      - name: Show the resolved cache config
-        run: |
-          (nix config show 2>/dev/null || nix show-config) \
-            | grep -E '^(trusted-users|substituters|extra-substituters|trusted-public-keys)' \
-            || echo "::warning::could not read the resolved nix config"
+          push: ${{ github.event_name != 'pull_request' }}
+          cachix-token: ${{ secrets.CACHIX_KEY }}
       # --option system-features is still needed: even with /dev/kvm present,
       # Nix won't schedule nixos-test derivations unless kvm/nixos-test are
       # declared on the (per-invocation) system-features.
@@ -354,3 +156,134 @@ jobs:
         with:
           name: test-logs-${{ matrix.check }}
           path: test-logs/
+
+  release:
+    name: "release: build and publish the ISO"
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: codeberg-medium
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      # push: true — the refresh workflow substitutes this ISO from the cache
+      # instead of rebuilding it, which only works if the tag build put it
+      # there. Do not set this to false to "save a push"; it breaks refresh.
+      - uses: ./.forgejo/actions/setup-nix
+        with:
+          push: "true"
+          cachix-token: ${{ secrets.CACHIX_KEY }}
+      # The composite actions below speak the buzzheavier and Forgejo APIs with
+      # curl and jq. The hosted runner is not guaranteed to ship jq, and this
+      # lane has Nix by now, so make sure rather than hope.
+      - name: Ensure curl and jq
+        run: |
+          command -v jq   >/dev/null || nix profile install nixpkgs#jq
+          command -v curl >/dev/null || nix profile install nixpkgs#curl
+          jq --version; curl --version | head -1
+      - name: Assert the buzzheavier credentials are present
+        env:
+          TOKEN: ${{ secrets.BUZZHEAVIER_TOKEN }}
+        run: |
+          test -n "$TOKEN" || {
+            echo "::error::BUZZHEAVIER_TOKEN is unset — the ISO would have nowhere to go"
+            exit 1
+          }
+          test -n "$BUZZ_PARENT_ID" || {
+            echo "::error::BUZZ_PARENT_ID is unset — set it under Settings -> Actions -> Variables"
+            exit 1
+          }
+      # UNMEASURED. nix/system/iso.nix:39 sets squashfsCompression to
+      # "xz -Xdict-size 100%", which is deliberately slow, and no timing for
+      # this build has ever been recorded. losos builds its ISO in 3.5 min but
+      # uses zstd, so that figure does NOT transfer. Record the real duration
+      # here once a tag has run, and if it does not fit the runner's budget,
+      # switch this to `--max-jobs 0` (substitute-only, fails instead of
+      # building) and `cachix push` locally before tagging.
+      - name: Build the LiveISO
+        run: nix build -L .#packages.x86_64-linux.iso -o result-iso
+      # cp -L dereferences: result-iso is a symlink into /nix/store. The name
+      # has to come from the tag, because nix/system/iso.nix:38 mkForce's
+      # image.baseName to a constant — .#iso and .#iso-full emit the identical
+      # filename, with no version in it.
+      - name: Stage the image
+        id: stage
+        run: |
+          set -euo pipefail
+          name="tokyonight-dots-installer-${GITHUB_REF_NAME}.iso"
+          cp -L result-iso/iso/*.iso "./${name}"
+          sha256sum "$name" | tee "${name}.sha256"
+          {
+            echo "name=${name}"
+            echo "storePath=$(readlink -f result-iso)"
+          } >> "$GITHUB_OUTPUT"
+      - id: publish
+        uses: ./.forgejo/actions/publish-buzz
+        with:
+          file: ${{ steps.stage.outputs.name }}
+          filename: ${{ steps.stage.outputs.name }}
+          parent-id: ${{ env.BUZZ_PARENT_ID }}
+          location-id: ${{ env.BUZZ_LOCATION_ID }}
+          token: ${{ secrets.BUZZHEAVIER_TOKEN }}
+      - name: Compose the release body
+        id: body
+        env:
+          ISO_NAME: ${{ steps.stage.outputs.name }}
+          ISO_URL: ${{ steps.publish.outputs.url }}
+          ISO_SUM: ${{ steps.publish.outputs.sha256 }}
+          ISO_SIZE: ${{ steps.publish.outputs.size }}
+          STORE_PATH: ${{ steps.stage.outputs.storePath }}
+        run: |
+          set -euo pipefail
+          human=$(awk -v b="$ISO_SIZE" 'BEGIN { printf "%.2f GiB", b/1073741824 }')
+          # refresh.yml reads this back to re-upload the same bytes without
+          # evaluating the flake. Keep the field names stable: changing one
+          # silently breaks the refresh for every release already published.
+          jq -n --arg iso "$ISO_NAME" --arg sum "$ISO_SUM" \
+                --argjson size "$ISO_SIZE" --arg path "$STORE_PATH" \
+            '{iso:$iso, sha256:$sum, size:$size, storePath:$path}' > release.json
+          cat release.json
+          {
+            echo "body<<RELEASE_BODY_EOF"
+            cat <<BODY
+          ### Download
+
+          **[${ISO_NAME}](${ISO_URL})** — ${human}
+
+          \`\`\`
+          sha256  ${ISO_SUM}
+          \`\`\`
+
+          Verify against the \`.sha256\` attached below:
+
+          \`\`\`sh
+          sha256sum -c ${ISO_NAME}.sha256
+          \`\`\`
+
+          Write it to a USB stick and boot the target machine; the installer
+          starts on tty1. The image is plain and unsigned, so it boots via
+          firmware defaults with no Secure Boot enrolment.
+
+          ---
+
+          The download is hosted off-forge, because one ISO is Codeberg's entire
+          recommended allowance for packages, LFS and attachments. That link is
+          refreshed automatically and may still lapse — if it has, \`nix run .#iso\`
+          builds the same image from this tag.
+          BODY
+            echo "RELEASE_BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: ./.forgejo/actions/forgejo-release
+        with:
+          tag: ${{ github.ref_name }}
+          body: ${{ steps.body.outputs.body }}
+          assets: |
+            ${{ steps.stage.outputs.name }}.sha256
+            release.json
+          token: ${{ secrets.FORGEJO_TOKEN }}
+          token-alt: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.forgejo/actions/prune-buzz
+        with:
+          parent-id: ${{ env.BUZZ_PARENT_ID }}
+          prefix: tokyonight-dots-installer-
+          keep: "5"
+          keep-id: ${{ steps.publish.outputs.id }}
+          token: ${{ secrets.BUZZHEAVIER_TOKEN }}

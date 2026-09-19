@@ -48,7 +48,10 @@ let
     ../nix/modules/system/apparmor.nix
     ../nix/modules/system/apparmor-store.nix
     ../nix/modules/services/maintenance.nix
-    ../nix/modules/desktop/desktop.nix
+    ../nix/modules/desktop/common.nix
+    ../nix/modules/desktop/gnome.nix
+    ../nix/modules/desktop/hyprland.nix
+    ../nix/modules/desktop/sway.nix
     ../nix/modules/system/form-factor.nix
     ../nix/modules/desktop/steam.nix
     ../nix/system/hosts.nix

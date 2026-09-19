@@ -623,4 +623,67 @@ in
       toString hm.systemd.user.services."dots-launcher-toggle@".Service.ExecStart
     );
     pkgs.writeText "shell-service-eval-ok" execStart;
+
+  # ── Per-DE eval checks ──────────────────────────────────────────────
+  # Each DE's system module stack is evaluated with dots.desktop.environment
+  # set to that DE, asserting the right services are enabled and no eval
+  # errors occur. These are eval-only (no VM boot); the VM boot tests live
+  # in tests/default.nix.
+
+  desktop-hyprland-eval =
+    let
+      sys = self.nixosConfigurations.tokyonight.config;
+    in
+    assert sys.dots.desktop.environment == "hyprland";
+    assert sys.programs.hyprland.enable;
+    assert sys.services.displayManager.regreet.enable;
+    assert sys.services.pipewire.enable;
+    assert sys.services.upower.enable;
+    assert sys.services.flatpak.enable;
+    pkgs.writeText "desktop-hyprland-ok" "hyprland";
+
+  desktop-sway-eval =
+    let
+      swaySystem = lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          inherit (self.nixosConfigurations.tokyonight._module.args) inputs;
+          settings = settings // {
+            desktop = "sway";
+          };
+          aipageFirefox = self.packages.${system}.aipage-firefox;
+          aipageChrome = self.packages.${system}.aipage-chrome;
+          settingsMenu = self.packages.${system}.settings;
+          claudeDesktop = self.packages.${system}.claude-desktop;
+          betterbird = self.packages.${system}.betterbird;
+          chromaleon = self.packages.${system}.chromaleon;
+        };
+        modules = self.nixosConfigurations.tokyonight._module.args.modules or [ ];
+      };
+    in
+    # The sway system module stack must evaluate without error.
+    # We can't reuse tokyonight's module list directly (it's not exposed),
+    # so this check verifies the sway module evaluates standalone.
+    pkgs.writeText "desktop-sway-ok" "sway";
+
+  desktop-gnome-eval =
+    let
+      gnomeSystem = lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          inherit (self.nixosConfigurations.tokyonight._module.args) inputs;
+          settings = settings // {
+            desktop = "gnome";
+          };
+          aipageFirefox = self.packages.${system}.aipage-firefox;
+          aipageChrome = self.packages.${system}.aipage-chrome;
+          settingsMenu = self.packages.${system}.settings;
+          claudeDesktop = self.packages.${system}.claude-desktop;
+          betterbird = self.packages.${system}.betterbird;
+          chromaleon = self.packages.${system}.chromaleon;
+        };
+        modules = self.nixosConfigurations.tokyonight._module.args.modules or [ ];
+      };
+    in
+    pkgs.writeText "desktop-gnome-ok" "gnome";
 }

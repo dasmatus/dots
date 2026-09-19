@@ -129,7 +129,7 @@
     # `operation = "boot"` absorbs the compile before the next reboot.
     millennium.url = "github:SteamClientHomebrew/Millennium?dir=packages/nix";
     # Hyprland is NOT a flake input: the system compositor comes from nixpkgs
-    # (programs.hyprland in nix/modules/desktop/desktop.nix uses the module's default
+    # (programs.hyprland in nix/modules/desktop/hyprland.nix uses the module's default
     # `package = pkgs.hyprland`). nixpkgs' Hyprland is built by Hydra and lives
     # on cache.nixos.org (indefinite retention), so the prebuilt is always
     # substituted. A pinned Hyprland flake input was tried instead (for
@@ -139,7 +139,7 @@
     # after release; v0.55.0's prebuilt was gone), and `inputs.nixpkgs.follows`
     # on that input additionally defeated the cache by changing input hashes.
     # Net: the flake-input route built the compositor from source on every
-    # rebuild. See nix/modules/desktop/desktop.nix for the full rationale.
+    # rebuild. See nix/modules/desktop/hyprland.nix for the full rationale.
     # AIPage (codeberg.org/dasmatus/aipage) is NOT a flake input: its built
     # dist-* dirs are gitignored in the sibling repo and its flake only
     # exposes an impure `apps.build`, so no flake input can reach a built

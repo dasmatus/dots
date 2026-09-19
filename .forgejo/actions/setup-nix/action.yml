@@ -1,0 +1,168 @@
+# Installs Nix on a hosted Codeberg runner and wires the Cachix cache.
+#
+# This is the preamble that used to be copy-pasted into every Nix job in
+# ci.yml. The comments below are not decoration: each one records something
+# that was tried, failed, and cost a run to diagnose. Read them before
+# reordering anything here.
+#
+# The caller MUST run actions/checkout before using this action — Forgejo
+# resolves `uses: ./…` out of the checked-out tree, so without a checkout there
+# is no action to run.
+name: "Set up Nix"
+description: "Install Determinate Nix with GC disabled, and wire the Cachix cache."
+
+inputs:
+  cachix-name:
+    description: "Cachix cache to substitute from, and push to when push is true."
+    required: false
+    default: "matusdasdots"
+  cachix-public-key:
+    description: "Trusted public key for that cache."
+    required: false
+    default: "matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258="
+  cachix-token:
+    description: "CACHIX_KEY. Required when push is true, unused otherwise."
+    required: false
+    default: ""
+  push:
+    description: "Whether to push what this job builds back to the cache."
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # Determinate Nix's determinate-nixd runs automatic background GC by
+    # default (targets 30 GB / 5-20% free disk, "urgent" mode below 5%), and
+    # its deletion loop never re-checks GC temp roots added while a collection
+    # is in flight (DeterminateSystems/nix-src#395; the upstream fix
+    # NixOS/nix#15992 merged 2026-06-07 but is not ported to any Determinate
+    # Nix release). A racing GC pass deletes freshly instantiated .drv files
+    # mid-eval. On the hosted runner's small disk that race fires on ~every run.
+    #
+    # A post-install "stop the daemon" step (tried 2026-08-24, three runs)
+    # still lost the race every time: determinate-nixd's very first boot,
+    # during nix-installer-action below, can kick off its initial GC pass
+    # before any later step gets a chance to intervene. Writing this config
+    # *before* Nix is even installed means the daemon never starts with GC
+    # enabled in the first place — no window for an initial pass to exist.
+    - name: Pre-seed determinate-nixd config with GC disabled
+      shell: bash
+      run: |
+        sudo mkdir -p /etc/determinate 2>/dev/null || mkdir -p /etc/determinate
+        echo '{"garbageCollector":{"strategy":"disabled"}}' > /tmp/determinate-config.json
+        sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
+          || cp /tmp/determinate-config.json /etc/determinate/config.json
+
+    # extra-conf here lands in the daemon's nix.conf at install time, as root,
+    # which is the only trust level the daemon honours unconditionally for
+    # substituter/trusted-public-keys settings. A client-side nix.conf or
+    # --option passed from a later, untrusted-user step gets silently
+    # downgraded instead: nix-daemon logs "warning: ignoring untrusted
+    # substituter ..." and quietly rebuilds from source, no error — so a cache
+    # typo or a too-late placement fails open rather than loud. Doing it here
+    # also survives the SIGKILL two steps below, because that daemon only
+    # (re)writes nix.conf from its own init, which has already completed by the
+    # time this step returns. The cache is public, so pulling needs no token.
+    - uses: https://github.com/DeterminateSystems/nix-installer-action@v22
+      with:
+        extra-conf: |
+          extra-substituters = https://${{ inputs.cachix-name }}.cachix.org
+          extra-trusted-public-keys = ${{ inputs.cachix-public-key }}
+
+    # Second line of defense in case the pre-seeded config above doesn't stick
+    # — confirmed 2026-08-24 that config.json correctly reads
+    # {"garbageCollector":{"strategy":"disabled"}} both right after install and
+    # after a manual re-apply, so a wrong/reset config was never the problem.
+    # The systemd-based stop+mask from three earlier attempts was chasing a
+    # daemon that was never systemd-managed at all: `systemctl stop` on
+    # codeberg-medium fails outright with "System has not been booted with
+    # systemd as init system (PID 1). Can't operate." — determinate-nixd runs
+    # as a bare background process. A plain `pkill` (SIGTERM, the default) also
+    # didn't stick: the same PID was still alive 2s later, which points at it
+    # ignoring or deferring SIGTERM — plausible if it was already mid-GC-sweep.
+    # Kill it with SIGKILL, which cannot be deferred or ignored, and loop until
+    # `pgrep` actually confirms it's gone rather than trusting a single attempt
+    # plus a fixed sleep. The pattern matches `determinate-nixd daemon`
+    # specifically, not the bare substring "determinate-nixd": nix-daemon's own
+    # cmdline embeds that string via its `--option json-log-path
+    # .../determinate-nixd-logger.socket` argument.
+    - name: Stop determinate-nixd (nix-src#395 race)
+      shell: bash
+      run: |
+        df -h /nix
+        echo "--- config.json after install ---"
+        cat /etc/determinate/config.json 2>&1 || echo "(missing)"
+        echo "--- re-applying GC-disabled config in case the installer reset it ---"
+        sudo cp /tmp/determinate-config.json /etc/determinate/config.json 2>/dev/null \
+          || cp /tmp/determinate-config.json /etc/determinate/config.json
+        cat /etc/determinate/config.json
+        echo "--- SIGKILL retry loop, verified ---"
+        for attempt in 1 2 3 4 5; do
+          if ! pgrep -f 'determinate-nixd daemon' >/dev/null; then
+            echo "determinate-nixd confirmed down after $((attempt - 1)) SIGKILL attempts"
+            break
+          fi
+          pgrep -a -f 'determinate-nixd daemon'
+          sudo pkill -9 -f 'determinate-nixd daemon' 2>&1 || true
+          sleep 2
+        done
+        pgrep -a -f 'determinate-nixd daemon' && echo "::warning::determinate-nixd survived 5 SIGKILL attempts — likely a different pid namespace" || echo "determinate-nixd is confirmed down"
+
+    # cachix-action detects a missing token itself (src/main.ts:87:
+    # `hasPushTokens = signingKey !== "" || authToken !== ""`) and falls back to
+    # `pushMode = None` when both are empty — but only reports that through
+    # `core.info`, never `core.warning` or a failure. A renamed, deleted or
+    # rotated CACHIX_KEY would therefore produce a permanently green job and a
+    # permanently empty cache, with no signal anywhere: the exact failure mode
+    # this branch exists to avoid. Fail loud here, before the push step below
+    # ever runs, instead of trusting cachix-action's silent no-op.
+    - name: Assert the Cachix token is present
+      if: inputs.push == 'true'
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.cachix-token }}
+      run: |
+        test -n "$TOKEN" || {
+          echo "::error::CACHIX_KEY is unset — the push step would silently no-op"
+          exit 1
+        }
+
+    # Push side of the cache. Pull is already covered by the installer's
+    # extra-conf above and needs no secret, since the cache is public — this
+    # step only uploads, hence `skipAddingSubstituter: true`, which skips the
+    # action's own `cachix use` call. Without that flag cachix-action would
+    # rewrite nix.conf a second time on top of the install-time config, for no
+    # benefit and one more thing that could disagree with it.
+    #
+    # Placement matters and is deliberate: `useDaemon` (default true) makes the
+    # action register a post-build hook by exporting NIX_USER_CONF_FILES for
+    # the *rest of the job* — it cannot retroactively catch anything built in
+    # an earlier step. That is why this action must be called before the job's
+    # first `nix build`, and why nothing here builds anything.
+    #
+    # Pinned at v16 (`runs.using: node20`), not v17 (`node24`):
+    # actions/checkout@v4 is node20 and demonstrably works on codeberg-medium,
+    # and nothing here has confirmed node24 does too. v16 still exposes every
+    # input this step uses.
+    - name: Cachix (push only)
+      if: inputs.push == 'true'
+      uses: https://github.com/cachix/cachix-action@v16
+      with:
+        name: ${{ inputs.cachix-name }}
+        authToken: ${{ inputs.cachix-token }}
+        skipAddingSubstituter: true
+
+    # cachix-action silently falls back to store-scan mode — re-uploading every
+    # nixpkgs path this job substituted, not just what it actually built — when
+    # the runner user isn't a trusted Nix user, and only surfaces that as a
+    # warning buried in the step log, not a failure. nix-installer-action's
+    # `trust-runner-user` defaults to true so this should never trigger, but
+    # "should" isn't "confirmed": print the resolved config so a regression
+    # shows up in plain sight instead of as a quietly bloated upload.
+    - name: Show the resolved cache config
+      shell: bash
+      run: |
+        (nix config show 2>/dev/null || nix show-config) \
+          | grep -E '^(trusted-users|substituters|extra-substituters|trusted-public-keys)' \
+          || echo "::warning::could not read the resolved nix config"

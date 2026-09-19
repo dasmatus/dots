@@ -1,0 +1,159 @@
+# Creates or updates a Forgejo release through the API.
+#
+# Lifted from the block this repository pair already proved in anger (losos
+# ci.yml, tags v0.0.1-ci-test and v0.1.0) rather than reached for a third-party
+# action: a release is one POST plus, optionally, one multipart upload, and
+# both repositories deliberately depend on almost no marketplace actions.
+#
+# Every call checks its HTTP status explicitly. `curl -sS` alone exits 0 on a
+# 4xx, which is how the first version of that block reported success while
+# creating nothing at all: the POST 404'd, jq turned the error body into `null`
+# and the assets went to /releases/null/assets. A step that can silently no-op
+# is worse than one that fails.
+name: "Forgejo release"
+description: "Create a release for a tag, or replace an existing release's body."
+
+inputs:
+  tag:
+    description: "Tag the release belongs to."
+    required: true
+  name:
+    description: "Release title. Defaults to the tag."
+    required: false
+    default: ""
+  body:
+    description: "Release body, replacing whatever is there in patch mode."
+    required: true
+  assets:
+    description: "Newline-separated files to attach. Ignored in patch mode."
+    required: false
+    default: ""
+  mode:
+    description: "create (make it if missing, then attach) or patch (body only)."
+    required: false
+    default: "create"
+  token:
+    description: "Forgejo API token."
+    required: true
+  token-alt:
+    description: >
+      Fallback token, tried when `token` is empty. Exists because the two
+      spellings of the automatic token are not both present on every instance,
+      and because resolving the choice in shell avoids depending on the
+      expression engine supporting `||` — which the block this action was
+      lifted from deliberately did not rely on.
+    required: false
+    default: ""
+
+outputs:
+  id:
+    description: "Numeric release id."
+    value: ${{ steps.release.outputs.id }}
+  url:
+    description: "Web URL of the release."
+    value: ${{ steps.release.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - id: release
+      shell: bash
+      env:
+        IN_TAG: ${{ inputs.tag }}
+        IN_NAME: ${{ inputs.name }}
+        IN_BODY: ${{ inputs.body }}
+        IN_ASSETS: ${{ inputs.assets }}
+        IN_MODE: ${{ inputs.mode }}
+        IN_TOKEN: ${{ inputs.token }}
+        IN_TOKEN_ALT: ${{ inputs.token-alt }}
+      run: |
+        set -euo pipefail
+
+        TOKEN="${IN_TOKEN:-$IN_TOKEN_ALT}"
+        test -n "$TOKEN" || {
+          echo "::error::no API token — the release step would silently do nothing"
+          exit 1
+        }
+
+        API="${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}"
+        TAG="$IN_TAG"
+        NAME="$IN_NAME"
+        if [ -z "$NAME" ]; then NAME="$TAG"; fi
+        AUTH="authorization: token $TOKEN"
+
+        # api METHOD URL [curl args...] -> body on stdout, status in $CODE
+        api() {
+          local m="$1" u="$2"; shift 2
+          CODE=$(curl -sS -o /tmp/api.out -w '%{http_code}' -X "$m" -H "$AUTH" "$@" "$u")
+          cat /tmp/api.out
+        }
+
+        api GET "$API/releases/tags/$TAG" >/tmp/rel.json || true
+
+        if [ "$CODE" = "404" ]; then
+          if [ "$IN_MODE" = "patch" ]; then
+            echo "::error::no release exists for $TAG to patch"
+            exit 1
+          fi
+          # A 404 here is ambiguous: either this tag has no release yet, or the
+          # repository has Releases switched off entirely. Tell them apart,
+          # because the second is a setting no workflow can fix.
+          api GET "$API" >/tmp/repo.json || true
+          if [ "$(jq -r '.has_releases' /tmp/repo.json)" != "true" ]; then
+            echo "Releases are disabled on this repository (has_releases=false)." >&2
+            echo "Enable them under Settings -> Repository -> Advanced Settings," >&2
+            echo "then re-run this workflow or re-push the tag." >&2
+            exit 1
+          fi
+          jq -n --arg t "$TAG" --arg n "$NAME" --arg b "$IN_BODY" \
+            '{tag_name:$t, name:$n, body:$b}' >/tmp/body.json
+          api POST "$API/releases" -H 'content-type: application/json' \
+            --data-binary @/tmp/body.json >/tmp/rel.json
+          if [ "$CODE" != "201" ]; then
+            echo "::error::creating the release failed: HTTP $CODE" >&2
+            cat /tmp/rel.json >&2; exit 1
+          fi
+        elif [ "$CODE" != "200" ]; then
+          echo "::error::looking up the release failed: HTTP $CODE" >&2
+          cat /tmp/rel.json >&2; exit 1
+        fi
+
+        id=$(jq -r '.id // empty' /tmp/rel.json)
+        case "$id" in
+          ''|*[!0-9]*) echo "::error::no usable release id (got: '$id')" >&2; exit 1 ;;
+        esac
+        url=$(jq -r '.html_url // empty' /tmp/rel.json)
+        echo "release id: $id"
+
+        # An existing release found by GET keeps whatever body it had, so patch
+        # mode — and a re-run of create mode over an existing tag — has to write
+        # it explicitly. PATCH replaces the field outright; it does not append,
+        # which is what the refresh job depends on when it swaps a dead download
+        # link for a live one.
+        jq -n --arg b "$IN_BODY" '{body:$b}' >/tmp/patch.json
+        api PATCH "$API/releases/$id" -H 'content-type: application/json' \
+          --data-binary @/tmp/patch.json >/tmp/rel.json
+        if [ "$CODE" != "200" ]; then
+          echo "::error::updating the release body failed: HTTP $CODE" >&2
+          cat /tmp/rel.json >&2; exit 1
+        fi
+        echo "release body written"
+
+        if [ "$IN_MODE" != "patch" ] && [ -n "$IN_ASSETS" ]; then
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            test -f "$f" || { echo "::error::asset not found: $f"; exit 1; }
+            echo "attaching $f ($(stat -c%s "$f") bytes)"
+            api POST "$API/releases/$id/assets?name=$(basename "$f")" \
+              -F "attachment=@$f" >/dev/null
+            if [ "$CODE" != "201" ]; then
+              echo "::error::attaching $f failed: HTTP $CODE" >&2
+              cat /tmp/api.out >&2; exit 1
+            fi
+          done <<< "$IN_ASSETS"
+        fi
+
+        {
+          echo "id=${id}"
+          echo "url=${url}"
+        } >> "$GITHUB_OUTPUT"

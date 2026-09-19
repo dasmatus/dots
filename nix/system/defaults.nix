@@ -16,16 +16,12 @@
   timezone = "Europe/Bratislava";
   locale = "de_DE.UTF-8";
 
-  # Desktop environment, consumed by nix/modules/desktop/desktop.nix. The whole
-  # system-level desktop block is gated on this being "hyprland"; "none" (or
-  # any other value) skips it. NOTE: the Home Manager side (nix/home) is not
-  # conditional on this, settings IS passed to home-manager (users.nix
-  # extraSpecialArgs, and flake/home.nix for the standalone build), and
-  # nix/home/proton/proton.nix and nix/home/apps/bitwarden.nix consume it; the
-  # home hyprland config is unconditional, so a non-"hyprland" value here
-  # leaves it in place. What actually keeps Hyprland off a foreign host is the
-  # profile split (nix/home/profiles/session.nix), not this key. Wire HM gating
-  # separately if a second desktop is ever added.
+  # Desktop environment, consumed by nix/modules/desktop/{common,gnome,hyprland,sway}.nix.
+  # One of "gnome" | "hyprland" | "sway". The system-level desktop modules are
+  # gated on this value via config.dots.desktop.environment (bridged in
+  # nix/modules/dots.nix). The Home Manager side is gated too:
+  # nix/home/profiles/session.nix dispatches to the matching per-DE home module
+  # (nix/home/desktop/{gnome,hyprland,sway}.nix) based on the same value.
   desktop = "hyprland";
 
   # Boot knobs, consumed by nix/modules/system/boot.nix.

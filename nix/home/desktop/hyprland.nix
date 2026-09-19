@@ -1,3 +1,6 @@
+# Home-manager Hyprland compositor config. Imported by
+# nix/home/profiles/session.nix when dots.desktop.environment == "hyprland".
+# Shares GTK/Qt/dconf/cursor with the other DEs through ./common.nix.
 {
   config,
   pkgs,
@@ -141,6 +144,8 @@ let
   };
 in
 {
+  imports = [ ./common.nix ];
+
   # The `dots.session.exec` entries that are Hyprland-only (see that option's
   # description in nix/home/desktop/session/default.nix): `reload` shells out to
   # `hyprctl` directly, and the three screenshot actions run hyprshot, whose
