@@ -50,7 +50,7 @@ jobs:
   nix-eval:
     name: "nix: flake check + cheap checks"
     runs-on: codeberg-medium
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.forgejo/actions/setup-nix
@@ -98,7 +98,7 @@ jobs:
   rust:
     name: "rust: fmt + clippy + test"
     runs-on: codeberg-medium
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     steps:
       - uses: actions/checkout@v4
       # Pinned toolchain on the runner host (replaces the rust:1.97 container;
@@ -122,7 +122,7 @@ jobs:
 
   vm-boot:
     name: "vm: ${{ matrix.check }}"
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: codeberg-medium
     timeout-minutes: 180
     strategy:
@@ -242,10 +242,15 @@ jobs:
             '{iso:$iso, sha256:$sum, size:$size, storePath:$path}' > release.json
           cat release.json
           {
+            echo "### ISO links"
+            echo ""
+            echo "- buzzheavier: ${ISO_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
             echo "body<<RELEASE_BODY_EOF"
             cat <<BODY
           ### Download
-
+          
           **[${ISO_NAME}](${ISO_URL})** — ${human}
 
           \`\`\`
