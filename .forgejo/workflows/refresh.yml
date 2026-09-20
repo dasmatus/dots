@@ -97,7 +97,7 @@ jobs:
             echo "iso=$(jq -r .iso /tmp/release.json)"
             echo "sha256=$(jq -r .sha256 /tmp/release.json)"
             echo "storePath=$(jq -r .storePath /tmp/release.json)"
-            echo "genericUrl=$(jq -r '.genericUrl // empty' /tmp/release.json)"
+            echo "genericUrl=$(jq -r 'if (.genericUrl | type) == \"string\" then .genericUrl else \"\" end' /tmp/release.json)"
           } >> "$GITHUB_OUTPUT"
           echo "refreshing ${tag}"
       # --max-jobs 0 would be redundant here: `nix copy --from` substitutes or
@@ -142,9 +142,8 @@ jobs:
           human=$(awk -v b="$ISO_SIZE" 'BEGIN { printf "%.2f GiB", b/1073741824 }')
           generic_md=""
           if [ -n "$ISO_URL_GENERIC" ]; then
-            generic_md="
-
-          **[${ISO_NAME} (Forgejo generic registry)](${ISO_URL_GENERIC})**"
+            generic_md="$(printf '\n\n**[%s (legacy Forgejo generic mirror)](%s)**' \
+              "$ISO_NAME" "$ISO_URL_GENERIC")"
           fi
           {
             echo "body<<RELEASE_BODY_EOF"
