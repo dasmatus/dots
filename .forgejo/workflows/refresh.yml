@@ -137,24 +137,21 @@ jobs:
           ISO_URL_GENERIC: ${{ steps.rel.outputs.genericUrl }}
           ISO_SUM: ${{ steps.publish.outputs.sha256 }}
           ISO_SIZE: ${{ steps.publish.outputs.size }}
-          REF_TAG: ${{ steps.rel.outputs.tag }}
         run: |
           set -euo pipefail
           human=$(awk -v b="$ISO_SIZE" 'BEGIN { printf "%.2f GiB", b/1073741824 }')
-          if [ -z "$ISO_URL_GENERIC" ]; then
-            owner_enc=$(jq -rn --arg v "$GITHUB_REPOSITORY_OWNER" '$v|@uri')
-            version_enc=$(jq -rn --arg v "$REF_TAG" '$v|@uri')
-            file_enc=$(jq -rn --arg v "$ISO_NAME" '$v|@uri')
-            ISO_URL_GENERIC="${GITHUB_SERVER_URL}/api/packages/${owner_enc}/generic/tokyonight-dots-installer/${version_enc}/${file_enc}"
+          generic_md=""
+          if [ -n "$ISO_URL_GENERIC" ]; then
+            generic_md="
+
+          **[${ISO_NAME} (Forgejo generic registry)](${ISO_URL_GENERIC})**"
           fi
           {
             echo "body<<RELEASE_BODY_EOF"
             cat <<BODY
           ### Download
           
-          **[${ISO_NAME}](${ISO_URL})** — ${human}
-          
-          **[${ISO_NAME} (Forgejo generic registry)](${ISO_URL_GENERIC})**
+          **[${ISO_NAME}](${ISO_URL})** — ${human}${generic_md}
 
           \`\`\`
           sha256  ${ISO_SUM}

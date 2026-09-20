@@ -20,10 +20,9 @@
 #
 # Releases do NOT attach the ISO to Codeberg. Codeberg asks that a repository
 # stay under "1.5 GiB of packages, LFS and attachments", and one ISO is that
-# whole allowance — so the image goes to buzzheavier plus Forgejo's generic
-# package registry, and the release body carries both links. Only the ~100-byte
-# .sha256 is attached here, which costs nothing and keeps `sha256sum -c`
-# working even after off-forge download links lapse.
+# whole allowance — so the image goes to buzzheavier and the release body
+# carries the link. Only the ~100-byte .sha256 is attached here, which costs
+# nothing and keeps `sha256sum -c` working even after the download link lapses.
 #
 # That link DOES lapse: buzzheavier's free tier keeps a file for 8 days, plus
 # 2 days per download, and only makes it permanent after 30 downloads in 60
@@ -224,22 +223,11 @@ jobs:
           parent-id: ${{ env.BUZZ_PARENT_ID }}
           location-id: ${{ env.BUZZ_LOCATION_ID }}
           token: ${{ secrets.BUZZHEAVIER_TOKEN }}
-      - id: publish-generic
-        uses: ./.forgejo/actions/publish-generic
-        with:
-          file: ${{ steps.stage.outputs.name }}
-          owner: ${{ github.repository_owner }}
-          package: tokyonight-dots-installer
-          version: ${{ github.ref_name }}
-          filename: ${{ steps.stage.outputs.name }}
-          token: ${{ secrets.FORGEJO_TOKEN }}
-          token-alt: ${{ secrets.GITHUB_TOKEN }}
       - name: Compose the release body
         id: body
         env:
           ISO_NAME: ${{ steps.stage.outputs.name }}
           ISO_URL: ${{ steps.publish.outputs.url }}
-          ISO_URL_GENERIC: ${{ steps.publish-generic.outputs.url }}
           ISO_SUM: ${{ steps.publish.outputs.sha256 }}
           ISO_SIZE: ${{ steps.publish.outputs.size }}
           STORE_PATH: ${{ steps.stage.outputs.storePath }}
@@ -251,14 +239,12 @@ jobs:
           # silently breaks the refresh for every release already published.
           jq -n --arg iso "$ISO_NAME" --arg sum "$ISO_SUM" \
                 --argjson size "$ISO_SIZE" --arg path "$STORE_PATH" \
-                --arg generic "$ISO_URL_GENERIC" \
-            '{iso:$iso, sha256:$sum, size:$size, storePath:$path, genericUrl:$generic}' > release.json
+            '{iso:$iso, sha256:$sum, size:$size, storePath:$path}' > release.json
           cat release.json
           {
             echo "### ISO links"
             echo ""
             echo "- buzzheavier: ${ISO_URL}"
-            echo "- Forgejo generic registry: ${ISO_URL_GENERIC}"
           } >> "$GITHUB_STEP_SUMMARY"
           {
             echo "body<<RELEASE_BODY_EOF"
@@ -266,8 +252,6 @@ jobs:
           ### Download
           
           **[${ISO_NAME}](${ISO_URL})** — ${human}
-          
-          **[${ISO_NAME} (Forgejo generic registry)](${ISO_URL_GENERIC})**
 
           \`\`\`
           sha256  ${ISO_SUM}

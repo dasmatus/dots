@@ -73,10 +73,14 @@ runs:
 
         url="${GITHUB_SERVER_URL}/api/packages/${owner_enc}/generic/${package_enc}/${version_enc}/${name_enc}"
         resp="$(mktemp)"
-        trap 'rm -f "$resp"' EXIT
+        conf="$(mktemp)"
+        trap 'rm -f "$resp" "$conf"' EXIT
+
+        umask 077
+        printf 'header = "Authorization: token %s"\n' "$TOKEN" > "$conf"
 
         code=$(curl -sS -o "$resp" -w '%{http_code}' \
-          -X PUT -H "Authorization: token $TOKEN" \
+          -X PUT -K "$conf" \
           --upload-file "$IN_FILE" "$url")
 
         case "$code" in
