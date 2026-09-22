@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nix-eval:
+    name: nix-eval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: Set up Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v15
+
+      - name: Nix version
+        run: nix --version
+
+      # `palette-eval` reads Theme.qml out of a BUILT quickshell-config via
+      # import-from-derivation, which `nix flake check --no-build` refuses to
+      # realize on a cold store. Realizing the package first is what
+      # `nix run .#nix-lint` does (flake/apps.nix) for exactly this reason.
+      - name: Build quickshell-config
+        run: nix build .#quickshell-config --no-link
+
+      # The eval lane of `nix run .#nix-lint`: every checks.x86_64-linux.*
+      # entry is evaluated (assertions included), without building the VM
+      # tests — those live in the separate vm-boot lane below.
+      - name: Flake check (eval only)
+        run: nix flake check --no-build
+
+      # eval-only by itself (flake/checks.nix), but `--no-build` skips it, so
+      # building it here is the only place this gate actually runs its asserts.
+      - name: Build dots-skills-primer
+        run: nix build .#dots-skills-primer --no-link
+
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: Set up Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v15
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust/installer-tui
+            rust/settings-global
+            rust/dots-secreport
+
+      # The cargo half of `nix run .#nix-lint` (flake/apps.nix), per crate.
+      - name: installer-tui fmt
+        working-directory: rust/installer-tui
+        run: cargo fmt --check
+
+      - name: installer-tui clippy
+        working-directory: rust/installer-tui
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: installer-tui test
+        working-directory: rust/installer-tui
+        run: cargo test
+
+      - name: settings-global fmt
+        working-directory: rust/settings-global
+        run: cargo fmt --check
+
+      - name: settings-global clippy
+        working-directory: rust/settings-global
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: settings-global test
+        working-directory: rust/settings-global
+        run: cargo test
+
+      - name: dots-secreport fmt
+        working-directory: rust/dots-secreport
+        run: cargo fmt --check
+
+      - name: dots-secreport clippy
+        working-directory: rust/dots-secreport
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: dots-secreport test
+        working-directory: rust/dots-secreport
+        run: cargo test
+
+  vm-boot:
+    name: vm-boot (${{ matrix.check }})
+    needs: nix-eval
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The LiveISO boot oracle and the installer boot test (tests/README.md).
+        # The other VM checks (session-boot, userborn-reboot-login,
+        # limine-install-home) boot a full desktop stack and need a much
+        # larger, longer-running runner than a stock GitHub one.
+        check: [iso-boot, limine-install-boot]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: Set up Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v15
+
+      # GitHub's ubuntu runners support nested KVM, which the NixOS test
+      # driver needs to boot the ISO at any usable speed.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run ${{ matrix.check }}
+        run: nix build -L ".#checks.x86_64-linux.${{ matrix.check }}"
