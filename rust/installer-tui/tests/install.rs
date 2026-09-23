@@ -117,7 +117,10 @@ fn plan_stages_flake_before_detecting_hardware_before_install() {
     let Action::Command { args, .. } = &steps[facter].action else {
         unreachable!()
     };
-    assert_eq!(args.join(" "), format!("-o {STAGED_FLAKE}/nix/data/facter.json"));
+    assert_eq!(
+        args.join(" "),
+        format!("-o {STAGED_FLAKE}/nix/data/facter.json")
+    );
 }
 
 #[test]
