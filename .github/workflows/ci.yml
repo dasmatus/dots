@@ -34,6 +34,21 @@ jobs:
       - name: Build quickshell-config
         run: nix build .#quickshell-config --no-link
 
+      # The same trap as quickshell-config above, for aipage. Evaluating
+      # packages.aipage-firefox forces an eval-time readFile out of the aipage
+      # source FOD (nix/packages/aipage.nix), and `nix flake check --no-build`
+      # will not realize that derivation itself: every check that pulls aipage
+      # in (packages.aipage-*, checks.aipage-eval, checks.home-standalone-eval,
+      # checks.hm-activation-eval, nixosConfigurations.tokyonight,
+      # checks.iso-boot, checks.limine-install-boot) aborts with
+      #   error: path '/nix/store/<...>-aipage-<rev>.drv' is not valid
+      # unless the FOD is already in the store. Realizing it here keeps the
+      # eval gate honest -- it is still the full evaluation that has to pass,
+      # this only makes the store path it reads valid. tests/default.nix
+      # already registers aipageSrc as an extraDependency for the same reason.
+      - name: Realize the aipage source
+        run: nix build .#aipage-firefox.aipageSrc --no-link
+
       # The eval lane of `nix run .#nix-lint`: every checks.x86_64-linux.*
       # entry is evaluated (assertions included), without building the VM
       # tests — those live in the separate vm-boot lane below.
