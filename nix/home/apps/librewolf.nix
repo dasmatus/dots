@@ -46,10 +46,19 @@
 }:
 let
   # Pin: https://github.com/arkenfox/user.js/releases — latest as of writing.
-  arkenfoxJs = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/arkenfox/user.js/144.0/user.js";
-    hash = "sha256-5KszxpFImRdc9wNeDlei1/CKyIfY+VfxGZ5+Sbvn4z4=";
-  };
+  #
+  # Vendored at nix/data/arkenfox-user.js rather than fetched with pkgs.fetchurl.
+  # `userJs` below reads it with builtins.readFile, and reading a store path at
+  # eval time is import-from-derivation: `nix flake check --no-build` refuses to
+  # realize the fetcher, so a cold store aborted every check that pulls
+  # homeConfigurations in with
+  #
+  #   error: path '/nix/store/…-user.js.drv' is not valid
+  #
+  # The committed copy makes the read pure — same bytes (the fetchurl hash is
+  # reproduced exactly), no store path, no IFD. Bump the file and the version in
+  # the URL comment together when moving to a newer arkenfox release.
+  arkenfoxJs = ../../data/arkenfox-user.js;
 
   # Nix-pinned XPIs from the firefox-addons flake input (rycee's subflake,
   # not the whole NUR); installed into the profile as a buildEnv symlink.
