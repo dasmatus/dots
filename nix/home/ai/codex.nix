@@ -100,6 +100,61 @@ let
     rev = "60c641e4fad674784b30abcf9f8915dea39df38d";
     sha256 = "1983c5ivszcbrxyg35hv6zsrv99s42144vrpfk8qrsaaalpzy0n6";
   };
+
+  # The skill folders under cursorPlugins' pstack/skills, listed by hand.
+  # `programs.codex.skills` takes the directory itself, but the HM module then
+  # runs pathIsDirectory/readDir on it at eval time: import-from-derivation
+  # on the fetchFromGitHub output, which `nix flake check --no-build` will not
+  # realize ("path '...-source.drv' is not valid" on every config that pulls
+  # this file in). Naming the folders keeps evaluation pure; each one is still
+  # linked as a whole directory, which Codex needs (it does not follow a
+  # symlinked SKILL.md). Re-list from `pstack/skills` when `rev` moves.
+  pstackSkills = [
+    "architect"
+    "arena"
+    "automate-me"
+    "blast-radius"
+    "bro"
+    "create-verification-skill"
+    "figure-it-out"
+    "how"
+    "interrogate"
+    "maintain-verification-skill"
+    "no-comments"
+    "poteto-mode"
+    "principle-boundary-discipline"
+    "principle-build-the-lever"
+    "principle-encode-lessons-in-structure"
+    "principle-exhaust-the-design-space"
+    "principle-experience-first"
+    "principle-fix-root-causes"
+    "principle-foundational-thinking"
+    "principle-guard-the-context-window"
+    "principle-laziness-protocol"
+    "principle-make-operations-idempotent"
+    "principle-migrate-callers-then-delete-legacy-apis"
+    "principle-minimize-reader-load"
+    "principle-model-the-domain"
+    "principle-never-block-on-the-human"
+    "principle-outcome-oriented-execution"
+    "principle-prove-it-works"
+    "principle-redesign-from-first-principles"
+    "principle-separate-before-serializing-shared-state"
+    "principle-sequence-verifiable-units"
+    "principle-subtract-before-you-add"
+    "principle-type-system-discipline"
+    "recall"
+    "reflect"
+    "setup-pstack"
+    "show-me-your-work"
+    "swarm"
+    "tdd"
+    "teach"
+    "technical-writing"
+    "typescript-best-practices"
+    "unslop"
+    "why"
+  ];
 in
 {
   # The local model server for the fish `claude`/`ollama` launch aliases and
@@ -162,13 +217,6 @@ in
       tui.notifications = true;
       tui.notification_condition = "unfocused";
     };
-
-    # pstack: see `cursorPlugins` above. A path to the fetched pstack
-    # `skills/` dir: the HM module reads it and symlinks each skill folder
-    # into ~/.codex/skills/<name>, where Codex auto-discovers them (the
-    # same progressive-disclosure model as Claude Code skills, minus the
-    # subagents pstack carries for Claude Code).
-    skills = "${cursorPlugins}/pstack/skills";
 
     # Port of claude.nix's `permissions.allow` glob-list. Codex rules are
     # Starlark (see https://learn.chatgpt.com/docs/agent-configuration/rules);
@@ -248,4 +296,12 @@ in
       )
     '';
   };
+  # pstack skills: see `pstackSkills` above. Linked into ~/.codex/skills/<name>,
+  # where Codex auto-discovers them (the same progressive-disclosure model as
+  # Claude Code skills, minus the subagents pstack carries for Claude Code).
+  home.file = lib.mkIf dots.ai.codex (
+    lib.genAttrs (map (n: ".codex/skills/${n}") pstackSkills) (path: {
+      source = "${cursorPlugins}/pstack/skills/${lib.removePrefix ".codex/skills/" path}";
+    })
+  );
 }

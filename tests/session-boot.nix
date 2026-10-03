@@ -159,30 +159,29 @@ let
   # merged into the real tokyonight closure — this module exists only in
   # this file's own `nodes.machine`.
   testOverrides =
-    { config, lib, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     let
-      # The literal `Exec=` line nixpkgs' hyprland module
-      # (`programs.hyprland.withUWSM = true`, desktop.nix) writes into
-      # `share/wayland-sessions/hyprland-uwsm.desktop` for this session —
-      # read back from the REAL generated desktop entry at eval time
-      # (`config.services.displayManager.sessionData.desktops` is a real
-      # derivation; `readFile` on it is import-from-derivation, so
-      # evaluating this file now forces that derivation to build) rather
-      # than frozen as a hardcoded literal. A frozen copy would go stale
-      # the moment a uwsm/hyprland-module bump changes the invocation
-      # shape, and the gate would then fail on that drift instead of on
-      # whatever it is actually meant to catch — exactly the trap a
-      # previous review round of this file was right to flag. Computing it
-      # here means the gate always execs whatever the real desktop entry
-      # says, today's shape included.
-      hyprlandDesktopEntry = builtins.readFile
-        "${config.services.displayManager.sessionData.desktops}/share/wayland-sessions/hyprland-uwsm.desktop";
-      hyprlandExec = lib.pipe hyprlandDesktopEntry [
-        (lib.splitString "\n")
-        (builtins.filter (lib.hasPrefix "Exec="))
-        lib.head
-        (lib.removePrefix "Exec=")
-      ];
+      # The `Exec=` line of the REAL generated hyprland-uwsm.desktop is read
+      # when the session starts (inside the VM), not at eval time.
+      # `config.services.displayManager.sessionData.desktops` is a derivation
+      # whose closure holds the compositor and uwsm builds, so a `readFile` on
+      # it is import-from-derivation: `nix flake check --no-build` cannot
+      # realize it and aborted every check that evaluates this file with
+      # `path '/nix/store/...-desktops.drv' is not valid` (plus the -source.drv
+      # fixed-output inputs underneath it). Interpolating the path into a
+      # script is only string context, so evaluation stays pure and the gate
+      # still execs whatever the real desktop entry says, instead of a frozen
+      # copy that goes stale on a uwsm/hyprland bump.
+      hyprlandSession = pkgs.writeShellScript "hyprland-test-session" ''
+        export LIBGL_ALWAYS_SOFTWARE=1
+        entry=${config.services.displayManager.sessionData.desktops}/share/wayland-sessions/hyprland-uwsm.desktop
+        exec $(${pkgs.gnused}/bin/sed -n 's/^Exec=//p' "$entry" | ${pkgs.coreutils}/bin/head -n1)
+      '';
     in
     {
       # greetd's `initial_session` is the standard NixOS-test autologin
@@ -218,7 +217,7 @@ let
       # software path on top of that device, since virtio-gpu-pci alone (no
       # `-gl` suffix) carries no real 3D acceleration.
       services.greetd.settings.initial_session = {
-        command = "env LIBGL_ALWAYS_SOFTWARE=1 ${hyprlandExec}";
+        command = "${hyprlandSession}";
         user = "test";
       };
 
