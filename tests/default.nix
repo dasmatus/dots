@@ -192,6 +192,24 @@ let
   # Exposed via the aipage packages' `passthru.aipageSrc` (nix/packages/aipage.nix).
   aipageSrc = dotsFlake.packages.${pkgs.system}.aipage-firefox.aipageSrc;
 
+  # The disko script install.rs::plan() runs, realised on the HOST. The disko
+  # CLI builds this same script at run time with `nix-build cli.nix` against
+  # `import <nixpkgs> {}`, a plain nixpkgs whose derivations differ from this
+  # test's overlaid `pkgs`; inside the offline VM that sent nix off to compile
+  # stdenv from source (395 derivations, bzip2/bash/coreutils tarballs, "Could
+  # not resolve hostname"). Calling disko's own library entry point `_cliDestroyFormatMount`
+  # (what the CLI selects for `--mode destroy,format,mount` on a file) with the
+  # test's `pkgs` and the same disko.nix arguments yields the identical script,
+  # but built here, where the network is, then shipped into the VM through
+  # `system.extraDependencies`. The VM only executes it.
+  diskoScript = (import inputs.disko { inherit lib; })._cliDestroyFormatMount (import
+    ../nix/system/disko.nix
+    {
+      disks = [ "/dev/vda" ];
+      swapSize = "1G";
+    }
+  ) pkgs;
+
   # Full install+boot oracle for the Limine switch: runs the installer's plan()
   # (rust/installer-tui/src/install.rs) in a VM, then boots the installed disk
   # via Limine and asserts the TPM2-unlocked LUKS root comes up. Two nodes
@@ -321,7 +339,6 @@ let
             environment.etc."dots".source = dotsFlake;
             environment.systemPackages = [
               pkgs.nixos-install-tools
-              pkgs.disko
               pkgs.cryptsetup
               pkgs.tpm2-tools
               pkgs.nixos-facter
@@ -331,21 +348,14 @@ let
             # and the $HOME probe (system.build.limineEnsureOwnedHomeProbe)
             # the testScript runs after nixos-install to observe hazard 1
             # (nix/modules/system/limine-install.nix) on the real install path.
-            # profiles/base.nix above gives this node the same *runtime*
-            # PATH packages disko's script needs (parted, lvm2, …), but not
-            # the *build-time* tool disko's cryptsetup-wrapping step needs to
-            # realise that script in the first place: pkgs.makeBinaryWrapper
-            # (nix/system/iso.nix stages the same derivation, with the full
-            # reasoning — its own build environment is the ordinary
-            # cc-having stdenv, and nothing else here pulls it in, so its
-            # absence sends disko's in-VM `nix build` all the way through a
-            # from-source gcc/binutils bootstrap that has no network to
-            # fetch through).
+            # diskoScript is the host-built disko-destroy-format-mount the
+            # testScript runs (see its binding above for why it is not built
+            # in the VM).
             system.extraDependencies = [
               testToplevel
               testHomeProbe
               aipageSrc
-              pkgs.makeBinaryWrapper
+              diskoScript
             ]
             ++ flakeInputPaths;
           };
@@ -384,37 +394,14 @@ let
       with subtest("Generate the one-shot LUKS keyfile"):
           installer.succeed("umask 077; head -c 64 /dev/urandom > /tmp/dots-luks-pass")
 
-      with subtest("disko partition + format + mount on /dev/vda (the disko CLI, same as install.rs::plan())"):
-          # The literal command install.rs's plan() runs — `disko --mode
-          # destroy,format,mount --yes-wipe-all-disks --arg disks [...]
-          # --argstr swapSize <swap> {flake_src}/nix/system/disko.nix`
-          # (rust/installer-tui/src/install.rs) — against /etc/dots, the
-          # read-only flake mount, exactly as a real install does; nixos-install
-          # stages its own writable copy separately, below. disks/swapSize
-          # mirror testSettings above.
-          #
-          # The CLI evaluates its own script derivation (`import <nixpkgs> {}`
-          # via disko's pinned NIX_PATH) rather than reading
-          # config.system.build.destroyFormatMount (built through this node's
-          # own, module-system-computed pkgs) — a different derivation whose
-          # `nix build` this node must resolve on its own. profiles/base.nix
-          # above (imported the way nix/system/iso.nix:35 pulls in
-          # installation-cd-minimal.nix, minus the overlay it can't take
-          # here) gives this node its own, properly built copy of every
-          # package that build needs — parted/gptfdisk/cryptsetup directly,
-          # lvm2/btrfs-progs/dosfstools/e2fsprogs/mdadm via
-          # boot.supportedFilesystems + boot.swraid.enable — so the CLI's
-          # `nix build` finds them already valid and never touches the
-          # network, the same way the real ISO's own store already carries
-          # them. The one thing profiles/base.nix does not cover is
-          # pkgs.makeBinaryWrapper, a *build-time* tool disko's
-          # cryptsetup-wrapping step needs rather than a runtime PATH
-          # package — staged separately in this node's
-          # system.extraDependencies above (see that comment).
+      with subtest("disko partition + format + mount on /dev/vda (the host-built script the disko CLI would exec)"):
+          # The script `disko --mode destroy,format,mount --yes-wipe-all-disks
+          # --arg disks [...] --argstr swapSize <swap> nix/system/disko.nix`
+          # (install.rs::plan()) would build and exec, taken from the host
+          # build (diskoScript) so the offline VM never invokes nix-build.
+          # `--yes-wipe-all-disks` is the flag the CLI appends for this mode.
           installer.succeed(
-              "disko --mode destroy,format,mount --yes-wipe-all-disks"
-              " --arg disks '[ \"/dev/vda\" ]' --argstr swapSize 1G"
-              " /etc/dots/nix/system/disko.nix >&2"
+              "${diskoScript}/bin/disko-destroy-format-mount --yes-wipe-all-disks >&2"
           )
 
       with subtest("Stage a writable flake copy + write test settings.nix"):
