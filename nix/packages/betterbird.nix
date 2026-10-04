@@ -57,7 +57,7 @@
 }:
 
 let
-  version = "153.2.0esr-bb8";
+  version = "153.4.0esr-bb10";
   desktopItem = makeDesktopItem {
     name = "betterbird";
     exec = "betterbird %U";
@@ -96,8 +96,8 @@ stdenv.mkDerivation {
   src = fetchurl {
     url = "https://www.betterbird.eu/downloads/LinuxArchive/betterbird-${version}.en-US.linux-x86_64.tar.xz";
     # Cross-checked against the upstream release's published sha256
-    # (142ebb63d3f84c6d4a88252ced2c2dd2ce5d28eb3b08b05f10d841fe3d4f8001).
-    hash = "sha256-FC67Y9P4TG1KiCUs7Swt0s5dKOs7CLBfENhB/j1PgAE=";
+    # (38dd24890a66b4cf9a45bc24e15192e00c26b929e1bb8df7974c16a4539129e2).
+    hash = "sha256-ON0kiQpmtM+aRbwk4VGS4AwmuSnhu433l0wWpFORKeI=";
   };
 
   nativeBuildInputs = [
