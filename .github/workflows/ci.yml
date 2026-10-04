@@ -49,11 +49,28 @@ jobs:
       - name: Realize the aipage source
         run: nix build .#aipage-firefox.aipageSrc --no-link
 
+      # The general form of the two steps above. `nix flake check --no-build`
+      # evaluates in read-only mode, so it writes no .drv files and every
+      # import-from-derivation it meets dies with
+      #   error: path '/nix/store/<...>.drv' is not valid
+      # unless an earlier step happened to realize that exact input. Patching
+      # inputs one at a time kept missing some: home-manager's codex module
+      # readDir-s programs.codex.skills (a fetchFromGitHub of cursor/plugins),
+      # and the system configs read sessionData.desktops. `nix eval` is not
+      # read-only and realizes IFD as it goes, so forcing every check's and
+      # every system's drvPath here leaves the store holding exactly what the
+      # eval-only check below reads. It builds nothing else: a drvPath is the
+      # derivation, not its output.
+      - name: Realize import-from-derivation inputs
+        run: |
+          nix eval --json .#checks.x86_64-linux --apply 'builtins.mapAttrs (_: c: c.drvPath)' > /dev/null
+          nix eval --json .#nixosConfigurations --apply 'builtins.mapAttrs (_: c: c.config.system.build.toplevel.drvPath)' > /dev/null
+
       # The eval lane of `nix run .#nix-lint`: every checks.x86_64-linux.*
       # entry is evaluated (assertions included), without building the VM
       # tests — those live in the separate vm-boot lane below.
       - name: Flake check (eval only)
-        run: nix flake check --no-build
+        run: nix flake check --no-build --show-trace
 
       # eval-only by itself (flake/checks.nix), but `--no-build` skips it, so
       # building it here is the only place this gate actually runs its asserts.

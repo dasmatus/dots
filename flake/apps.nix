@@ -260,6 +260,12 @@ in
       # is fine.
       nix build .#quickshell-config --no-link
 
+      # The general form of the line above, as in .github/workflows/ci.yml:
+      # `nix eval` realizes every import-from-derivation the read-only
+      # `--no-build` check would otherwise reject as "not valid".
+      nix eval --json .#checks.x86_64-linux --apply 'builtins.mapAttrs (_: c: c.drvPath)' > /dev/null
+      nix eval --json .#nixosConfigurations --apply 'builtins.mapAttrs (_: c: c.config.system.build.toplevel.drvPath)' > /dev/null
+
       nix flake check --no-build
 
       cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
