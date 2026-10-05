@@ -341,11 +341,20 @@ let
             # absence sends disko's in-VM `nix build` all the way through a
             # from-source gcc/binutils bootstrap that has no network to
             # fetch through).
+            # pkgs.stdenvNoCC is the other half: disko-destroy-format-mount
+            # is itself a runCommand, so it is built BY stdenvNoCC, whose
+            # output is in no runtime closure here. The real ISO gets it from
+            # installation-device.nix ("stdenvNoCC # for runCommand"), the
+            # profile this node cannot import (see the NOTE above); without
+            # it the CLI's `nix build` lists stdenv-linux-no-cc plus its
+            # whole minimal-bootstrap chain and dies resolving
+            # ftpmirror.gnu.org.
             system.extraDependencies = [
               testToplevel
               testHomeProbe
               aipageSrc
               pkgs.makeBinaryWrapper
+              pkgs.stdenvNoCC
             ]
             ++ flakeInputPaths;
           };
@@ -406,11 +415,12 @@ let
           # boot.supportedFilesystems + boot.swraid.enable — so the CLI's
           # `nix build` finds them already valid and never touches the
           # network, the same way the real ISO's own store already carries
-          # them. The one thing profiles/base.nix does not cover is
-          # pkgs.makeBinaryWrapper, a *build-time* tool disko's
-          # cryptsetup-wrapping step needs rather than a runtime PATH
-          # package — staged separately in this node's
-          # system.extraDependencies above (see that comment).
+          # them. The two things profiles/base.nix does not cover are
+          # *build-time* inputs rather than runtime PATH packages:
+          # pkgs.makeBinaryWrapper (disko's cryptsetup-wrapping step) and
+          # pkgs.stdenvNoCC (the runCommand that builds the script itself),
+          # both staged in this node's system.extraDependencies above (see
+          # that comment).
           installer.succeed(
               "disko --mode destroy,format,mount --yes-wipe-all-disks"
               " --arg disks '[ \"/dev/vda\" ]' --argstr swapSize 1G"
