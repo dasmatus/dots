@@ -242,7 +242,10 @@ let
           system.name = "limine-test";
           virtualisation = {
             cores = 8;
-            memorySize = 2048;
+            # nixos-install evaluates the target system inside the installer
+            # guest, and that nix process alone reaches ~1.4 GiB RSS; at 2048
+            # it was OOM-killed (panic_on_oom) mid-install.
+            memorySize = 4096;
             # Both installer and target use the same drive (installer.nix:693).
             diskImage = "./target.qcow2";
             # 20G install target — the shared primary disk (installer.nix
