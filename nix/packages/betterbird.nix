@@ -94,7 +94,16 @@ stdenv.mkDerivation {
   inherit version;
 
   src = fetchurl {
-    url = "https://www.betterbird.eu/downloads/LinuxArchive/betterbird-${version}.en-US.linux-x86_64.tar.xz";
+    # Upstream moves a release into LinuxArchive/Previous/ as soon as the next
+    # one ships, and the old URL then 404s; the hash pins the bytes, so trying
+    # both keeps the pin building across that rotation.
+    urls =
+      map
+        (dir: "https://www.betterbird.eu/downloads/${dir}/betterbird-${version}.en-US.linux-x86_64.tar.xz")
+        [
+          "LinuxArchive"
+          "LinuxArchive/Previous"
+        ];
     # Cross-checked against the upstream release's published sha256
     # (142ebb63d3f84c6d4a88252ced2c2dd2ce5d28eb3b08b05f10d841fe3d4f8001).
     hash = "sha256-FC67Y9P4TG1KiCUs7Swt0s5dKOs7CLBfENhB/j1PgAE=";
