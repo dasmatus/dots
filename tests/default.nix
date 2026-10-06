@@ -317,6 +317,20 @@ let
             # closure via extraDependencies) and never hits the network.
             nix.settings.substituters = lib.mkForce [ ];
             nix.settings.connect-timeout = 1;
+            # nixos-install builds into `--store /mnt` with this guest's own
+            # store as its only substituter (`auto?trusted=1`). The toplevel,
+            # its stock-kernel specialisation and the kernel-modules trees
+            # are all `allowSubstitutes = false` (buildEnv / runCommand), so
+            # nix refuses to copy them from that store even though
+            # extraDependencies made them valid there, and instead rebuilds
+            # them in /mnt. That needs their *build-time* inputs (down to
+            # linux-7.1.tar.xz and a compiler), which no runtime closure
+            # carries. The guest then plans ~1200 derivations down to the
+            # minimal bootstrap and dies resolving ftpmirror.gnu.org.
+            # Honouring substitutes for every
+            # derivation makes the whole pre-built testToplevel closure a
+            # plain copy, which is what this node stages it for.
+            nix.settings.always-allow-substitutes = true;
             # The test VM has no channel, so any in-VM Nix eval that defaults
             # to `import <nixpkgs>` finds the store nixpkgs via NIX_PATH.
             # (nixos-install --flake uses flake.lock, not NIX_PATH, but keep
