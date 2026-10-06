@@ -8,7 +8,7 @@ license = "AGPL-3.0-only"
 [dependencies]
 serde_json = "1"
 anyhow = "1"
-abstracttui = "0.2"
+abstracttui = "0.6"
 
 [profile.release]
 lto = true
