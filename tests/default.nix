@@ -501,6 +501,14 @@ let
           # nixos-install run above. Nothing between the two nixos-enter
           # invocations touches /mnt/root, so its existence/ownership — the
           # ensureOwnedHome condition — should match what the real run saw.
+          #
+          # extraDependencies only makes the probe valid in this node's own
+          # store. nixos-enter chroots into /mnt, whose store holds the
+          # installed closure and nothing else, so copy the probe across
+          # first; without it the chroot fails with exit 127.
+          installer.succeed(
+              "nix copy --no-check-sigs --to /mnt ${testHomeProbe} >&2"
+          )
           home_seen = installer.succeed(
               "nixos-enter --root /mnt -c ${testHomeProbe} 2>&1"
           ).strip()
