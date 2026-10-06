@@ -242,7 +242,9 @@ let
           system.name = "limine-test";
           virtualisation = {
             cores = 8;
-            memorySize = 2048;
+            # The target boot needs little; the installer node raises this
+            # (see below) because nixos-install's evaluation is the heavy part.
+            memorySize = 4096;
             # Both installer and target use the same drive (installer.nix:693).
             diskImage = "./target.qcow2";
             # 20G install target — the shared primary disk (installer.nix
@@ -282,6 +284,13 @@ let
               "${modulesPath}/profiles/base.nix"
             ];
             boot.swraid.enable = true;
+            # nixos-install evaluates the whole tokyonight system inside this
+            # guest. That one nix process was still growing at 3.4 GiB RSS
+            # when it hit panic_on_oom with 4096 (and at 2048 before that), so
+            # the earlier ~1.4 GiB estimate was wrong. 8 GiB leaves headroom;
+            # the installer is shut down before the target boots, so the two
+            # never hold it at once.
+            virtualisation.memorySize = lib.mkForce 8192;
             # Serve the host nix store read-only so nixos-install substitutes
             # the pre-built testToplevel with no network (no substitutes).
             virtualisation.mountHostNixStore = true;
@@ -308,6 +317,20 @@ let
             # closure via extraDependencies) and never hits the network.
             nix.settings.substituters = lib.mkForce [ ];
             nix.settings.connect-timeout = 1;
+            # nixos-install builds into `--store /mnt` with this guest's own
+            # store as its only substituter (`auto?trusted=1`). The toplevel,
+            # its stock-kernel specialisation and the kernel-modules trees
+            # are all `allowSubstitutes = false` (buildEnv / runCommand), so
+            # nix refuses to copy them from that store even though
+            # extraDependencies made them valid there, and instead rebuilds
+            # them in /mnt. That needs their *build-time* inputs (down to
+            # linux-7.1.tar.xz and a compiler), which no runtime closure
+            # carries. The guest then plans ~1200 derivations down to the
+            # minimal bootstrap and dies resolving ftpmirror.gnu.org.
+            # Honouring substitutes for every
+            # derivation makes the whole pre-built testToplevel closure a
+            # plain copy, which is what this node stages it for.
+            nix.settings.always-allow-substitutes = true;
             # The test VM has no channel, so any in-VM Nix eval that defaults
             # to `import <nixpkgs>` finds the store nixpkgs via NIX_PATH.
             # (nixos-install --flake uses flake.lock, not NIX_PATH, but keep
@@ -341,11 +364,20 @@ let
             # absence sends disko's in-VM `nix build` all the way through a
             # from-source gcc/binutils bootstrap that has no network to
             # fetch through).
+            # pkgs.stdenvNoCC is the other half: disko-destroy-format-mount
+            # is itself a runCommand, so it is built BY stdenvNoCC, whose
+            # output is in no runtime closure here. The real ISO gets it from
+            # installation-device.nix ("stdenvNoCC # for runCommand"), the
+            # profile this node cannot import (see the NOTE above); without
+            # it the CLI's `nix build` lists stdenv-linux-no-cc plus its
+            # whole minimal-bootstrap chain and dies resolving
+            # ftpmirror.gnu.org.
             system.extraDependencies = [
               testToplevel
               testHomeProbe
               aipageSrc
               pkgs.makeBinaryWrapper
+              pkgs.stdenvNoCC
             ]
             ++ flakeInputPaths;
           };
@@ -406,11 +438,12 @@ let
           # boot.supportedFilesystems + boot.swraid.enable — so the CLI's
           # `nix build` finds them already valid and never touches the
           # network, the same way the real ISO's own store already carries
-          # them. The one thing profiles/base.nix does not cover is
-          # pkgs.makeBinaryWrapper, a *build-time* tool disko's
-          # cryptsetup-wrapping step needs rather than a runtime PATH
-          # package — staged separately in this node's
-          # system.extraDependencies above (see that comment).
+          # them. The two things profiles/base.nix does not cover are
+          # *build-time* inputs rather than runtime PATH packages:
+          # pkgs.makeBinaryWrapper (disko's cryptsetup-wrapping step) and
+          # pkgs.stdenvNoCC (the runCommand that builds the script itself),
+          # both staged in this node's system.extraDependencies above (see
+          # that comment).
           installer.succeed(
               "disko --mode destroy,format,mount --yes-wipe-all-disks"
               " --arg disks '[ \"/dev/vda\" ]' --argstr swapSize 1G"
