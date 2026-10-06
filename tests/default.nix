@@ -242,9 +242,8 @@ let
           system.name = "limine-test";
           virtualisation = {
             cores = 8;
-            # nixos-install evaluates the target system inside the installer
-            # guest, and that nix process alone reaches ~1.4 GiB RSS; at 2048
-            # it was OOM-killed (panic_on_oom) mid-install.
+            # The target boot needs little; the installer node raises this
+            # (see below) because nixos-install's evaluation is the heavy part.
             memorySize = 4096;
             # Both installer and target use the same drive (installer.nix:693).
             diskImage = "./target.qcow2";
@@ -285,6 +284,13 @@ let
               "${modulesPath}/profiles/base.nix"
             ];
             boot.swraid.enable = true;
+            # nixos-install evaluates the whole tokyonight system inside this
+            # guest. That one nix process was still growing at 3.4 GiB RSS
+            # when it hit panic_on_oom with 4096 (and at 2048 before that), so
+            # the earlier ~1.4 GiB estimate was wrong. 8 GiB leaves headroom;
+            # the installer is shut down before the target boots, so the two
+            # never hold it at once.
+            virtualisation.memorySize = lib.mkForce 8192;
             # Serve the host nix store read-only so nixos-install substitutes
             # the pre-built testToplevel with no network (no substitutes).
             virtualisation.mountHostNixStore = true;
