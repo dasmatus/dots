@@ -414,7 +414,12 @@ let
       installer.succeed("udevadm settle")
 
       with subtest("Generate the one-shot LUKS keyfile"):
-          installer.succeed("umask 077; head -c 64 /dev/urandom > /tmp/dots-luks-pass")
+          # Hex text, as install.rs writes it: disko's passwordFile goes through
+          # `$(cat ...)`, which drops NULs, while systemd-cryptenroll reads raw.
+          installer.succeed(
+              "umask 077; head -c 64 /dev/urandom | od -An -vtx1 | tr -d ' \\n'"
+              " > /tmp/dots-luks-pass"
+          )
 
       with subtest("disko partition + format + mount on /dev/vda (the disko CLI, same as install.rs::plan())"):
           # The literal command install.rs's plan() runs — `disko --mode
