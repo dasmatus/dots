@@ -124,13 +124,18 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
     );
 
     vec![
+        // Hex, not raw bytes: disko formats from `$(cat passwordFile)`, which
+        // drops NULs and trailing newlines, while systemd-cryptenroll reads the
+        // file raw, so raw bytes would format and enroll with different keys.
         Step {
             title: "Write LUKS keyfile".into(),
             action: cmd(
                 "sh",
                 &[
                     "-c",
-                    &format!("umask 077; head -c 64 /dev/urandom > {LUKS_PASSFILE}"),
+                    &format!(
+                        "umask 077; head -c 64 /dev/urandom | od -An -vtx1 | tr -d ' \\n' > {LUKS_PASSFILE}"
+                    ),
                 ],
                 None,
                 Capture::Stream,

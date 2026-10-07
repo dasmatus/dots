@@ -30,8 +30,8 @@ fn swap_size_rounds_meminfo_up_to_gib() {
 
 #[test]
 fn plan_writes_random_luks_keyfile_from_urandom() {
-    // The LUKS keyfile is 64 random bytes from /dev/urandom. Disk encryption
-    // is decoupled from any login password. Slot 0 becomes an unknown random
+    // The LUKS keyfile is 64 random bytes from /dev/urandom, as hex text.
+    // Disk encryption is decoupled from any login password. Slot 0 becomes an unknown random
     // passphrase; the real unlock paths are TPM2 (auto) + the recovery key.
     // The keyfile is shredded after enrollment (plan_shreds_passfile_last),
     // so the random passphrase is never recoverable. It just authorized the
@@ -47,6 +47,10 @@ fn plan_writes_random_luks_keyfile_from_urandom() {
     assert_eq!(program, "sh");
     let script = args.join(" ");
     assert!(script.contains("/dev/urandom"), "{script}");
+    // disko feeds passwordFile through `$(cat ...)`, which drops NUL bytes
+    // and trailing newlines; cryptenroll reads it raw. Only NUL-free text
+    // without a newline means the same key to both.
+    assert!(script.contains("od -An -vtx1 | tr -d ' \\n'"), "{script}");
     assert!(script.contains(LUKS_PASSFILE), "{script}");
     // The keyfile must never be a static WriteFile (e.g. a login password):
     // it has to come from the CSPRNG at install time.

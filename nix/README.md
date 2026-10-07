@@ -174,7 +174,9 @@ The LUKS root (`/dev/tokyonightvg/root`, see `disko.nix`) unlocks two ways:
   That is the only offline fallback — write it down.
 
 The format-time LUKS passphrase is a one-shot random keyfile (64 bytes from
-`/dev/urandom`), not a login password: it authorizes the TPM2/recovery
+`/dev/urandom`, written as 128 hex characters with no newline, because disko
+reads it through `$(cat ...)` and systemd-cryptenroll reads it raw), not a
+login password: it authorizes the TPM2/recovery
 enrollment and is then shredded, so the disk is decoupled from the user/root
 passwords. The root account is left locked (no password) — `nixos-install
 --no-root-passwd` keeps it that way, and the only login is the wheel user via
