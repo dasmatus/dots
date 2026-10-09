@@ -122,6 +122,11 @@ jobs:
     name: vm-boot (${{ matrix.check }})
     needs: nix-eval
     runs-on: ubuntu-latest
+    # A cold run spends up to ~3 h realizing the test closure before the VM
+    # starts (run 37608587844), then the test's own globalTimeout (2 h for
+    # limine-install-boot) applies. Without this the job sat until GitHub's
+    # 6 h limit; 5 h covers both and fails a hung VM an hour earlier.
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:

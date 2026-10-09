@@ -212,8 +212,11 @@ let
   # install+boot, shared diskImage + state_dir).
   limineInstallBootTest = pkgs.testers.runNixOSTest {
     name = "limine-install-boot";
-    # Full closure build + disko + nixos-install + 2x boot under TCG is slow.
-    globalTimeout = 4 * 60 * 60;
+    # Counts from the start of the test script, after the closure is built.
+    # The slow part is nixos-install (~45 min on a CI runner), so 2 h leaves
+    # room for it plus both boots. 4 h ran past the CI job's 6 h limit once
+    # the build phase (~3 h cold) was added, so a hung boot was never reported.
+    globalTimeout = 2 * 60 * 60;
 
     nodes =
       let
