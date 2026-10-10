@@ -83,11 +83,26 @@ let
   # 32G swap, which changes the disko-generated swapDevices/disk entries and
   # therefore the toplevel — see docs/superpowers/specs/
   # 2026-07-28-limine-bootloader-design.md (closure-feasibility note).
+  testKernelParams = [
+    "loglevel=7"
+    "mitigations=auto"
+    "zswap.writeback=0"
+    "console=tty0"
+    "console=ttyS0,115200"
+  ];
   testSettings = (import ../nix/system/defaults.nix) // {
     username = "test";
     hostname = "test";
     disks = [ "/dev/vda" ];
     swapSize = "1G";
+    # defaults.nix boots `quiet` with no serial console, which leaves the test
+    # driver blind once OVMF hands over to Limine: limine-install-boot hung
+    # there until the job's timeout with nothing on ttyS0 after
+    # `BdsDxe: starting Boot0002`. ttyS0 last makes it /dev/console, so a LUKS
+    # passphrase prompt (TPM2 unseal not firing) shows up in the log too. The
+    # settings_nix literal in the test script carries the same list, or
+    # nixos-install's closure would differ from this pre-built one.
+    bootKernelParams = testKernelParams;
     # No gitName/gitEmail: the git identity left `settings` entirely for an
     # agenix secret (nix/home/secrets/identity.nix). The installer still writes
     # both keys, which is why the settings_nix literal further down — a
@@ -472,6 +487,7 @@ let
             hostname = "test";
             disks = ["/dev/vda"];
             swapSize = "1G";
+            bootKernelParams = [ ${lib.concatMapStringsSep " " (p: ''"${p}"'') testKernelParams} ];
             gitName = "Test User";
             gitEmail = "test@example.com";
           }
@@ -547,6 +563,11 @@ let
       # installer enrolled against.
       target.state_dir = installer.state_dir
       target.start()
+
+      with subtest("Limine hands over to the installed kernel"):
+          # Fails in minutes rather than at the 2 h globalTimeout when the
+          # boot stops in firmware or Limine, before any kernel output.
+          target.wait_for_console_text("Linux version", timeout=1800)
 
       with subtest("Installed system boots via Limine + TPM2 auto-unlock"):
           target.wait_for_unit("multi-user.target")
