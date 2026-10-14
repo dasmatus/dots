@@ -70,6 +70,20 @@
     # systemd in the initrd honors the TPM2 token enrolled by the installer
     # (crypttabExtraOpts tpm2-device=auto comes from nix/system/disko.nix).
     initrd.systemd.enable = true;
+    # Loaded by name, not left to the kernel's on-demand request_module().
+    # The hardened kernel sets STATIC_USERMODEHELPER (nix/modules/system/
+    # kernel.nix), which routes every usermode helper, modprobe included,
+    # through /sbin/usermode-helper, and nothing provides that. So the
+    # kernel's own autoload of dm-crypt (and of the xts/aes crypto it
+    # instantiates) never runs, and the unlock dies with
+    # `device-mapper: table: crypt: unknown target type` at the passphrase
+    # prompt (vm-boot limine-install-boot). availableKernelModules only puts
+    # the files in the initrd; systemd-modules-load does the modprobe itself.
+    initrd.kernelModules = [
+      "dm_crypt"
+      "xts"
+    ]
+    ++ lib.optional pkgs.stdenv.hostPlatform.isx86_64 "aesni_intel";
     initrd.availableKernelModules = [
       "nvme"
       "xhci_pci"
