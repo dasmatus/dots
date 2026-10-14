@@ -79,9 +79,16 @@
     # `device-mapper: table: crypt: unknown target type` at the passphrase
     # prompt (vm-boot limine-install-boot). availableKernelModules only puts
     # the files in the initrd; systemd-modules-load does the modprobe itself.
+    # loop, erofs and overlay are the same failure one step later: the etc
+    # overlay (core.nix) mounts its erofs metadata image off a loop device
+    # under an overlayfs, and without them the initrd stops at
+    # `Failed to mount /run/nixos-etc-metadata`.
     initrd.kernelModules = [
       "dm_crypt"
       "xts"
+      "loop"
+      "erofs"
+      "overlay"
     ]
     ++ lib.optional pkgs.stdenv.hostPlatform.isx86_64 "aesni_intel";
     initrd.availableKernelModules = [
