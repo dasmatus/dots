@@ -13,7 +13,7 @@ swtpm — no libvirt, no host packages, no root. Defined in
 | `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the cage kiosk's Quickshell session reaches tty1 — `DOTS_UI_READY` on the serial console |
 | `userborn-reboot-login` | under userborn + mutable `/etc` (with `passwordFilesLocation` pinned to `/var/lib/nixos`), the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
 | `limine-install-home` | `nix/modules/system/limine-install.nix`'s HOME-provisioning fix (see [`limine-home.nix`](limine-home.nix)): with `$HOME` unset, or set to a directory a different user owns, the wrapper invokes the real `mktemp` binary and exports the owned temp dir it prints; with `$HOME` already owned by the caller, the wrapper leaves it alone |
-| `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting the TPM2-unlocked LUKS root reaches `multi-user.target` — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
+| `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting on the console that the TPM2 token unlocked the LUKS root and the system reached its ttyS0 getty — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
 
 Also in `checks`: `nix-lint`-fast eval checks (`settings-eval`,
 `facter-*-eval`, `hm-activation-eval`, `shell-service-eval`) and the
