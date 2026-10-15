@@ -567,7 +567,12 @@ let
       with subtest("Limine hands over to the installed kernel"):
           # Fails in minutes rather than at the 2 h globalTimeout when the
           # boot stops in firmware or Limine, before any kernel output.
-          target.wait_for_console_text("Linux version", timeout=1800)
+          # The installed system boots at loglevel 3 (hardening.nix), so the
+          # KERN_NOTICE "Linux version" banner never reaches ttyS0; the
+          # initrd's own banner proves the hand-over just the same.
+          target.wait_for_console_text(
+              "Linux version|Booting initrd of", timeout=1800
+          )
 
       with subtest("Installed system boots via Limine + TPM2 auto-unlock"):
           target.wait_for_unit("multi-user.target")
