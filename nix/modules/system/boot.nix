@@ -83,12 +83,22 @@
     # overlay (core.nix) mounts its erofs metadata image off a loop device
     # under an overlayfs, and without them the initrd stops at
     # `Failed to mount /run/nixos-etc-metadata`.
+    # vfat and its two codepages are the next one, in stage 2: the ESP
+    # (nix/system/disko.nix) mounts at /boot with the kernel's default
+    # codepage=437 and iocharset=iso8859-1, each a request_module() of its
+    # own, and without them boot.mount fails and the system drops into
+    # emergency mode. Loading them here rather than in boot.kernelModules
+    # puts them in before switch-root, since nothing orders
+    # systemd-modules-load ahead of boot.mount.
     initrd.kernelModules = [
       "dm_crypt"
       "xts"
       "loop"
       "erofs"
       "overlay"
+      "vfat"
+      "nls_cp437"
+      "nls_iso8859_1"
     ]
     ++ lib.optional pkgs.stdenv.hostPlatform.isx86_64 "aesni_intel";
     initrd.availableKernelModules = [
