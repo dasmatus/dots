@@ -575,12 +575,19 @@ let
           )
 
       with subtest("Installed system boots via Limine + TPM2 auto-unlock"):
-          target.wait_for_unit("multi-user.target")
-          # multi-user.target is only reachable if the LUKS root auto-unlocked
-          # via the TPM2 token (no recovery-key prompt in a non-interactive
-          # boot). Confirm the mapper is the root backing device.
-          assert "/dev/mapper/cryptroot" in target.succeed("mount"), \
-              "cryptroot not mounted — TPM2 unseal did not fire"
+          # nixos-install built this system from the flake, not the test
+          # framework, so it has no backdoor shell: wait_for_unit and succeed
+          # sat on "waiting for the VM to finish booting" until the job's
+          # timeout, with the target already at its login prompt. The console
+          # carries the same proof. systemd-cryptsetup finishes cryptroot only
+          # once the TPM2 token unsealed it (without it, the boot stops at the
+          # recovery-key prompt), and agetty prints its banner on ttyS0 only
+          # once stage 2 is up. "login:" itself never ends a line, so the
+          # driver never sees it.
+          target.wait_for_console_text(
+              "Finished Cryptography Setup for cryptroot", timeout=1800
+          )
+          target.wait_for_console_text("Welcome to .* - ttyS0", timeout=1800)
     '';
   };
 
