@@ -1,0 +1,79 @@
+# The GitHub Pages site that hands out the full LiveISO: a download page, the
+# get-iso.sh script and, per channel, the SHA256SUMS and layer index of what
+# iso.yml pushed to GHCR. scripts/pages-site.sh writes it, from GHCR's current
+# state each time, so a deploy never depends on an older one.
+#
+# Pages has to be set to deploy from GitHub Actions once (Settings -> Pages ->
+# Source), and the `images` package made public once iso.yml has created it
+# (Packages -> images -> Package settings), or anonymous downloads get a 401.
+#
+# DOTS_PROXY_URL (a repository variable, optional) is a deployment of the
+# LosOS Desktop proxy (losos-desktop/proxy) with GHCR_REPOSITORY set to this
+# repository. With it the page links the ISO directly and 404.html forwards
+# /updates/<channel>/x86_64/<iso> to it; without it the page offers the script.
+name: pages
+
+on:
+  workflow_run:
+    workflows: [iso]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - "scripts/get-iso.sh"
+      - "scripts/pages-site.sh"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: "site: build from GHCR"
+    # A failed or cancelled iso run published nothing new, but the site is
+    # rebuilt from GHCR either way, so it is still correct to deploy.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+      - id: pages
+        uses: actions/configure-pages@v6
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+      - name: Write the site
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          PAGES_URL: ${{ steps.pages.outputs.base_url }}
+          PROXY_URL: ${{ vars.DOTS_PROXY_URL }}
+        run: |
+          set -euo pipefail
+          trap 'oras logout ghcr.io || true' EXIT
+          printf '%s' "$GH_TOKEN" | oras login ghcr.io --username "$ACTOR" --password-stdin
+          scripts/pages-site.sh site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    name: "pages: deploy"
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

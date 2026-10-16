@@ -1,0 +1,193 @@
+# Build the full LiveISO (.#iso-full: the installer plus the prebuilt
+# tokyonight closure, for an offline install) and publish it to GHCR, then
+# hand over to pages.yml, which puts its checksums and a download script on
+# GitHub Pages.
+#
+# Codeberg stays the home of the lean .#iso and the tagged release
+# (.forgejo/workflows/ci.yml). The full image is what does not fit there:
+# Codeberg asks for 1.5 GiB of packages and attachments per repository, and
+# a GitHub release asset stops at 2 GiB. GHCR takes a layer of up to 10 GB
+# and charges nothing for a public package, so the ISO goes there as an OCI
+# artifact, the same way LosOS and LosOS Desktop publish theirs:
+#
+#   ghcr.io/<owner>/<repo>/images:<channel>-x86_64
+#     <iso>        the image, one raw layer titled with its file name
+#     SHA256SUMS   its checksum
+#
+# which is exactly what the LosOS Desktop proxy reads for
+# /updates/<channel>/<arch>/<file>: point a deployment of it at this
+# repository (GHCR_REPOSITORY) and set its URL as the DOTS_PROXY_URL variable
+# to get one-click browser downloads; see scripts/pages-site.sh.
+#
+# Channels: `main` for a push to main, the tag for a v* tag (which also moves
+# `stable`), and the branch name for a manual run on another branch. Pull
+# requests never build it: a cold build takes hours, and a pull request must
+# not move a tag people download from.
+name: iso
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSES/**"
+      - ".forgejo/**"
+      - ".github/dependabot.yml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/lockfile-updates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One build per ref, and a newer push wins: an older main image has nothing a
+# newer one lacks. Tags never share a group, so a release always finishes.
+concurrency:
+  group: iso-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+
+jobs:
+  iso-full:
+    name: "iso-full -> GHCR"
+    runs-on: ubuntu-latest
+    # The hosted cap is 360. A cold run realizes the whole desktop closure
+    # (the vm-boot lane in ci.yml spends up to ~3 h on a smaller one) and then
+    # squashes it with xz at a 100% dictionary (nix/system/iso.nix).
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # The runner's root filesystem has ~20 GB free; the full closure, its
+      # squashfs and the staged copy need several times that. /mnt is a
+      # separate disk with ~70 GB, so /nix lives there (bound before Nix is
+      # installed, so the installer just sees an empty /nix), and the
+      # preinstalled toolchains this job never uses are deleted from /.
+      - name: Make room for the closure
+        run: |
+          set -euo pipefail
+          df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift \
+            /usr/local/share/powershell /usr/local/share/chromium
+          sudo docker image prune --all --force >/dev/null || true
+          sudo mkdir -p /mnt/nix /mnt/stage /nix
+          sudo mount --bind /mnt/nix /nix
+          sudo chown "$USER" /mnt/stage
+          df -h / /mnt /nix
+
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@v23
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v15
+
+      # The same IFD trap ci.yml's nix-eval job documents: evaluating any
+      # system that embeds aipage reads a file out of the aipage source FOD,
+      # which evaluation will not realize by itself.
+      - name: Realize the aipage source
+        run: nix build .#aipage-firefox.aipageSrc --no-link -L
+
+      - name: Pick the channel
+        id: channel
+        env:
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$REF" in
+            refs/heads/main) channel=main ;;
+            refs/tags/*) channel="$REF_NAME" ;;
+            *) channel=$(printf '%s' "$REF_NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9.-' '-' | cut -c1-32) ;;
+          esac
+          # The LosOS Desktop proxy serves a channel matching this and nothing
+          # else, so a tag outside it would be pushed and never be served.
+          if ! printf '%s' "$channel" | grep -Eq '^[a-z0-9][a-z0-9.-]{0,31}$'; then
+            echo "::error::'$channel' is not a channel the proxy serves"
+            exit 1
+          fi
+          case "$REF" in
+            refs/tags/*) version="$REF_NAME" ;;
+            *) version="$(date -u +%Y%m%d)-${SHA:0:7}" ;;
+          esac
+          {
+            echo "channel=$channel"
+            echo "version=$version"
+            echo "iso=tokyonight-dots-installer-full-$version.iso"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build .#iso-full
+        run: |
+          start=$(date +%s)
+          nix build -L .#iso-full -o /mnt/stage/result-iso
+          echo "::notice::.#iso-full built in $(( ($(date +%s) - start) / 60 )) min"
+
+      # nix/system/iso.nix mkForce's image.baseName to a constant, so the
+      # version in the name has to come from here.
+      - name: Stage the image
+        id: stage
+        working-directory: /mnt/stage
+        env:
+          ISO: ${{ steps.channel.outputs.iso }}
+        run: |
+          set -euo pipefail
+          cp -L result-iso/iso/*.iso "$ISO"
+          size=$(stat -c%s "$ISO")
+          echo "$ISO: $(awk -v b="$size" 'BEGIN { printf "%.2f GiB", b / 1073741824 }')"
+          # GHCR refuses a layer over 10 GB. Fail here with the number rather
+          # than after an hour of upload.
+          if [ "$size" -gt 10000000000 ]; then
+            echo "::error::$ISO is $size bytes, over GHCR's 10 GB layer limit"
+            exit 1
+          fi
+          sha256sum "$ISO" | tee SHA256SUMS
+          echo "storePath=$(readlink -f result-iso)" >> "$GITHUB_OUTPUT"
+
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+
+      - name: Push to GHCR
+        working-directory: /mnt/stage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          VERSION: ${{ steps.channel.outputs.version }}
+          ISO: ${{ steps.channel.outputs.iso }}
+          STORE_PATH: ${{ steps.stage.outputs.storePath }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${REPO,,}/images"
+          trap 'oras logout ghcr.io || true' EXIT
+          printf '%s' "$GH_TOKEN" | oras login ghcr.io --username "$ACTOR" --password-stdin
+          # oras titles each layer with its file name, which is how the proxy
+          # and get-iso.sh find the ISO among the layers.
+          oras push "$repository:$CHANNEL-x86_64" \
+            --artifact-type application/vnd.dots.installer.v1 \
+            --annotation "org.opencontainers.image.source=https://github.com/$REPO" \
+            --annotation "org.opencontainers.image.revision=$SHA" \
+            --annotation "org.opencontainers.image.version=$VERSION" \
+            --annotation "org.opencontainers.image.description=tokyonight-dots full LiveISO" \
+            --annotation "dev.dots.store-path=$STORE_PATH" \
+            "$ISO:application/x-iso9660-image" \
+            SHA256SUMS:text/plain
+          case "$REF" in
+            refs/tags/*) oras tag "$repository:$CHANNEL-x86_64" stable-x86_64 ;;
+          esac
+          {
+            echo "## Full LiveISO"
+            echo
+            echo "- \`$repository:$CHANNEL-x86_64\`"
+            case "$REF" in refs/tags/*) echo "- \`$repository:stable-x86_64\`" ;; esac
+            echo "- \`$(cat SHA256SUMS)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Disk usage at the end
+        if: always()
+        run: df -h / /mnt

@@ -118,7 +118,8 @@ let
       flags = [
         "attach_disconnected"
         "mediate_deleted"
-      ] ++ extraFlags;
+      ]
+      ++ extraFlags;
     in
     ''
       #include <tunables/global>

@@ -539,8 +539,16 @@ in
       aborting =
         entry: builtins.any (line: !(isComment line) && callsExit line) (lib.splitString "\n" entry.data);
 
+      # An entry ordered after linkGeneration cannot skip it, whatever it
+      # exits with. home-manager's own zed-editor module is one: its settings
+      # merger runs `entryAfter [ "linkGeneration" ]` and exits 1 on a JSON it
+      # cannot read, which fails the activation loudly after the link.
+      afterLink = entry: builtins.elem "linkGeneration" (entry.after or [ ]);
+
       offenders = builtins.attrNames (
-        lib.filterAttrs (name: entry: !(builtins.elem name deliberate) && aborting entry) hm.home.activation
+        lib.filterAttrs (
+          name: entry: !(builtins.elem name deliberate) && !(afterLink entry) && aborting entry
+        ) hm.home.activation
       );
     in
     # Named rather than counted, because the whole failure mode is not knowing

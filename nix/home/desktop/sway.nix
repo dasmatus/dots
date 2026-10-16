@@ -18,48 +18,48 @@ let
   # Sway dispatch map: abstract dispatch names → swaymsg commands.
   # Keyed off `dispatch`, never off `name`: several `name`s share one
   # `dispatch` value.
-  dispatchMap =
-    {
-      "window.close" = "kill";
-      "window.float-toggle" = "floating toggle";
-      "window.fullscreen" = "fullscreen toggle";
-      "window.pseudo" = "layout toggle split";
+  dispatchMap = {
+    "window.close" = "kill";
+    "window.float-toggle" = "floating toggle";
+    "window.fullscreen" = "fullscreen toggle";
+    "window.pseudo" = "layout toggle split";
 
-      "workspace.toggle-scratch" = "scratchpad show";
-      "workspace.move-scratch" = "move scratchpad";
-      "workspace.toggle-magic" = "workspace magic";
-      "workspace.move-magic" = "move workspace magic";
-      "workspace.next" = "workspace next";
-      "workspace.prev" = "workspace prev";
+    "workspace.toggle-scratch" = "scratchpad show";
+    "workspace.move-scratch" = "move scratchpad";
+    "workspace.toggle-magic" = "workspace magic";
+    "workspace.move-magic" = "move workspace magic";
+    "workspace.next" = "workspace next";
+    "workspace.prev" = "workspace prev";
 
-      "focus.left" = "focus left";
-      "focus.right" = "focus right";
-      "focus.up" = "focus up";
-      "focus.down" = "focus down";
+    "focus.left" = "focus left";
+    "focus.right" = "focus right";
+    "focus.up" = "focus up";
+    "focus.down" = "focus down";
 
-      "window.move-left" = "move left";
-      "window.move-right" = "move right";
-      "window.move-up" = "move up";
-      "window.move-down" = "move down";
+    "window.move-left" = "move left";
+    "window.move-right" = "move right";
+    "window.move-up" = "move up";
+    "window.move-down" = "move down";
 
-      "window.resize-left" = "resize shrink width 40px";
-      "window.resize-right" = "resize grow width 40px";
-      "window.resize-up" = "resize shrink height 40px";
-      "window.resize-down" = "resize grow height 40px";
+    "window.resize-left" = "resize shrink width 40px";
+    "window.resize-right" = "resize grow width 40px";
+    "window.resize-up" = "resize shrink height 40px";
+    "window.resize-down" = "resize grow height 40px";
 
-      "window.drag" = "floating toggle; focus mode_toggle";
-      "window.resize" = "floating toggle; resize";
-    }
-    // lib.listToAttrs (
-      map (n: lib.nameValuePair "workspace.focus-${toString n}" "workspace number ${toString n}") (
-        lib.range 1 10
-      )
+    "window.drag" = "floating toggle; focus mode_toggle";
+    "window.resize" = "floating toggle; resize";
+  }
+  // lib.listToAttrs (
+    map (n: lib.nameValuePair "workspace.focus-${toString n}" "workspace number ${toString n}") (
+      lib.range 1 10
     )
-    // lib.listToAttrs (
-      map (n: lib.nameValuePair "workspace.move-${toString n}" "move container to workspace number ${toString n}") (
-        lib.range 1 10
-      )
-    );
+  )
+  // lib.listToAttrs (
+    map (
+      n:
+      lib.nameValuePair "workspace.move-${toString n}" "move container to workspace number ${toString n}"
+    ) (lib.range 1 10)
+  );
 
   # Key rendering for sway's bindsym: mods joined with +, key appended.
   mkKey =
