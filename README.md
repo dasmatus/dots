@@ -17,6 +17,22 @@ attachments. That link is re-uploaded automatically twice a week and can still
 lapse; the `.sha256` attached to the release stays valid either way, and
 `nix run .#iso` below builds the same image from the tag.
 
+The full image (`.#iso-full`, with the prebuilt system embedded for an offline
+install) is built on GitHub for every push to `main` and every `v*` tag and
+published to GHCR as `ghcr.io/dasmatus/dots/images:<channel>-x86_64`. The
+download page on GitHub Pages lists both channels with their checksums:
+
+**<https://dasmatus.github.io/dots/>**
+
+```bash
+curl -fsSL https://dasmatus.github.io/dots/get-iso.sh | sh              # main
+curl -fsSL https://dasmatus.github.io/dots/get-iso.sh | sh -s -- stable  # newest tag
+```
+
+The script fetches the ISO from GHCR and verifies it against the channel's
+`SHA256SUMS`. `oras pull ghcr.io/dasmatus/dots/images:main-x86_64` does the
+same without it.
+
 ## Quickstart
 
 ```bash
