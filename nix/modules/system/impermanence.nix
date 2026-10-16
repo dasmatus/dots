@@ -50,6 +50,8 @@
       config.dots.paths.stateDir # install answers (settings.nix/data/facter.json) for dots-clone
       "/var/lib/ollama" # ollama models — survive the tmpfs wipe (no re-download each boot)
       "/var/log" # journal across reboots
+      "/var/lib/extensions" # systemd-sysext images (systemd.nix)
+      "/var/lib/confexts" # systemd-confext images (systemd.nix)
     ];
     # /etc/machine-id intentionally NOT persisted: it regenerates each boot,
     # which is acceptable for a desktop. Add it here if a stable machine

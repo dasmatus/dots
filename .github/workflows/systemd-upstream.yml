@@ -1,0 +1,65 @@
+# Weekly check of upstream systemd against the version the nixpkgs pin ships
+# (scripts/systemd-upstream.sh). When upstream has a newer major, one issue
+# titled "systemd upstream: vNNN" is opened, or its body refreshed if it is
+# already open, so each release is flagged once and not every week.
+#
+# The check itself never fails the run for being behind: nixpkgs trails
+# upstream by weeks as a matter of course, and a red badge for that would
+# only teach everyone to ignore it. The issue is the signal.
+name: systemd-upstream
+
+on:
+  schedule:
+    # ~05:23 UTC Mondays, after the lockfile refresh at 04:17 so the check
+    # sees the pin that refresh may have just proposed on main.
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: systemd-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: "bot: upstream systemd check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: Compare the pin with upstream
+        id: check
+        run: |
+          set -uo pipefail
+          ./scripts/systemd-upstream.sh > report.md
+          status=$?
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          case $status in
+            0) echo "behind=false" >> "$GITHUB_OUTPUT" ;;
+            10)
+              echo "behind=true" >> "$GITHUB_OUTPUT"
+              echo "latest=$(grep -oE 'v[0-9]+' report.md | head -1)" >> "$GITHUB_OUTPUT"
+              ;;
+            *) exit "$status" ;;
+          esac
+
+      - name: Open or refresh the tracking issue
+        if: steps.check.outputs.behind == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: "systemd upstream: ${{ steps.check.outputs.latest }}"
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list --state open --search "\"$TITLE\" in:title" \
+            --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file report.md
+          else
+            gh issue create --title "$TITLE" --body-file report.md
+          fi
