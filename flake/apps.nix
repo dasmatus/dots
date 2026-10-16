@@ -35,7 +35,10 @@ let
   # reaches a 0600-root facter.json through one (that was a permissions
   # failure --impure never fixed anyway). See nix/data/settings.nix's header.
   mkIsoApp =
-    { name, target ? "iso" }:
+    {
+      name,
+      target ? "iso",
+    }:
     {
       type = "app";
       program =
@@ -65,12 +68,10 @@ let
   # never exposed. These are developer tools run against the caller's own
   # checkout, not GUI apps handling untrusted input — Flatpak (nix/home/base/
   # flatpaks.nix) is where confinement now actually lives.
-  mkShellApp =
-    name: args:
-    {
-      type = "app";
-      program = (pkgs.writeShellApplication (args // { inherit name; })) + "/bin/${name}";
-    };
+  mkShellApp = name: args: {
+    type = "app";
+    program = (pkgs.writeShellApplication (args // { inherit name; })) + "/bin/${name}";
+  };
 in
 {
   # This script is internally named "dots-list" for historical reasons; the

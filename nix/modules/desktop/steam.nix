@@ -160,8 +160,7 @@ in
     programs.steam = {
       enable = true;
       remotePlay.openFirewall = config.dots.steam.remotePlay.openFirewall;
-      localNetworkGameTransfers.openFirewall =
-        config.dots.steam.localNetworkGameTransfers.openFirewall;
+      localNetworkGameTransfers.openFirewall = config.dots.steam.localNetworkGameTransfers.openFirewall;
       # protontricks: Winetricks wrapper for Proton games — the standard
       # companion for installing native Windows dependencies (e.g. a game's
       # bundled redist) into a Proton prefix.

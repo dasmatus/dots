@@ -55,9 +55,9 @@ let
   );
 
   # The list of custom keybinding paths (dconf needs this index).
-  customKeybindingPaths = map (i: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom${toString i}/") (
-    lib.range 0 (builtins.length nonDispatchKeyed - 1)
-  );
+  customKeybindingPaths = map (
+    i: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom${toString i}/"
+  ) (lib.range 0 (builtins.length nonDispatchKeyed - 1));
 in
 {
   imports = [ ./common.nix ];

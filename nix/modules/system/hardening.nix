@@ -64,9 +64,9 @@ let
   # self-defeating — no gamepad shows up at /dev/input/js* for any game to
   # see. secureblue is not running Steam on this machine's hardware, so its
   # blanket blacklist doesn't have to reckon with this either.
-  secureblueModuleBlacklist = builtins.filter (
-    mod: !lib.hasPrefix "9p" mod && mod != "joydev"
-  ) (import ../../data/module-blacklist.nix);
+  secureblueModuleBlacklist = builtins.filter (mod: !lib.hasPrefix "9p" mod && mod != "joydev") (
+    import ../../data/module-blacklist.nix
+  );
   secureblueFramebufferBlacklist = import ../../data/framebuffer-blacklist.nix;
 in
 {
@@ -448,9 +448,7 @@ in
   # /bin/false: No such file or directory` instead of a clean no-op.
   boot.extraModprobeConfig = lib.concatMapStrings (
     mod: "install ${mod} ${pkgs.coreutils}/bin/false\n"
-  ) (
-    secureblueModuleBlacklist ++ secureblueFramebufferBlacklist
-  );
+  ) (secureblueModuleBlacklist ++ secureblueFramebufferBlacklist);
 
   # USB-1000 / BadUSB. `implicitPolicyTarget = "block"` refuses anything not
   # already known, and `presentDevicePolicy = "allow"` grandfathers in whatever

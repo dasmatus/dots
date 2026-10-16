@@ -17,15 +17,13 @@ let
   # hardening/services stack — without dragging in a disk layout no test VM
   # has. See that file's header for why extendModules over the full
   # `nixosConfigurations.tokyonight` was tried and rejected instead.
-  tokyonightDiskModules =
-    s:
-    [
-      inputs.disko.nixosModules.disko
-      inputs.impermanence.nixosModules.impermanence
-      (import ../nix/system/disko.nix { inherit (s) disks swapSize; })
-      ../nix/modules/system/impermanence.nix
-      ../nix/modules/system/limine-install.nix
-    ];
+  tokyonightDiskModules = s: [
+    inputs.disko.nixosModules.disko
+    inputs.impermanence.nixosModules.impermanence
+    (import ../nix/system/disko.nix { inherit (s) disks swapSize; })
+    ../nix/modules/system/impermanence.nix
+    ../nix/modules/system/limine-install.nix
+  ];
 
   # The desktop/hardening/services half — independent of disk layout, so
   # this is also the module list tests/session-boot.nix's boot oracle
