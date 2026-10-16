@@ -22,7 +22,12 @@
 }:
 let
   cfg = config.dots.kernel;
-  inherit (lib.kernel) yes no option freeform;
+  inherit (lib.kernel)
+    yes
+    no
+    option
+    freeform
+    ;
 
   # -- The stdenv (R37 / research-llvm-kernel.md §1) --------------------
   #
@@ -46,18 +51,17 @@ let
 
   # -- The source pin (R39 / research-mainline-pin.md) -------------------
   #
-  # `pkgs.linuxPackages_latest` on this flake's nixpkgs pin resolves to
-  # `linux_7_1` = 7.1.8, and the entire 7.1 series went EOL on 2026-09-02 —
-  # a full major series behind kernel.org's current stable, on a branch that
-  # will never receive another patch. 7.2.4 is kernel.org's current stable
-  # at time of writing: not a same-day .0 (three weeks and four patch
-  # releases into the 7.2 series) and not the in-development 7.3-rc tree,
-  # which this design's own "no binary cache, local builds only" risk
-  # profile rules out on its own.
+  # The 7.1 series went EOL on 2026-09-02 and nixpkgs has since replaced
+  # `linux_7_1` with a throw, so this is anchored on `linux_7_2`, the series
+  # the pinned source below belongs to. 7.2.11 is kernel.org's current stable
+  # at time of writing (releases.json, 2026-10-16), eleven patch releases into
+  # the 7.2 series, and not the in-development 7.3-rc tree, which this
+  # design's own "no binary cache, local builds only" risk profile rules out
+  # on its own.
   #
-  # Anchored on the concrete `linux_7_1` branch attribute rather than the
+  # Anchored on the concrete `linux_7_2` branch attribute rather than the
   # rolling `linux_latest`/`linuxPackages_latest` alias, deliberately:
-  # `linux_7_1`'s own entry in linux-kernels.nix is what selects which
+  # `linux_7_2`'s own entry in linux-kernels.nix is what selects which
   # kernelPatches apply (two evergreen, version-agnostic ones — see below),
   # and that selection needs to stay fixed under this override rather than
   # silently changing to whatever nixpkgs promotes to "latest" on the next
@@ -76,15 +80,15 @@ let
   # against the tarball, and kernel.org's own PGP-signed
   # `v7.x/sha256sums.asc` (hex-to-base64 matched byte for byte). Re-verify
   # before trusting this line if it's ever bumped by hand.
-  kernelVersion = "7.2.4";
+  kernelVersion = "7.2.11";
   kernelSrc = pkgs.fetchurl {
     url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${kernelVersion}.tar.xz";
-    hash = "sha256-AXEO4Bc32sSS8brlK+zQV+CNINEViQiaoGrM/0FcKN0=";
+    hash = "sha256-/Q/EefmDqMBTE/E+nDYzD+ZlHPclOWdIxA1c2T+h5qQ=";
   };
 
   # -- The override (R36/R37/R39, research-llvm-kernel.md) ----------------
   #
-  # `linuxKernel.kernels.linux_7_1` is not generic.nix's own makeOverridable
+  # `linuxKernel.kernels.linux_7_2` is not generic.nix's own makeOverridable
   # result directly — it is `mainline.nix`'s. Read directly (pkgs/os-specific
   # /linux/kernel/mainline.nix on this flake's nixpkgs pin): mainline.nix
   # computes ITS OWN `version`/`src` from `branch` via kernels-org.json and
@@ -103,7 +107,7 @@ let
   # (confirmed the same way: the realised config showed CFI/LTO_CLANG_THIN
   # correctly gated on a real Clang+lld toolchain on the very same build
   # that still had the wrong kernel version).
-  hardenedKernel = pkgs.linuxKernel.kernels.linux_7_1.override {
+  hardenedKernel = pkgs.linuxKernel.kernels.linux_7_2.override {
     stdenv = llvmStdenv;
     argsOverride = {
       version = kernelVersion;
@@ -266,7 +270,7 @@ let
       # `KMALLOC_PARTITION_CACHES`/`KMALLOC_PARTITION_RANDOM` (both
       # `whenAtLeast "7.2" yes`) starting exactly at kernel 7.2 — confirmed
       # by reading common-config.nix directly, not guessed. On this
-      # kernel's 7.2.4 pin those two successor symbols are already
+      # kernel's 7.2 pin those two successor symbols are already
       # mandatory `yes` from nixpkgs' own base config; requesting the old
       # name here would have hard-failed the `configfile` build exactly
       # like CFI_CLANG did.
