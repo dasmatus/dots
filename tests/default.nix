@@ -583,9 +583,11 @@ let
           # once the TPM2 token unsealed it (without it, the boot stops at the
           # recovery-key prompt), and agetty prints its banner on ttyS0 only
           # once stage 2 is up. "login:" itself never ends a line, so the
-          # driver never sees it.
+          # driver never sees it. systemd wraps the unit description in a
+          # highlight escape, which Nix strips from the build log but the
+          # driver matches against, hence the ".*" after "Finished ".
           target.wait_for_console_text(
-              "Finished Cryptography Setup for cryptroot", timeout=1800
+              "Finished .*Cryptography Setup for cryptroot", timeout=1800
           )
           target.wait_for_console_text("Welcome to .* - ttyS0", timeout=1800)
     '';
