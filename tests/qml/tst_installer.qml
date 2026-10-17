@@ -254,6 +254,49 @@ TestCase {
         compare(withRecoveryKey[0].action.kind, "Command");
     }
 
+    // --- plan.js: the systemd-homed credential ----------------------------
+
+    function test_home_record_is_the_exact_json_in_key_order() {
+        const expected = '{"userName":"alice","realName":"alice","uid":1000,"storage":"subvolume",' + '"shell":"/run/current-system/sw/bin/fish",' + '"memberOf":["wheel","audio","video","input","networkmanager"],' + '"enforcePasswordPolicy":false,' + '"privileged":{"hashedPassword":["$y$j9T$salt$hash"]},' + '"secret":{"password":["usersecret"]}}';
+        compare(Plan.homeRecord("alice", "$y$j9T$salt$hash", "usersecret"), expected);
+    }
+
+    function test_credential_step_targets_persist_credstore_after_disko() {
+        const actions = Plan.planFor(installPlanCfg());
+        const idx = actions.findIndex(s => s.action.kind === "WriteHomeCredential");
+        verify(idx >= 0, "plan must contain the homed credential step");
+        compare(actions[idx].action.path, "/mnt/persist/etc/credstore/home.create.alice");
+        const disko = actions.findIndex(s => s.action.program === "disko");
+        verify(disko >= 0 && disko < idx, "credential must be written after disko mounts /mnt/persist");
+        verify(!actions.some(s => s.action.kind === "WriteSecrets"));
+        verify(!JSON.stringify(actions).includes("secrets.nix"));
+    }
+
+    function test_credential_path_follows_mnt_and_username() {
+        const cfg = Object.assign(installPlanCfg(), { username: "bob" });
+        const step = Plan.planFor(cfg, "/etc/dots", "/target").find(s => s.action.kind === "WriteHomeCredential");
+        compare(step.action.path, "/target/persist/etc/credstore/home.create.bob");
+    }
+
+    function test_password_is_in_no_argv() {
+        const actions = Plan.planFor(installPlanCfg());
+        for (const step of actions) {
+            const a = step.action;
+            if (a.kind === "Command")
+                verify(!JSON.stringify([a.program, a.args]).includes("usersecret"), step.title);
+            else if (a.kind === "WriteFile")
+                verify(!(a.path + a.contents).includes("usersecret"), step.title);
+        }
+    }
+
+    function test_runner_writes_credential_over_stdin_with_mode_0600() {
+        const src = readFixture("../../nix/home/desktop/quickshell/qml/installer/Runner.qml");
+        verify(src.includes("install -d -m 0700"));
+        verify(src.includes("install -m 0600 /dev/stdin"));
+        verify(src.includes("Plan.homeRecord(cred.username, hash, cred.userPassword)"));
+        verify(!src.includes("userHash"));
+    }
+
     // --- disks.js: parseLsblk / autodetectDisk against the real fixture ---
 
     property string fixture: ""

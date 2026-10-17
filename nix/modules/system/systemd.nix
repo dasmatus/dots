@@ -10,6 +10,8 @@
 #   - systemd-sysext / systemd-confext, merged at boot when an extension is
 #     dropped into /var/lib/extensions or /var/lib/confexts
 #     (impermanence.nix persists both).
+#   - systemd-homed for the login account and systemd-sysusers for system
+#     users, in homed.nix.
 #
 # Left alone, each for a reason recorded where it lives:
 #   - NetworkManager, not networkd: the Proton VPN app (nix/home/proton)
@@ -19,9 +21,6 @@
 #   - Limine, not systemd-boot: systemd-boot's installer needs the
 #     /etc/machine-id that impermanence does not keep (boot.nix).
 #   - systemd-coredump off: hardening.nix turns core dumps off entirely.
-#   - userborn, not systemd-sysusers: sysusers only creates system users and
-#     the login account still lives in users.users (users.nix). Going the
-#     LosOS way means moving that account to systemd-homed first.
 #
 # scripts/systemd-upstream.sh and .github/workflows/systemd-upstream.yml keep
 # watch on upstream systemd releases against the version this flake pins.

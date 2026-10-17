@@ -3,7 +3,7 @@
 #
 #   1. nix-env loads nix.conf through the $HOME XDG fallback; when $HOME is
 #      unset and the running uid has no /etc/passwd entry in the target chroot
-#      (impermanence can leave /etc unpopulated before userborn runs), Nix
+#      (impermanence can leave /etc unpopulated before sysusers runs), Nix
 #      throws "cannot determine user's home directory" before touching the
 #      profile. The wrapper points nix at a home it owns.
 #   2. The upstream installer reads `system-{N}-link/boot.json` and enumerates
@@ -74,7 +74,7 @@ let
   # During nixos-install the bootloader step can run with $HOME unset, and
   # the running uid may have no entry in the target chroot's /etc/passwd:
   # impermanence's createPersistentStorageDirs activation can fail to
-  # populate /etc before userborn creates users, so getpwuid_r(geteuid())
+  # populate /etc before sysusers creates users, so getpwuid_r(geteuid())
   # returns nothing and Nix throws "cannot determine user's home directory"
   # before ever touching the profile. getHome() accepts $HOME when the path
   # does not exist OR is owned by the effective uid; mktemp -d is owned by

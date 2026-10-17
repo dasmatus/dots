@@ -70,11 +70,12 @@
   },
   {
     "action": {
-      "kind": "WriteSecrets",
-      "path": "/tmp/dots-flake/nix/secrets.nix",
-      "userPassword": "usersecret"
+      "kind": "WriteHomeCredential",
+      "path": "/mnt/persist/etc/credstore/home.create.alice",
+      "userPassword": "usersecret",
+      "username": "alice"
     },
-    "title": "Write password hashes (secrets.nix)"
+    "title": "Write homed credential"
   },
   {
     "action": {

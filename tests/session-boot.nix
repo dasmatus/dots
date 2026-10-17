@@ -116,6 +116,7 @@
   inputs,
   dotsFlake,
   tokyonightModules,
+  homedTestUser,
 }:
 let
   settings = (import ../nix/system/defaults.nix) // {
@@ -354,7 +355,10 @@ pkgs.testers.runNixOSTest {
   node.pkgsReadOnly = false;
 
   nodes.machine = {
-    imports = tokyonightModules ++ [ testOverrides ];
+    imports = tokyonightModules ++ [
+      testOverrides
+      homedTestUser
+    ];
     # A real (virtual) DRM device for Aquamarine/Hyprland to bind a seat and
     # a GL context to — see the long comment on `initial_session.command`
     # above for why this VM cannot run Hyprland without one. Mirrors
