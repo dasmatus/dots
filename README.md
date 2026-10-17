@@ -33,6 +33,16 @@ The script fetches the ISO from GHCR and verifies it against the channel's
 `SHA256SUMS`. `oras pull ghcr.io/dasmatus/dots/images:main-x86_64` does the
 same without it.
 
+Every night `main` has changed, GitHub also builds the lean `.#iso` and
+publishes it to the rolling
+[`nightly`](https://github.com/dasmatus/dots/releases/tag/nightly) release,
+next to a `SHA256SUMS`, in the layout systemd-sysupdate reads. An installed
+system can keep a current copy in `/var/lib/dots-iso`:
+
+```bash
+sudo systemctl start dots-iso-update   # or set dots.sysupdate.installerTimer
+```
+
 ## Quickstart
 
 ```bash

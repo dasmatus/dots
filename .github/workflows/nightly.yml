@@ -1,0 +1,188 @@
+# Build the lean LiveISO (.#iso) every night and publish it to the rolling
+# `nightly` GitHub release in the layout systemd-sysupdate's url-file source
+# reads (nix/modules/system/sysupdate.nix):
+#
+#   https://github.com/<owner>/<repo>/releases/download/nightly/
+#     tokyonight-dots-installer_<version>.iso   the newest few builds
+#     SHA256SUMS                                one line per ISO above
+#
+# Why GitHub Releases: Codeberg's 1.5 GiB repository allowance is one ISO
+# (.forgejo/workflows/ci.yml), and the GHCR copy iso.yml pushes is an OCI blob
+# behind a token handshake that sysupdate cannot do. A release asset is plain
+# HTTPS, free for a public repository, and capped at 2 GiB, which the lean
+# image fits and .#iso-full does not; the full image stays on GHCR.
+#
+# The version is the build's UTC time, YYYYMMDD.HHMM, so it sorts the way
+# sysupdate compares versions. The commit is in the release notes and the tag.
+#
+# A night with nothing new on main builds nothing: when the `nightly` tag
+# already points at HEAD the job stops after checkout. Run it by hand with
+# `force` to rebuild anyway.
+name: nightly
+
+on:
+  schedule:
+    # ~02:37 UTC, off the :00 mark and clear of ci.yml's Monday 03:57.
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even if nightly already points at this commit"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  TAG: nightly
+  # How many ISOs the release keeps. Two, so a machine midway through
+  # downloading last night's build is not cut off by tonight's.
+  KEEP: "2"
+
+jobs:
+  nightly:
+    name: "nightly: .#iso -> GitHub release"
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 350
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Skip an unchanged main
+        id: skip
+        env:
+          FORCE: ${{ inputs.force }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tagged=$(git ls-remote origin "refs/tags/$TAG" | cut -f1)
+          if [ "$FORCE" != "true" ] && [ "$tagged" = "$SHA" ]; then
+            echo "::notice::$TAG already points at $SHA, nothing to build"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Same as iso.yml: / has ~20 GB free, /mnt has ~70 GB.
+      - name: Make room for the closure
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift \
+            /usr/local/share/powershell /usr/local/share/chromium
+          sudo docker image prune --all --force >/dev/null || true
+          sudo mkdir -p /mnt/nix /mnt/stage /nix
+          sudo mount --bind /mnt/nix /nix
+          sudo chown "$USER" /mnt/stage
+          df -h / /mnt /nix
+
+      - if: steps.skip.outputs.skip != 'true'
+        uses: DeterminateSystems/nix-installer-action@v23
+
+      - if: steps.skip.outputs.skip != 'true'
+        uses: DeterminateSystems/magic-nix-cache-action@v15
+
+      # The aipage import-from-derivation iso.yml and ci.yml document.
+      - name: Realize the aipage source
+        if: steps.skip.outputs.skip != 'true'
+        run: nix build .#aipage-firefox.aipageSrc --no-link -L
+
+      - name: Build .#iso
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          start=$(date +%s)
+          nix build -L .#iso -o /mnt/stage/result-iso
+          echo "::notice::.#iso built in $(( ($(date +%s) - start) / 60 )) min"
+
+      # nix/system/iso.nix mkForce's image.baseName to a constant, so the
+      # version in the name has to come from here.
+      - name: Stage the image
+        id: stage
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: /mnt/stage
+        run: |
+          set -euo pipefail
+          version=$(date -u +%Y%m%d.%H%M)
+          iso="tokyonight-dots-installer_$version.iso"
+          cp -L result-iso/iso/*.iso "$iso"
+          size=$(stat -c%s "$iso")
+          echo "$iso: $(awk -v b="$size" 'BEGIN { printf "%.2f GiB", b / 1073741824 }')"
+          # A release asset must be under 2 GiB. Fail here with the number
+          # rather than after the upload is refused.
+          if [ "$size" -ge 2147483648 ]; then
+            echo "::error::$iso is $size bytes, over GitHub's 2 GiB asset limit"
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "iso=$iso"
+          } >> "$GITHUB_OUTPUT"
+
+      # Order matters to a machine updating mid-publish: the new ISO goes up
+      # before the SHA256SUMS that names it, and the old ones come down only
+      # after a SHA256SUMS without them has replaced the last one.
+      - name: Publish to the nightly release
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: /mnt/stage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          ISO: ${{ steps.stage.outputs.iso }}
+          VERSION: ${{ steps.stage.outputs.version }}
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE" push --force origin "$SHA:refs/tags/$TAG"
+          notes="Nightly LiveISO $VERSION, built from $SHA.
+
+          Rebuilt every night main has changed. Fetch it with systemd-sysupdate
+          (nix/modules/system/sysupdate.nix) or download it below and check it
+          with \`sha256sum -c --ignore-missing SHA256SUMS\`."
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$REPO" --prerelease --notes "$notes"
+          else
+            gh release create "$TAG" --repo "$REPO" --prerelease --latest=false \
+              --title "Nightly" --notes "$notes"
+          fi
+
+          gh release upload "$TAG" --repo "$REPO" "$ISO"
+
+          # The previous SHA256SUMS carries the checksums of the ISOs kept
+          # from earlier nights; this run only has its own file to hash.
+          rm -f old.sums
+          gh release download "$TAG" --repo "$REPO" --pattern SHA256SUMS --output old.sums 2>/dev/null || touch old.sums
+          sha256sum "$ISO" > SHA256SUMS
+          grep -v "  $ISO\$" old.sums >> SHA256SUMS || true
+          # Newest first by version, then keep the first $KEEP.
+          sort -t_ -k2 -r SHA256SUMS | head -n "$KEEP" > keep.sums
+          mv keep.sums SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" --repo "$REPO" --clobber SHA256SUMS
+
+          gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' |
+            grep -E '^tokyonight-dots-installer_.*\.iso$' |
+            while IFS= read -r name; do
+              if ! grep -q "  $name\$" SHA256SUMS; then
+                echo "pruning $name"
+                gh release delete-asset "$TAG" "$name" --repo "$REPO" --yes
+              fi
+            done
+
+          {
+            echo "## Nightly LiveISO"
+            echo
+            echo "- https://github.com/$REPO/releases/download/$TAG/$ISO"
+            echo "- \`$(grep "  $ISO\$" SHA256SUMS)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Disk usage at the end
+        if: always() && steps.skip.outputs.skip != 'true'
+        run: df -h / /mnt

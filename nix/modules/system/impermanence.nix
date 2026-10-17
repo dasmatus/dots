@@ -52,6 +52,7 @@
       "/var/log" # journal across reboots
       "/var/lib/extensions" # systemd-sysext images (systemd.nix)
       "/var/lib/confexts" # systemd-confext images (systemd.nix)
+      "/var/lib/dots-iso" # nightly LiveISOs from systemd-sysupdate (sysupdate.nix)
     ];
     # /etc/machine-id intentionally NOT persisted: it regenerates each boot,
     # which is acceptable for a desktop. Add it here if a stable machine
