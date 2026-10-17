@@ -132,7 +132,7 @@ pkgs.testers.runNixOSTest {
         migrated.wait_until_tty_matches("1", "Password: ")
         migrated.send_chars("test\n")
         migrated.wait_until_succeeds("pgrep -u alice bash")
-        state = migrated.succeed("homectl inspect --json=short alice | jq -r .status.state").strip()
+        state = migrated.succeed("homectl inspect --json=short alice | jq -r '.status[].state'").strip()
         assert state == "active", state
         assert migrated.succeed("cat /home/alice/docs/note").strip() == "kept"
         assert migrated.succeed("stat -c %u /home/alice/docs/note").strip() == "1000"
