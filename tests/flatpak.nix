@@ -95,6 +95,7 @@
   lib,
   inputs,
   tokyonightModules,
+  homedTestUser,
   dotsFlake,
 }:
 let
@@ -313,7 +314,10 @@ let
       node.pkgsReadOnly = false;
 
       nodes.machine = {
-        imports = tokyonightModules ++ [ testOverrides ];
+        imports = tokyonightModules ++ [
+          testOverrides
+          homedTestUser
+        ];
         # Matches tests/session-boot.nix's own figure for the same reason:
         # this is at least as heavy a closure (full home profile,
         # AppArmor's stock profile set), even though nothing here waits

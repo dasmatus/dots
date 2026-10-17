@@ -11,7 +11,7 @@ swtpm — no libvirt, no host packages, no root. Defined in
 | `session-units` | eval-only, no VM, no build (see [`session-units.nix`](session-units.nix)): a standalone home-manager evaluation of the Hyprland/session refactor (`nix/home/desktop/session/actions.nix`, `nix/home/desktop/session/default.nix`, `nix/home/desktop/hyprland.nix`) never produces a relative `ExecStart`, gives every `app`/`action` bind a `dots-<name>@.service` template rather than a plain unit, strands no non-dispatch action without a unit or a `dots.session.commands` entry, keeps the rendered `hyprland.lua` free of any command line that isn't a `systemctl` call (and free of the old `hyprland.start` exec-once hook), keeps the eight portable session variables separate from the two the Hyprland module owns, and gives every `dots-screenshot-*` unit `KillMode = "process"` so hyprshot's backgrounded capture is not killed by cgroup teardown the moment its foreground watcher exits |
 | `session-boot` | the Phase 0 boot oracle (see [`session-boot.nix`](session-boot.nix)): a real `runNixOSTest` — not eval-only — boots the actual Hyprland/UWSM/Quickshell desktop stack (the real `desktop.nix`, `hardening.nix`, `apparmor.nix`/`apparmor-store.nix`, and home-manager session, on a hand-built module list standing in only for `nixosConfigurations.tokyonight`'s disk/boot-chain modules) and asserts greetd comes up without restart-looping, the `hyprland-uwsm` session reaches `graphical-session.target`, `quickshell` is active (not silently condition-skipped), `hyprctl layers` shows the bar's bound layer-shell surface, and no user unit is failed or stuck auto-restarting. This is the gate every later hardening phase (XWayland removal, kernel lockdown, AppArmor enforcement) has to keep green — see `docs/superpowers/specs/2026-09-08-hardening-design.md` |
 | `iso-boot` | the LiveISO (`.#iso`) boots through plain OVMF UEFI with an emulated TPM 2.0 and the cage kiosk's Quickshell session reaches tty1 — `DOTS_UI_READY` on the serial console |
-| `userborn-reboot-login` | under userborn + mutable `/etc` (with `passwordFilesLocation` pinned to `/var/lib/nixos`), the yescrypt hash in the persisted shadow survives a cold restart (login still works after reboot) |
+| `homed-accounts` | the login account as a systemd-homed record: the console rescue wizard appears with nobody on the machine, the installer's `home.create.<user>` credential creates uid 1000 with its groups and is deleted, the account survives a cold restart, and a userborn home is moved aside, recreated and filled, with a real password login on a tty seeing the old files |
 | `limine-install-home` | `nix/modules/system/limine-install.nix`'s HOME-provisioning fix (see [`limine-home.nix`](limine-home.nix)): with `$HOME` unset, or set to a directory a different user owns, the wrapper invokes the real `mktemp` binary and exports the owned temp dir it prints; with `$HOME` already owned by the caller, the wrapper leaves it alone |
 | `limine-install-boot` | the installer plan (disko + `nixos-install` + TPM2 enroll) runs in a VM and the installed disk boots via Limine, asserting on the console that the TPM2 token unlocked the LUKS root and the system reached its ttyS0 getty — proves `nixos-install` no longer aborts on `/etc/machine-id` under impermanence |
 
@@ -110,12 +110,12 @@ assertions are console-only — `wait_for_console_text`, not
   `bootindex=1`). A swtpm TPM 2.0 is attached via `virtualisation.tpm.enable`
   — the installed system unlocks the LUKS root via a TPM2 token on PCR 7, so
   the chip the boot chain needs is emulated.
-- **`userborn-reboot-login`** is a separate `runNixOSTest` (not ISO-based):
-  it boots a minimal userborn + mutable-`/etc` system (with
-  `passwordFilesLocation` pinned to `/var/lib/nixos`, mirroring production)
-  using a declarative yescrypt `initialHashedPassword`, asserts `/etc/shadow`
-  is a symlink into `/var/lib/nixos`, then shuts down and cold-starts the same
-  persistent qcow2 to prove the hash survived.
+- **`homed-accounts`** is a two-node `runNixOSTest` (not ISO-based) on
+  `nix/modules/system/homed.nix` alone, with nixos-init, a mutable `/etc`
+  overlay and `/etc/credstore` bind-mounted from persistent storage as in
+  production. Records use `directory` storage because the VM's `/home` is
+  ext4. Restarts are `shutdown()`+`start()` because `reboot()` is flaky
+  under TCG.
 - **`limine-install-boot`** is a two-node `runNixOSTest`: an `installer` node
   (test-instrumented VM — NOT the `installation-device` profile, which clashes
   with `runNixOSTest`'s read-only `nixpkgs.overlays`; it pulls

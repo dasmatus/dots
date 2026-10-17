@@ -11,7 +11,7 @@
 //
 // Each entry is a flattened `{title, action}` pair. `action.kind` is one of
 // install.rs's three `Action` variants (`WriteFile`, `Command`,
-// `WriteSecrets`), carrying that variant's fields under camelCase names.
+// `WriteHomeCredential`), carrying that variant's fields under camelCase names.
 // `Command.capture` is `"Stream"` or `"RecoveryKey"`, install.rs's `Capture`
 // enum as a string tag.
 .pragma library
@@ -27,6 +27,34 @@ const LUKS_DEVICE = "/dev/tokyonightvg/root";
 /// Writable staging copy of the flake the ISO's read-only /etc/dots is
 /// copied into before `nixos-install` reads it, install.rs::STAGED_FLAKE.
 const STAGED_FLAKE = "/tmp/dots-flake";
+
+/// The systemd-homed user record install.rs writes, byte for byte: the JSON
+/// `systemd-homed-firstboot.service` imports from
+/// `/etc/credstore/home.create.<username>` on first boot. Key order is part
+/// of the contract. uid 1000 keeps earlier installs' uid; `subvolume` because
+/// /home is btrfs on the LUKS root; `secret.password` is what homed needs to
+/// create the home area, and the system deletes the file once the account
+/// exists (nix/modules/system/homed.nix); `enforcePasswordPolicy: false` so
+/// homed never waits on a pwquality prompt at an empty console. `hash` is
+/// the yescrypt hash; `password` is the plaintext and only ever travels on
+/// stdin, never argv.
+function homeRecord(username, hash, password) {
+    return JSON.stringify({
+        userName: username,
+        realName: username,
+        uid: 1000,
+        storage: "subvolume",
+        shell: "/run/current-system/sw/bin/fish",
+        memberOf: ["wheel", "audio", "video", "input", "networkmanager"],
+        enforcePasswordPolicy: false,
+        privileged: {
+            hashedPassword: [hash]
+        },
+        secret: {
+            password: [password]
+        }
+    });
+}
 
 function command(program, args, capture) {
     return {
@@ -83,10 +111,15 @@ function planFor(cfg, flakeSrc = "/etc/dots", mnt = "/mnt") {
             }
         },
         {
-            title: "Write password hashes (secrets.nix)",
+            title: "Write homed credential",
+            // Runner hashes userPassword (mkpasswd over stdin) and writes
+            // homeRecord() to `path` with mode 0600; /etc/credstore is
+            // bind-mounted from /persist/etc/credstore on the target, so the
+            // disko step above must have mounted /mnt/persist already.
             action: {
-                kind: "WriteSecrets",
-                path: `${STAGED_FLAKE}/nix/secrets.nix`,
+                kind: "WriteHomeCredential",
+                path: `${mnt}/persist/etc/credstore/home.create.${cfg.username}`,
+                username: cfg.username,
                 userPassword: cfg.userPassword
             }
         },
@@ -95,8 +128,8 @@ function planFor(cfg, flakeSrc = "/etc/dots", mnt = "/mnt") {
             // Machine-specific answers for the first-login dots-clone
             // service, mirrored onto the persistent /persist subvol
             // (bind-mounted to /var/lib/dots; the root is a tmpfs wiped
-            // each boot). secrets.nix is intentionally omitted: install-time
-            // only, never restored into the user's clean clone.
+            // each boot). the homed credential is intentionally omitted:
+            // install-time only, never restored into the user's clean clone.
             action: command("sh", ["-c", `mkdir -p ${mnt}/persist/var/lib/dots/nix && cp ${STAGED_FLAKE}/nix/data/facter.json ${mnt}/persist/var/lib/dots/ && cp ${STAGED_FLAKE}/nix/data/settings.nix ${mnt}/persist/var/lib/dots/`], "Stream")
         },
         {

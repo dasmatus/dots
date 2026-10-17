@@ -14,8 +14,8 @@
     };
 
     # Ephemeral-root persistence (tmpfs `/` + bind-mounts from a persistent
-    # /persist subvol). Wired in nix/modules/system/impermanence.nix so /var/lib/nixos
-    # (userborn creds) and Wi-Fi profiles survive the root being wiped each
+    # /persist subvol). Wired in nix/modules/system/impermanence.nix so /var/lib/systemd/home
+    # (the homed account record) and Wi-Fi profiles survive the root being wiped each
     # boot.
     impermanence = {
       url = "github:nix-community/impermanence";

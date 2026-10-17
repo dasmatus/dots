@@ -15,14 +15,16 @@
 // missing parent directories the way install.rs's `create_dir_all` does,
 // `-m` sets the mode at creation rather than chmod-ing afterwards, and the
 // contents travel over stdin, never through argv, never through a shell
-// string. `WriteSecrets` pipes the plaintext through
+// string. `WriteHomeCredential` pipes the plaintext through
 // `mkpasswd -m yescrypt --stdin`, exactly like install.rs's `hash_password`,
-// then re-enters the same install-based write with the resulting hash; the
-// plaintext password is never written to disk or handed to a shell.
+// then writes plan.js's homeRecord() (the systemd-homed user record, which
+// also carries the plaintext as `secret.password`) over stdin with mode 0600;
+// the plaintext is never placed in argv or handed to a shell string.
 pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell.Io
+import "plan.js" as Plan
 
 QtObject {
     id: root
@@ -36,11 +38,11 @@ QtObject {
     property var _actions: []
     property int _index: 0
     property string _lastLine: ""
-    // "run" for every ordinary action; WriteSecrets is the one kind needing
-    // a second process (hash, then write), tracked here so the shared
+    // "run" for every ordinary action; WriteHomeCredential is the one kind
+    // needing a second process (hash, then write), tracked here so the shared
     // Process's stdout/exit handlers know which half they are looking at.
     property string _phase: "run"
-    property string _secretPath: ""
+    property var _credential: null
 
     /// Start walking `actions` from the top. Re-entrant calls are not
     /// supported: one plan runs to `finished`/`failed` before another may
@@ -73,9 +75,9 @@ QtObject {
 
         if (action.kind === "WriteFile") {
             root._writeFile(action.path, action.contents, action.mode);
-        } else if (action.kind === "WriteSecrets") {
-            root._phase = "hashSecret";
-            root._secretPath = action.path;
+        } else if (action.kind === "WriteHomeCredential") {
+            root._phase = "hashPassword";
+            root._credential = action;
             proc.command = ["mkpasswd", "-m", "yescrypt", "--stdin"];
             proc._pendingStdin = action.userPassword;
             proc.stdinEnabled = true;
@@ -90,6 +92,17 @@ QtObject {
 
     function _writeFile(path, contents, mode) {
         proc.command = ["install", "-D", "-m", root._octal(mode), "/dev/stdin", path];
+        proc._pendingStdin = contents;
+        proc.stdinEnabled = true;
+        proc.running = true;
+    }
+
+    /// Mode 0600 file inside a 0700 directory. `install -D` would create the
+    /// parents with default modes, so the directory is made explicitly first.
+    /// Both paths reach the script as positional parameters, the contents
+    /// (which carry the plaintext password) over stdin.
+    function _writeCredential(path, contents) {
+        proc.command = ["sh", "-c", 'install -d -m 0700 "$(dirname "$1")" && install -m 0600 /dev/stdin "$1"', "sh", path];
         proc._pendingStdin = contents;
         proc.stdinEnabled = true;
         proc.running = true;
@@ -112,7 +125,7 @@ QtObject {
 
         stdout: SplitParser {
             onRead: data => {
-                if (root._phase === "hashSecret") {
+                if (root._phase === "hashPassword") {
                     if (data.trim().length > 0)
                         root._lastLine = data.trim();
                     return;
@@ -139,7 +152,7 @@ QtObject {
                 return;
             }
 
-            if (root._phase === "hashSecret") {
+            if (root._phase === "hashPassword") {
                 const hash = root._lastLine;
                 // yescrypt hashes start "$y$"; install.rs checks the same
                 // thing before trusting mkpasswd's stdout as a real hash.
@@ -147,8 +160,10 @@ QtObject {
                     root.failed(`${step.title}: mkpasswd did not produce a yescrypt hash`);
                     return;
                 }
-                root._phase = "writeSecret";
-                root._writeFile(root._secretPath, `{\n  userHash = "${hash}";\n}\n`, 384 /* 0o600 */);
+                root._phase = "writeCredential";
+                const cred = root._credential;
+                root._credential = null;
+                root._writeCredential(cred.path, Plan.homeRecord(cred.username, hash, cred.userPassword));
                 return;
             }
 

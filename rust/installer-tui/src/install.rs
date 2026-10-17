@@ -40,20 +40,22 @@ pub enum Action {
         capture: Capture,
     },
     /// Hash the user install password with `mkpasswd -m yescrypt --stdin`
-    /// (plaintext piped via stdin, never argv — no /proc leak) and write
-    /// `nix/secrets.nix` into the staged flake. `nixos-install` then evaluates
-    /// the flake with the hash present so userborn creates the account with
-    /// it on first boot (nix/modules/system/users.nix reads this file via
-    /// `builtins.pathExists` and sets `initialHashedPassword`). The file is
-    /// install-time-only: it is NOT stashed to /var/lib/dots, so the
-    /// dots-clone Home Manager service never restores it into the user's git
-    /// clone — a yescrypt hash is offline-crackable. On rebuild from the clean
-    /// user clone the file is absent, the hash is null, and userborn's
-    /// `shadow::Entry::update(None)` leaves the existing /var/lib/nixos shadow
-    /// entry alone (`mutableUsers = true`). The root account is intentionally
-    /// NOT given a password: `nixos-install --no-root-passwd` leaves it
-    /// locked, so the only login is the wheel user (with sudo).
-    WriteSecrets { path: String, user_password: String },
+    /// (plaintext piped via stdin, never argv: no /proc leak) and write the
+    /// systemd-homed user record to `path`
+    /// (`{mnt}/persist/etc/credstore/home.create.<username>`, see
+    /// [`home_record`]). On first boot `systemd-homed-firstboot.service`
+    /// imports it from `/etc/credstore` (bind-mounted from `/persist` by
+    /// impermanence) and creates the account. The file holds an offline-
+    /// crackable hash plus the plaintext password, so it is written 0600 in a
+    /// 0700 directory, is never stashed to /var/lib/dots and never touches the
+    /// staged flake. The root account is intentionally NOT given a password:
+    /// `nixos-install --no-root-passwd` leaves it locked, so the only login is
+    /// the wheel user (with sudo).
+    WriteHomeCredential {
+        path: String,
+        username: String,
+        user_password: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,9 +221,13 @@ done\
             },
         },
         Step {
-            title: "Write password hashes (secrets.nix)".into(),
-            action: Action::WriteSecrets {
-                path: format!("{STAGED_FLAKE}/nix/secrets.nix"),
+            title: "Write homed credential".into(),
+            action: Action::WriteHomeCredential {
+                path: format!(
+                    "{mnt}/persist/etc/credstore/home.create.{}",
+                    cfg.username
+                ),
+                username: cfg.username.clone(),
                 user_password: cfg.user_password.clone(),
             },
         },
@@ -231,8 +237,7 @@ done\
             // Layout on persist (bind-mounted to /var/lib/dots):
             //   facter.json          → /persist/var/lib/dots/facter.json
             //   settings.nix         → /persist/var/lib/dots/nix/settings.nix
-            // (mirrors the flake paths the service expects; secrets.nix is
-            // intentionally omitted — install-time only.)
+            // (mirrors the flake paths the service expects).
             action: cmd(
                 "sh",
                 &[
@@ -273,15 +278,13 @@ done\
                 Capture::Stream,
             ),
         },
-        // Note on the old `nixos-enter -- chpasswd` step, removed: under
-        // userborn + immutable /etc the user account does not exist at install
-        // time (userborn creates it at first boot from the closure baked by
-        // nixos-install), so chpasswd had no target. The declarative hashes in
-        // nix/secrets.nix (written above) are what actually seed the passwords
-        // — and because account creation is decoupled from TPM2 enrollment, a
-        // failed enrollment can no longer leave the installed system locked:
-        // the closure already carries the hashes and userborn runs at first
-        // boot regardless of the LUKS unlock method.
+        // Note on the old `nixos-enter -- chpasswd` step, removed: the account
+        // does not exist at install time (systemd-homed creates it at first
+        // boot from the credential written above), so chpasswd had no target.
+        // Because account creation is decoupled from TPM2 enrollment, a failed
+        // enrollment can no longer leave the installed system locked: the
+        // credential is already on /persist and homed imports it at first boot
+        // regardless of the LUKS unlock method.
         Step {
             title: "Enroll TPM2 unlock (PCR 7)".into(),
             action: cmd(
@@ -376,14 +379,39 @@ fn write_file_secure(path: &str, contents: &str, mode: u32) -> anyhow::Result<()
     Ok(())
 }
 
+/// The systemd-homed user record for the login account, imported on first
+/// boot from the `home.create.<username>` credential.
+///
+/// - `uid` 1000 keeps the uid earlier installs had.
+/// - `storage` is `subvolume` because /home is btrfs on the LUKS root, so a
+///   second per-user LUKS layer buys nothing.
+/// - `secret.password` is required by homed to create the home area; the
+///   system deletes the credential file once the account exists
+///   (nix/modules/system/homed.nix).
+/// - `enforcePasswordPolicy` is false so homed never stops at a pwquality
+///   prompt with nobody at the console.
+#[must_use]
+pub fn home_record(username: &str, password_hash: &str, password: &str) -> serde_json::Value {
+    serde_json::json!({
+        "userName": username,
+        "realName": username,
+        "uid": 1000,
+        "storage": "subvolume",
+        "shell": "/run/current-system/sw/bin/fish",
+        "memberOf": ["wheel", "audio", "video", "input", "networkmanager"],
+        "enforcePasswordPolicy": false,
+        "privileged": { "hashedPassword": [password_hash] },
+        "secret": { "password": [password] },
+    })
+}
+
 /// Hash a plaintext password with yescrypt via `mkpasswd -m yescrypt --stdin`
 /// (from the whois package; in `corePackageNames`, so it ships in
 /// /run/current-system/sw on every NixOS incl. the ISO — no Cargo dep, no extra
 /// Nix package). The password is piped through stdin, never argv, so it can't
 /// leak via /proc/<pid>/cmdline; mkpasswd generates a fresh urandom salt
-/// itself (no installer-side RNG). yescrypt (`$y$`) is in both the
-/// NixOS-accepted MCF scheme set and userborn's "secure" set, so crypt(3)
-/// verifies it at login and userborn logs no weak-scheme warning.
+/// itself (no installer-side RNG). yescrypt (`$y$`) is what homed's
+/// libcrypt verifies at login.
 fn hash_password(plaintext: &str) -> anyhow::Result<String> {
     use anyhow::Context;
     use std::io::Write;
@@ -411,9 +439,8 @@ fn hash_password(plaintext: &str) -> anyhow::Result<String> {
     );
     let hash = String::from_utf8(output.stdout)?.trim().to_string();
     // Guards against mkpasswd surfacing an error string on stdout instead of
-    // a real hash, and confirms the scheme is yescrypt before we embed it in a
-    // Nix `"..."` literal — yescrypt's alphabet (`./0-9A-Za-z`, no `{`) can't
-    // form a `${…}` interpolation, so the hash is safe in a Nix string.
+    // a real hash, and confirms the scheme is yescrypt before we embed it in
+    // the homed record.
     anyhow::ensure!(
         hash.starts_with("$y$"),
         "mkpasswd did not produce a yescrypt hash: {hash}"
@@ -436,16 +463,19 @@ fn exec_step(step: &Step, tx: &Sender<Event>) -> anyhow::Result<()> {
             Ok(())
         }
 
-        Action::WriteSecrets {
+        Action::WriteHomeCredential {
             path,
+            username,
             user_password,
         } => {
-            let user_hash = hash_password(user_password)?;
-            let contents = format!("{{\n  userHash = \"{user_hash}\";\n}}\n");
-            // 0600: the file carries offline-crackable hashes; it lives on the
-            // ISO tmpfs (STAGED_FLAKE) and is gone after reboot, but tight
-            // perms while it exists don't cost anything.
-            write_file_secure(path, &contents, 0o600)?;
+            use std::os::unix::fs::PermissionsExt;
+            let hash = hash_password(user_password)?;
+            let json = serde_json::to_string_pretty(&home_record(username, &hash, user_password))?;
+            if let Some(dir) = std::path::Path::new(path).parent() {
+                std::fs::create_dir_all(dir)?;
+                std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+            }
+            write_file_secure(path, &json, 0o600)?;
             Ok(())
         }
 

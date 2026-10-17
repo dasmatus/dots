@@ -47,6 +47,7 @@ let
       inputs
       dotsFlake
       tokyonightModules
+      homedTestUser
       ;
   };
 
@@ -69,14 +70,18 @@ let
       inputs
       tokyonightModules
       dotsFlake
+      homedTestUser
       ;
   };
 
   # Precomputed `mkpasswd -m yescrypt --stdin` of the literal "test" — the same
-  # path the installer's WriteSecrets step uses (rust/installer-tui/src/install.rs).
+  # path the installer's homed credential step uses (rust/installer-tui/src/install.rs).
   # Hardcoded (not generated) so the test is pure and reproducible; a $y$ hash
   # contains no `${` so it is safe unescaped in a Nix "..." literal.
   testHash = "$y$j9T$LvJdbOoLbTqQ/kknEXAf50$78JSMgcaSLcsay2xhRffsLJnc.dmvTEo5nS9BXTe3l8";
+
+  # The homed "test" account every tokyonightModules VM logs in as.
+  homedTestUser = import ./homed-user.nix { inherit testHash; };
 
   # tokyonight with VM-sized disks/swap so the disko layout fits /dev/vda and
   # the closure can be pre-built. The committed settings.nix has /dev/nvme0n1 +
@@ -630,88 +635,11 @@ let
     '';
   };
 
-  # The load-bearing "can I log in after reboot?" guarantee for the
-  # nixos-init migration: userborn creates the account at FIRST boot (not at
-  # nixos-install time) and writes passwd/shadow/group to /var/lib/nixos —
-  # pinned there explicitly via `passwordFilesLocation` so it holds under the
-  # MUTABLE /etc core.nix ships (mutable=true lets NetworkManager write
-  # /etc/NetworkManager/system-connections; see memory:
-  # etc-overlay-mutable-required-for-bindmounts). Without that pin, userborn's
-  # default (`/var/lib/nixos` only when /etc is immutable, else `/etc`) would
-  # move credentials onto the tmpfs-wiped, unpersisted /etc overlay upperdir
-  # → login works on first boot but the hash vanishes on reboot → locked out.
-  # This test mirrors production (mutable=true + the pin) so a regression that
-  # drops the pin, flips /etc mutability, or rewires impermanence away from
-  # /var/lib/nixos fails here instead of shipping. Verifies the contract the
-  # installer's WriteSecrets step (declarative yescrypt → nix/secrets.nix →
-  # initialHashedPassword) relies on. The real PAM-keystroke login on a tty is
-  # deliberately NOT exercised here: the backdoor runs as root, so reading
-  # shadow directly is a strict superset of the information a tty login would
-  # produce (the password matching the hash is guaranteed by construction via
-  # mkpasswd; the unknown is whether the hash survives reboot, which this
-  # asserts). The tmpfs-ephemeral-root half of the impermanence story is
-  # covered by eval/build verification (tokyonight toplevel builds clean with
-  # the impermanence module + the persistence set generates the expected
-  # bind-mount fileSystems) rather than a flaky disk-format-in-VM harness.
-  userbornRebootLogin = pkgs.testers.runNixOSTest {
-    name = "userborn-reboot-login";
-    nodes.machine = {
-      # system.etc.overlay asserts a systemd initrd (it mounts the erofs+
-      # overlayfs /etc image from the store in stage 1).
-      boot.initrd.systemd.enable = true;
-      services.userborn.enable = true;
-      system.etc.overlay = {
-        enable = true;
-        # Mirrors core.nix: mutable so /etc writers (NetworkManager) work.
-        mutable = true;
-      };
-      # The pin from users.nix — load-bearing under mutable /etc (see above).
-      # Without it this test would pass against a /etc shadow that the tmpfs
-      # root wipes, masking the reboot lockout the way the prior mutable=false
-      # version of this test masked the cddf5de regression.
-      services.userborn.passwordFilesLocation = "/var/lib/nixos";
-      # initialHashedPassword is only applied at account creation, then a
-      # no-op update preserves it — matching users.nix on the real system, so
-      # the hash is not re-forced every boot (which would mask a drift bug).
-      users.mutableUsers = true;
-      users.users.alice = {
-        isNormalUser = true;
-        initialHashedPassword = testHash;
-      };
-    };
-    testScript = ''
-      machine.start()
-      machine.wait_for_unit("userborn.service")
-
-      # /etc/shadow must be a direct symlink into /var/lib/nixos — the
-      # signature that the passwordFilesLocation pin held (userborn would
-      # otherwise default to /etc under mutable /etc and write a real file
-      # there, which the tmpfs root would wipe on reboot).
-      shadow_target = machine.succeed("readlink -f /etc/shadow").strip()
-      # userborn writes /var/lib/nixos/{passwd,shadow,group} directly (no
-      # `etc/` subdir), so the contract is "symlinks somewhere under
-      # /var/lib/nixos", not a specific filename.
-      assert shadow_target.startswith("/var/lib/nixos/"), shadow_target
-
-      # The declarative yescrypt hash landed in the persisted shadow verbatim.
-      assert "${testHash}" in machine.succeed("getent shadow alice"), \
-          "initialHashedPassword missing from shadow"
-
-      # Reboot equivalent: shutdown the VM and cold-start it again from the same
-      # persistent qcow2 root disk. We use shutdown()+start() rather than
-      # reboot() because this test-driver version's reboot() reconnect is flaky
-      # under TCG (QEMU exits on the guest reset and the driver fails to
-      # relaunch it); shutdown+start relaunches QEMU explicitly, which is the
-      # same "credentials on persistent storage survive a restart" check. The
-      # credentials live under /var/lib/nixos on the persistent root disk, so
-      # the hash must still be there — i.e. login still works after a restart.
-      machine.shutdown()
-      machine.start()
-      machine.wait_for_unit("userborn.service")
-      assert "${testHash}" in machine.succeed("getent shadow alice"), \
-          "hashed password did not survive restart"
-    '';
-  };
+  # homed-accounts — the login account as a systemd-homed record, created
+  # from the installer's credential on a fresh install and from
+  # scripts/homed-migrate.sh's on a userborn install, through a restart and a
+  # real password login. See tests/homed.nix.
+  homedAccountsTest = import ./homed.nix { inherit pkgs testHash; };
 
 in
 {
@@ -722,7 +650,7 @@ in
   # own comment and tests/session-boot.nix's header.
   session-boot = sessionBootTest;
   iso-boot = isoBootTest;
-  userborn-reboot-login = userbornRebootLogin;
+  homed-accounts = homedAccountsTest;
   limine-install-home = limineHomeTest;
   limine-install-boot = limineInstallBootTest;
 }

@@ -2,7 +2,8 @@
 
 use dots_installer::config::InstallConfig;
 use dots_installer::install::{
-    plan, swap_size_from_meminfo, Action, Capture, Step, LUKS_DEVICE, LUKS_PASSFILE, STAGED_FLAKE,
+    home_record, plan, swap_size_from_meminfo, Action, Capture, Step, LUKS_DEVICE, LUKS_PASSFILE,
+    STAGED_FLAKE,
 };
 
 fn cfg() -> InstallConfig {
@@ -279,7 +280,7 @@ fn plan_never_references_mnt_etc_dots() {
                     step.title
                 );
             }
-            Action::WriteSecrets { path, .. } => {
+            Action::WriteHomeCredential { path, .. } => {
                 assert!(
                     !path.contains("/mnt/etc/dots"),
                     "{}: path leaked /mnt/etc/dots",
@@ -321,13 +322,7 @@ fn plan_enrolls_tpm2_then_recovery_key() {
 }
 
 #[test]
-fn plan_seeds_passwords_via_secrets_nix_not_chpasswd() {
-    // Under userborn + immutable /etc the user account does not exist at
-    // install time (userborn creates it at first boot from the closure baked
-    // by nixos-install), so the old `nixos-enter -- chpasswd` step had no
-    // target. The declarative yescrypt hashes in nix/secrets.nix replace it:
-    // the WriteSecrets step computes them from the plaintext passwords and
-    // writes the file into the staged flake.
+fn plan_seeds_password_via_home_credential_not_chpasswd() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let has_chpasswd = steps.iter().any(|s| {
         matches!(
@@ -336,25 +331,25 @@ fn plan_seeds_passwords_via_secrets_nix_not_chpasswd() {
             if program == "nixos-enter" && args.iter().any(|a| a == "chpasswd")
         )
     });
-    assert!(
-        !has_chpasswd,
-        "chpasswd step should be replaced by WriteSecrets"
-    );
+    assert!(!has_chpasswd, "chpasswd step should not exist");
 
-    let user_password = steps
+    let (username, user_password) = steps
         .iter()
         .find_map(|s| match &s.action {
-            Action::WriteSecrets {
+            Action::WriteHomeCredential {
                 path,
+                username,
                 user_password,
-            } if path == &format!("{STAGED_FLAKE}/nix/secrets.nix") => Some(user_password.clone()),
+            } if path == "/mnt/persist/etc/credstore/home.create.alice" => {
+                Some((username.clone(), user_password.clone()))
+            }
             _ => None,
         })
-        .expect("WriteSecrets step writing nix/secrets.nix");
+        .expect("WriteHomeCredential step writing the persist credstore file");
+    assert_eq!(username, "alice");
     assert_eq!(user_password, "usersecret");
 
-    // The user password must never appear in any command's argv: the
-    // WriteSecrets runner pipes it to mkpasswd via stdin, so it never hits
+    // The runner pipes the password to mkpasswd via stdin, so it never hits
     // /proc argv.
     for s in &steps {
         if let Action::Command { program, args, .. } = &s.action {
@@ -368,33 +363,44 @@ fn plan_seeds_passwords_via_secrets_nix_not_chpasswd() {
 }
 
 #[test]
-fn plan_writes_secrets_before_install_and_never_stashes_them() {
+fn plan_writes_home_credential_after_disko() {
     let steps = plan(&cfg(), "/etc/dots", "/mnt");
     let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
-    let secrets = idx(&|s| matches!(&s.action, Action::WriteSecrets { .. }));
-    let install = idx(
-        &|s| matches!(&s.action, Action::Command { program, .. } if program == "nixos-install"),
-    );
-    assert!(
-        secrets < install,
-        "secrets.nix must be written before nixos-install evaluates the flake"
-    );
+    let disko =
+        idx(&|s| matches!(&s.action, Action::Command { program, .. } if program == "disko"));
+    let cred = idx(&|s| matches!(&s.action, Action::WriteHomeCredential { .. }));
+    assert!(disko < cred, "/mnt/persist only exists after disko mounts");
+}
 
-    // The load-bearing git-leak guard: secrets.nix must never reach
-    // /var/lib/dots, or dots-clone (nix/home/base/dots-repo.nix) would restore it
-    // into the user's git clone and a yescrypt hash would be committable.
-    // No command in the plan may reference secrets.nix at all. The stash cp
-    // lists only settings.nix + facter.json, and WriteSecrets writes into the
-    // tmpfs STAGED_FLAKE, not the target.
+#[test]
+fn plan_never_references_secrets_nix() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
     for s in &steps {
-        if let Action::Command { program, args, .. } = &s.action {
-            let joined = format!("{program} {}", args.join(" "));
-            assert!(
-                !joined.contains("secrets.nix"),
-                "secrets.nix must not appear in any command (would risk stashing it): {joined}"
-            );
-        }
+        let text = match &s.action {
+            Action::Command { program, args, .. } => format!("{program} {}", args.join(" ")),
+            Action::WriteFile { path, contents, .. } => format!("{path} {contents}"),
+            Action::WriteHomeCredential { path, .. } => path.clone(),
+        };
+        assert!(!text.contains("secrets.nix"), "{}: {text}", s.title);
+        assert!(!s.title.contains("secrets.nix"), "{}", s.title);
     }
+}
+
+#[test]
+fn home_record_has_exact_shape() {
+    let got = home_record("alice", "$y$hash", "usersecret");
+    let want = serde_json::json!({
+        "userName": "alice",
+        "realName": "alice",
+        "uid": 1000,
+        "storage": "subvolume",
+        "shell": "/run/current-system/sw/bin/fish",
+        "memberOf": ["wheel", "audio", "video", "input", "networkmanager"],
+        "enforcePasswordPolicy": false,
+        "privileged": { "hashedPassword": ["$y$hash"] },
+        "secret": { "password": ["usersecret"] },
+    });
+    assert_eq!(got, want);
 }
 
 #[test]
