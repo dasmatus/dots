@@ -84,11 +84,12 @@ pkgs.testers.runNixOSTest {
     with subtest("fresh install: the installer's credential creates the account"):
         fresh.start()
         # No credential on this boot and no person yet, so homectl's rescue
-        # wizard asks on the console, and boot waits for it. Seeing the
-        # prompt proves Nix's build users no longer count as people
+        # wizard asks on /dev/console (tty1 here, the last console= on the
+        # kernel command line), and boot waits for it. Seeing the prompt
+        # proves Nix's build users no longer count as people
         # (auto-allocate-uids in homed.nix); an empty answer skips it.
-        fresh.wait_for_console_text("Please enter user name to create")
-        fresh.send_console("\n")
+        fresh.wait_until_tty_matches("1", "Please enter user name to create")
+        fresh.send_key("ret")
         fresh.wait_for_unit("multi-user.target")
         fresh.fail("userdbctl user alice")
         plant_credential(fresh)
@@ -108,8 +109,8 @@ pkgs.testers.runNixOSTest {
         migrated.start()
         # The userborn account is gone with the switch, so this boot also
         # finds nobody and asks; skipped, as on the fresh node.
-        migrated.wait_for_console_text("Please enter user name to create")
-        migrated.send_console("\n")
+        migrated.wait_until_tty_matches("1", "Please enter user name to create")
+        migrated.send_key("ret")
         migrated.wait_for_unit("multi-user.target")
         migrated.succeed(
             "mkdir -p /home/alice/docs",
