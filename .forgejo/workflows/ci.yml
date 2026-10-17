@@ -90,6 +90,7 @@ jobs:
           nix build -L \
             .#checks.x86_64-linux.settings-eval \
             .#checks.x86_64-linux.facter-stub-eval \
+            .#checks.x86_64-linux.sysupdate-eval \
             .#checks.x86_64-linux.facter-nvidia-eval \
             .#checks.x86_64-linux.fido-2fa-eval \
             .#checks.x86_64-linux.aipage-eval \

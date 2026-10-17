@@ -38,6 +38,7 @@ on:
       - ".github/workflows/ci.yml"
       - ".github/workflows/pages.yml"
       - ".github/workflows/lockfile-updates.yml"
+      - ".github/workflows/nightly.yml"
   workflow_dispatch:
 
 permissions:
