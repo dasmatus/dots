@@ -39,6 +39,7 @@ let
     ../nix/modules/system/kernel.nix
     ../nix/modules/system/boot.nix
     ../nix/modules/system/network.nix
+    ../nix/modules/system/systemd.nix
     ../nix/modules/services/searxng.nix
     ../nix/modules/system/virtualisation.nix
     ../nix/modules/system/users.nix

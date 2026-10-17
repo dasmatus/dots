@@ -45,8 +45,27 @@ let
   # common-flags.nix then points `CC=`/`LD=`/`AR=`/... at the now-real LLVM
   # unwrapped binaries, which is functionally `LLVM=1` even though nixpkgs
   # never literally passes that make variable.
-  llvmStdenv = pkgs.overrideCC pkgs.llvmPackages.stdenv (
-    pkgs.llvmPackages.stdenv.cc.override { bintools = pkgs.llvmPackages.bintools; }
+  #
+  # lld is rebuilt with GCC 15 because nixpkgs now builds LLVM with GCC 16,
+  # and an lld 21 built that way breaks this kernel. lld 21 memsets each
+  # ELF Symbol's storage and then constructs the Symbol in it, leaving some
+  # fields to the constructor. The standard does not promise the zeroes
+  # survive the construction, and GCC 16 drops them. ThinLTO hands every module's codegen and `ld -r`
+  # to lld, and objtool then rejects the result: `fs/mbcache.o: error:
+  # objtool: bad .discard.annotate_insn entry: 0 of type 3`. The same
+  # source, config and clang 21.1.8 build cleanly with the GCC 15 lld of
+  # the previous nixpkgs pin, and swapping only `LD=` back to that lld is
+  # enough. Upstream fixed it in lld 23 and backported the fix to 22.x
+  # (ClangBuiltLinux/linux#2162, "[ELF] Initialize Symbol fields in the
+  # constructor instead of via memset"); 21.1.8 does not have it. Drop this override
+  # once `llvmPackages` is 22 or newer, or nixpkgs builds lld 21 with that
+  # fix. Only lld and the wrappers above it rebuild; clang, libLLVM and
+  # the rest of the toolchain stay cache hits.
+  kernelLlvm = pkgs.llvmPackages.overrideScope (
+    _: prev: { lld = prev.lld.override { stdenv = pkgs.gcc15Stdenv; }; }
+  );
+  llvmStdenv = pkgs.overrideCC kernelLlvm.stdenv (
+    kernelLlvm.stdenv.cc.override { bintools = kernelLlvm.bintools; }
   );
 
   # -- The source pin (R39 / research-mainline-pin.md) -------------------

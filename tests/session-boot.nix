@@ -541,5 +541,23 @@ pkgs.testers.runNixOSTest {
         # loading and reach "active" — so it gets its own assertion.
         apparmor_state = machine.succeed("systemctl is-active apparmor.service").strip()
         assert apparmor_state == "active", f"apparmor.service is not active: {apparmor_state!r}"
+
+        # nix/modules/system/systemd.nix: resolved is the resolver, and
+        # NetworkManager hands it DNS rather than writing resolv.conf itself.
+        # A resolved that is installed but inactive leaves /etc/resolv.conf
+        # pointing at a stub nobody answers, so check it is running and that
+        # resolv.conf is resolved's.
+        resolved_state = machine.succeed("systemctl is-active systemd-resolved.service").strip()
+        assert resolved_state == "active", f"systemd-resolved is not active: {resolved_state!r}"
+        machine.succeed("grep -q '^nameserver 127.0.0.53$' /etc/resolv.conf")
+
+        # sysext/confext: both units carry ConditionDirectoryNotEmpty= on
+        # their extension directories, so on a system with no extension they
+        # are condition-skipped, which --failed above does not count. A
+        # non-zero ConditionTimestamp proves sysinit.target pulled them in
+        # and systemd evaluated them, which is what systemd.nix wires up.
+        for unit in ("systemd-sysext.service", "systemd-confext.service"):
+            checked = machine.succeed(f"systemctl show -p ConditionTimestampMonotonic --value {unit}").strip()
+            assert checked not in ("", "0"), f"{unit} was never started at boot"
   '';
 }
