@@ -83,6 +83,27 @@ let
   # The homed "test" account every tokyonightModules VM logs in as.
   homedTestUser = import ./homed-user.nix { inherit testHash; };
 
+  # The record install.rs::home_record writes for "test", so the installed
+  # system has a person on it and homectl's rescue wizard stays off the
+  # console the boot is watched on.
+  installedHomeCredential = builtins.toJSON {
+    userName = "test";
+    realName = "test";
+    uid = 1000;
+    storage = "subvolume";
+    shell = "/run/current-system/sw/bin/fish";
+    memberOf = [
+      "wheel"
+      "audio"
+      "video"
+      "input"
+      "networkmanager"
+    ];
+    enforcePasswordPolicy = false;
+    privileged.hashedPassword = [ testHash ];
+    secret.password = [ "test" ];
+  };
+
   # tokyonight with VM-sized disks/swap so the disko layout fits /dev/vda and
   # the closure can be pre-built. The committed settings.nix has /dev/nvme0n1 +
   # 32G swap, which changes the disko-generated swapDevices/disk entries and
@@ -514,6 +535,14 @@ let
           installer.succeed(
               "nixos-install --root /mnt --no-root-passwd"
               " --flake /tmp/dots-flake#tokyonight < /dev/null >&2"
+          )
+
+      with subtest("Write the homed credential (install.rs's WriteHomeCredential)"):
+          cred_b64 = base64.b64encode(r"""${installedHomeCredential}""".encode()).decode()
+          installer.succeed(
+              "install -d -m 0700 /mnt/persist/etc/credstore"
+              f" && printf '%s' {cred_b64} | base64 -d > /mnt/persist/etc/credstore/home.create.test"
+              " && chmod 0600 /mnt/persist/etc/credstore/home.create.test"
           )
 
       with subtest("Probe the $HOME limine-install.nix's bootloader step saw"):
