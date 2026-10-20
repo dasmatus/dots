@@ -22,6 +22,7 @@
   services.fwupd.enable = true;
   security.pam.services.login.enableGnomeKeyring = true;
   networking.hostName = config.dots.hostname;
+  system.stateVersion = settings.system.stateVersion;
   system.nixos = {
     distroName = "dasmatus/dots";
     variantName = settings.hostname;
