@@ -99,4 +99,16 @@ self: {
     doCheck = false;
     meta.mainProgram = "dots-secreport";
   };
+  # The loopback server nix/modules/system/sysupdate.nix starts while
+  # systemd-sysupdate fetches the weekly full LiveISO, which GitHub only
+  # holds in parts (rust/dots-release-proxy/src/lib.rs).
+  dots-release-proxy = pkgs.rustPlatform.buildRustPackage {
+    pname = "dots-release-proxy";
+    version = "0.1.0";
+    src = ../rust/dots-release-proxy;
+    cargoLock.lockFile = ../rust/dots-release-proxy/Cargo.lock;
+    # Tested in the cargo lanes (.github/workflows/ci.yml), like the rest.
+    doCheck = false;
+    meta.mainProgram = "dots-release-proxy";
+  };
 }
