@@ -30,21 +30,31 @@ in
         "modesetting"
       ];
     pkgs.writeText "facter-stub-ok" "modesetting";
-  # The nightly LiveISO transfer (nix/modules/system/sysupdate.nix) must name
-  # the same file pattern .github/workflows/nightly.yml publishes, and must
-  # not download anything until the timer is asked for.
+  # The nightly LiveISO and flake transfers (nix/modules/system/sysupdate.nix)
+  # must name the same file patterns .github/workflows/nightly.yml publishes,
+  # and must not download anything until asked.
   sysupdate-eval =
     let
       cfg = self.nixosConfigurations.tokyonight.config;
       transfer = cfg.environment.etc."sysupdate.dots-iso.d/50-installer.transfer".text;
       has = needle: lib.hasInfix needle transfer;
+      isoFlakeTransfer =
+        self.nixosConfigurations.live-iso.config.environment.etc."sysupdate.dots-flake.d/50-flake.transfer".text;
     in
     assert has "Type=url-file";
     assert has "Path=https://github.com/dasmatus/dots/releases/download/nightly/";
     assert has "MatchPattern=tokyonight-dots-installer_@v.iso";
     assert has "Path=/var/lib/dots-iso";
     assert !(cfg.systemd.timers ? dots-iso-update);
-    pkgs.writeText "sysupdate-ok" transfer;
+    # Only the LiveISO fetches the flake: the installed system updates
+    # through nixos-rebuild, and the installer TUI's stage step globs the
+    # directory names this target pattern produces.
+    assert !(cfg.environment.etc ? "sysupdate.dots-flake.d/50-flake.transfer");
+    assert lib.hasInfix "MatchPattern=dots-flake_@v" isoFlakeTransfer;
+    assert lib.hasInfix "MatchPattern=tokyonight-dots-flake_@v.tar.gz" isoFlakeTransfer;
+    assert lib.hasInfix "Type=url-tar" isoFlakeTransfer;
+    assert lib.hasInfix "Path=/var/lib/dots-flake" isoFlakeTransfer;
+    pkgs.writeText "sysupdate-ok" (transfer + isoFlakeTransfer);
   # Phase A (docs/superpowers/specs/2026-09-08-hardening-design.md): assert
   # the REALISED kernel .config, not the requested structuredExtraConfig —
   # a dropped or silently-overridden option (an unmet Kconfig `depends on`,

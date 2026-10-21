@@ -15,6 +15,13 @@
 #
 # dots.sysupdate.installerTimer turns on a weekly fetch.
 #
+# dots.sysupdate.flake adds a second component, dots-flake, for the flake
+# source tarball the same nightly release carries. The LiveISO turns it on
+# (nix/system/iso.nix): the installer TUI runs
+# `systemd-sysupdate --component=dots-flake update` before it stages the flake
+# (rust/installer-tui/src/install.rs), so an old ISO still installs the newest
+# configuration, and falls back to the ISO's own /etc/dots when offline.
+#
 # Verify=no because the release is unsigned. sysupdate still checks every
 # file against the release's SHA256SUMS, fetched over HTTPS from the same
 # GitHub release, so this guards against corruption but not against someone
@@ -22,12 +29,14 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 let
   cfg = config.dots.sysupdate;
   dir = "/var/lib/dots-iso";
   pattern = "tokyonight-dots-installer_@v.iso";
+  flakeDir = "/var/lib/dots-flake";
   sysupdate = "${config.systemd.package}/lib/systemd/systemd-sysupdate";
 in
 {
@@ -41,47 +50,79 @@ in
         layout systemd-sysupdate's url-file source reads.
       '';
     };
+    flake = lib.mkEnableOption "the dots-flake sysupdate component, which unpacks the newest nightly flake source into ${flakeDir}";
   };
 
-  config = {
-    environment.etc."sysupdate.dots-iso.d/50-installer.transfer".text =
-      lib.generators.toINI { listsAsDuplicateKeys = true; }
-        {
-          Transfer.Verify = false;
-          Source = {
-            Type = "url-file";
-            Path = cfg.source;
-            MatchPattern = pattern;
+  config = lib.mkMerge [
+    {
+      environment.etc."sysupdate.dots-iso.d/50-installer.transfer".text =
+        lib.generators.toINI { listsAsDuplicateKeys = true; }
+          {
+            Transfer.Verify = false;
+            Source = {
+              Type = "url-file";
+              Path = cfg.source;
+              MatchPattern = pattern;
+            };
+            Target = {
+              Type = "regular-file";
+              Path = dir;
+              MatchPattern = pattern;
+              Mode = "0444";
+              # The one in use by a running `dd` survives the next fetch.
+              InstancesMax = 2;
+            };
           };
-          Target = {
-            Type = "regular-file";
-            Path = dir;
-            MatchPattern = pattern;
-            Mode = "0444";
-            # The one in use by a running `dd` survives the next fetch.
-            InstancesMax = 2;
-          };
+
+      systemd.tmpfiles.settings."10-dots-iso".${dir}.d.mode = "0755";
+
+      systemd.services.dots-iso-update = {
+        description = "Fetch the nightly tokyonight-dots LiveISO";
+        wants = [ "network-online.target" ];
+        after = [ "network-online.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = "${sysupdate} --component=dots-iso update";
         };
-
-    systemd.tmpfiles.settings."10-dots-iso".${dir}.d.mode = "0755";
-
-    systemd.services.dots-iso-update = {
-      description = "Fetch the nightly tokyonight-dots LiveISO";
-      wants = [ "network-online.target" ];
-      after = [ "network-online.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${sysupdate} --component=dots-iso update";
       };
-    };
 
-    systemd.timers.dots-iso-update = lib.mkIf cfg.installerTimer {
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnCalendar = "weekly";
-        Persistent = true;
-        RandomizedDelaySec = "6h";
+      systemd.timers.dots-iso-update = lib.mkIf cfg.installerTimer {
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnCalendar = "weekly";
+          Persistent = true;
+          RandomizedDelaySec = "6h";
+        };
       };
-    };
-  };
+    }
+
+    (lib.mkIf cfg.flake {
+      # url-tar unpacks each tarball into its own directory, dots-flake_<v>;
+      # the installer stages whichever sorts last.
+      environment.etc."sysupdate.dots-flake.d/50-flake.transfer".text =
+        lib.generators.toINI { listsAsDuplicateKeys = true; }
+          {
+            Transfer.Verify = false;
+            Source = {
+              Type = "url-tar";
+              Path = cfg.source;
+              MatchPattern = "tokyonight-dots-flake_@v.tar.gz";
+            };
+            Target = {
+              Type = "directory";
+              Path = flakeDir;
+              MatchPattern = "dots-flake_@v";
+              InstancesMax = 2;
+            };
+          };
+
+      systemd.tmpfiles.settings."10-dots-flake".${flakeDir}.d.mode = "0755";
+
+      # systemd-sysupdate lives in lib/systemd, off PATH; the installer calls
+      # it by name.
+      environment.systemPackages = [
+        (pkgs.writeShellScriptBin "systemd-sysupdate" ''exec ${sysupdate} "$@"'')
+      ];
+    })
+  ];
 }

@@ -70,8 +70,10 @@ nix/
   from detection; NVIDIA is switched via if-then-else on the report (facter
   deliberately doesn't auto-configure the proprietary driver).
 - `system/iso.nix` — the LiveISO: embeds this flake at `/etc/dots`, auto-launches
-  `dots-installer` on tty1. The installer stages a writable copy of that flake at
-  `/tmp/dots-flake` and runs `nixos-install` from there; the installed system no
+  `dots-installer` on tty1. The installer first fetches the newest nightly flake
+  with systemd-sysupdate (`dots-flake` component, `modules/system/sysupdate.nix`),
+  falls back to `/etc/dots` when offline, stages a writable copy of whichever it
+  got at `/tmp/dots-flake` and runs disko and `nixos-install` from there; the installed system no
   longer gets an `/etc/dots` copy — instead a first-login clone lands at
   `~/Dokumente/gitlab/personal/dots` (see `home/base/dots-repo.nix`).
 - `packages/` — derivations for software nixpkgs does not carry in the shape this

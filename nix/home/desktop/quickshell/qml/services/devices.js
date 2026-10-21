@@ -33,7 +33,7 @@
 .pragma library
 
 /// lsblk emits native booleans (util-linux >= 2.37) or "0"/"1" strings,
-/// same ambiguity qml/installer/disks.js guards against for the same field.
+/// the same ambiguity rust/installer-tui/src/disks.rs handles for the same field.
 function flag(v) {
     if (typeof v === "boolean")
         return v;

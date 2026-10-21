@@ -86,6 +86,7 @@ fn run(app_state: app::App) -> anyhow::Result<()> {
     // `request_full_redraw` below) — raise it on slow/SSH links to cut idle
     // byte cost at the cost of slower desync healing while idle.
     let poll = idle_interval();
+    let mut announced = false;
 
     loop {
         // 0. Force a full-screen rewrite this draw. `request_full_redraw`
@@ -127,6 +128,10 @@ fn run(app_state: app::App) -> anyhow::Result<()> {
         // 4. Pump the engine: process input (the `on_event` key bridge calls
         //    `handle_key`), run effects, layout, render.
         let turn = driver.turn(&mut engine, &mut term)?;
+        if !announced {
+            announce_ready();
+            announced = true;
+        }
 
         // 5. Quit when the state machine asks for it.
         if app_sig.with_untracked(|a| a.should_quit) {
@@ -178,6 +183,20 @@ fn drain_net(
         app_sig.update(|a| a.on_net_event(ev));
         if app_sig.with_untracked(|a| a.screen) != prev {
             fx_sig.update(|f| f.retarget_screen(0.0));
+        }
+    }
+}
+
+/// Write the `DOTS_UI_READY` marker to the device named by
+/// `DOTS_UI_READY_TTY` once the first frame is on screen. The live ISO points
+/// it at the serial console, where the `iso-boot` check (tests/default.nix)
+/// waits for it; unset, nothing is written. Best effort: a missing device
+/// never stops the installer.
+fn announce_ready() {
+    use std::io::Write;
+    if let Some(path) = std::env::var_os("DOTS_UI_READY_TTY") {
+        if let Ok(mut tty) = std::fs::OpenOptions::new().write(true).open(path) {
+            let _ = tty.write_all(b"DOTS_UI_READY\n");
         }
     }
 }

@@ -71,6 +71,14 @@ pub const LUKS_DEVICE: &str = "/dev/tokyonightvg/root";
 /// `nixos-install` — the ISO's `/etc/dots` is a read-only store path. Lives
 /// on ISO tmpfs and is gone after reboot.
 pub const STAGED_FLAKE: &str = "/tmp/dots-flake";
+/// The systemd-sysupdate component that carries the flake source the nightly
+/// release publishes next to the ISO (`/etc/sysupdate.dots-flake.d`, see
+/// nix/modules/system/sysupdate.nix).
+pub const SYSUPDATE_COMPONENT: &str = "dots-flake";
+/// Where systemd-sysupdate unpacks each flake version, one `dots-flake_<v>`
+/// directory per version. On the ISO this is tmpfs, so a fetch never outlives
+/// the live session.
+pub const FETCHED_FLAKES: &str = "/var/lib/dots-flake";
 
 /// Round `MemTotal` up to whole GiB — parity with `config.ram_gib()` in the
 /// Gentoo installer (swap sized = RAM).
@@ -94,11 +102,16 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
     }
 }
 
-/// The full install sequence. `flake_src` is where the ISO carries the flake
-/// (/etc/dots); the plan stages a writable copy at [`STAGED_FLAKE`] and
-/// installs from there, then stashes the two machine-specific answer files
-/// at `{mnt}/persist/var/lib/dots` (facter.json at the top level,
-/// settings.nix under `nix/`) — on the persistent /persist subvol, since the
+/// The full install sequence. systemd-sysupdate first pulls the newest flake
+/// source the nightly release publishes into [`FETCHED_FLAKES`], so an ISO
+/// that is weeks old still installs today's configuration; when that fails
+/// (offline, release unreachable) the install falls back to `flake_src`,
+/// where the ISO carries the flake it was built from (/etc/dots). Whichever
+/// wins is staged as a writable copy at [`STAGED_FLAKE`], and disko and
+/// nixos-install both read that copy, so the disk layout and the system
+/// always come from the same revision. The plan then stashes the two
+/// machine-specific answer files at `{mnt}/persist/var/lib/dots`
+/// (facter.json at the top level, settings.nix under `nix/`) — on the persistent /persist subvol, since the
 /// root is a tmpfs wiped each boot (nix/modules/system/impermanence.nix) and
 /// nixos-impermanence bind-mounts /persist/var/lib/dots → /var/lib/dots so
 /// the first-login `dots-clone` user service can pick them up. The repo
@@ -142,30 +155,27 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             ),
         },
         Step {
-            title: "Partition, encrypt and mount (disko)".into(),
+            title: "Fetch newest flake (systemd-sysupdate)".into(),
             action: cmd(
-                "disko",
+                "sh",
                 &[
-                    "--mode",
-                    "destroy,format,mount",
-                    "--yes-wipe-all-disks",
-                    "--arg",
-                    "disks",
-                    &disks_arg,
-                    "--argstr",
-                    "swapSize",
-                    &swap,
-                    &format!("{flake_src}/nix/system/disko.nix"),
+                    "-c",
+                    &format!(
+                        "systemd-sysupdate --component={SYSUPDATE_COMPONENT} update \
+|| echo 'systemd-sysupdate could not fetch the flake; installing the copy on this ISO'"
+                    ),
                 ],
                 None,
                 Capture::Stream,
             ),
         },
         Step {
-title: "Stage flake for install".into(),
-            // Copy to a temporary name then mv so a partially-removed previous
-            // tree (open file, immutable bit, …) can never leave stale files
-            // inside the flake source that nixos-install later evaluates.
+            title: "Stage flake for install".into(),
+            // The newest directory sysupdate unpacked wins; versions are
+            // YYYYMMDD.HHMM, so a plain sort orders them. Copy to a temporary
+            // name then mv so a partially-removed previous tree (open file,
+            // immutable bit, …) can never leave stale files inside the flake
+            // source that disko and nixos-install later evaluate.
             //
             // /etc/dots is a nix-store tree with absolute dangling symlinks
             // (nix/data/settings.nix → /var/lib/dots/settings.nix).  cp -L fails
@@ -179,9 +189,12 @@ title: "Stage flake for install".into(),
                 &[
                     "-c",
                     &format!(
-                        "rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new \
+                        "src=$(ls -1d {FETCHED_FLAKES}/{SYSUPDATE_COMPONENT}_* 2>/dev/null | sort | tail -n 1); \
+src=${{src:-{flake_src}}}; \
+echo \"staging the flake from $src\" \
+&& rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new \
 && mkdir -p {STAGED_FLAKE}.new \
-&& cp -a {flake_src}/. {STAGED_FLAKE}.new/ \
+&& cp -a \"$src\"/. {STAGED_FLAKE}.new/ \
 && find {STAGED_FLAKE}.new -type l -exec sh -c '\
 for link do \
   tgt=$(readlink -f \"$link\" 2>/dev/null || true); \
@@ -196,6 +209,26 @@ done\
 && ln -sfn /var/lib/dots/settings.nix {STAGED_FLAKE}.new/nix/data/settings.nix \
 && mv {STAGED_FLAKE}.new {STAGED_FLAKE}"
                     ),
+                ],
+                None,
+                Capture::Stream,
+            ),
+        },
+        Step {
+            title: "Partition, encrypt and mount (disko)".into(),
+            action: cmd(
+                "disko",
+                &[
+                    "--mode",
+                    "destroy,format,mount",
+                    "--yes-wipe-all-disks",
+                    "--arg",
+                    "disks",
+                    &disks_arg,
+                    "--argstr",
+                    "swapSize",
+                    &swap,
+                    &format!("{STAGED_FLAKE}/nix/system/disko.nix"),
                 ],
                 None,
                 Capture::Stream,

@@ -16,7 +16,7 @@
 #
 # Usage: nested-shell-test.sh <config-dir> [root.qml]
 #   config-dir  a built dots-quickshell-config store path
-#   root.qml    defaults to shell.qml; pass installer.qml for the ISO root
+#   root.qml    defaults to shell.qml
 # Env: DURATION (seconds, default 25), SHOT (path for a PNG capture)
 set -u
 
@@ -50,7 +50,7 @@ echo "--- headless session start (${DURATION}s) ---"
 # WAYLAND_DISPLAY and DISPLAY are UNSET on purpose: with them set, wlroots
 # picks the wayland backend and opens a real window. Unset plus
 # WLR_BACKENDS=headless gives a virtual output nobody can see.
-# pixman keeps it off the GPU, matching what the LiveISO's cage session does.
+# pixman keeps it off the GPU.
 env -u WAYLAND_DISPLAY -u DISPLAY \
   WLR_BACKENDS=headless \
   WLR_RENDERER=pixman \

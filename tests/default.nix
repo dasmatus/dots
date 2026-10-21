@@ -1,7 +1,7 @@
 # LiveISO boot oracle — NixOS test framework edition.
 #
 # `iso-boot` boots the (plain, unsigned) LiveISO through OVMF UEFI with an
-# emulated TPM 2.0 and asserts the cage kiosk's Quickshell session reaches
+# emulated TPM 2.0 and asserts the installer TUI draws its first frame on
 # tty1 (DOTS_UI_READY on the serial console). No Secure Boot chain — Secure
 # Boot was removed in favor of TPM2 auto-unlock + a LUKS recovery key.
 #
@@ -621,9 +621,9 @@ let
 
     # Console-only assertions: the ISO carries no test instrumentation, so
     # backdoor-based helpers (wait_for_unit, succeed, shutdown) are off
-    # limits. installer.qml (Quickshell) emits DOTS_UI_READY on the serial
-    # console from Component.onCompleted, once cage has actually mapped its
-    # window on tty1 — nix/system/iso.nix's unit no longer emits any marker itself.
+    # limits. The installer TUI writes DOTS_UI_READY to the serial console
+    # (DOTS_UI_READY_TTY in nix/system/iso.nix) once its first frame is on
+    # tty1 (rust/installer-tui/src/main.rs).
     testScript = ''
       machine.start()
       machine.wait_for_console_text("DOTS_UI_READY", timeout=6600)
