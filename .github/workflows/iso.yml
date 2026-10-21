@@ -22,13 +22,13 @@
 # Channels: `main` for the daily scheduled build of main, the tag for a v*
 # tag (which also moves `stable`), and the branch name for a manual run on
 # another branch. A cold build takes hours, so main is built on a schedule
-# rather than on every push, and a day whose main GHCR already carries is
-# skipped. Pull requests never build it: a pull request must not move a tag
+# rather than on every push, and a scheduled run is skipped when GHCR's main
+# image was already built from the current main commit. Pull requests never build it: a pull request must not move a tag
 # people download from.
 #
-# The schedule sits ahead of the rest: this at ~00:47 UTC, nightly.yml's lean
-# ISO at ~02:37, and weekly.yml at ~05:17 on Sundays, which repackages the
-# image this pushed for main.
+# The schedule sits ahead of the rest: this workflow at ~00:47 UTC,
+# nightly.yml's lean ISO at ~02:37, and weekly.yml at ~05:17 on Sundays,
+# which repackages the main image this workflow pushed.
 name: iso
 
 on:
@@ -74,7 +74,7 @@ jobs:
           REPO: ${{ github.repository }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
-          FORCE: ${{ inputs.force }}
+          FORCE: ${{ github.event.inputs.force || 'false' }}
         run: |
           set -euo pipefail
           if [ "$REF" != refs/heads/main ] || [ "$FORCE" = true ]; then
