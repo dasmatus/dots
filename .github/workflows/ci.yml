@@ -118,6 +118,75 @@ jobs:
         working-directory: rust/dots-secreport
         run: cargo test
 
+  # Builds the lean installer ISO (.#iso) on every pull request and push and
+  # keeps it as a workflow artifact for a week, so a change to the installer
+  # can be written to a stick and tried before it merges. Publishing is
+  # nightly.yml's and iso.yml's job; nothing here moves a download link.
+  iso:
+    name: iso
+    needs: nix-eval
+    runs-on: ubuntu-latest
+    # Same budget as nightly.yml, which builds the same image.
+    timeout-minutes: 350
+    steps:
+      # / has ~20 GB free, /mnt has ~70 GB; see iso.yml.
+      - name: Make room for the closure
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift \
+            /usr/local/share/powershell /usr/local/share/chromium
+          sudo docker image prune --all --force >/dev/null || true
+          sudo mkdir -p /mnt/nix /mnt/stage /nix
+          sudo mount --bind /mnt/nix /nix
+          sudo chown "$USER" /mnt/stage
+          df -h / /mnt /nix
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: Set up Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v15
+
+      # The aipage import-from-derivation nix-eval documents.
+      - name: Realize the aipage source
+        run: nix build .#aipage-firefox.aipageSrc --no-link -L
+
+      - name: Build .#iso
+        run: |
+          start=$(date +%s)
+          nix build -L .#iso -o /mnt/stage/result-iso
+          echo "::notice::.#iso built in $(( ($(date +%s) - start) / 60 )) min"
+
+      # nix/system/iso.nix mkForce's image.baseName to a constant, so the
+      # commit goes into the name here.
+      - name: Stage the image
+        id: stage
+        working-directory: /mnt/stage
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          iso="tokyonight-dots-installer-${SHA:0:7}.iso"
+          cp -L result-iso/iso/*.iso "$iso"
+          sha256sum "$iso" | tee "$iso.sha256"
+          echo "iso=$iso" >> "$GITHUB_OUTPUT"
+
+      # The ISO is squashfs+xz already; zipping it again only costs time.
+      - name: Upload the ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stage.outputs.iso }}
+          path: |
+            /mnt/stage/${{ steps.stage.outputs.iso }}
+            /mnt/stage/${{ steps.stage.outputs.iso }}.sha256
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
   vm-boot:
     name: vm-boot (${{ matrix.check }})
     needs: nix-eval
