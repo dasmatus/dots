@@ -80,6 +80,7 @@ jobs:
             rust/installer-tui
             rust/settings-global
             rust/dots-secreport
+            rust/dots-release-proxy
 
       # The cargo half of `nix run .#nix-lint` (flake/apps.nix), per crate.
       - name: installer-tui fmt
@@ -116,6 +117,18 @@ jobs:
 
       - name: dots-secreport test
         working-directory: rust/dots-secreport
+        run: cargo test
+
+      - name: dots-release-proxy fmt
+        working-directory: rust/dots-release-proxy
+        run: cargo fmt --check
+
+      - name: dots-release-proxy clippy
+        working-directory: rust/dots-release-proxy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: dots-release-proxy test
+        working-directory: rust/dots-release-proxy
         run: cargo test
 
   vm-boot:
