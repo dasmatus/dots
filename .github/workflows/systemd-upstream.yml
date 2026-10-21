@@ -37,8 +37,9 @@ jobs:
         id: check
         run: |
           set -uo pipefail
-          ./scripts/systemd-upstream.sh > report.md
-          status=$?
+          # Actions runs this under bash -e, which would end the step on exit 10.
+          status=0
+          ./scripts/systemd-upstream.sh > report.md || status=$?
           cat report.md >> "$GITHUB_STEP_SUMMARY"
           case $status in
             0) echo "behind=false" >> "$GITHUB_OUTPUT" ;;
