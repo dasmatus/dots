@@ -19,41 +19,83 @@
 # repository (GHCR_REPOSITORY) and set its URL as the DOTS_PROXY_URL variable
 # to get one-click browser downloads; see scripts/pages-site.sh.
 #
-# Channels: `main` for a push to main, the tag for a v* tag (which also moves
-# `stable`), and the branch name for a manual run on another branch. Pull
-# requests never build it: a cold build takes hours, and a pull request must
-# not move a tag people download from.
+# Channels: `main` for the daily scheduled build of main, the tag for a v*
+# tag (which also moves `stable`), and the branch name for a manual run on
+# another branch. A cold build takes hours, so main is built on a schedule
+# rather than on every push, and a scheduled run is skipped when GHCR's main
+# image was already built from the current main commit. Pull requests never build it: a pull request must not move a tag
+# people download from.
+#
+# The schedule sits ahead of the rest: this workflow at ~00:47 UTC,
+# nightly.yml's lean ISO at ~02:37, and weekly.yml at ~05:17 on Sundays,
+# which repackages the main image this workflow pushed.
 name: iso
 
 on:
+  schedule:
+    - cron: "47 0 * * *"
   push:
-    branches: [main]
     tags: ["v*"]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "LICENSES/**"
-      - ".forgejo/**"
-      - ".github/dependabot.yml"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/lockfile-updates.yml"
-      - ".github/workflows/nightly.yml"
-      - ".github/workflows/weekly.yml"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even if GHCR's main image is already this commit"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
-# One build per ref, and a newer push wins: an older main image has nothing a
+# One build per ref, and a newer run wins: an older main image has nothing a
 # newer one lacks. Tags never share a group, so a release always finishes.
 concurrency:
   group: iso-${{ github.ref }}
   cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 
 jobs:
+  # A scheduled run on a main that GHCR's main image was already built from
+  # has nothing to do. Tags and other branches always build.
+  changed:
+    name: "skip an unchanged main"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+
+      - name: Compare GHCR's main image with this commit
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          FORCE: ${{ github.event.inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$REF" != refs/heads/main ] || [ "$FORCE" = true ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          trap 'oras logout ghcr.io || true' EXIT
+          printf '%s' "$GH_TOKEN" | oras login ghcr.io --username "$ACTOR" --password-stdin
+          revision=$(oras manifest fetch "ghcr.io/${REPO,,}/images:main-x86_64" 2>/dev/null |
+            jq -r '.annotations["org.opencontainers.image.revision"] // ""' || true)
+          if [ "$revision" = "$SHA" ]; then
+            echo "::notice::GHCR's main image is already $SHA, nothing to build"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   iso-full:
     name: "iso-full -> GHCR"
+    needs: changed
+    if: needs.changed.outputs.skip != 'true'
     runs-on: ubuntu-latest
     # The hosted cap is 360. A cold run realizes the whole desktop closure
     # (the vm-boot lane in ci.yml spends up to ~3 h on a smaller one) and then

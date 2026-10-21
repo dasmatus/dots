@@ -131,13 +131,15 @@ jobs:
         working-directory: rust/dots-release-proxy
         run: cargo test
 
-  # Builds the lean installer ISO (.#iso) on every pull request and push and
-  # keeps it as a workflow artifact for a week, so a change to the installer
-  # can be written to a stick and tried before it merges. Publishing is
-  # nightly.yml's and iso.yml's job; nothing here moves a download link.
+  # Builds the lean installer ISO (.#iso) and keeps it as a workflow artifact
+  # for a week, so a branch can be written to a stick and tried before it
+  # merges. Only on a manual run: the scheduled builds are nightly.yml (lean,
+  # every night) and iso.yml (full, every day), and iso-boot below already
+  # builds and boots the image on every pull request.
   iso:
     name: iso
     needs: nix-eval
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Same budget as nightly.yml, which builds the same image.
     timeout-minutes: 350
