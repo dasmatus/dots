@@ -28,6 +28,13 @@
 #
 # dots.sysupdate.installerTimer and .fullTimer turn on a weekly fetch each.
 #
+# dots.sysupdate.flake adds one more component, dots-flake, for the flake
+# source tarball the nightly release carries next to each lean ISO. The
+# LiveISO turns it on (nix/system/iso.nix): the installer TUI runs
+# `systemd-sysupdate --component=dots-flake update` before it stages the flake
+# (rust/installer-tui/src/install.rs), so an old ISO still installs the newest
+# configuration, and falls back to the ISO's own /etc/dots when offline.
+#
 # Verify=no because the releases are unsigned. sysupdate still checks every
 # file against the release's SHA256SUMS, fetched over HTTPS (the proxy fetches
 # it over HTTPS too, and only hands it over on loopback), so this guards
@@ -42,6 +49,7 @@
 let
   cfg = config.dots.sysupdate;
   dir = "/var/lib/dots-iso";
+  flakeDir = "/var/lib/dots-flake";
   sysupdate = "${config.systemd.package}/lib/systemd/systemd-sysupdate";
   proxy = "127.0.0.1:${toString cfg.proxyPort}";
 
@@ -92,88 +100,120 @@ in
       default = 8484;
       description = "Loopback port dots-release-proxy listens on.";
     };
+    flake = lib.mkEnableOption "the dots-flake sysupdate component, which unpacks the newest nightly flake source into ${flakeDir}";
   };
 
-  config = {
-    environment.etc."sysupdate.dots-iso.d/50-installer.transfer".text = transfer {
-      inherit (cfg) source;
-      pattern = "tokyonight-dots-installer_@v.iso";
-    };
-    environment.etc."sysupdate.dots-iso-full.d/50-installer-full.transfer".text = transfer {
-      source = "http://${proxy}/updates/weekly/x86_64/";
-      pattern = "tokyonight-dots-installer-full_@v.iso";
-    };
+  config = lib.mkMerge [
+    {
+      environment.etc."sysupdate.dots-iso.d/50-installer.transfer".text = transfer {
+        inherit (cfg) source;
+        pattern = "tokyonight-dots-installer_@v.iso";
+      };
+      environment.etc."sysupdate.dots-iso-full.d/50-installer-full.transfer".text = transfer {
+        source = "http://${proxy}/updates/weekly/x86_64/";
+        pattern = "tokyonight-dots-installer-full_@v.iso";
+      };
 
-    systemd.tmpfiles.settings."10-dots-iso".${dir}.d.mode = "0755";
+      systemd.tmpfiles.settings."10-dots-iso".${dir}.d.mode = "0755";
 
-    systemd.sockets.dots-release-proxy = {
-      description = "Loopback socket for dots-release-proxy";
-      wantedBy = [ "sockets.target" ];
-      listenStreams = [ proxy ];
-    };
+      systemd.sockets.dots-release-proxy = {
+        description = "Loopback socket for dots-release-proxy";
+        wantedBy = [ "sockets.target" ];
+        listenStreams = [ proxy ];
+      };
 
-    systemd.services.dots-release-proxy = {
-      description = "Serve the weekly tokyonight-dots releases to systemd-sysupdate";
-      wants = [ "network-online.target" ];
-      after = [ "network-online.target" ];
-      environment.DOTS_PROXY_REPOSITORY = cfg.repository;
-      serviceConfig = {
-        ExecStart = "${lib.getExe
-          inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.dots-release-proxy
-        }";
-        DynamicUser = true;
-        CapabilityBoundingSet = "";
-        NoNewPrivileges = true;
-        PrivateDevices = true;
-        PrivateTmp = true;
-        ProtectHome = true;
-        ProtectSystem = "strict";
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        RestrictAddressFamilies = [
-          "AF_INET"
-          "AF_INET6"
+      systemd.services.dots-release-proxy = {
+        description = "Serve the weekly tokyonight-dots releases to systemd-sysupdate";
+        wants = [ "network-online.target" ];
+        after = [ "network-online.target" ];
+        environment.DOTS_PROXY_REPOSITORY = cfg.repository;
+        serviceConfig = {
+          ExecStart = "${lib.getExe
+            inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.dots-release-proxy
+          }";
+          DynamicUser = true;
+          CapabilityBoundingSet = "";
+          NoNewPrivileges = true;
+          PrivateDevices = true;
+          PrivateTmp = true;
+          ProtectHome = true;
+          ProtectSystem = "strict";
+          ProtectKernelTunables = true;
+          ProtectKernelModules = true;
+          ProtectControlGroups = true;
+          RestrictAddressFamilies = [
+            "AF_INET"
+            "AF_INET6"
+          ];
+          RestrictNamespaces = true;
+          LockPersonality = true;
+          MemoryDenyWriteExecute = true;
+          SystemCallArchitectures = "native";
+          SystemCallFilter = [ "@system-service" ];
+        };
+      };
+
+      systemd.services.dots-iso-update = {
+        description = "Fetch the nightly tokyonight-dots LiveISO";
+        wants = [ "network-online.target" ];
+        after = [ "network-online.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = "${sysupdate} --component=dots-iso update";
+        };
+      };
+
+      systemd.services.dots-iso-full-update = {
+        description = "Fetch the weekly full tokyonight-dots LiveISO";
+        wants = [ "network-online.target" ];
+        after = [
+          "network-online.target"
+          "dots-release-proxy.socket"
         ];
-        RestrictNamespaces = true;
-        LockPersonality = true;
-        MemoryDenyWriteExecute = true;
-        SystemCallArchitectures = "native";
-        SystemCallFilter = [ "@system-service" ];
+        requires = [ "dots-release-proxy.socket" ];
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = "${sysupdate} --component=dots-iso-full update";
+        };
       };
-    };
 
-    systemd.services.dots-iso-update = {
-      description = "Fetch the nightly tokyonight-dots LiveISO";
-      wants = [ "network-online.target" ];
-      after = [ "network-online.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${sysupdate} --component=dots-iso update";
+      systemd.timers.dots-iso-update = lib.mkIf cfg.installerTimer {
+        wantedBy = [ "timers.target" ];
+        timerConfig = weekly;
       };
-    };
+      systemd.timers.dots-iso-full-update = lib.mkIf cfg.fullTimer {
+        wantedBy = [ "timers.target" ];
+        timerConfig = weekly;
+      };
+    }
 
-    systemd.services.dots-iso-full-update = {
-      description = "Fetch the weekly full tokyonight-dots LiveISO";
-      wants = [ "network-online.target" ];
-      after = [
-        "network-online.target"
-        "dots-release-proxy.socket"
+    (lib.mkIf cfg.flake {
+      # url-tar unpacks each tarball into its own directory, dots-flake_<v>;
+      # the installer stages whichever sorts last.
+      environment.etc."sysupdate.dots-flake.d/50-flake.transfer".text =
+        lib.generators.toINI { listsAsDuplicateKeys = true; }
+          {
+            Transfer.Verify = false;
+            Source = {
+              Type = "url-tar";
+              Path = cfg.source;
+              MatchPattern = "tokyonight-dots-flake_@v.tar.gz";
+            };
+            Target = {
+              Type = "directory";
+              Path = flakeDir;
+              MatchPattern = "dots-flake_@v";
+              InstancesMax = 2;
+            };
+          };
+
+      systemd.tmpfiles.settings."10-dots-flake".${flakeDir}.d.mode = "0755";
+
+      # systemd-sysupdate lives in lib/systemd, off PATH; the installer calls
+      # it by name.
+      environment.systemPackages = [
+        (pkgs.writeShellScriptBin "systemd-sysupdate" ''exec ${sysupdate} "$@"'')
       ];
-      requires = [ "dots-release-proxy.socket" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${sysupdate} --component=dots-iso-full update";
-      };
-    };
-
-    systemd.timers.dots-iso-update = lib.mkIf cfg.installerTimer {
-      wantedBy = [ "timers.target" ];
-      timerConfig = weekly;
-    };
-    systemd.timers.dots-iso-full-update = lib.mkIf cfg.fullTimer {
-      wantedBy = [ "timers.target" ];
-      timerConfig = weekly;
-    };
-  };
+    })
+  ];
 }

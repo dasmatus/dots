@@ -1,8 +1,7 @@
 // A single-line entry field, styled after Settings.qml's text row (the same
 // Theme.bgDark fill) so no popup surface grows its own second text-field
-// look. Started as the installer's alone; monitors'
-// Arrange.qml reuses it too, which is why it lives in common/ rather than
-// installer/.
+// look. Monitors' Arrange.qml uses it, and it lives in common/ so the next
+// popup that needs a text field does too.
 //
 // Backspace/typing/cursor movement are TextInput's own native keyboard
 // handling. Nothing here reimplements them, which is how every screen stays

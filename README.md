@@ -36,8 +36,10 @@ same without it.
 Every night `main` has changed, GitHub also builds the lean `.#iso` and
 publishes it to the rolling
 [`nightly`](https://github.com/dasmatus/dots/releases/tag/nightly) release,
-next to a `SHA256SUMS`, in the layout systemd-sysupdate reads. An installed
-system can keep a current copy in `/var/lib/dots-iso`:
+together with a tarball of the flake it was built from and a `SHA256SUMS`, in
+the layout systemd-sysupdate reads. Every pull request also builds `.#iso` and
+keeps it as a workflow artifact for a week. An installed system can keep a
+current copy in `/var/lib/dots-iso`:
 
 ```bash
 sudo systemctl start dots-iso-update   # or set dots.sysupdate.installerTimer
@@ -81,7 +83,8 @@ It walks disk autodetection, hostname, user and password, then makes you type
 [disko](https://github.com/nix-community/disko), generates a
 [nixos-facter](https://github.com/nix-community/nixos-facter) hardware report on
 the target so nobody has to pick intel vs amd by hand, runs `nixos-install` from
-the flake bundled on the ISO, enrolls TPM2 against PCR 7 next to a printed LUKS
+the newest nightly flake, fetched with `systemd-sysupdate --component=dots-flake`
+(the copy bundled on the ISO when offline), enrolls TPM2 against PCR 7 next to a printed LUKS
 recovery key, and reboots.
 
 ## Native packages, no Flatpak

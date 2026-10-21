@@ -21,7 +21,7 @@ TestCase {
 
     // ---- signalBars ----
 
-    function test_signalBars_follows_the_installers_own_thresholds_data() {
+    function test_signalBars_quartile_thresholds_data() {
         return [
             { tag: "no signal", strength: 0, expected: "▂___" },
             { tag: "at the first threshold", strength: 24, expected: "▂___" },
@@ -32,7 +32,7 @@ TestCase {
         ];
     }
 
-    function test_signalBars_follows_the_installers_own_thresholds(row) {
+    function test_signalBars_quartile_thresholds(row) {
         compare(NetworkMath.signalBars(row.strength), row.expected, row.tag);
     }
 

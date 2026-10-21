@@ -115,8 +115,7 @@ Pill {
     readonly property var focusedScreen: Quickshell.screens.find(s => s.name === Hyprland.focusedMonitor?.name) ?? null
 
     // Scanning costs radio time, so it only runs while someone is actually
-    // looking at the list, the same reason WifiPassword.qml's installer
-    // sibling rescans on demand rather than on a timer.
+    // looking at the list: it rescans on demand rather than on a timer.
     onExpandedChanged: {
         if (root.wifiDevice)
             root.wifiDevice.scannerEnabled = root.expanded;

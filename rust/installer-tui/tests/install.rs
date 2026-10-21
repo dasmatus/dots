@@ -2,7 +2,8 @@
 
 use dots_installer::config::InstallConfig;
 use dots_installer::install::{
-    plan, swap_size_from_meminfo, Action, Capture, Step, LUKS_DEVICE, LUKS_PASSFILE, STAGED_FLAKE,
+    plan, swap_size_from_meminfo, Action, Capture, Step, FETCHED_FLAKES, LUKS_DEVICE,
+    LUKS_PASSFILE, STAGED_FLAKE, SYSUPDATE_COMPONENT,
 };
 
 fn cfg() -> InstallConfig {
@@ -144,8 +145,16 @@ fn plan_stage_step_recreates_staging_dir_and_copies_from_flake_src() {
         "{script}"
     );
     assert!(
-        script.contains(&format!("cp -a /etc/dots/. {STAGED_FLAKE}.new/")),
+        script.contains(&format!("cp -a \"$src\"/. {STAGED_FLAKE}.new/")),
         "{script}"
+    );
+    assert!(
+        script.contains(&format!("{FETCHED_FLAKES}/{SYSUPDATE_COMPONENT}_*")),
+        "the newest sysupdate-fetched flake must be the first choice: {script}"
+    );
+    assert!(
+        script.contains("src=${src:-/etc/dots}"),
+        "the ISO's own flake must be the fallback: {script}"
     );
     assert!(script.contains("find "), "{script}");
     assert!(script.contains("readlink"), "{script}");
@@ -157,6 +166,49 @@ fn plan_stage_step_recreates_staging_dir_and_copies_from_flake_src() {
     assert!(
         script.contains(&format!("mv {STAGED_FLAKE}.new {STAGED_FLAKE}")),
         "{script}"
+    );
+}
+
+#[test]
+fn plan_fetches_flake_with_sysupdate_without_failing_offline() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let fetch = steps
+        .iter()
+        .find(|s| s.title == "Fetch newest flake (systemd-sysupdate)")
+        .expect("sysupdate fetch step");
+    let Action::Command { program, args, .. } = &fetch.action else {
+        panic!("fetch step must be a command");
+    };
+    assert_eq!(program, "sh");
+    let script = args.join(" ");
+    assert!(
+        script.contains(&format!(
+            "systemd-sysupdate --component={SYSUPDATE_COMPONENT} update"
+        )),
+        "{script}"
+    );
+    assert!(
+        script.contains("|| echo"),
+        "an offline install must fall back, not abort: {script}"
+    );
+}
+
+#[test]
+fn plan_fetches_then_stages_before_disko_reads_the_staged_flake() {
+    let steps = plan(&cfg(), "/etc/dots", "/mnt");
+    let idx = |pred: &dyn Fn(&Step) -> bool| steps.iter().position(pred).unwrap();
+    let fetch = idx(&|s| s.title == "Fetch newest flake (systemd-sysupdate)");
+    let stage = idx(&|s| s.title == "Stage flake for install");
+    let disko =
+        idx(&|s| matches!(&s.action, Action::Command { program, .. } if program == "disko"));
+    assert!(fetch < stage && stage < disko);
+    let Action::Command { args, .. } = &steps[disko].action else {
+        unreachable!()
+    };
+    assert_eq!(
+        args.last().map(String::as_str),
+        Some(format!("{STAGED_FLAKE}/nix/system/disko.nix").as_str()),
+        "disko must partition with the same revision nixos-install evaluates"
     );
 }
 

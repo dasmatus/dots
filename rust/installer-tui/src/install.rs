@@ -71,6 +71,14 @@ pub const LUKS_DEVICE: &str = "/dev/tokyonightvg/root";
 /// `nixos-install` — the ISO's `/etc/dots` is a read-only store path. Lives
 /// on ISO tmpfs and is gone after reboot.
 pub const STAGED_FLAKE: &str = "/tmp/dots-flake";
+/// The systemd-sysupdate component that carries the flake source the nightly
+/// release publishes next to the ISO (`/etc/sysupdate.dots-flake.d`, see
+/// nix/modules/system/sysupdate.nix).
+pub const SYSUPDATE_COMPONENT: &str = "dots-flake";
+/// Where systemd-sysupdate unpacks each flake version, one `dots-flake_<v>`
+/// directory per version. On the ISO this is tmpfs, so a fetch never outlives
+/// the live session.
+pub const FETCHED_FLAKES: &str = "/var/lib/dots-flake";
 
 /// Round `MemTotal` up to whole GiB — parity with `config.ram_gib()` in the
 /// Gentoo installer (swap sized = RAM).
@@ -94,11 +102,16 @@ fn cmd(program: &str, args: &[&str], stdin: Option<String>, capture: Capture) ->
     }
 }
 
-/// The full install sequence. `flake_src` is where the ISO carries the flake
-/// (/etc/dots); the plan stages a writable copy at [`STAGED_FLAKE`] and
-/// installs from there, then stashes the two machine-specific answer files
-/// at `{mnt}/persist/var/lib/dots` (facter.json at the top level,
-/// settings.nix under `nix/`) — on the persistent /persist subvol, since the
+/// The full install sequence. systemd-sysupdate first pulls the newest flake
+/// source the nightly release publishes into [`FETCHED_FLAKES`], so an ISO
+/// that is weeks old still installs today's configuration; when that fails
+/// (offline, release unreachable) the install falls back to `flake_src`,
+/// where the ISO carries the flake it was built from (/etc/dots). Whichever
+/// wins is staged as a writable copy at [`STAGED_FLAKE`], and disko and
+/// nixos-install both read that copy, so the disk layout and the system
+/// always come from the same revision. The plan then stashes the two
+/// machine-specific answer files at `{mnt}/persist/var/lib/dots`
+/// (facter.json at the top level, settings.nix under `nix/`) — on the persistent /persist subvol, since the
 /// root is a tmpfs wiped each boot (nix/modules/system/impermanence.nix) and
 /// nixos-impermanence bind-mounts /persist/var/lib/dots → /var/lib/dots so
 /// the first-login `dots-clone` user service can pick them up. The repo
@@ -123,7 +136,7 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
             .join(" ")
     );
 
-    vec![
+    let mut steps = vec![
         // Hex, not raw bytes: disko formats from `$(cat passwordFile)`, which
         // drops NULs and trailing newlines, while systemd-cryptenroll reads the
         // file raw, so raw bytes would format and enroll with different keys.
@@ -141,6 +154,9 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                 Capture::Stream,
             ),
         },
+    ];
+    steps.extend(flake_steps(flake_src));
+    steps.extend([
         Step {
             title: "Partition, encrypt and mount (disko)".into(),
             action: cmd(
@@ -155,47 +171,7 @@ pub fn plan(cfg: &InstallConfig, flake_src: &str, mnt: &str) -> Vec<Step> {
                     "--argstr",
                     "swapSize",
                     &swap,
-                    &format!("{flake_src}/nix/system/disko.nix"),
-                ],
-                None,
-                Capture::Stream,
-            ),
-        },
-        Step {
-title: "Stage flake for install".into(),
-            // Copy to a temporary name then mv so a partially-removed previous
-            // tree (open file, immutable bit, …) can never leave stale files
-            // inside the flake source that nixos-install later evaluates.
-            //
-            // /etc/dots is a nix-store tree with absolute dangling symlinks
-            // (nix/data/settings.nix → /var/lib/dots/settings.nix).  cp -L fails
-            // with "cannot stat"; cp -P leaves RO store symlinks that chmod
-            // cannot rewrite.  Copy with -a, materialise links whose targets
-            // exist, drop the rest, recreate the intentional settings.nix
-            // symlink (WriteFile unlinks it before writing the real file),
-            // then chmod.
-            action: cmd(
-                "sh",
-                &[
-                    "-c",
-                    &format!(
-                        "rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new \
-&& mkdir -p {STAGED_FLAKE}.new \
-&& cp -a {flake_src}/. {STAGED_FLAKE}.new/ \
-&& find {STAGED_FLAKE}.new -type l -exec sh -c '\
-for link do \
-  tgt=$(readlink -f \"$link\" 2>/dev/null || true); \
-  if [ -n \"$tgt\" ] && [ -e \"$tgt\" ]; then \
-    rm -f \"$link\" && cp -a \"$tgt\" \"$link\"; \
-  else \
-    rm -f \"$link\"; \
-  fi; \
-done\
-' sh {{}} + \
-&& chmod -R u+w {STAGED_FLAKE}.new \
-&& ln -sfn /var/lib/dots/settings.nix {STAGED_FLAKE}.new/nix/data/settings.nix \
-&& mv {STAGED_FLAKE}.new {STAGED_FLAKE}"
-                    ),
+                    &format!("{STAGED_FLAKE}/nix/system/disko.nix"),
                 ],
                 None,
                 Capture::Stream,
@@ -304,7 +280,108 @@ done\
             title: "Scrub LUKS keyfile".into(),
             action: cmd("shred", &["-u", LUKS_PASSFILE], None, Capture::Stream),
         },
+    ]);
+    steps
+}
+
+/// Fetch the newest flake with systemd-sysupdate and stage it at
+/// [`STAGED_FLAKE`], falling back to `flake_src` when nothing was fetched.
+/// The first two steps of [`plan`], exposed on their own so
+/// `dots-installer --stage-flake` (and the install VM test) can run exactly
+/// this part of a real install without touching a disk.
+#[must_use]
+pub fn flake_steps(flake_src: &str) -> Vec<Step> {
+    vec![
+        Step {
+            title: "Fetch newest flake (systemd-sysupdate)".into(),
+            action: cmd(
+                "sh",
+                &[
+                    "-c",
+                    &format!(
+                        "systemd-sysupdate --component={SYSUPDATE_COMPONENT} update \
+|| echo 'systemd-sysupdate could not fetch the flake; installing the copy on this ISO'"
+                    ),
+                ],
+                None,
+                Capture::Stream,
+            ),
+        },
+        Step {
+            title: "Stage flake for install".into(),
+            // The newest directory sysupdate unpacked wins; versions are
+            // YYYYMMDD.HHMM, so a plain sort orders them. Copy to a temporary
+            // name then mv so a partially-removed previous tree (open file,
+            // immutable bit, …) can never leave stale files inside the flake
+            // source that disko and nixos-install later evaluate.
+            //
+            // /etc/dots is a nix-store tree with absolute dangling symlinks
+            // (nix/data/settings.nix → /var/lib/dots/settings.nix).  cp -L fails
+            // with "cannot stat"; cp -P leaves RO store symlinks that chmod
+            // cannot rewrite.  Copy with -a, materialise links whose targets
+            // exist, drop the rest, recreate the intentional settings.nix
+            // symlink (WriteFile unlinks it before writing the real file),
+            // then chmod.
+            action: cmd(
+                "sh",
+                &[
+                    "-c",
+                    &format!(
+                        "src=$(ls -1d {FETCHED_FLAKES}/{SYSUPDATE_COMPONENT}_* 2>/dev/null | sort | tail -n 1); \
+src=${{src:-{flake_src}}}; \
+echo \"staging the flake from $src\" \
+&& rm -rf {STAGED_FLAKE} {STAGED_FLAKE}.new \
+&& mkdir -p {STAGED_FLAKE}.new \
+&& cp -a \"$src\"/. {STAGED_FLAKE}.new/ \
+&& find {STAGED_FLAKE}.new -type l -exec sh -c '\
+for link do \
+  tgt=$(readlink -f \"$link\" 2>/dev/null || true); \
+  if [ -n \"$tgt\" ] && [ -e \"$tgt\" ]; then \
+    rm -f \"$link\" && cp -a \"$tgt\" \"$link\"; \
+  else \
+    rm -f \"$link\"; \
+  fi; \
+done\
+' sh {{}} + \
+&& chmod -R u+w {STAGED_FLAKE}.new \
+&& ln -sfn /var/lib/dots/settings.nix {STAGED_FLAKE}.new/nix/data/settings.nix \
+&& mv {STAGED_FLAKE}.new {STAGED_FLAKE}"
+                    ),
+                ],
+                None,
+                Capture::Stream,
+            ),
+        },
     ]
+}
+
+/// Run `steps` without the TUI, printing each step title and its output to
+/// stdout. Stops at the first failing step.
+///
+/// # Errors
+///
+/// The first step that fails, with its title as context.
+pub fn run_headless(steps: Vec<Step>) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || -> anyhow::Result<()> {
+        let total = steps.len();
+        for (i, step) in steps.iter().enumerate() {
+            let _ = tx.send(Event::StepStarted(i + 1, total, step.title.clone()));
+            exec_step(step, &tx).with_context(|| step.title.clone())?;
+        }
+        Ok(())
+    });
+    for event in rx {
+        match event {
+            Event::StepStarted(i, total, title) => println!("[{i}/{total}] {title}"),
+            Event::Log(line) => println!("{line}"),
+            Event::RecoveryKey(_) | Event::Finished | Event::Failed(_) => {}
+        }
+    }
+    worker
+        .join()
+        .map_err(|_| anyhow::anyhow!("install worker panicked"))?
 }
 
 /// Execute the plan, streaming events. Never panics; all failures land as

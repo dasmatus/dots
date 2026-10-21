@@ -4,7 +4,12 @@
 #
 #   https://github.com/<owner>/<repo>/releases/download/nightly/
 #     tokyonight-dots-installer_<version>.iso   the newest few builds
-#     SHA256SUMS                                one line per ISO above
+#     tokyonight-dots-flake_<version>.tar.gz    the flake each was built from
+#     SHA256SUMS                                one line per file above
+#
+# The flake tarball is what the installer TUI fetches with
+# `systemd-sysupdate --component=dots-flake` before it installs, so an older
+# stick still installs the newest configuration that produced a bootable ISO.
 #
 # Why GitHub Releases: Codeberg's 1.5 GiB repository allowance is one ISO
 # (.forgejo/workflows/ci.yml), and the GHCR copy iso.yml pushes is an OCI blob
@@ -112,7 +117,10 @@ jobs:
           set -euo pipefail
           version=$(date -u +%Y%m%d.%H%M)
           iso="tokyonight-dots-installer_$version.iso"
+          flake="tokyonight-dots-flake_$version.tar.gz"
           cp -L result-iso/iso/*.iso "$iso"
+          # No prefix: sysupdate unpacks the archive root as the flake root.
+          git -C "$GITHUB_WORKSPACE" archive --format=tar.gz -o "$PWD/$flake" HEAD
           size=$(stat -c%s "$iso")
           echo "$iso: $(awk -v b="$size" 'BEGIN { printf "%.2f GiB", b / 1073741824 }')"
           # A release asset must be under 2 GiB. Fail here with the number
@@ -124,10 +132,11 @@ jobs:
           {
             echo "version=$version"
             echo "iso=$iso"
+            echo "flake=$flake"
           } >> "$GITHUB_OUTPUT"
 
-      # Order matters to a machine updating mid-publish: the new ISO goes up
-      # before the SHA256SUMS that names it, and the old ones come down only
+      # Order matters to a machine updating mid-publish: the new files go up
+      # before the SHA256SUMS that names them, and the old ones come down only
       # after a SHA256SUMS without them has replaced the last one.
       - name: Publish to the nightly release
         if: steps.skip.outputs.skip != 'true'
@@ -137,6 +146,7 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           ISO: ${{ steps.stage.outputs.iso }}
+          FLAKE: ${{ steps.stage.outputs.flake }}
           VERSION: ${{ steps.stage.outputs.version }}
         run: |
           set -euo pipefail
@@ -153,22 +163,24 @@ jobs:
               --title "Nightly" --notes "$notes"
           fi
 
-          gh release upload "$TAG" --repo "$REPO" "$ISO"
+          gh release upload "$TAG" --repo "$REPO" "$ISO" "$FLAKE"
 
-          # The previous SHA256SUMS carries the checksums of the ISOs kept
-          # from earlier nights; this run only has its own file to hash.
+          # The previous SHA256SUMS carries the checksums of the files kept
+          # from earlier nights; this run only has its own files to hash.
           rm -f old.sums
           gh release download "$TAG" --repo "$REPO" --pattern SHA256SUMS --output old.sums 2>/dev/null || touch old.sums
-          sha256sum "$ISO" > SHA256SUMS
-          grep -v "  $ISO\$" old.sums >> SHA256SUMS || true
-          # Newest first by version, then keep the first $KEEP.
-          sort -t_ -k2 -r SHA256SUMS | head -n "$KEEP" > keep.sums
+          sha256sum "$ISO" "$FLAKE" > SHA256SUMS
+          grep -v -e "  $ISO\$" -e "  $FLAKE\$" old.sums >> SHA256SUMS || true
+          # Keep every file of the newest $KEEP versions. The version is the
+          # text between the one `_` in each name and its extension.
+          versions=$(sed -E 's/.*_([0-9]{8}\.[0-9]{4})\..*/\1/' SHA256SUMS | sort -ru | head -n "$KEEP")
+          grep -F -f <(printf '_%s.\n' $versions) SHA256SUMS | sort -t_ -k2 -r > keep.sums
           mv keep.sums SHA256SUMS
           cat SHA256SUMS
           gh release upload "$TAG" --repo "$REPO" --clobber SHA256SUMS
 
           gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' |
-            grep -E '^tokyonight-dots-installer_.*\.iso$' |
+            grep -E '^tokyonight-dots-(installer_.*\.iso|flake_.*\.tar\.gz)$' |
             while IFS= read -r name; do
               if ! grep -q "  $name\$" SHA256SUMS; then
                 echo "pruning $name"
@@ -180,7 +192,11 @@ jobs:
             echo "## Nightly LiveISO"
             echo
             echo "- https://github.com/$REPO/releases/download/$TAG/$ISO"
-            echo "- \`$(grep "  $ISO\$" SHA256SUMS)\`"
+            echo "- https://github.com/$REPO/releases/download/$TAG/$FLAKE"
+            echo
+            echo '```'
+            grep -e "  $ISO\$" -e "  $FLAKE\$" SHA256SUMS
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Disk usage at the end

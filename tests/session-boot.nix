@@ -3,7 +3,7 @@
 # has to keep green. It exists to close a real coverage gap:
 # tests/session-units.nix is eval-only (a standalone home-manager evaluation,
 # no VM, no activation), and the `DOTS_UI_READY` marker in tests/default.nix
-# belongs to the LiveISO installer's Quickshell running under `cage` on tty1
+# belongs to the LiveISO's installer TUI on tty1
 # — neither one ever boots the INSTALLED system's Hyprland session. That gap
 # is exactly what incident `9b069e8` fell through: flipping the AppArmor
 # store catch-all to enforce killed every setuid binary under
@@ -371,8 +371,8 @@ pkgs.testers.runNixOSTest {
     # the FULL desktop — greetd, NetworkManager, searxng, Hyprland,
     # Quickshell, Xwayland, portals, gcr, protonmail-bridge and friends all
     # resident at once. That is a materially bigger workload than
-    # tests/default.nix's ISO-boot test, which only runs a single Quickshell
-    # instance under cage with none of the above — and that test already
+    # tests/default.nix's ISO-boot test, which only runs the installer TUI on
+    # a console with none of the above — and that test already
     # asks for 4096 (tests/default.nix:541; its lighter LiveISO installer
     # environment still gets 2048, tests/default.nix:260). The 1G default
     # OOMed here, and the test framework's own `panic_on_oom` (set by

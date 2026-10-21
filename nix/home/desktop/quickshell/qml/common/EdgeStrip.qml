@@ -19,9 +19,8 @@ Rectangle {
     property color tint: Theme.accent
     property int thickness: Theme.chromeStripWidth
 
-    // Six of the eight call sites give the parent a corner radius
-    // (files/Pane.qml, common/Field.qml, installer/Ai.qml and
-    // DiskSelect.qml, monitors/Arrange.qml, wallpaper/Picker.qml); QtQuick
+    // Most call sites give the parent a corner radius (files/Pane.qml,
+    // common/Field.qml, monitors/Arrange.qml, wallpaper/Picker.qml); QtQuick
     // never clips a child to a Rectangle's rounded shape, so a strip
     // anchored flush to both ends of an edge painted a square corner past
     // the curve. Insetting the cross-axis anchors by the parent's own

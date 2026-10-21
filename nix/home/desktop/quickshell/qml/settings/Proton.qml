@@ -8,8 +8,7 @@
 // either session was still alive. Both of those are what this page answers.
 //
 // Every credential goes to `proton-setup` (nix/home/proton/proton-setup.nix) over
-// stdin, using the same stdinEnabled/write()/EOF dance as
-// installer/Runner.qml. Nothing is passed as an argument, so no password
+// stdin: stdinEnabled, write(), then EOF. Nothing is passed as an argument, so no password
 // appears in `ps`, and nothing is written to disk here: the password and the
 // code live in QML properties that are cleared the moment they are spent.
 //

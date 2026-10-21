@@ -9,7 +9,7 @@
 // access point.
 .pragma library
 
-// installer/Network.qml's own thresholds, reused rather than reinvented:
+// Signal thresholds on the 0-100 scale nmcli's SIGNAL field uses:
 // Quickshell's WifiNetwork.signalStrength is documented nowhere beyond its
 // C++ type (a bare double), and every value this repo has actually read off
 // it lands in the same 0-100 range nmcli's SIGNAL field does, because both

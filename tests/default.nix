@@ -1,7 +1,7 @@
 # LiveISO boot oracle — NixOS test framework edition.
 #
 # `iso-boot` boots the (plain, unsigned) LiveISO through OVMF UEFI with an
-# emulated TPM 2.0 and asserts the cage kiosk's Quickshell session reaches
+# emulated TPM 2.0 and asserts the installer TUI draws its first frame on
 # tty1 (DOTS_UI_READY on the serial console). No Secure Boot chain — Secure
 # Boot was removed in favor of TPM2 auto-unlock + a LUKS recovery key.
 #
@@ -207,6 +207,21 @@ let
   # Exposed via the aipage packages' `passthru.aipageSrc` (nix/packages/aipage.nix).
   aipageSrc = dotsFlake.packages.${pkgs.system}.aipage-firefox.aipageSrc;
 
+  # A stand-in for the nightly release, in the layout systemd-sysupdate's
+  # url-tar source reads: this flake as tokyonight-dots-flake_<v>.tar.gz plus
+  # SHA256SUMS. The tarball carries one extra file, .dots-fixture, so the
+  # test can tell a fetched flake from the /etc/dots fallback. Nothing else
+  # differs, so nixos-install still evaluates to the pre-built testToplevel.
+  flakeFixture = pkgs.runCommand "dots-flake-fixture" { nativeBuildInputs = [ pkgs.gnutar ]; } ''
+    mkdir -p tree $out
+    cp -r ${dotsFlake}/. tree/
+    chmod -R u+w tree
+    echo fixture > tree/.dots-fixture
+    tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@1 \
+      -czf $out/tokyonight-dots-flake_20990101.0000.tar.gz -C tree .
+    (cd $out && sha256sum *.tar.gz > SHA256SUMS)
+  '';
+
   # Full install+boot oracle for the Limine switch: runs the installer's plan()
   # (rust/installer-tui/src/install.rs) in a VM, then boots the installed disk
   # via Limine and asserts the TPM2-unlocked LUKS root comes up. Two nodes
@@ -222,7 +237,10 @@ let
   # crypttab tpm2-device=auto unseal — without conflating it with PCR policy.
   # The dots ISO itself has no test instrumentation (no backdoor shell — iso-boot
   # is console-only by design), so the installer node is a test-instrumented
-  # installation-device VM, not the raw ISO; the install steps are identical to
+  # installation-device VM, not the raw ISO. The flake fetch and staging run
+  # through the installer itself (`dots-installer --stage-flake`, the same
+  # steps install.rs::plan() runs), first with the release unreachable and
+  # then against flakeFixture served on localhost; the remaining steps mirror
   # install.rs::plan(). Mirrors nixpkgs tests/installer.nix (two-node
   # install+boot, shared diskImage + state_dir).
   limineInstallBootTest = pkgs.testers.runNixOSTest {
@@ -300,8 +318,22 @@ let
               commonConfig
               autoFormatModule
               "${modulesPath}/profiles/base.nix"
+              ../nix/modules/system/sysupdate.nix
             ];
             boot.swraid.enable = true;
+            # sysupdate.nix reads dots-release-proxy out of inputs.self.
+            _module.args.inputs = inputs;
+            # The LiveISO's dots-flake component, pointed at flakeFixture.
+            dots.sysupdate = {
+              flake = true;
+              source = "http://127.0.0.1:8000/";
+            };
+            systemd.services.flake-fixture = {
+              description = "Serve the fixture nightly release";
+              serviceConfig = {
+                ExecStart = "${pkgs.python3}/bin/python3 -m http.server 8000 --bind 127.0.0.1 --directory ${flakeFixture}";
+              };
+            };
             # nixos-install evaluates the whole tokyonight system inside this
             # guest. That one nix process was still growing at 3.4 GiB RSS
             # when it hit panic_on_oom with 4096 (and at 2048 before that), so
@@ -366,6 +398,7 @@ let
               pkgs.cryptsetup
               pkgs.tpm2-tools
               pkgs.nixos-facter
+              dotsFlake.packages.${pkgs.system}.dots-installer
             ];
             # Everything nixos-install needs to evaluate + copy the closure
             # offline: the test-settings toplevel, the flake input sources,
@@ -439,14 +472,29 @@ let
               " > /tmp/dots-luks-pass"
           )
 
-      with subtest("disko partition + format + mount on /dev/vda (the disko CLI, same as install.rs::plan())"):
+      with subtest("Offline: the installer stages the flake from /etc/dots"):
+          out = installer.succeed("dots-installer --stage-flake /etc/dots 2>&1")
+          print(out)
+          assert "staging the flake from /etc/dots" in out, out
+          installer.fail("test -e /tmp/dots-flake/.dots-fixture")
+
+      with subtest("Online: the installer fetches the flake with systemd-sysupdate"):
+          installer.succeed("systemctl start flake-fixture.service")
+          installer.wait_for_open_port(8000)
+          out = installer.succeed("dots-installer --stage-flake /etc/dots 2>&1")
+          print(out)
+          fetched = "/var/lib/dots-flake/dots-flake_20990101.0000"
+          assert f"staging the flake from {fetched}" in out, out
+          installer.succeed(f"test -e {fetched}/.dots-fixture")
+          # disko and nixos-install below both read this staged copy.
+          installer.succeed("test -e /tmp/dots-flake/.dots-fixture")
+
+      with subtest("disko partition + format + mount on /dev/vda from the fetched flake"):
           # The literal command install.rs's plan() runs — `disko --mode
           # destroy,format,mount --yes-wipe-all-disks --arg disks [...]
-          # --argstr swapSize <swap> {flake_src}/nix/system/disko.nix`
-          # (rust/installer-tui/src/install.rs) — against /etc/dots, the
-          # read-only flake mount, exactly as a real install does; nixos-install
-          # stages its own writable copy separately, below. disks/swapSize
-          # mirror testSettings above.
+          # --argstr swapSize <swap> {STAGED_FLAKE}/nix/system/disko.nix`
+          # (rust/installer-tui/src/install.rs). disks/swapSize mirror
+          # testSettings above.
           #
           # The CLI evaluates its own script derivation (`import <nixpkgs> {}`
           # via disko's pinned NIX_PATH) rather than reading
@@ -470,16 +518,10 @@ let
           installer.succeed(
               "disko --mode destroy,format,mount --yes-wipe-all-disks"
               " --arg disks '[ \"/dev/vda\" ]' --argstr swapSize 1G"
-              " /etc/dots/nix/system/disko.nix >&2"
+              " /tmp/dots-flake/nix/system/disko.nix >&2"
           )
 
-      with subtest("Stage a writable flake copy + write test settings.nix"):
-          installer.succeed(
-              "rm -rf /tmp/dots-flake"
-              " && mkdir -p /tmp/dots-flake"
-              " && cp -rTL /etc/dots /tmp/dots-flake"
-              " && chmod -R u+w /tmp/dots-flake"
-          )
+      with subtest("Write test settings.nix into the staged flake"):
           # base64 round-trips the file in with zero quoting ambiguity — no
           # shell heredoc indentation pitfalls, no $ expansion.
           settings_nix = """{
@@ -493,7 +535,9 @@ let
           }
           """
           s_b64 = base64.b64encode(settings_nix.encode()).decode()
-          installer.succeed(f"printf '%s' {s_b64} | base64 -d > /tmp/dots-flake/nix/data/settings.nix")
+          # rm first: staging leaves settings.nix as a symlink into
+          # /var/lib/dots, and the redirect would follow it.
+          installer.succeed(f"rm -f /tmp/dots-flake/nix/data/settings.nix && printf '%s' {s_b64} | base64 -d > /tmp/dots-flake/nix/data/settings.nix")
           installer.succeed("cat /tmp/dots-flake/nix/data/settings.nix >&2")
 
       with subtest("nixos-install completes — Limine sidesteps the machine-id abort"):
@@ -621,9 +665,9 @@ let
 
     # Console-only assertions: the ISO carries no test instrumentation, so
     # backdoor-based helpers (wait_for_unit, succeed, shutdown) are off
-    # limits. installer.qml (Quickshell) emits DOTS_UI_READY on the serial
-    # console from Component.onCompleted, once cage has actually mapped its
-    # window on tty1 — nix/system/iso.nix's unit no longer emits any marker itself.
+    # limits. The installer TUI writes DOTS_UI_READY to the serial console
+    # (DOTS_UI_READY_TTY in nix/system/iso.nix) once its first frame is on
+    # tty1 (rust/installer-tui/src/main.rs).
     testScript = ''
       machine.start()
       machine.wait_for_console_text("DOTS_UI_READY", timeout=6600)
