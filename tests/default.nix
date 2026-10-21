@@ -321,6 +321,8 @@ let
               ../nix/modules/system/sysupdate.nix
             ];
             boot.swraid.enable = true;
+            # sysupdate.nix reads dots-release-proxy out of inputs.self.
+            _module.args.inputs = inputs;
             # The LiveISO's dots-flake component, pointed at flakeFixture.
             dots.sysupdate = {
               flake = true;

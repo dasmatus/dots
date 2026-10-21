@@ -1,0 +1,208 @@
+# Cut a versioned weekly release, `weekly-<ISO year>.<ISO week>`, out of
+# images that are already built: nothing here runs Nix.
+#
+#   tokyonight-dots-installer_<version>.iso           the lean ISO, the newest
+#                                                     build in the nightly
+#                                                     release (nightly.yml)
+#   tokyonight-dots-installer-full_<version>.iso.partNNN
+#                                                     the full ISO, the image
+#                                                     iso.yml last pushed to
+#                                                     GHCR for main, in parts
+#   SHA256SUMS                                        both ISOs, whole
+#
+# The full image is over GitHub's 2 GiB asset limit, hence the parts. They
+# are joined back by dots-release-proxy (rust/dots-release-proxy), which
+# nix/modules/system/sysupdate.nix runs on loopback for systemd-sysupdate,
+# or by hand: `cat <iso>.part* > <iso> && sha256sum -c --ignore-missing
+# SHA256SUMS`.
+#
+# The version is the ISO week, which sorts the way sysupdate compares
+# versions. A week that already has its release is left alone, so a manual
+# run after the scheduled one does nothing; delete the release to recut it.
+# The newest KEEP weekly releases stay, older ones are deleted with their
+# tags.
+name: weekly
+
+on:
+  schedule:
+    # Sundays ~05:17 UTC: after Saturday's nightly, and before ci.yml's
+    # Monday run and the lockfile refresh change main again.
+    - cron: "17 5 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly
+  cancel-in-progress: false
+
+env:
+  KEEP: "4"
+  # 1900 MiB: under GitHub's 2 GiB asset limit with room to spare.
+  PART_BYTES: "1992294400"
+
+jobs:
+  weekly:
+    name: "weekly: release the newest images"
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 240
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Pick the version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version=$(date -u +%G.%V)
+          tag="weekly-$version"
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::$tag already exists, nothing to release"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      # The full image and its parts are two copies of several GiB; / has
+      # ~20 GB free and /mnt ~70 GB.
+      - name: Make room
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /mnt/stage
+          sudo chown "$USER" /mnt/stage
+          df -h / /mnt
+
+      - if: steps.version.outputs.skip != 'true'
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+
+      - name: Pull the full ISO from GHCR
+        id: full
+        if: steps.version.outputs.skip != 'true'
+        working-directory: /mnt/stage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ref="ghcr.io/${REPO,,}/images:main-x86_64"
+          trap 'oras logout ghcr.io || true' EXIT
+          printf '%s' "$GH_TOKEN" | oras login ghcr.io --username "$ACTOR" --password-stdin
+          mkdir full
+          oras pull --output full "$ref"
+          (cd full && sha256sum -c SHA256SUMS)
+          isos=(full/*.iso)
+          [ "${#isos[@]}" -eq 1 ] || { echo "::error::expected one ISO in $ref"; exit 1; }
+          src=${isos[0]}
+          iso="tokyonight-dots-installer-full_$VERSION.iso"
+          mv "$src" "$iso"
+          revision=$(oras manifest fetch "$ref" | jq -r '.annotations["org.opencontainers.image.revision"] // ""')
+          {
+            echo "iso=$iso"
+            echo "revision=$revision"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Take the newest lean ISO from the nightly release
+        id: lean
+        if: steps.version.outputs.skip != 'true'
+        working-directory: /mnt/stage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir lean
+          gh release download nightly --repo "$REPO" --pattern SHA256SUMS --dir lean
+          # nightly.yml writes its SHA256SUMS newest first.
+          src=$(head -n1 lean/SHA256SUMS | awk '{ print $2 }')
+          gh release download nightly --repo "$REPO" --pattern "$src" --dir lean
+          (cd lean && sha256sum -c --ignore-missing SHA256SUMS)
+          iso="tokyonight-dots-installer_$VERSION.iso"
+          mv "lean/$src" "$iso"
+          echo "iso=$iso" >> "$GITHUB_OUTPUT"
+          echo "from=$src" >> "$GITHUB_OUTPUT"
+
+      - name: Split and checksum
+        if: steps.version.outputs.skip != 'true'
+        working-directory: /mnt/stage
+        env:
+          FULL: ${{ steps.full.outputs.iso }}
+          LEAN: ${{ steps.lean.outputs.iso }}
+        run: |
+          set -euo pipefail
+          sha256sum "$LEAN" "$FULL" > SHA256SUMS
+          split --bytes="$PART_BYTES" --numeric-suffixes=0 --suffix-length=3 "$FULL" "$FULL.part"
+          rm "$FULL"
+          cat SHA256SUMS
+          ls -l "$FULL".part*
+
+      - name: Publish the release
+        if: steps.version.outputs.skip != 'true'
+        working-directory: /mnt/stage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          FULL: ${{ steps.full.outputs.iso }}
+          LEAN: ${{ steps.lean.outputs.iso }}
+          LEAN_FROM: ${{ steps.lean.outputs.from }}
+          REVISION: ${{ steps.full.outputs.revision }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          target=${REVISION:-$SHA}
+          notes="Weekly images for $VERSION.
+
+          - \`$LEAN\`: the lean LiveISO, nightly build \`$LEAN_FROM\`.
+          - \`$FULL\`: the full LiveISO, built from $target, in parts.
+
+          Join the full image with \`cat $FULL.part* > $FULL\`, then check both
+          with \`sha256sum -c --ignore-missing SHA256SUMS\`. Installed systems
+          fetch it with \`systemctl start dots-iso-full-update\`
+          (nix/modules/system/sysupdate.nix)."
+          # The ISOs go up first and SHA256SUMS last, so a client that sees
+          # the release's sums also sees every file they name.
+          gh release create "$TAG" --repo "$REPO" --target "$target" \
+            --title "Weekly $VERSION" --notes "$notes" --latest=false \
+            "$LEAN" "$FULL".part*
+          gh release upload "$TAG" --repo "$REPO" SHA256SUMS
+          {
+            echo "## $TAG"
+            echo
+            echo "https://github.com/$REPO/releases/tag/$TAG"
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prune old weekly releases
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "$REPO" --limit 200 --json tagName --jq '.[].tagName' |
+            grep -E '^weekly-[0-9]{4}\.[0-9]{2}$' | sort -r | tail -n +"$((KEEP + 1))" |
+            while IFS= read -r tag; do
+              echo "deleting $tag"
+              gh release delete "$tag" --repo "$REPO" --cleanup-tag --yes
+            done
+
+      - name: Disk usage at the end
+        if: always() && steps.version.outputs.skip != 'true'
+        run: df -h / /mnt

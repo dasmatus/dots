@@ -45,6 +45,20 @@ current copy in `/var/lib/dots-iso`:
 sudo systemctl start dots-iso-update   # or set dots.sysupdate.installerTimer
 ```
 
+Every Sunday a versioned `weekly-<year>.<week>` release collects the newest
+lean ISO and the newest full ISO from GHCR. The full image is over GitHub's
+2 GiB asset limit, so it is split into parts; `dots-release-proxy`, which
+installed systems start on demand at `127.0.0.1:8484`, serves the weekly
+releases to systemd-sysupdate as one directory and joins the parts back
+together:
+
+```bash
+sudo systemctl start dots-iso-full-update   # or set dots.sysupdate.fullTimer
+```
+
+By hand: `cat <iso>.part* > <iso>`, then `sha256sum -c --ignore-missing
+SHA256SUMS`.
+
 ## Quickstart
 
 ```bash

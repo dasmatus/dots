@@ -273,6 +273,7 @@ in
       nix build .#dots-skills-primer --no-link
 
       cd dots-secreport && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
+      cd dots-release-proxy && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
     '';
   };
 

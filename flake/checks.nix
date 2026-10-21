@@ -37,6 +37,7 @@ in
     let
       cfg = self.nixosConfigurations.tokyonight.config;
       transfer = cfg.environment.etc."sysupdate.dots-iso.d/50-installer.transfer".text;
+      full = cfg.environment.etc."sysupdate.dots-iso-full.d/50-installer-full.transfer".text;
       has = needle: lib.hasInfix needle transfer;
       isoFlakeTransfer =
         self.nixosConfigurations.live-iso.config.environment.etc."sysupdate.dots-flake.d/50-flake.transfer".text;
@@ -46,6 +47,12 @@ in
     assert has "MatchPattern=tokyonight-dots-installer_@v.iso";
     assert has "Path=/var/lib/dots-iso";
     assert !(cfg.systemd.timers ? dots-iso-update);
+    # The weekly full ISO goes through dots-release-proxy on loopback, in the
+    # file pattern .github/workflows/weekly.yml publishes.
+    assert lib.hasInfix "Path=http://127.0.0.1:8484/updates/weekly/x86_64/" full;
+    assert lib.hasInfix "MatchPattern=tokyonight-dots-installer-full_@v.iso" full;
+    assert cfg.systemd.sockets.dots-release-proxy.listenStreams == [ "127.0.0.1:8484" ];
+    assert !(cfg.systemd.timers ? dots-iso-full-update);
     # Only the LiveISO fetches the flake: the installed system updates
     # through nixos-rebuild, and the installer TUI's stage step globs the
     # directory names this target pattern produces.
@@ -54,7 +61,7 @@ in
     assert lib.hasInfix "MatchPattern=tokyonight-dots-flake_@v.tar.gz" isoFlakeTransfer;
     assert lib.hasInfix "Type=url-tar" isoFlakeTransfer;
     assert lib.hasInfix "Path=/var/lib/dots-flake" isoFlakeTransfer;
-    pkgs.writeText "sysupdate-ok" (transfer + isoFlakeTransfer);
+    pkgs.writeText "sysupdate-ok" (transfer + full + isoFlakeTransfer);
   # Phase A (docs/superpowers/specs/2026-09-08-hardening-design.md): assert
   # the REALISED kernel .config, not the requested structuredExtraConfig —
   # a dropped or silently-overridden option (an unmet Kconfig `depends on`,

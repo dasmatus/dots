@@ -1,0 +1,20 @@
+[package]
+name = "dots-release-proxy"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matus Mastena <Shadiness9530@proton.me>"]
+description = "Serves the repository's GitHub releases to systemd-sysupdate as one directory, joining split ISOs back together"
+license = "AGPL-3.0-only"
+
+# Blocking I/O on purpose: one machine, one sysupdate client, a handful of
+# requests a week. A thread per request costs nothing at that rate and keeps
+# an async runtime out of a service that mostly waits on the network.
+[dependencies]
+tiny_http = "0.12"
+ureq = { version = "2", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+strip = true
