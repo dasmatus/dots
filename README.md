@@ -18,8 +18,8 @@ lapse; the `.sha256` attached to the release stays valid either way, and
 `nix run .#iso` below builds the same image from the tag.
 
 The full image (`.#iso-full`, with the prebuilt system embedded for an offline
-install) is built on GitHub for every push to `main` and every `v*` tag and
-published to GHCR as `ghcr.io/dasmatus/dots/images:<channel>-x86_64`. The
+install) is built on GitHub every day `main` has changed (~00:47 UTC) and for
+every `v*` tag, and published to GHCR as `ghcr.io/dasmatus/dots/images:<channel>-x86_64`. The
 download page on GitHub Pages lists both channels with their checksums:
 
 **<https://dasmatus.github.io/dots/>**
@@ -37,8 +37,9 @@ Every night `main` has changed, GitHub also builds the lean `.#iso` and
 publishes it to the rolling
 [`nightly`](https://github.com/dasmatus/dots/releases/tag/nightly) release,
 together with a tarball of the flake it was built from and a `SHA256SUMS`, in
-the layout systemd-sysupdate reads. Every pull request also builds `.#iso` and
-keeps it as a workflow artifact for a week. An installed system can keep a
+the layout systemd-sysupdate reads. A manual run of the CI workflow also
+builds `.#iso` for any branch and keeps it as a workflow artifact for a week.
+An installed system can keep a
 current copy in `/var/lib/dots-iso`:
 
 ```bash
