@@ -22,7 +22,15 @@ use abstracttui::term::{have_tty, Terminal, UnixTerminal};
 
 use dots_installer::{app, disks, fx::ScreenFx, install, net, ui};
 
+/// `dots-installer` runs the wizard. `dots-installer --stage-flake [SRC]` runs
+/// only the flake fetch and staging steps of an install, headless, with `SRC`
+/// (default `/etc/dots`) as the offline fallback.
 fn main() -> anyhow::Result<()> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("--stage-flake") {
+        let src = args.next().unwrap_or_else(|| "/etc/dots".into());
+        return install::run_headless(install::flake_steps(&src));
+    }
     let swap_size_gib = install::swap_size_from_meminfo(
         &std::fs::read_to_string("/proc/meminfo").unwrap_or_default(),
     );
