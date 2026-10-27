@@ -70,8 +70,7 @@ jobs:
             nix build .#quickshell-config --no-link &&
             nix build .#aipage-firefox.aipageSrc --no-link &&
             nix flake check --no-build
-          } > eval.log 2>&1
-          status=$?
+          } > eval.log 2>&1 && status=0 || status=$?
           tail -n 40 eval.log
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
