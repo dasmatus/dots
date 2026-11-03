@@ -1,6 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Chain sources, first configured source wins:
+#   $OC_FRONT_MODELS                       space-separated
+#   ~/.config/opencode/front-models        one model per line, '#' comments
+#   (none)                                 opencode's own default, no walk
+#
+# The model that answered last is remembered (`model` in the state dir) and
+# always tried first, so a recovered provider isn't asked to walk again.
+#
+# Pass-through: `opencode` subcommands and global flags the front does not
+# own (serve, acp, models, session, --version, ...) run the REAL binary
+# unchanged — the front is meant to shadow `opencode` on PATH itself
+# (~/.local/bin/opencode -> oc; T3 Code and every script that spawns
+# `opencode serve` keep working), so anything outside run-and-TUI is
+# delegated to the first opencode on PATH that is not this front.
+set -euo pipefail
+
+real_opencode() {
+  self=$(readlink -f "$0")
+  local d
+  local oldifs="$IFS"
+  IFS=:
+  for d in $PATH; do
+    IFS="$oldifs"
+    if [ -x "$d/opencode" ] && [ "$(readlink -f "$d/opencode")" != "$self" ]; then
+      printf '%s' "$d/opencode"
+      return 0
+    fi
+  done
+  IFS="$oldifs"
+  echo "oc: no real opencode on PATH to delegate to" >&2
+  exit 2
+}
+
+for _arg in "$@"; do
+  case $_arg in
+    serve | acp | api | auth | debug | mcp | plugin | models | stats | session | service | upgrade | update | uninstall | reload | pair)
+      exec "$(real_opencode)" "$@"
+      ;;
+    --version | -v | --completions=?* | --completions | --wizard | --standalone | --server* | --log-level=* | --print-logs | --continue | -c | --session* | -s | --prompt* | --fork | --auto)
+      exec "$(real_opencode)" "$@"
+      ;;
+  esac
+done
+
 usage() {
   cat <<'EOF'
 oc [-n] [-m provider/model] [message...] - OpenCode front
