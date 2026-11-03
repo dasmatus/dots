@@ -168,6 +168,7 @@ let
     let
       # Execs the literal `Exec=` line nixpkgs' hyprland module
       # (`programs.hyprland.withUWSM = true`, desktop.nix) writes into
+<<<<<<< HEAD
       # `share/wayland-sessions/hyprland-uwsm.desktop` for this session,
       # read back from the REAL generated desktop entry rather than frozen
       # as a hardcoded literal. A frozen copy would go stale the moment a
@@ -189,6 +190,27 @@ let
         done < ${config.services.displayManager.sessionData.desktops}/share/wayland-sessions/hyprland-uwsm.desktop
         eval "exec $exec_line"
       '';
+=======
+      # `share/wayland-sessions/hyprland-uwsm.desktop` for this session —
+      # read back from the REAL generated desktop entry at eval time
+      # (`config.services.displayManager.sessionData.desktops` is a real
+      # derivation; `readFile` on it is import-from-derivation, so
+      # evaluating this file now forces that derivation to build) rather
+      # than frozen as a hardcoded literal. A frozen copy would go stale
+      # the moment a uwsm/hyprland-module bump changes the invocation
+      # shape, and the gate would then fail on that drift instead of on
+      # whatever it is actually meant to catch — exactly the trap a
+      # previous review round of this file was right to flag. Computing it
+      # here means the gate always execs whatever the real desktop entry
+      # says, today's shape included.
+      hyprlandDesktopEntry = builtins.readFile "${config.services.displayManager.sessionData.desktops}/share/wayland-sessions/hyprland-uwsm.desktop";
+      hyprlandExec = lib.pipe hyprlandDesktopEntry [
+        (lib.splitString "\n")
+        (builtins.filter (lib.hasPrefix "Exec="))
+        lib.head
+        (lib.removePrefix "Exec=")
+      ];
+>>>>>>> b9cac84 (nix: reformat the files the current nixfmt rewraps)
     in
     {
       # greetd's `initial_session` is the standard NixOS-test autologin
