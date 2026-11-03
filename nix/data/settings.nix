@@ -30,5 +30,6 @@
   swapSize = "32G";
   aiClaude = true;
   aiCodex = true;
+  aiOpencode = true;
   aiOllama = true;
 }

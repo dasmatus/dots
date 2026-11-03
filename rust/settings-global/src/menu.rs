@@ -161,6 +161,13 @@ pub const ITEMS: &[Item] = &[
         },
     },
     Item {
+        label: "AI: OpenCode",
+        action: Action::Toggle {
+            key: "aiOpencode",
+            default: true,
+        },
+    },
+    Item {
         label: "Proton email",
         action: Action::EditStr {
             key: "protonEmail",

@@ -66,6 +66,10 @@ in
         type = types.bool;
         description = "Enable Codex CLI Home Manager config (nix/home/ai/codex.nix).";
       };
+      opencode = mkOption {
+        type = types.bool;
+        description = "Enable OpenCode Home Manager config (nix/home/ai/opencode.nix).";
+      };
       ollama = mkOption {
         type = types.bool;
         description = "Enable the system + Home Manager ollama services (nix/system/hosts.nix, nix/home/ai/codex.nix).";
@@ -258,6 +262,7 @@ in
     ai = {
       claude = mkDefault settings.aiClaude;
       codex = mkDefault settings.aiCodex;
+      opencode = mkDefault settings.aiOpencode;
       ollama = mkDefault settings.aiOllama;
       ollamaModels = mkDefault settings.aiOllamaModels;
       ollamaModelsDir = mkDefault settings.aiOllamaModelsDir;

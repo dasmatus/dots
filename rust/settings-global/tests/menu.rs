@@ -215,10 +215,11 @@ fn every_new_key_dumps_its_real_default_when_absent_from_the_store() {
     assert_eq!(value_of("gitSigningKey"), json!(""));
 }
 
-/// aiClaude/aiCodex/aiOllama predate this task but share the same schema-vs-
-/// zero-value split: nix/system/defaults.nix defaults all three to `true`, so a
-/// settings.nix from before the installer wrote them (or one hand-edited to
-/// drop a line) must not silently read as every AI integration disabled.
+/// aiClaude/aiCodex/aiOllama predate this task, aiOpencode joins them, but all
+/// four share the same schema-vs-zero-value split: nix/system/defaults.nix
+/// defaults all four to `true`, so a settings.nix from before
+/// the installer wrote them (or one hand-edited to drop a line) must not
+/// silently read as every AI integration disabled.
 #[test]
 fn ai_toggles_default_to_true_when_absent_matching_defaults_nix() {
     let s = Settings::parse("{\n  hostname = \"box\";\n}\n").unwrap();
@@ -227,6 +228,7 @@ fn ai_toggles_default_to_true_when_absent_matching_defaults_nix() {
     assert_eq!(value_of("aiOllama"), json!(true));
     assert_eq!(value_of("aiClaude"), json!(true));
     assert_eq!(value_of("aiCodex"), json!(true));
+    assert_eq!(value_of("aiOpencode"), json!(true));
 }
 
 #[test]

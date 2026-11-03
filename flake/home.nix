@@ -74,6 +74,7 @@ let
     ai = {
       claude = settings.aiClaude;
       codex = settings.aiCodex;
+      opencode = settings.aiOpencode;
       ollama = settings.aiOllama;
     };
     desktop = {

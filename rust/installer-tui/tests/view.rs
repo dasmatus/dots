@@ -258,15 +258,16 @@ fn git_email_screen_renders_prompt_and_hint() {
 }
 
 #[test]
-fn ai_screen_renders_three_toggles_with_defaults_on() {
+fn ai_screen_renders_four_toggles_with_defaults_on() {
     let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
     app.screen = Screen::Ai;
     let out = render_to_string(&app, 80, 24);
     assert!(out.contains("Claude Code"), "missing claude label: {out}");
     assert!(out.contains("Codex CLI"), "missing codex label: {out}");
+    assert!(out.contains("OpenCode"), "missing opencode label: {out}");
     assert!(out.contains("Ollama"), "missing ollama label: {out}");
-    // All three default to on → three [x] markers.
-    assert_eq!(out.matches("[x]").count(), 3, "defaults not on: {out}");
+    // All four default to on → four [x] markers.
+    assert_eq!(out.matches("[x]").count(), 4, "defaults not on: {out}");
     assert!(out.contains("Space toggle"), "missing hint: {out}");
 }
 
@@ -275,9 +276,10 @@ fn ai_screen_reflects_toggled_state() {
     let mut app = App::new(vec![], Some("/dev/nvme0n1".into()));
     app.screen = Screen::Ai;
     app.config.ai_codex = false;
+    app.config.ai_opencode = false;
     let out = render_to_string(&app, 80, 24);
     assert_eq!(out.matches("[x]").count(), 2, "expected 2 on: {out}");
-    assert_eq!(out.matches("[ ]").count(), 1, "expected 1 off: {out}");
+    assert_eq!(out.matches("[ ]").count(), 2, "expected 2 off: {out}");
 }
 
 #[test]
@@ -286,10 +288,12 @@ fn confirm_screen_lists_ai_toggles() {
     app.screen = Screen::Confirm;
     app.config.ai_claude = true;
     app.config.ai_codex = false;
+    app.config.ai_opencode = true;
     app.config.ai_ollama = true;
     let out = render_to_string(&app, 80, 24);
     assert!(out.contains("claude on"), "missing claude on: {out}");
     assert!(out.contains("codex off"), "missing codex off: {out}");
+    assert!(out.contains("opencode on"), "missing opencode on: {out}");
     assert!(out.contains("ollama on"), "missing ollama on: {out}");
 }
 

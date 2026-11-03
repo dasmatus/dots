@@ -156,13 +156,14 @@
   reversePathFilter = "loose";
 
   # AI tooling, bridged to options.dots.ai.* by nix/modules/dots.nix. The
-  # installer TUI "AI" screen rewrites the three enable toggles (aiClaude,
-  # aiCodex, aiOllama) into settings.nix on the target; the models list +
-  # models dir stay here as user-editable defaults (manageable via the
+  # installer TUI "AI" screen rewrites the four enable toggles (aiClaude,
+  # aiCodex, aiOpencode, aiOllama) into settings.nix on the target; the models
+  # list + models dir stay here as user-editable defaults (manageable via the
   # dots.ai.* NixOS options). nix/system/hosts.nix gates services.ollama on
   # dots.ai.ollama and reads dots.ai.ollamaModels / ollamaModelsDir.
   aiClaude = true;
   aiCodex = true;
+  aiOpencode = true;
   aiOllama = true;
   aiOllamaModels = [
     "ornith:9b"

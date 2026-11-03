@@ -239,9 +239,10 @@ fn confirm_view(app: &App, tokens: &TokenSet) -> View {
         ),
         span_line(
             format!(
-                "    ai        claude {} · codex {} · ollama {}",
+                "    ai        claude {} · codex {} · opencode {} · ollama {}",
                 on_off(app.config.ai_claude),
                 on_off(app.config.ai_codex),
+                on_off(app.config.ai_opencode),
                 on_off(app.config.ai_ollama),
             ),
             Ink::new(),
@@ -401,23 +402,25 @@ fn disk_select_view(app: &App, tokens: &TokenSet) -> View {
     block_view(" target disks ", lines, tokens)
 }
 
-/// The `Ai` screen: a three-row toggle list (Claude Code, Codex CLI, Ollama)
-/// with ASCII `[x]`/`[ ]` markers and a `▶`/` ` cursor — same tty1-safe style
-/// as `disk_select_view`. The toggles map 1:1 to `config.ai_claude` /
-/// `ai_codex` / `ai_ollama`, rendered into settings.nix as aiClaude/aiCodex/
-/// aiOllama and bridged to options.dots.ai.* (nix/modules/dots.nix) which gate
-/// nix/home/{claude,codex}.nix + the ollama service.
+/// The `Ai` screen: a four-row toggle list (Claude Code, Codex CLI, OpenCode,
+/// Ollama) with ASCII `[x]`/`[ ]` markers and a `▶`/` ` cursor — same
+/// tty1-safe style as `disk_select_view`. The toggles map 1:1 to
+/// `config.ai_claude` / `ai_codex` / `ai_opencode` / `ai_ollama`, rendered
+/// into settings.nix as aiClaude/aiCodex/aiOpencode/aiOllama and bridged to
+/// options.dots.ai.* (nix/modules/dots.nix) which gate
+/// nix/home/{claude,codex,opencode}.nix + the ollama service.
 fn ai_view(app: &App, tokens: &TokenSet) -> View {
     let opts: [(&str, bool); crate::app::AI_OPTIONS] = [
         ("Claude Code", app.config.ai_claude),
         ("Codex CLI", app.config.ai_codex),
+        ("OpenCode", app.config.ai_opencode),
         ("Ollama", app.config.ai_ollama),
     ];
     let mut lines = vec![
         blank(),
         span_line("  Select AI tooling to enable:", Ink::new()),
         span_line(
-            "  (written to settings.nix as aiClaude/aiCodex/aiOllama)",
+            "  (written to settings.nix as aiClaude/aiCodex/aiOpencode/aiOllama)",
             Ink::new().fg(palette::DIM),
         ),
         blank(),

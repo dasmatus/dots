@@ -36,6 +36,7 @@
     ./../secrets/identity.nix
     ./../ai/claude.nix
     ./../ai/codex.nix
+    ./../ai/opencode.nix
     ./../ai/computer-use-linux.nix
     ./../ai/edupage-mcp.nix
     ./../ai/claude-desktop.nix
@@ -63,14 +64,16 @@
   programs.home-manager.enable = true;
 
   # computer-use-linux MCP server + CLI, registered into every harness
-  # present here (Claude Code + Codex). See nix/home/ai/computer-use-linux.nix.
+  # present here (Claude Code + Codex + OpenCode). See
+  # nix/home/ai/computer-use-linux.nix.
   # Gated on at least one harness being enabled: the module's whole purpose is
-  # to register an MCP server into a harness, so with both dots.ai.claude and
-  # dots.ai.codex off it has nothing to serve and would only install a dead
+  # to register an MCP server into a harness, so with all of dots.ai.claude,
+  # dots.ai.codex and dots.ai.opencode off it has nothing to serve and would
+  # only install a dead
   # CLI on PATH. (The per-harness mcpServers/mcp_servers assignments inside
   # the module are harmless when the parent harness is disabled; they're
   # silently dropped; but there's no point enabling the server at all then.)
-  programs.computer-use-linux.enable = dots.ai.claude || dots.ai.codex;
+  programs.computer-use-linux.enable = dots.ai.claude || dots.ai.codex || dots.ai.opencode;
   dconf.enable = true;
   dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
   dconf.settings = {
