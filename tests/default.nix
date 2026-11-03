@@ -262,18 +262,9 @@ let
         # the shared state_dir for both nodes; without this the two nodes get
         # distinct swtpm dirs and the enrolled TPM2 token cannot unseal.
         # The installer roots on a blank /dev/vdb (emptyDiskImage) that must be
-        # formatted at boot. The test framework gives the installer a systemd
-        # initrd, so `virtualisation.fileSystems."/".autoFormat = true` (set on
-        # the installer node below) is what formats it — autoFormat adds
-        # `x-systemd.makefs`, so systemd-makefs runs before /sysroot.mount.
-        # auto-format-root-device.nix is imported too as the non-systemd-initrd
-        # fallback (its mke2fs postDeviceCommands is mkIf-gated on
-        # !boot.initrd.systemd.enable, so it is skipped here but would fire if
-        # the framework default ever flips back). Computed from the OUTER pkgs
-        # (a path string in `imports`, no pkgs module-arg forcing) to avoid the
-        # read-only-overlay recursion that importing the `installation-device`
-        # profile triggers.
-        autoFormatModule = pkgs.path + "/nixos/tests/common/auto-format-root-device.nix";
+        # formatted at boot. systemd initrd is the only initrd now, so
+        # `virtualisation.fileSystems."/".autoFormat = true` (set on the
+        # installer node below) formats it via systemd-makefs.
         commonConfig = {
           system.name = "limine-test";
           virtualisation = {
@@ -316,7 +307,6 @@ let
           {
             imports = [
               commonConfig
-              autoFormatModule
               "${modulesPath}/profiles/base.nix"
               ../nix/modules/system/sysupdate.nix
             ];
@@ -700,9 +690,8 @@ let
   userbornRebootLogin = pkgs.testers.runNixOSTest {
     name = "userborn-reboot-login";
     nodes.machine = {
-      # system.etc.overlay asserts a systemd initrd (it mounts the erofs+
-      # overlayfs /etc image from the store in stage 1).
-      boot.initrd.systemd.enable = true;
+      # systemd initrd is now the only initrd in nixpkgs, so
+      # system.etc.overlay (erofs+ overlayfs /etc in stage 1) works by default.
       services.userborn.enable = true;
       system.etc.overlay = {
         enable = true;
