@@ -103,6 +103,7 @@ jobs:
     timeout-minutes: 350
     permissions:
       contents: read
+      issues: write
       packages: write
     steps:
       # The runner's root filesystem has ~20 GB free; the full closure, its
@@ -133,7 +134,16 @@ jobs:
       # system that embeds aipage reads a file out of the aipage source FOD,
       # which evaluation will not realize by itself.
       - name: Realize the aipage source
-        run: nix build .#aipage-firefox.aipageSrc --no-link -L
+        id: realize-aipage-src
+        run: |
+          set -o pipefail
+          nix build .#aipage-firefox.aipageSrc --no-link -L 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.realize-aipage-src.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#aipage-firefox.aipageSrc
 
       - name: Pick the channel
         id: channel
@@ -165,10 +175,18 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build .#iso-full
+        id: iso-full
         run: |
+          set -o pipefail
           start=$(date +%s)
-          nix build -L .#iso-full -o /mnt/stage/result-iso
+          nix build -L .#iso-full -o /mnt/stage/result-iso 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
           echo "::notice::.#iso-full built in $(( ($(date +%s) - start) / 60 )) min"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.iso-full.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#iso-full
 
       # nix/system/iso.nix mkForce's image.baseName to a constant, so the
       # version in the name has to come from here.

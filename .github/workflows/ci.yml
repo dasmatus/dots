@@ -14,6 +14,9 @@ jobs:
   nix-eval:
     name: nix-eval
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -32,7 +35,16 @@ jobs:
       # realize on a cold store. Realizing the package first is what
       # `nix run .#nix-lint` does (flake/apps.nix) for exactly this reason.
       - name: Build quickshell-config
-        run: nix build .#quickshell-config --no-link
+        id: quickshell-config
+        run: |
+          set -o pipefail
+          nix build .#quickshell-config --no-link 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.quickshell-config.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#quickshell-config
 
       # The same trap as quickshell-config above, for aipage. Evaluating
       # packages.aipage-firefox forces an eval-time readFile out of the aipage
@@ -47,7 +59,16 @@ jobs:
       # this only makes the store path it reads valid. tests/default.nix
       # already registers aipageSrc as an extraDependency for the same reason.
       - name: Realize the aipage source
-        run: nix build .#aipage-firefox.aipageSrc --no-link
+        id: realize-aipage-src
+        run: |
+          set -o pipefail
+          nix build .#aipage-firefox.aipageSrc --no-link 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.realize-aipage-src.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#aipage-firefox.aipageSrc
 
       # The eval lane of `nix run .#nix-lint`: every checks.x86_64-linux.*
       # entry is evaluated (assertions included), without building the VM
@@ -58,7 +79,16 @@ jobs:
       # eval-only by itself (flake/checks.nix), but `--no-build` skips it, so
       # building it here is the only place this gate actually runs its asserts.
       - name: Build dots-skills-primer
-        run: nix build .#dots-skills-primer --no-link
+        id: dots-skills-primer
+        run: |
+          set -o pipefail
+          nix build .#dots-skills-primer --no-link 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.dots-skills-primer.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#dots-skills-primer
 
   rust:
     name: rust
@@ -143,6 +173,9 @@ jobs:
     runs-on: ubuntu-latest
     # Same budget as nightly.yml, which builds the same image.
     timeout-minutes: 350
+    permissions:
+      contents: read
+      issues: write
     steps:
       # / has ~20 GB free, /mnt has ~70 GB; see iso.yml.
       - name: Make room for the closure
@@ -168,13 +201,30 @@ jobs:
 
       # The aipage import-from-derivation nix-eval documents.
       - name: Realize the aipage source
-        run: nix build .#aipage-firefox.aipageSrc --no-link -L
+        id: realize-aipage-src
+        run: |
+          set -o pipefail
+          nix build .#aipage-firefox.aipageSrc --no-link -L 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.realize-aipage-src.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#aipage-firefox.aipageSrc
 
       - name: Build .#iso
+        id: iso
         run: |
+          set -o pipefail
           start=$(date +%s)
-          nix build -L .#iso -o /mnt/stage/result-iso
+          nix build -L .#iso -o /mnt/stage/result-iso 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
           echo "::notice::.#iso built in $(( ($(date +%s) - start) / 60 )) min"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.iso.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#iso
 
       # nix/system/iso.nix mkForce's image.baseName to a constant, so the
       # commit goes into the name here.
@@ -206,6 +256,9 @@ jobs:
     name: vm-boot (${{ matrix.check }})
     needs: nix-eval
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     # A cold run spends up to ~3 h realizing the test closure before the VM
     # starts (run 37608587844), then the test's own globalTimeout (2 h for
     # limine-install-boot) applies. Without this the job sat until GitHub's
@@ -239,4 +292,13 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run ${{ matrix.check }}
-        run: nix build -L ".#checks.x86_64-linux.${{ matrix.check }}"
+        id: vm-boot-check
+        run: |
+          set -o pipefail
+          nix build -L ".#checks.x86_64-linux.${{ matrix.check }}" 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.vm-boot-check.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: ".#checks.x86_64-linux.${{ matrix.check }}"

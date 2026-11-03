@@ -57,6 +57,7 @@ jobs:
     timeout-minutes: 350
     permissions:
       contents: write
+      issues: write
     steps:
       - uses: actions/checkout@v7
 
@@ -98,14 +99,31 @@ jobs:
       # The aipage import-from-derivation iso.yml and ci.yml document.
       - name: Realize the aipage source
         if: steps.skip.outputs.skip != 'true'
-        run: nix build .#aipage-firefox.aipageSrc --no-link -L
+        id: realize-aipage-src
+        run: |
+          set -o pipefail
+          nix build .#aipage-firefox.aipageSrc --no-link -L 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.realize-aipage-src.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#aipage-firefox.aipageSrc
 
       - name: Build .#iso
         if: steps.skip.outputs.skip != 'true'
+        id: iso
         run: |
+          set -o pipefail
           start=$(date +%s)
-          nix build -L .#iso -o /mnt/stage/result-iso
+          nix build -L .#iso -o /mnt/stage/result-iso 2>&1 | tee "$RUNNER_TEMP/nix-build.log"
           echo "::notice::.#iso built in $(( ($(date +%s) - start) / 60 )) min"
+
+      - name: file an issue for the failed nix build
+        if: failure() && steps.iso.outcome == 'failure'
+        uses: ./.github/actions/nix-build-failure
+        with:
+          target: .#iso
 
       # nix/system/iso.nix mkForce's image.baseName to a constant, so the
       # version in the name has to come from here.
