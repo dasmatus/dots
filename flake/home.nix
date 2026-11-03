@@ -13,6 +13,13 @@
 # nix/home/profiles/portable.nix and its session.nix counterpart for where the
 # line falls and why (runtime coupling — a Hyprland seat, which a foreign
 # host has no compositor to hand out — not module hygiene).
+#
+# The build is parameterized by profile (mkConfiguration below): the portable
+# profile is the default (the two keys this file has always exposed), and
+# nix/home/profiles/server.nix — the CLI-only variant, fanned out under the
+# "${settings.username}@server" key — is built from the identical pkgs, dots
+# bridge and module scaffolding. Only the profile module differs, so the two
+# configurations cannot drift on the plumbing that used to be duplicated.
 {
   inputs,
   nixpkgs,
@@ -87,7 +94,11 @@ let
     };
   };
 
-  configuration = inputs.home-manager.lib.homeManagerConfiguration {
+  # The profile being installed, as a module path. Server differs from
+  # portable purely here; everything around it is shared verbatim.
+  mkConfiguration =
+    profileModule:
+    inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
 
     extraSpecialArgs = {
@@ -111,11 +122,13 @@ let
     modules = [
       # agenix's home-manager module — declares `age.secrets` and the
       # activation step that decrypts them. Required by
-      # nix/home/secrets/identity.nix, which the portable profile imports and
-      # which is what supplies the git identity this repo no longer commits.
+      # nix/home/secrets/identity.nix, which every profile built here imports
+      # and which is what supplies the git identity this repo no longer
+      # commits.
       inputs.agenix.homeManagerModules.default
       # nixvim's home-manager module — declares `programs.nixvim`, which
-      # nix/home/apps/nixvim.nix (imported by the portable profile) assigns to.
+      # nix/home/apps/nixvim.nix (imported by the portable and server
+      # profiles) assigns to.
       # This and agenix above are exactly the pair
       # nix/modules/system/users.nix passes as `sharedModules` on the NixOS
       # side; the two lists must stay in step, because a module missing here
@@ -129,7 +142,7 @@ let
       # sharedModules as well, and a profile that imports flatpaks.nix without
       # it fails as "the option `services.flatpak' does not exist".
       inputs.nix-flatpak.homeManagerModules.nix-flatpak
-      ../nix/home/profiles/portable.nix
+      profileModule
       ../nix/home/foreign/nix-on-path.nix
       # A function module rather than a line in the attrset below, because it
       # has to read `config`: git's package here is
@@ -160,10 +173,10 @@ let
         home.username = settings.username;
         home.homeDirectory = "/home/${settings.username}";
         # home.stateVersion is deliberately NOT set here — it belongs to
-        # nix/home/profiles/portable.nix, so both builds inherit one value.
-        # `types.enum` merges equal definitions without complaint, so a
+        # nix/home/profiles/{portable,server}.nix, so every build inherits one
+        # value. `types.enum` merges equal definitions without complaint, so a
         # duplicate here would evaluate fine today and then silently diverge
-        # the day one of the two is bumped. stateVersion selects module
+        # the day one of the three is bumped. stateVersion selects module
         # DEFAULTS (gtk4 theme inheritance among them), so divergence means
         # the same profile behaving differently on the two hosts.
 
@@ -189,30 +202,45 @@ let
       }
     ];
   };
+
+  # The portable configuration — the same single build flake/home.nix has
+  # always exposed, under two names that are ALIASES, not a second build:
+  # both attributes are the same `configuration` value, so they evaluate once
+  # and share every store path.
+  #
+  #   "user@host"  is what `home-manager switch --flake .#` looks for FIRST:
+  #                with no attribute after the `#` it derives one from
+  #                $USER@$(hostname -s).
+  #   "user"       is the fallback home-manager tries when that misses, and
+  #                it is the one that actually carries this machine today:
+  #                the running host is named independently of
+  #                `settings.hostname`, which is an INSTALL ANSWER for the
+  #                NixOS system (it becomes networking.hostName) and not a
+  #                description of whatever foreign box the portable profile
+  #                is being applied to. Those two agreeing is a coincidence,
+  #                not an invariant — and when they disagree, the "user@host"
+  #                key names a host that does not exist while `--flake .#`
+  #                asks for one that has no attribute. Rather than couple the
+  #                standalone build to the NixOS machine's name, the
+  #                bare-username alias makes `--flake .#` resolve on any host
+  #                this user logs into.
+  #
+  # A second machine that wants its OWN profile adds its own "user@host" key
+  # beside these; only the unqualified fallback is shared.
+  configuration = mkConfiguration ../nix/home/profiles/portable.nix;
+
+  # The CLI-only variant for VPSes and headless servers
+  # (nix/home/profiles/server.nix). The key is a DELIBERATELY imaginary host:
+  # a server's real hostname is whatever the provider assigned, and expecting
+  # a match would make the ref depend on the box. Apply it by naming the key
+  # explicitly — `nix run .#home-switch -- .#${settings.username}@server`
+  # (the home-switch app takes the ref as its first argument) — from any box,
+  # including the target itself after the deploy app (nix run .#server-deploy)
+  # puts the checkout there.
+  serverConfiguration = mkConfiguration ../nix/home/profiles/server.nix;
 in
-# One configuration, exposed under two names — an alias, not a second build:
-# both attributes are the same `configuration` value, so they evaluate once and
-# share every store path.
-#
-#   "user@host"  is what `home-manager switch --flake .#` looks for FIRST: with
-#                no attribute after the `#` it derives one from
-#                $USER@$(hostname -s).
-#   "user"       is the fallback home-manager tries when that misses, and it is
-#                the one that actually carries this machine today: the running
-#                host is named independently of `settings.hostname`, which is
-#                an INSTALL ANSWER for the NixOS system (it becomes
-#                networking.hostName) and not a description of whatever
-#                foreign box the portable profile is being applied to. Those
-#                two agreeing is a coincidence, not an invariant — and when
-#                they disagree, the "user@host" key names a host that does not
-#                exist while `--flake .#` asks for one that has no attribute.
-#                Rather than couple the standalone build to the NixOS
-#                machine's name, the bare-username alias makes `--flake .#`
-#                resolve on any host this user logs into.
-#
-# A second machine that wants its OWN profile adds its own "user@host" key
-# beside these; only the unqualified fallback is shared.
 {
   "${settings.username}@${settings.hostname}" = configuration;
   ${settings.username} = configuration;
+  "${settings.username}@server" = serverConfiguration;
 }

@@ -16,7 +16,7 @@
 #     what nix/home/apps/{nixvim,zed}.nix and the AI harnesses expect to find
 #     on PATH by bare name. The toolchains themselves are no longer LISTED
 #     here. They come from flake/languages.nix, the one devenv module
-#     `nix develop` builds its shell from; see `toolchains` below.
+#     `nix develop` builds its shell from; see nix/home/base/toolchains.nix.
 #   - haveno, no Flathub package exists (exchange.haveno.Haveno is 404,
 #     checked against the Flathub API). Upstream ships a signed AppImage,
 #     wrapped below.
@@ -32,56 +32,6 @@
   ...
 }:
 let
-  # The language toolchains, evaluated out of the SAME devenv module
-  # flake/devenv.nix imports, see flake/languages.nix for what is in it and
-  # why. `mkConfig` runs devenv's module system and stops there; it does not
-  # build a shell, so nothing about `devenv.root`, the git hooks or
-  # `enterShell` is involved, and none of that file's assertions are forced.
-  #
-  # `pkgs` is this evaluation's own instance (the system one on NixOS via
-  # `useGlobalPkgs`, flake/home.nix's on a foreign host), not the flake's, so
-  # the toolchains are built from the same nixpkgs as everything else in the
-  # profile rather than a second instance that merely happens to agree.
-  #
-  # `config.packages` is devenv's public list of what the environment puts on
-  # PATH, but it is not only OUR packages: devenv's own top-level adds
-  # pkg-config unconditionally, and `processes` resolves a process manager
-  # (process-compose) whether or not anything declares a process. Those belong
-  # to `devenv up`, not to a user profile, so the baseline is evaluated once
-  # with no modules and subtracted, leaving exactly what flake/languages.nix
-  # contributed. Doing it by subtraction rather than by an exclusion list
-  # means a future devenv that adds something else to its baseline does not
-  # quietly grow the profile.
-  #
-  # (The baseline eval is module-system only, no derivations are built for it,
-  # and `subtractLists` compares derivations by output path, so this is a
-  # cheap set difference, not a rebuild.)
-  toolchains = inputs.devenv.lib.mkConfig {
-    inherit pkgs inputs;
-    modules = [ ../../../flake/languages.nix ];
-  };
-  devenvBaseline = inputs.devenv.lib.mkConfig {
-    inherit pkgs inputs;
-    modules = [ ];
-  };
-
-  # One derivation rather than splicing `toolchains.packages` straight into
-  # `home.packages`, for one concrete reason: devenv's language modules
-  # deliberately list overlapping packages (clang-tools comes from both
-  # `languages.c` and `languages.cplusplus`, clang from `cplusplus` and from
-  # the Rust linker driver), which costs nothing on a shell's PATH but is a
-  # hard error in home-manager's profile buildEnv, which does not ignore
-  # collisions. devenv builds its own profile with `ignoreCollisions` for the
-  # same reason; this is that, under a name that says where it came from.
-  #
-  # NB the join is how the profile is assembled, not a layer anything has to
-  # know about: an editor or script looking for `clangd` still finds
-  # ~/.nix-profile/bin/clangd exactly as before.
-  languageToolchains = pkgs.buildEnv {
-    name = "dots-language-toolchains";
-    paths = lib.subtractLists devenvBaseline.packages toolchains.packages;
-    ignoreCollisions = true;
-  };
   # The AppImage's own contents, unpacked. `wrapType2` uses this internally to
   # build the FHS root but discards everything outside the entrypoint, so the
   # desktop entry and icon it ships are otherwise thrown away, see
@@ -161,6 +111,12 @@ let
   };
 in
 {
+  # The language toolchains (Rust, C/C++, Haskell) moved to
+  # nix/home/base/toolchains.nix so the CLI-only server profile
+  # (nix/home/profiles/server.nix) can install the identical env without this
+  # file's GUI side. Imported below; the `home.packages` entry is unchanged.
+  imports = [ ./toolchains.nix ];
+
   home.packages =
     (with pkgs; [
       # CLI tools. `omnix` and `scrot` have no desktop entry between them;
@@ -197,7 +153,6 @@ in
       # flags the driver never emits, so the two majors move together, and
       # this is what puts clangd on PATH for the clangd-lsp plugin in
       # nix/home/ai/claude.nix, which spawns it by bare name.
-      languageToolchains
       haveno
     ];
   # Newelle is a flatpak now (io.github.qwersyk.Newelle, gated on the same

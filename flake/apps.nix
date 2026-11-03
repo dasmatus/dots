@@ -85,6 +85,7 @@ in
       echo "  dev                    enter the devenv dev shell (nix develop --no-pure-eval)"
       echo "  nix-lint               flake eval + cargo fmt/clippy/test for every crate"
       echo "  home-switch            apply homeConfigurations (standalone home-manager, non-NixOS host)"
+      echo "  server-deploy          push this checkout to a VPS and apply the server profile there"
       echo "  iso                    build the LiveISO (plain, unsigned)"
       echo "  iso-full               same, with intel+amd system closures embedded"
       echo "  nix-smoke              NixOS VM test: boot the LiveISO under OVMF+TPM2"
@@ -158,6 +159,93 @@ in
       done
 
       exec nix run .#hm-cli -- switch "''${backup[@]}" --flake "$flake" "$@"
+    '';
+  };
+
+  # Push this checkout to a VPS and apply the SERVER profile there (the
+  # "${settings.username}@server" key of homeConfigurations, see
+  # flake/home.nix). Run it from the workstation that holds SSH access to the
+  # target — typically the laptop, via
+  #
+  #   nix run .#server-deploy -- matus@<vps-host>          # or
+  #   SERVER_DEPLOY_TARGET=matus@<vps-host> nix run .#server-deploy
+  #
+  # The hostname is deliberately NOT baked into this repo (it is a user's
+  # infrastructure fact; the repo is public), hence the argument/variable
+  # instead of a default.
+  #
+  # What the target gets: the flake checkout rsynced into ~/dots, then the
+  # home-manager switch, evaluated and built ON the target (the target needs
+  # a functioning nix with flakes — Determinate installs qualify; if plain
+  # nix, this app passes --extra-experimental-features on every call so a
+  # non-flake-enabled nix still works). The switch runs as the ssh login user,
+  # so that user must be the settings.username user the profile names
+  # (${settings.username}); any other account dies at home-manager's
+  # own username check.
+  #
+  # `secrets/` is EXCLUDED from the rsync, on purpose: the agenix ciphertexts
+  # in that directory are encrypted to the deployer's own key, which a VPS
+  # does not hold, and an undecryptable secret fails the switch at activation
+  # (agenix aborts). Without the directory, identity.nix's `hasSecret` guard
+  # falls to its !hasSecret branch — the profile applies with git refusing to
+  # commit until an identity is provisioned — which is exactly the
+  # fail-closed behaviour that branch was written for. Adding a rekeyed
+  # ciphertext by hand later works: `--exclude secrets/` with `--delete`
+  # protects the excluded path, it is never removed.
+  server-deploy = mkShellApp "server-deploy" {
+    runtimeInputs = [
+      pkgs.rsync
+      pkgs.openssh
+      pkgs.coreutils
+      pkgs.nix
+    ];
+    text = ''
+      ${cdRepoRoot}
+
+      # Argument first, environment second. Deliberately no default: the
+      # target hostname is user-specific and stays out of the repo.
+      target="''${SERVER_DEPLOY_TARGET:-}"
+      if [ "$#" -gt 0 ]; then
+        target="$1"
+        shift
+      fi
+      : "''${target:?no VPS target — pass user@host as the first argument or export SERVER_DEPLOY_TARGET}"
+
+      # Nix must exist on the target: the switch is evaluated AND built there.
+      # No auto-install — a multi-user install wants root (an interactive sudo
+      # prompt this script cannot answer) and single-user installs differ per
+      # distro; print the two supported one-liners instead.
+      if ! ssh -o BatchMode=yes "$target" 'command -v nix >/dev/null 2>&1'; then
+        echo "error: nix not runnable by $(echo "$target" | cut -d@ -f1) on $target."
+        echo "Either pre-install it over ssh:"
+        echo "  ssh -t $target 'curl -L https://install.determinate.systems/nix | sh -s -- install --no-confirm'"
+        echo "or root-install once, then re-run this deploy."
+        exit 127
+      fi
+
+      # Whole checkout → ~/dots, minus local build state and the secrets
+      # directory (see the header above for why secrets/ must stay behind).
+      # `--delete` plus the excludes keeps hand-staged remote files (a later
+      # rekeyed git-identity.age) alive across redeploys.
+      rsync -az --delete \\
+        --exclude .git \\
+        --exclude secrets/ \\
+        --exclude 'result*' \\
+        ./ "$target:dots/"
+
+      # Apply. .bashrc short-circuits on ssh commands, so PATH may not carry
+      # the nix profile yet — source the profile scripts explicitly (Determinate
+      # and single-user installs both ship /etc/profile.d/nix.sh; older
+      # single-user layouts only ~/.nix-profile). The switch reuses
+      # .#home-switch, so first-run `-b backup` collisions land automatically
+      # and the flake ref (.#matus@server) is resolved on the TARGET.
+      ssh "$target" 'set -eu
+        [ -f /etc/profile.d/nix.sh ] && . /etc/profile.d/nix.sh || true
+        [ -f ~/.nix-profile/etc/profile.d/nix.sh ] && . ~/.nix-profile/etc/profile.d/nix.sh || true
+        cd ~/dots
+        nix run --extra-experimental-features "nix-command flakes" .#home-switch -- .#matus@server "$@"
+      ' -- "$@"
+      echo "deployed to $target — the server profile is live on generation now"
     '';
   };
 
