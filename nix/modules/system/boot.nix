@@ -69,7 +69,8 @@
     kernelParams = settings.bootKernelParams;
     # systemd in the initrd honors the TPM2 token enrolled by the installer
     # (crypttabExtraOpts tpm2-device=auto comes from nix/system/disko.nix).
-    initrd.systemd.enable = true;
+    # systemd initrd is now the only initrd in nixpkgs, so this is implicit;
+    # the setting was removed when scripted initrd was dropped.
     # Loaded by name, not left to the kernel's on-demand request_module().
     # The hardened kernel sets STATIC_USERMODEHELPER (nix/modules/system/
     # kernel.nix), which routes every usermode helper, modprobe included,
