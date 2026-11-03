@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+oc [-n] [-m provider/model] [message...] - OpenCode front
+
+One agent session per directory. With no arguments `oc` opens the OpenCode
+TUI on the front's last session for this directory (a fresh one the first
+time). With a message (or piped stdin) it runs `opencode run` inside that
+same session - and when the current model fails at the provider level it
+automatically switches to the next model of the fallback chain and retries,
+still inside the same session.
+
+  -n, --new                   start a fresh front session for this directory
+  -m, --model provider/model  pin the model instead of walking the chain
+  -h, --help                  this text
+
+Fallback chain, first configured source wins:
+  $OC_FRONT_MODELS
+  ~/.config/opencode/front-models   one model per line, '#' starts a comment
+
+The model that last answered is remembered per directory and tried first,
+so a recovered provider is not asked to walk the chain again.
+EOF
+}
+
+state_root=${OC_FRONT_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/opencode-front}
+hash=$(pwd -P | sha256sum)
+state=$state_root/${hash%% *}
+mkdir -p "$state"
+
+model_pin=
+new=
+msgs=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    -n | --new) new=1 ;;
+    -m | --model)
+      model_pin=$2
+      shift
+      ;;
+    -m*) model_pin=${1#-m} ;;
+    --model=?*) model_pin=${1#--model=} ;;
+    -h | --help) usage; exit 0 ;;
+    --) shift; msgs=("$@"); break ;;
+    *) msgs+=("$1") ;;
+  esac
+  shift
+done
+
+# Interactive: open the TUI on the front session (new with -n, so it drops
+# the remembered session and model first).
+if [ ${#msgs[@]} -eq 0 ] && [ -t 0 ] && [ -z "$model_pin" ] && [ -z "$new" ]; then
+  if [ -s "$state/session" ]; then
+    exec opencode --session "$(cat "$state/session")"
+  fi
+  exec opencode
+fi
+
+# Collect the chain: pinned model, else the remembered model first, then the
+# configured chain, deduplicated but order-preserving.
+chain=()
+seen=' '
+if [ -n "$model_pin" ]; then
+  chain+=("$model_pin")
+else
+  if [ -z "$new" ] && [ -s "$state/model" ]; then
+    m=$(cat "$state/model")
+    chain+=("$m")
+    seen=" $m "
+  fi
+  if [ -n "${OC_FRONT_MODELS:-}" ]; then
+    config=$OC_FRONT_MODELS
+  elif [ -f "$HOME/.config/opencode/front-models" ]; then
+    config=$(sed 's/#.*//' "$HOME/.config/opencode/front-models")
+  else
+    config=
+  fi
+  # shellcheck disable=SC2086
+  for m in $config; do
+    case $seen in
+      *" $m "*) ;;
+      *) chain+=("$m"); seen="$seen $m " ;;
+    esac
+  done
+fi
+
+if [ "$new" = 1 ]; then
+  rm -f "$state/session" "$state/model"
+fi
+
+# Run mode carries either the CLI message words or everything on stdin as
+# one message; stdin is drained once, outside the retry loop, because a
+# second-attempt opencode run reads no stdin.
+if [ ${#msgs[@]} -gt 0 ]; then
+  stdin=
+else
+  stdin=$(cat)
+fi
+
+log=$(mktemp "$state/attempt.XXXXXX")
+trap 'rm -f "$log"' EXIT
+
+if [ ${#msgs[@]} -eq 0 ] && [ -z "$stdin" ]; then
+  usage >&2
+  exit 2
+fi
+
+for model in ${chain[@]+"${chain[@]}"}; do
+  args=(run --format json)
+  if [ "$new" != 1 ] && [ -s "$state/session" ]; then
+    args+=(--session "$(cat "$state/session")")
+  fi
+  if [ -n "$model" ]; then
+    args+=(--model "$model")
+  fi
+  if [ ${#msgs[@]} -gt 0 ]; then
+    args+=("${msgs[@]}")
+  fi
+  echo "oc: trying $model" >&2
+  set +e
+  if [ -n "$stdin" ]; then
+    printf '%s' "$stdin" | opencode "${args[@]}" >"$log" 2>&1
+  else
+    opencode "${args[@]}" >"$log" 2>&1
+  fi
+  rc=$?
+  set -e
+  # A dead model exits 0 with a stream of provider errors; the mark of a run
+  # that actually got going is a step_start event.
+  if [ "$rc" -ne 0 ] || ! grep -q '"type":"step_start"' "$log"; then
+    jq -r 'select(.type == "error") | .error.message // empty' "$log" \
+      | sed 's/^/oc: /' | head -n 5 >&2
+    continue
+  fi
+  sid=$(jq -r '.sessionID // empty' "$log" | head -n 1)
+  [ -n "$sid" ] && printf '%s' "$sid" >"$state/session"
+  [ -n "$model" ] && printf '%s' "$model" >"$state/model"
+  jq -r 'select(.type == "text") | .part.text // empty' "$log"
+  exit 0
+done
+
+echo "oc: every model in the chain failed (last attempt saved at $state/last-fail.json)" >&2
+cp "$log" "$state/last-fail.json"
+exit 1
