@@ -233,6 +233,7 @@ fn plan_writes_ai_toggles_into_settings_nix() {
     let mut cfg = cfg();
     cfg.ai_claude = true;
     cfg.ai_codex = false;
+    cfg.ai_opencode = false;
     cfg.ai_ollama = true;
     let steps = plan(&cfg, "/etc/dots", "/mnt");
     let found = steps.iter().any(|s| match &s.action {
@@ -240,6 +241,7 @@ fn plan_writes_ai_toggles_into_settings_nix() {
             path == &format!("{STAGED_FLAKE}/nix/data/settings.nix")
                 && contents.contains("aiClaude = true;")
                 && contents.contains("aiCodex = false;")
+                && contents.contains("aiOpencode = false;")
                 && contents.contains("aiOllama = true;")
         }
         _ => false,

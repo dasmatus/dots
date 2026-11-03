@@ -13,11 +13,13 @@ pub struct InstallConfig {
     pub git_email: String,
     pub user_password: String,
     pub swap_size_gib: u64,
-    /// AI screen toggles → settings.aiClaude / aiCodex / aiOllama, bridged to
-    /// options.dots.ai.* by nix/modules/dots.nix. Default to `true` (set in
-    /// `App::new`, not `Default` — `Default` would flip them to `false`).
+    /// AI screen toggles → settings.aiClaude / aiCodex / aiOpencode /
+    /// aiOllama, bridged to options.dots.ai.* by nix/modules/dots.nix.
+    /// Default to `true` (set in `App::new`, not `Default` — `Default` would
+    /// flip them to `false`).
     pub ai_claude: bool,
     pub ai_codex: bool,
+    pub ai_opencode: bool,
     pub ai_ollama: bool,
 }
 
@@ -32,7 +34,7 @@ impl InstallConfig {
             .collect::<Vec<_>>()
             .join(" ");
         format!(
-            "{{\n  username = \"{}\";\n  hostname = \"{}\";\n  disks = [ {} ];\n  swapSize = \"{}G\";\n  gitName = \"{}\";\n  gitEmail = \"{}\";\n  aiClaude = {};\n  aiCodex = {};\n  aiOllama = {};\n}}\n",
+            "{{\n  username = \"{}\";\n  hostname = \"{}\";\n  disks = [ {} ];\n  swapSize = \"{}G\";\n  gitName = \"{}\";\n  gitEmail = \"{}\";\n  aiClaude = {};\n  aiCodex = {};\n  aiOpencode = {};\n  aiOllama = {};\n}}\n",
             self.username,
             self.hostname,
             disks,
@@ -41,6 +43,7 @@ impl InstallConfig {
             nix_escape(&self.git_email),
             self.ai_claude,
             self.ai_codex,
+            self.ai_opencode,
             self.ai_ollama,
         )
     }

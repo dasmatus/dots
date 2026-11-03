@@ -66,5 +66,13 @@ in
       command = "${cfg.package}/bin/computer-use-linux";
       args = mcpArgs;
     };
+
+    # OpenCode: programs.opencode.settings.mcp, written to
+    # ~/.config/opencode/opencode.json. Merges with the searxng entry declared
+    # in opencode.nix. OpenCode folds command args into the command list.
+    programs.opencode.settings.mcp.computer-use-linux = {
+      type = "local";
+      command = [ "${cfg.package}/bin/computer-use-linux" ] ++ mcpArgs;
+    };
   };
 }

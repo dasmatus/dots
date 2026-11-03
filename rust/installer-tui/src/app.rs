@@ -10,9 +10,10 @@ use crate::disks::{self, Disk};
 use crate::install;
 use crate::net;
 
-/// Number of toggles on the `Ai` screen (Claude, Codex, Ollama). Keeps the
-/// `Down` cursor clamp and the `Space` toggle dispatch in sync with the view.
-pub const AI_OPTIONS: usize = 3;
+/// Number of toggles on the `Ai` screen (Claude, Codex, OpenCode, Ollama).
+/// Keeps the `Down` cursor clamp and the `Space` toggle dispatch in sync with
+/// the view.
+pub const AI_OPTIONS: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -96,6 +97,7 @@ impl App {
                 // any off. `Default` would leave these `false`, so set them here.
                 ai_claude: true,
                 ai_codex: true,
+                ai_opencode: true,
                 ai_ollama: true,
                 ..InstallConfig::default()
             },
@@ -356,12 +358,14 @@ impl App {
                         self.ai_selected += 1;
                     }
                 }
-                // Space flips the focused toggle; the three toggles map 1:1 to
-                // settings.aiClaude / aiCodex / aiOllama (nix/modules/dots.nix).
+                // Space flips the focused toggle; the four toggles map 1:1 to
+                // settings.aiClaude / aiCodex / aiOpencode / aiOllama
+                // (nix/modules/dots.nix).
                 KeyCode::Char(' ') => {
                     match self.ai_selected {
                         0 => self.config.ai_claude = !self.config.ai_claude,
                         1 => self.config.ai_codex = !self.config.ai_codex,
+                        2 => self.config.ai_opencode = !self.config.ai_opencode,
                         _ => self.config.ai_ollama = !self.config.ai_ollama,
                     }
                     self.error = None;

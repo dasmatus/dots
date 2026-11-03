@@ -440,6 +440,7 @@ fn ai_defaults_to_all_enabled() {
     let app = app();
     assert!(app.config.ai_claude);
     assert!(app.config.ai_codex);
+    assert!(app.config.ai_opencode);
     assert!(app.config.ai_ollama);
     assert_eq!(app.ai_selected, 0);
 }
@@ -453,6 +454,9 @@ fn ai_space_toggles_each_option() {
     app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Char(' '))); // toggle codex off
     assert!(!app.config.ai_codex);
+    app.handle_key(key(KeyCode::Down));
+    app.handle_key(key(KeyCode::Char(' '))); // toggle opencode off
+    assert!(!app.config.ai_opencode);
     app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Char(' '))); // toggle ollama off
     assert!(!app.config.ai_ollama);
