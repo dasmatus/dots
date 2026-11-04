@@ -68,6 +68,8 @@ let
                 data = json.load(resp)
             lines = []
             answers = [a.get("answer", "") if isinstance(a, dict) else str(a) for a in data.get("answers", [])]
+            if answers:
+                lines.append("Answers: " + "; ".join(answers))
             for i, r in enumerate(data.get("results", [])[:12], 1):
                 title = r.get("title", "")
                 url = r.get("url", "")
