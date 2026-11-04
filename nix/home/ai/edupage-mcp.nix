@@ -66,20 +66,22 @@ let
   # The Edupage HTTP client the MCP server wraps. Not in nixpkgs; plain
   # setuptools sdist whose only runtime dependency is requests. PyPI names
   # the artifact with an underscore while the distribution is hyphenated,
-  # hence the separate pname in fetchPypi.
+  # hence the separate pname in fetchPypi. 0.13.x grew a setuptools-scm
+  # build requirement (setup.cfg declares it) that 0.12.3 did not need.
   edupage-api = py.buildPythonPackage rec {
     pname = "edupage-api";
-    version = "0.12.3";
+    version = "0.13.3";
     pyproject = true;
 
     src = pkgs.fetchPypi {
       pname = "edupage_api";
       inherit version;
-      hash = "sha256-OK8GO18SmRiqaeYRU/LIFi144xRNaLtQbIVWH296AUw=";
+      hash = "sha256-wHHtY58doXa0pWHEJinMqw6QLM0lITLwjRsb0DjAG2Y=";
     };
 
     build-system = [
       py.setuptools
+      py.setuptools-scm
       py.wheel
     ];
     dependencies = [ py.requests ];
@@ -102,16 +104,25 @@ let
   # `edupage-mcp = "edupage_mcp:main"` under [project.scripts], so
   # buildPythonApplication yields a real bin/edupage-mcp and upstream's
   # `python -m edupage_mcp` invocation is unnecessary.
+  #
+  # The 2026-10-26 bump tracks upstream's own migration to MCP SDK v2
+  # (eaff161d): nixpkgs moved python3Packages.mcp to 2.3.0, where
+  # mcp.server.fastmcp.FastMCP raises at import — the old pin failed its
+  # pythonImportsCheck against the new SDK. Upstream's commit is the same
+  # rename our searxng bridges got (FastMCP -> MCPServer, mcp.server.fastmcp
+  # -> mcp.server.mcpserver) plus the edupage-api 0.13.3 bump pyproject
+  # declares; the EDUPAGE_USERNAME/PASSWORD/SUBDOMAIN env contract the
+  # keyring wrapper below feeds is unchanged.
   edupage-mcp = py.buildPythonApplication {
     pname = "edupage-mcp";
-    version = "0.1.0-unstable-2026-02-21";
+    version = "0.1.0-unstable-2026-10-26";
     pyproject = true;
 
     src = pkgs.fetchFromGitHub {
       owner = "mhlavac";
       repo = "edupage-mcp";
-      rev = "ccf98103bdae0357c20318148ed227c2325e4237";
-      hash = "sha256-SNDkzLrkLsTbtIEttwc24Q6dmIGt8h/nqBEhiwrT7ps=";
+      rev = "eaff161d4bc2db82aa870d6082ccdae2715e1a2c";
+      hash = "sha256-UMuOU0OTNaShmeAT9c2qqtTW3YxGXHGGvYs7wJ5WW/I=";
     };
 
     build-system = [ py.hatchling ];
