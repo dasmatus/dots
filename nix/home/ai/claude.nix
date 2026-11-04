@@ -49,12 +49,12 @@ let
         import urllib.parse
         import urllib.request
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
         from mcp.types import ToolAnnotations
 
         SEARXNG = "http://127.0.0.1:8888"
 
-        mcp = FastMCP("searxng")
+        mcp = MCPServer("searxng")
 
 
         # readOnlyHint defaults to false — "this tool may change state" — and plan mode
