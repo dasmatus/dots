@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v7
       - id: pages
         uses: actions/configure-pages@v6
-      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+      - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
       - name: Write the site
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
