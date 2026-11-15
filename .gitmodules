@@ -1,0 +1,3 @@
+[submodule "skills/pstack"]
+	path = skills/pstack
+	url = https://github.com/backnotprop/pstack.git
