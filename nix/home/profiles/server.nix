@@ -68,6 +68,7 @@
     ./../ai/claude.nix
     ./../ai/codex.nix
     ./../ai/opencode.nix
+    ./../ai/openhop.nix
   ];
 
   home.stateVersion = "26.05";

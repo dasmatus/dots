@@ -37,6 +37,7 @@
     ./../ai/claude.nix
     ./../ai/codex.nix
     ./../ai/opencode.nix
+    ./../ai/openhop.nix
     ./../ai/computer-use-linux.nix
     ./../ai/edupage-mcp.nix
     ./../ai/claude-desktop.nix
