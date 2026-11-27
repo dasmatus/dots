@@ -58,44 +58,8 @@
       "root"
       "@wheel"
     ];
-    # No Hyprland-specific substituter is needed: the compositor now comes
-    # from nixpkgs (programs.hyprland default package, see
-    # nix/modules/desktop/desktop.nix), so it and its deps are Hydra-built
-    # and substituted from cache.nixos.org already. The earlier
-    # hyprland.cachix.org substituter existed for a pinned Hyprland flake
-    # input, which is gone — and which built from source anyway once Cachix
-    # evicted the old tagged prebuilt — an eviction policy we did not
-    # control, because it was someone else's cache.
-    #
-    # The extra substituter below is ours, not a third party's: the
-    # matusdasdots Cachix cache that CI populates (.forgejo/workflows/ci.yml)
-    # for this repo's own closures. Verified against the pinned nixpkgs
-    # (567a49d1913ce81ac6e9582e3553dd90a955875f,
-    # nixos/modules/config/nix.nix): neither `substituters` nor
-    # `trusted-public-keys` carries an mkOption default; the module instead
-    # injects `substituters = mkAfter [ "https://cache.nixos.org/" ]` at
-    # config level. So this plain definition list-merges rather than
-    # clobbering, and cache.nixos.org still applies, appended after ours.
-    #
-    # Where the real trust boundary sits: `matusdasdots` uses a
-    # Cachix-managed signing key (the API returns `publicSigningKeys`, i.e.
-    # Cachix holds the private half and signs server-side on every push), and
-    # `require-sigs` stays `true` on both this config and the ISO's
-    # (nix/system/iso.nix; verified by eval), with `trusted-substituters`
-    # left at `[]`. `require-sigs` therefore stops a hostile CDN or a MITM
-    # from swapping in an unsigned path over this substituter's own
-    # connection — but it does nothing against whoever holds CACHIX_KEY:
-    # that token can get arbitrary store paths signed by the cache and then
-    # substituted here, to run as root on tokyonight and on every machine
-    # installed from the LiveISO. That is a normal, acceptable tradeoff for
-    # a cache one controls — CACHIX_KEY is scoped to this repo's own CI — but
-    # it is a different axis of trust than `require-sigs` is usually read as
-    # buying, and worth naming plainly rather than leaving a reader to assume
-    # the wrong one.
-    substituters = [ "https://matusdasdots.cachix.org" ];
-    trusted-public-keys = [
-      "matusdasdots.cachix.org-1:iTh1MBvMxZLOGy2d4/piAOjD6MbInPpUliYFhxKG258="
-    ];
+    # Ship system components from cache.nixos.org only.
+    substituters = [ "https://cache.nixos.org/" ];
   };
 
   # Automatic timezone-from-geolocation (localtimed + geoclue2) was here and
