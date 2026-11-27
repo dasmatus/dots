@@ -23,16 +23,6 @@ let
     rustPlatform = pkgsBun.rustPlatform;
     inherit inputs;
   };
-  # nixpkgs that permits exactly one unfree package, for the Claude desktop
-  # app. nix/modules/system/core.nix's allowUnfreePredicate governs the NixOS `pkgs`
-  # only; `packages.${system}` is built from the plain legacyPackages above,
-  # which has no config, so `nix build .#claude-desktop` would be refused
-  # without this. Kept separate from `pkgs` for the same reason pkgsBun is:
-  # so the permission does not leak into the rest of the closure.
-  pkgsClaude = import nixpkgs {
-    inherit system;
-    config.allowUnfreePredicate = pkg: nixpkgs.lib.getName pkg == "claude-desktop";
-  };
   # defaults.nix holds the non-install-time params (timezone, locale, desktop,
   # boot knobs, network backend); the installer TUI rewrites only the four
   # install answers (username/hostname/disk/swapSize) into settings.nix on the
@@ -88,7 +78,6 @@ in
     system
     pkgs
     pkgsBun
-    pkgsClaude
     aipagePackages
     settings
     mkIso

@@ -1,7 +1,7 @@
 // The Wallpaper settings page: mode/output/fill-colour controls above a
 // thumbnail grid over Wallpapers/. Loaded by Settings.qml through a
 // `Loader { source: "pages/wallpaper.qml" }` (the same lowercase-filename-
-// by-source-URL idiom pages/security.qml uses, for the identical reason:
+// by-source-URL idiom other settings pages use, for the identical reason:
 // this filename cannot be a QML type name).
 //
 // root.picker is handed in, not owned: wallpaper/Picker.qml is the ONE

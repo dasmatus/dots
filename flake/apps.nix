@@ -90,7 +90,6 @@ in
       echo "  iso-full               same, with intel+amd system closures embedded"
       echo "  nix-smoke              NixOS VM test: boot the LiveISO under OVMF+TPM2"
       echo "  nix-smoke-interactive  test driver Python REPL"
-      echo "  enroll-fido            enroll a FIDO2/U2F key as a mandatory 2FA factor"
       echo "  clean                  remove local build/test leftovers"
     '';
   };
@@ -344,24 +343,13 @@ in
       # so does any machine where nix.gc has run since the last shell build —
       # `--delete-older-than 0d`, weekly, per nix/modules/services/maintenance.nix.
       #
-      # Same shape as the dots-skills-primer build below, different symptom:
-      # there --no-build silently SKIPS an assert, here it FAILS a check that
-      # is fine.
       nix build .#quickshell-config --no-link
 
       nix flake check --no-build
 
       cd rust/installer-tui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
       cd ../settings-global && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-      cd ..
-
-      # nix flake check --no-build only evaluates derivations, so it never
-      # realizes dots-skills-primer and never runs dots-skills-primer.py's
-      # asserts. Building it here is the only place in this gate that does.
-      nix build .#dots-skills-primer --no-link
-
-      cd dots-secreport && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
-      cd dots-release-proxy && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
+      cd ../dots-release-proxy && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && cd ..
     '';
   };
 
@@ -406,25 +394,6 @@ in
     text = ''
       ${cdRepoRoot}
       nix run .#checks.x86_64-linux.iso-boot.driverInteractive
-    '';
-  };
-
-  # Enroll a FIDO2/U2F key as a MANDATORY second factor for hyprlock, the ly
-  # display manager and console login (2FA: key + password — both required).
-  # Run once PER KEY — tap the key when prompted. Each run appends one line
-  # to ~/.config/Yubico/u2f_keys. After enrolling, lock (hyprlock) or log
-  # out: TAP THE KEY FIRST, then type your password and Enter — both are
-  # required. NB: hyprlock shows "Password:" even during the touch phase
-  # (hyprlock issue #723), so just tap when the screen is up. `pamu2fcfg`
-  # ships in pkgs.pam_u2f.
-  enroll-fido = mkShellApp "enroll-fido" {
-    runtimeInputs = [ pkgs.pam_u2f ];
-    text = ''
-      mkdir -p ~/.config/Yubico
-      touch ~/.config/Yubico/u2f_keys
-      chmod 600 ~/.config/Yubico/u2f_keys
-      pamu2fcfg >> ~/.config/Yubico/u2f_keys
-      echo "Key enrolled ($(wc -l < ~/.config/Yubico/u2f_keys) key(s) total). Run again for each extra key."
     '';
   };
 

@@ -1,9 +1,9 @@
-# packages.${system} — the dots-installer Rust TUI, the in-flake aipage dists,
-# Claude Desktop, the shell's QML tree and the two LiveISO images.
+# packages.${system} — the dots-installer Rust TUI, the settings menu, the
+# shell's QML tree, the in-flake aipage dists, the release proxy and the two
+# LiveISO images.
 {
   pkgs,
   aipagePackages,
-  pkgsClaude,
   inputs,
   ...
 }:
@@ -16,27 +16,18 @@ self: {
   # against, which is exactly the mismatch that produces activation errors
   # about unknown options.
   hm-cli = inputs.home-manager.packages.${pkgs.stdenv.hostPlatform.system}.home-manager;
-  # Claude Desktop for Linux (beta) — repackaged from Anthropic's .deb, which
-  # is the only distribution channel upstream offers. See nix/packages/claude-desktop.nix.
-  claude-desktop = pkgsClaude.callPackage ../nix/packages/claude-desktop.nix { };
-  # Betterbird, a Thunderbird fork, for its StatusNotifierItem tray icon.
-  # nixpkgs dropped its own betterbird for want of a maintainer, but upstream
-  # still ships a linux-x86_64 release tarball every ESR cycle, so this
-  # repackages that the way nixpkgs' own thunderbird-bin repackages Mozilla's.
-  # See nix/packages/betterbird.nix.
-  betterbird = pkgs.callPackage ../nix/packages/betterbird.nix { };
-
-  # ChromaLeon, the wallpaper-accent GNOME Shell extension. Built here rather
-  # than taken from pkgs.gnomeExtensions because that generator fetches a
-  # prebuilt e.g.o zip with no rev or patch seam, and this one carries a patch.
-  # See nix/packages/chromaleon.nix.
-  chromaleon = pkgs.callPackage ../nix/packages/chromaleon.nix { };
   dots-installer = pkgs.rustPlatform.buildRustPackage {
     pname = "dots-installer";
     version = "0.1.0";
     src = ../rust/installer-tui;
     cargoLock.lockFile = ../rust/installer-tui/Cargo.lock;
   };
+  # Betterbird, a Thunderbird fork, for its StatusNotifierItem tray icon.
+  # nixpkgs dropped its own betterbird for want of a maintainer, but upstream
+  # still ships a linux-x86_64 release tarball every ESR cycle, so this
+  # repackages that the way nixpkgs' own thunderbird-bin repackages Mozilla's.
+  # See nix/packages/betterbird.nix.
+  betterbird = pkgs.callPackage ../nix/packages/betterbird.nix { };
   settings = pkgs.rustPlatform.buildRustPackage {
     pname = "settings";
     version = "0.1.0";
@@ -61,44 +52,16 @@ self: {
     keybinds = import ../nix/home/desktop/keybinds.nix;
   };
 
+  iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
+  iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
+
   # AIPage dists (codeberg.org/dasmatus/aipage), built from a pinned fetchGit
-  # source — see nix/packages/aipage.nix. Consumed by the LibreWolf and Brave home
-  # modules via specialArgs, and embedded in both ISOs so the installer
+  # source — see nix/packages/aipage.nix. Consumed by the LibreWolf and Brave
+  # home modules via specialArgs, and embedded in both ISOs so the installer
   # substitutes them from the ISO store (offline-capable).
   aipage-firefox = aipagePackages.firefox;
   aipage-chrome = aipagePackages.chrome;
 
-  iso = self.nixosConfigurations.live-iso.config.system.build.isoImage;
-  iso-full = self.nixosConfigurations.live-iso-full.config.system.build.isoImage;
-
-  # Exposed so `nix run .#nix-lint` can force the primer generator to run and
-  # trip its build-time asserts, not because anyone installs this directly.
-  # See nix/packages/dots-skills.nix.
-  dots-skills-primer = (pkgs.callPackage ../nix/packages/dots-skills.nix { }).primer;
-
-  # dots-secreport — salvaged out of dots-sandbox (see git history) when
-  # the bespoke per-app sandbox was retired for Flatpak + AppArmor:
-  # report.rs (the privacy/hardware-security dashboard collector behind
-  # qml/settings/pages/security.qml) and triage.rs (the AppArmor denial
-  # classifier, given the CLI subcommand it never had) had nothing to do
-  # with launching apps and outlived the crate they were born in.
-  #
-  # doCheck stays false, matching every other in-tree crate here
-  # (installer-tui, settings-global): the real `cargo test` run lives in
-  # `nix run .#nix-lint`, which is where its fmt/clippy/test line now runs
-  # too. Unlike the old dots-sandbox crate's own doCheck note (see git
-  # history), this crate has no forward-looking reason to stay that way (no
-  # real namespace/process spawn the Nix build sandbox would refuse) — it is
-  # simply consistency with the rest of the file rather than a real
-  # restriction.
-  dots-secreport = pkgs.rustPlatform.buildRustPackage {
-    pname = "dots-secreport";
-    version = "0.1.0";
-    src = ../rust/dots-secreport;
-    cargoLock.lockFile = ../rust/dots-secreport/Cargo.lock;
-    doCheck = false;
-    meta.mainProgram = "dots-secreport";
-  };
   # The loopback server nix/modules/system/sysupdate.nix starts while
   # systemd-sysupdate fetches the weekly full LiveISO, which GitHub only
   # holds in parts (rust/dots-release-proxy/src/lib.rs).

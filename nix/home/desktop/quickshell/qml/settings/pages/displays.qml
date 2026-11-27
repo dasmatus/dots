@@ -1,7 +1,7 @@
 // The Displays settings page: every connected monitor with its resolution,
 // position, scale and transform, plus the way into the spatial arranger.
 // Loaded by Settings.qml through a `Loader { source: "pages/displays.qml" }`,
-// the same lowercase-filename-by-source-URL idiom pages/security.qml and
+// the same lowercase-filename-by-source-URL idiom as other settings pages and
 // pages/wallpaper.qml use, and for the identical reason: a lowercase
 // filename cannot be a QML type name.
 //

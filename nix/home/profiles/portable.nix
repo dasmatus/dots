@@ -40,8 +40,6 @@
     ./../ai/openhop.nix
     ./../ai/computer-use-linux.nix
     ./../ai/edupage-mcp.nix
-    ./../ai/claude-desktop.nix
-    ./../ai/triage-assist.nix
     ./../apps/nixvim.nix
     ./../apps/brave.nix
     ./../apps/junction.nix

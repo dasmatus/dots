@@ -237,7 +237,6 @@ let
         // The Security page's permissions section is the first settings
         // surface to draw an app's own icon (real Name/Icon from the
         // desktop entry, per `dots-sandbox catalog --json`; see
-        // security.qml) rather than a policy key, so it is the first to
         // need a size for one. Not reused from launcherIconSize/
         // filesIconSize: those two already disagree with each other, and a
         // settings row's own metrics (settingsRowHeight, its padding) are

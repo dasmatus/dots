@@ -82,22 +82,7 @@ in
         # dir so hyprland-portals.conf can dispatch Screenshot/ScreenCast to
         # hyprland and Settings/FileChooser to gtk.
         xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
-
-        # PAM U2F for hyprlock and the ly display manager.
-        security.pam.services = {
-          hyprlock.u2fAuth = true;
-          ly.u2fAuth = true;
-        };
       }
-
-      # 2FA tightening: hyprlock and ly get the same required+deny-removal
-      # treatment as login (common.nix).
-      (lib.mkIf config.dots.fido.requireKey {
-        security.pam.services.hyprlock.rules.auth.unix.control = lib.mkForce "required";
-        security.pam.services.ly.rules.auth.unix.control = lib.mkForce "required";
-        security.pam.services.hyprlock.rules.auth.deny.enable = false;
-        security.pam.services.ly.rules.auth.deny.enable = false;
-      })
     ]
   );
 }

@@ -25,7 +25,7 @@
 # hand, so a rename upstream cannot leave `enabled-extensions` pointing at a
 # string nothing provides. That is the failure mode where the extension is
 # installed, the dconf key looks right, and the Shell silently loads nothing.
-{ pkgs, chromaleon, ... }:
+{ pkgs, ... }:
 let
   extensions =
     with pkgs.gnomeExtensions;
@@ -116,7 +116,6 @@ let
       # org/gnome/desktop/interface/icon-theme never run in the same session. If
       # the Hyprland host ever gains a GNOME session option they would race over
       # that key, and this is the comment that should stop it being a surprise.
-      chromaleon
     ];
 in
 {
@@ -164,12 +163,6 @@ in
   # It also self-heals a manual Preferences toggle on the next switch, which
   # matters because that UI writes straight to the gschema and bypasses
   # home-manager entirely.
-  dconf.settings."org/gnome/shell/extensions/chromaleon" = {
-    recolor-folders = false;
-    recolor-apps = false;
-    morewaita = false;
-    gnome-colors = false;
-  };
 
   dconf.settings."org/gnome/shell/extensions/notification-position" = {
     # Set explicitly even though 'top-right' is currently the schema default.

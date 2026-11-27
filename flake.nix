@@ -107,27 +107,6 @@
       url = "github:nix-community/bun2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Millennium (SteamClientHomebrew/Millennium) is a theme/plugin loader for
-    # the Steam desktop client. Only the `millennium` library package is
-    # consumed: nix/modules/desktop/steam.nix calls upstream's `packages/nix/steam.nix`
-    # against THIS repo's `pkgs.steam`, so the client and the whole FHS
-    # closure stay on this repo's nixpkgs, and upstream's `overlays.default` /
-    # `millennium-steam` package go unused. Same no-global-overlays reasoning
-    # as bun2nix above.
-    #
-    # Deliberately NO `inputs.nixpkgs.follows = "nixpkgs"` here: upstream pins
-    # nixpkgs to one commit because their Bun fixed-output-derivation hash is
-    # bun-version-sensitive, and following ours would swap Bun and invalidate
-    # that hash. Their own comment in packages/nix/flake.nix says: "Bun FOD is
-    # sensitive to version changes, so we use a specific commit instead of a
-    # channel."
-    #
-    # The cost: a second nixpkgs evaluation while Steam is on, and no binary
-    # cache for the millennium library, so it compiles locally whenever
-    # upstream cuts a release. The input tracks `main`; the nightly
-    # `nix flake update` in nix/modules/services/maintenance.nix picks the bump up, and
-    # `operation = "boot"` absorbs the compile before the next reboot.
-    millennium.url = "github:SteamClientHomebrew/Millennium?dir=packages/nix";
     # Hyprland is NOT a flake input: the system compositor comes from nixpkgs
     # (programs.hyprland in nix/modules/desktop/hyprland.nix uses the module's default
     # `package = pkgs.hyprland`). nixpkgs' Hyprland is built by Hydra and lives
@@ -140,16 +119,6 @@
     # on that input additionally defeated the cache by changing input hashes.
     # Net: the flake-input route built the compositor from source on every
     # rebuild. See nix/modules/desktop/hyprland.nix for the full rationale.
-    # AIPage (codeberg.org/dasmatus/aipage) is NOT a flake input: its built
-    # dist-* dirs are gitignored in the sibling repo and its flake only
-    # exposes an impure `apps.build`, so no flake input can reach a built
-    # artifact. Instead nix/packages/aipage.nix fetchgit-pins `main` at a hash-
-    # determined fixed-output derivation and builds the dists inside this
-    # flake; nix/home/{brave,librewolf}.nix consume the resulting
-    # packages.aipage-{chrome,firefox} (threaded via specialArgs). A
-    # derivation (not the builtins.fetchGit primitive) so its output path is
-    # hash-determined — offline `nixos-install --flake` can substitute it
-    # without the fetcher cache or git.
   };
 
   outputs =
@@ -164,9 +133,8 @@
       ...
     }:
     let
-      # Shared let-bindings (pkgs, settings, the bun2nix-overlaid pkgsBun for
-      # aipage, and the mkIso helper) live in flake/lib.nix so every output
-      # file shares one source of truth.
+      # Shared let-bindings (pkgs, settings and the mkIso helper) live in
+      # flake/lib.nix so every output file shares one source of truth.
       lib = import ./flake/lib.nix { inherit inputs nixpkgs; };
       # NB no `self` here: lib.nix does not export it, and inheriting it
       # would shadow the real outputs-arg `self` above with a missing attr —
@@ -174,7 +142,6 @@
       inherit (lib)
         system
         pkgs
-        pkgsClaude
         aipagePackages
         settings
         mkIso
@@ -222,7 +189,6 @@
         inherit
           pkgs
           aipagePackages
-          pkgsClaude
           inputs
           ;
       } self;
@@ -246,8 +212,9 @@
         modules = [ ./flake/devenv.nix ];
       };
 
-      # The cheap eval-only checks (settings, facter, fido-2fa, aipage) +
-      # the dots-installer build gate — see flake/checks.nix.
+      # The cheap eval-only checks (settings, facter, palette, the
+      # home-manager activation contract) + the dots-installer build gate —
+      # see flake/checks.nix.
       checks.${system} =
         (import ./flake/checks.nix {
           inherit pkgs system;

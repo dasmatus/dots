@@ -26,28 +26,12 @@ in
         # fallback needs adding for interfaces GNOME doesn't implement.
         xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
 
-        # PAM U2F for GDM and the GNOME lock screen.
-        security.pam.services = {
-          gdm.u2fAuth = true;
-          # GNOME's lock screen runs through GDM's PAM stack.
-          "gdm-password".u2fAuth = true;
-        };
-
         # GNOME extensions system-wide (the home-manager side installs
         # user extensions; these are the ones that need system paths).
         environment.systemPackages = with pkgs; [
           gnome-tweaks
         ];
       }
-
-      # 2FA tightening: GDM gets the same required+deny-removal treatment
-      # as login (common.nix).
-      (lib.mkIf config.dots.fido.requireKey {
-        security.pam.services.gdm.rules.auth.unix.control = lib.mkForce "required";
-        security.pam.services."gdm-password".rules.auth.unix.control = lib.mkForce "required";
-        security.pam.services.gdm.rules.auth.deny.enable = false;
-        security.pam.services."gdm-password".rules.auth.deny.enable = false;
-      })
     ]
   );
 }

@@ -211,43 +211,6 @@ in
         assumed.
       '';
     };
-
-    kernel = {
-      harden = mkOption {
-        type = types.bool;
-        default = true;
-        description = ''
-          Whether nix/modules/system/kernel.nix's from-source Clang
-          CFI + ThinLTO kernel (Phase A,
-          docs/superpowers/specs/2026-09-08-hardening-design.md) replaces
-          the stock `pkgs.linuxPackages_latest` kernel
-          (nix/modules/system/core.nix used to set this directly; that line
-          now lives in kernel.nix, switched on this option). Defaults on
-          for tokyonight — this is the one phase of the hardening project
-          that can make the machine fail to BOOT, so it stays one boolean
-          away from the stock kernel. A `stock-kernel` specialisation
-          (kernel.nix) also flips this off for a second, always-present
-          Limine boot entry, so recovering from a bad boot never depends on
-          a working system to flip the option and rebuild.
-        '';
-      };
-
-      nvidiaCfiMatched = mkOption {
-        type = types.bool;
-        default = false;
-        description = ''
-          Whether the nvidia-open kernel module in this closure was
-          rebuilt against the CFI-enforcing kernel's own
-          stdenv/makeFlags (Phase A2 / Task 8). Stays false — and the
-          assertion in nix/system/hosts.nix stays tripped — until that
-          override actually lands, so `hardware.nvidia.open` and
-          `dots.kernel.harden` can never silently combine into an
-          out-of-tree module that traps on its first indirect call under
-          a kCFI-enforcing kernel. Task 8's own commit is expected to flip
-          this to true once its build is verified.
-        '';
-      };
-    };
   };
 
   # Bridge the flat `settings` attrset (defaults.nix // settings.nix) to the

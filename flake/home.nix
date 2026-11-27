@@ -40,27 +40,17 @@ let
   # instance handed over, or every unfree package below is simply refused.
   #
   # This is the subset of core.nix's list that the portable profile can
-  # actually reach: the nvidia and steam entries there are driven by
-  # nix/system/hosts.nix and nix/modules/desktop/steam.nix, both NixOS-only, so
-  # including them would be dead weight that quietly widens what this build is
-  # permitted to install.
-  #
-  # "obsidian" left with it. Obsidian is a Flathub ref now
-  # (nix/home/base/flatpaks.nix), so no evaluation here can reach the unfree
-  # nixpkgs package — and a licence allowance for something nothing installs
-  # is exactly the kind of quiet widening this list is trimmed to avoid.
-  # core.nix keeps its entry: that is the NixOS side's list, and the session
-  # profile is not in scope here.
+  # actually reach: the nvidia entry there is driven by nix/system/hosts.nix,
+  # which is NixOS-only, so including it would be dead weight that quietly
+  # widens what this build is permitted to install.
   pkgs = import nixpkgs {
     inherit system;
     config.allowUnfreePredicate =
       pkg:
       builtins.elem (lib.getName pkg) [
         "claude-code"
-        "claude-desktop"
         "presence.nvim"
-        "vscode-extension-fill-labs-dependi"
-        "cisco-packet-tracer"
+        "obsidian"
       ];
   };
 
@@ -111,10 +101,8 @@ let
       # exposes it as aipage-firefox/aipage-chrome, but those are the very same
       # derivations as aipagePackages.firefox/.chrome, which is what
       # flake/packages.nix builds them from.)
-      claudeDesktop = self.packages.${system}.claude-desktop;
-      betterbird = self.packages.${system}.betterbird;
-      chromaleon = self.packages.${system}.chromaleon;
       settingsMenu = self.packages.${system}.settings;
+      betterbird = self.packages.${system}.betterbird;
       aipageFirefox = aipagePackages.firefox;
       aipageChrome = aipagePackages.chrome;
     };

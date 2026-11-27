@@ -345,7 +345,7 @@ Scope {
 
     // What the content column actually renders and the keyboard cursor
     // actually walks: the active page's own rows while browsing (empty for
-    // the Security stub, and for Keyboard, which renders keybindsFile
+    // and for Keyboard, which renders keybindsFile
     // instead), or every row search.js matched while a query is active,
     // regardless of which nav entry is selected. A real ChromeOS-style
     // search reaches across pages, not just the one on screen.
@@ -965,7 +965,7 @@ Scope {
                             ColumnLayout {
                                 Layout.fillWidth: true
 
-                                visible: !root.showingKeyboardPage && !root.showingSecurityPage && root.visibleRows.length > 0
+                                visible: !root.showingKeyboardPage && root.visibleRows.length > 0
                                 spacing: Theme.settingsRowGap
 
                                 Text {
@@ -1257,7 +1257,7 @@ Scope {
                                 // for EmptyState to centre itself in.
                                 Layout.preferredHeight: contentFlick.height
 
-                                visible: !root.showingKeyboardPage && !root.showingSecurityPage && root.visibleRows.length === 0
+                                visible: !root.showingKeyboardPage && root.visibleRows.length === 0
 
                                 EmptyState {
                                     anchors.centerIn: parent
@@ -1275,7 +1275,7 @@ Scope {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 0
 
-                                visible: !root.showingKeyboardPage && !root.showingSecurityPage && root.visibleRows.length > 0
+                                visible: !root.showingKeyboardPage && root.visibleRows.length > 0
                             }
                         }
                         }

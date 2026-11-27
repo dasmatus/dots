@@ -26,7 +26,6 @@
   pkgs,
   lib,
   settings,
-  betterbird,
   ...
 }:
 {
@@ -73,7 +72,7 @@
   # that tray exist on GNOME).
   programs.thunderbird = {
     enable = true;
-    package = betterbird;
+    package = pkgs.thunderbird;
     profiles.default.isDefault = true;
   };
 

@@ -123,16 +123,6 @@ let
     sha256 = "sha256-W6UDAySHLICJWydFUwydI7OGSDtgj7qetlnfGTz3U0o=";
   };
 
-  # This repo's skills/ tree as a real store path — dots-skills.nix builds the
-  # identical tree for the Claude Code and Claude desktop plugins, so this
-  # callPackage dedupes to the one store path those two already use.
-  # Unlike a bare ../../skills, a derivation output is an absolute store path:
-  # the HM module asserts the skills value is a directory with
-  # `builtins.readFileType`, and a flake-internal lazy path is not in the
-  # eval context yet when it does (a bare path also failed evaluation with
-  # Home Manager reading it relative to nix/ rather than nix/home/ai/).
-  dotsSkills = pkgs.callPackage ../../packages/dots-skills.nix { };
-
   # `oc` — the front for OpenCode, the entry point a terminal reaches for
   # instead of the `opencode` binary. Two behaviours above the binary:
   #
@@ -201,16 +191,6 @@ in
       group access; if a call fails, run `computer-use-linux doctor | jq
       .readiness` to see what's missing.
     '';
-
-    # This repo's skills/ tree — the user's personal skills — as a directory
-    # of one folder per skill. The HM module symlinks it to
-    # ~/.config/opencode/skills/, which OpenCode discovers globally, so a
-    # skill is available by its bare folder name in every project, unlike the
-    # Claude Code plugin route that prefixes the name with `dots-skills:`.
-    #
-    # Dropping a new folder into skills/ still needs no Nix change: the whole
-    # directory is symlinked, so new folders load automatically.
-    skills = "${dotsSkills.plugin}/skills";
 
     settings = {
       # The stdio MCP bridge to the local SearXNG instance. The

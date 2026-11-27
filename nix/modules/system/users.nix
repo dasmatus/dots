@@ -12,9 +12,7 @@
   aipageFirefox,
   aipageChrome,
   settingsMenu,
-  claudeDesktop,
   betterbird,
-  chromaleon,
   ...
 }:
 let
@@ -131,9 +129,7 @@ in
         aipageFirefox
         aipageChrome
         settingsMenu
-        claudeDesktop
         betterbird
-        chromaleon
         ;
       dots = config.dots;
     };

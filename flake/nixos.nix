@@ -36,7 +36,6 @@ let
     inputs.home-manager.nixosModules.home-manager
     ../nix/modules/dots.nix
     ../nix/modules/system/core.nix
-    ../nix/modules/system/kernel.nix
     ../nix/modules/system/boot.nix
     ../nix/modules/system/network.nix
     ../nix/modules/system/systemd.nix
@@ -46,14 +45,12 @@ let
     ../nix/modules/system/users.nix
     ../nix/modules/system/hardening.nix
     ../nix/modules/system/apparmor.nix
-    ../nix/modules/system/apparmor-store.nix
     ../nix/modules/services/maintenance.nix
     ../nix/modules/desktop/common.nix
     ../nix/modules/desktop/gnome.nix
     ../nix/modules/desktop/hyprland.nix
     ../nix/modules/desktop/sway.nix
     ../nix/modules/system/form-factor.nix
-    ../nix/modules/desktop/steam.nix
     ../nix/system/hosts.nix
   ];
 
@@ -73,14 +70,7 @@ let
         aipageFirefox = inputs.self.packages.x86_64-linux.aipage-firefox;
         aipageChrome = inputs.self.packages.x86_64-linux.aipage-chrome;
         settingsMenu = inputs.self.packages.x86_64-linux.settings;
-        claudeDesktop = inputs.self.packages.x86_64-linux.claude-desktop;
         betterbird = inputs.self.packages.x86_64-linux.betterbird;
-        # nix/modules/system/users.nix takes `chromaleon` as a module argument and
-        # forwards it into home-manager's extraSpecialArgs for
-        # nix/home/base/gnome-extensions.nix. flake/home.nix supplies it on the
-        # standalone side; without it here the NixOS eval fails outright with
-        # "attribute 'chromaleon' missing", taking `nix flake check` with it.
-        chromaleon = inputs.self.packages.x86_64-linux.chromaleon;
       };
       modules = tokyonightDiskModules s ++ tokyonightModules;
     };

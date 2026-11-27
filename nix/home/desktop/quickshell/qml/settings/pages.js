@@ -15,7 +15,7 @@
 // one place that answers "what does this page show, and in what order".
 //
 // "keyboard" renders keybinds.json directly and owns no dumped field at all;
-// "security" (and the wallpaper/displays pages a later task adds) are still
+// the wallpaper/displays pages are still
 // stubs. Neither gets an entry here: fieldsForPage() below already answers
 // "nothing" for any pageId this table does not name.
 const PAGE_FIELDS = {
