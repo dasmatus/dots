@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "abstracttui"
-version = "0.7.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9185a5e299272eaf0ef269f26a3b33387c195870f5b890f1b7b0b152dd0e233f"
+checksum = "6d27da87c746684b0b9f0deee36a0a23e1471e5974726ec64671d21ffd265526"
 dependencies = [
  "libc",
  "miniz_oxide",
